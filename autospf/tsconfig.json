@@ -1,0 +1,25 @@
+{
+    "extends": "expo/tsconfig.base",
+    "compilerOptions": {
+        "moduleResolution": "bundler",
+        "strict": true,
+        "baseUrl": ".",
+        "paths": {
+            "@/*": [
+                "./src/*"
+            ]
+        },
+        "jsx": "react-jsx"
+    },
+    "include": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        ".eslintrc.js",
+        "babel.config.js"
+    ],
+    "exclude": [
+        "node_modules",
+        "babel.config.js",
+        "vite.config.ts"
+    ]
+}
