@@ -1,17 +1,16 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Toaster } from './components/ui/toaster';
-import { TooltipProvider } from './components/ui/tooltip';
-import { Toaster as Sonner } from './components/ui/sonner';
-import Login from './pages/Login';
-import AdminDashboard from './pages/AdminDashboard';
-import CustomerDashboard from './pages/CustomerDashboard';
-import DetailerDashboard from './pages/DetailerDashboard';
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import Login from "./pages/Login";
+import CustomerDashboard from "./pages/CustomerDashboard";
+import DetailerDashboard from "./pages/DetailerDashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 
 const queryClient = new QueryClient();
 
+// Protected Route Component
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
     const { user, isLoading } = useAuth();
 
@@ -28,13 +27,14 @@ function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode;
     }
 
     if (!allowedRoles.includes(user.role)) {
+        // Redirect to appropriate dashboard based on role
         switch (user.role) {
             case 'admin':
-                return <Navigate to="/admin" replace />;
-            case 'customer':
-                return <Navigate to="/customer" replace />;
+                return <Navigate to="/admin/dashboard" replace />;
             case 'detailer':
-                return <Navigate to="/detailer" replace />;
+                return <Navigate to="/detailer/dashboard" replace />;
+            case 'customer':
+                return <Navigate to="/customer/dashboard" replace />;
             default:
                 return <Navigate to="/" replace />;
         }
@@ -48,7 +48,7 @@ function AppRoutes() {
         <Routes>
             <Route path="/" element={<Login />} />
             <Route
-                path="/customer"
+                path="/customer/dashboard"
                 element={
                     <ProtectedRoute allowedRoles={['customer']}>
                         <CustomerDashboard />
@@ -56,7 +56,7 @@ function AppRoutes() {
                 }
             />
             <Route
-                path="/detailer"
+                path="/detailer/dashboard"
                 element={
                     <ProtectedRoute allowedRoles={['detailer']}>
                         <DetailerDashboard />
@@ -64,31 +64,33 @@ function AppRoutes() {
                 }
             />
             <Route
-                path="/admin"
+                path="/admin/dashboard"
                 element={
                     <ProtectedRoute allowedRoles={['admin']}>
                         <AdminDashboard />
                     </ProtectedRoute>
                 }
             />
+            {/* Backward compatibility for old routes */}
+            <Route path="/customer" element={<Navigate to="/customer/dashboard" replace />} />
+            <Route path="/detailer" element={<Navigate to="/detailer/dashboard" replace />} />
+            <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     );
 }
 
-const App = () => {
-    return (
-        <QueryClientProvider client={queryClient}>
-            <AuthProvider>
-                <TooltipProvider>
-                    <Toaster />
-                    <Sonner />
-                    <BrowserRouter>
-                        <AppRoutes />
-                    </BrowserRouter>
-                </TooltipProvider>
-            </AuthProvider>
-        </QueryClientProvider>
-    );
-};
+const App = () => (
+    <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+            <TooltipProvider>
+                <Toaster position="top-center" />
+                <BrowserRouter>
+                    <AppRoutes />
+                </BrowserRouter>
+            </TooltipProvider>
+        </AuthProvider>
+    </QueryClientProvider>
+);
 
 export default App;

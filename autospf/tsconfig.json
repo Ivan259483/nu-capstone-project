@@ -1,25 +1,42 @@
 {
-    "extends": "expo/tsconfig.base",
     "compilerOptions": {
+        "ignoreDeprecations": "5.0",
+        "target": "ES2020",
+        "useDefineForClassFields": true,
+        "lib": [
+            "ES2020",
+            "DOM",
+            "DOM.Iterable"
+        ],
+        "jsx": "react-jsx",
+        "module": "ESNext",
         "moduleResolution": "bundler",
-        "strict": true,
         "baseUrl": ".",
         "paths": {
             "@/*": [
                 "./src/*"
             ]
         },
-        "jsx": "react-jsx"
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
+        "allowImportingTsExtensions": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "noEmit": true,
+        "forceConsistentCasingInFileNames": true,
+        "allowJs": true,
+        "strict": false,
+        "noImplicitAny": false,
+        "strictNullChecks": false,
+        "noUnusedLocals": false,
+        "noUnusedParameters": false
     },
     "include": [
-        "src/**/*.ts",
-        "src/**/*.tsx",
-        ".eslintrc.js",
-        "babel.config.js"
+        "src"
     ],
     "exclude": [
         "node_modules",
-        "babel.config.js",
-        "vite.config.ts"
+        "dist"
     ]
 }

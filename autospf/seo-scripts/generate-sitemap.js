@@ -34,14 +34,16 @@ function collectHtmlFiles(dir, basePath = "") {
       let lastmod = stat.mtime.toISOString();
 
       // Use markdown file's mtime for blog posts (HTML is regenerated each build)
-      if (basePath.includes('/blog') && file !== 'index.html') {
+      if (basePath.includes('/blog') && file === 'index.html') {
         const pathParts = relativePath.split('/');
-        const slug = pathParts[pathParts.length - 1].replace('.html', '');
-        const mdPath = path.join(contentDir, `${slug}.md`);
-        
-        if (fs.existsSync(mdPath)) {
-          const mdStat = fs.statSync(mdPath);
-          lastmod = mdStat.mtime.toISOString();
+        const slug = pathParts[pathParts.length - 2];
+
+        if (slug && slug !== 'blog') {
+          const mdPath = path.join(contentDir, `${slug}.md`);
+          if (fs.existsSync(mdPath)) {
+            const mdStat = fs.statSync(mdPath);
+            lastmod = mdStat.mtime.toISOString();
+          }
         }
       }
 
@@ -52,39 +54,44 @@ function collectHtmlFiles(dir, basePath = "") {
   return results;
 }
 
-function generateSitemap() {
-  const pages = collectHtmlFiles(distDir);
+// Collect all HTML files
+const urls = [];
 
-  if (pages.length === 0) {
-    console.log('No HTML files found to generate sitemap');
-    return;
-  }
-
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${pages.map(page => `  <url>
-    <loc>${page.url}</loc>
-    <lastmod>${page.lastmod}</lastmod>
-  </url>`).join('\n')}
-</urlset>`;
-
-  // Ensure dist directory exists
-  if (!fs.existsSync(distDir)) {
-    fs.mkdirSync(distDir, { recursive: true });
-  }
-
-  fs.writeFileSync(outFile, xml);
-  console.log(`✓ Sitemap generated: ${outFile} (${pages.length} pages)`);
+if (fs.existsSync(path.join(distDir, "index.html"))) {
+  const stat = fs.statSync(path.join(distDir, "index.html"));
+  urls.push({
+    url: baseUrl,
+    lastmod: stat.mtime.toISOString()
+  });
 }
 
-// Run if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  try {
-    generateSitemap();
-  } catch (error) {
-    console.error('Error generating sitemap:', error);
-    process.exit(1);
-  }
+// Collect HTML files in blog directory
+const blogDir = path.join(distDir, "blog");
+if (fs.existsSync(blogDir)) {
+  const blogUrls = collectHtmlFiles(blogDir, "/blog");
+  urls.push(...blogUrls);
 }
 
-export { generateSitemap };
+// Collect HTML files in other directories (if any)
+const seoDir = path.join(distDir, "seo");
+if (fs.existsSync(seoDir)) {
+  const seoUrls = collectHtmlFiles(seoDir, "/seo");
+  urls.push(...seoUrls);
+}
+
+// Generate sitemap.xml
+let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+
+urls.forEach(item => {
+  xml += `  <url>\n`;
+  xml += `    <loc>${item.url}</loc>\n`;
+  xml += `    <lastmod>${item.lastmod}</lastmod>\n`;
+  xml += `  </url>\n`;
+});
+
+xml += `</urlset>`;
+
+fs.writeFileSync(outFile, xml, "utf-8");
+
+console.log(`✓ sitemap.xml generated (${urls.length} URL(s))`);

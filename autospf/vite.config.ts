@@ -1,24 +1,23 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
-import { viteSourceLocator } from "@metagptx/vite-plugin-source-locator";
-import { atoms } from "@metagptx/web-sdk/plugins";
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
-    plugins: [
-        viteSourceLocator({
-            prefix: "mgx",
-        }),
-        react(),
-        atoms(),
-    ],
+export default defineConfig({
+    plugins: [react()],
     server: {
-        watch: { usePolling: true, interval: 800 /* 300~1500 */ },
+        watch: { usePolling: true, interval: 800 },
+        proxy: {
+            '/api': {
+                target: 'http://127.0.0.1:3000',
+                changeOrigin: true,
+                secure: false,
+            }
+        }
     },
     resolve: {
         alias: {
             "@": path.resolve(__dirname, "./src"),
         },
     },
-}));
+});

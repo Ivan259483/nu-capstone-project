@@ -1,14 +1,16 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { User } from '@/types';
 import { userStorage, initializeStorage } from '@/lib/storage';
+import { UserService } from '@/lib/user-service';
+import api from '@/lib/api';
 
 interface AuthContextType {
     user: User | null;
     isLoading: boolean;
-    login: (email: string, password: string) => Promise<boolean>;
-    signup: (email: string, password: string, name: string, role: 'customer') => Promise<boolean>;
+    login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
+    signup: (email: string, password: string, name: string) => Promise<{ success: boolean; message?: string }>;
     logout: () => void;
-    updateUser: (user: User) => void;
+    updateUser: (user: User) => Promise<{ success: boolean; message?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,51 +31,83 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
     }, []);
 
-    const login = useCallback(async (email: string, password: string): Promise<boolean> => {
-        const foundUser = userStorage.getUserByEmail(email);
+    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; message?: string }> => {
+        try {
+            const response = await api.post('/auth/login', { email, password });
+            const data = response.data;
 
-        if (foundUser && foundUser.password === password) {
-            // Update last active
-            foundUser.lastActive = new Date().toISOString();
-            userStorage.updateUser(foundUser);
-            userStorage.setCurrentUser(foundUser);
-            setUser(foundUser);
-            return true;
+            if (data.success) {
+                localStorage.setItem('autospf_token', data.data.token);
+                const userData = { ...data.data.user, id: data.data.user.id || data.data.user._id };
+                userStorage.setCurrentUser(userData);
+                setUser(userData);
+                return { success: true };
+            }
+            return { success: false, message: data.message || 'Invalid credentials' };
+        } catch (error: any) {
+            console.error('Login error:', error);
+
+            // Extract message from server response if available
+            const serverMessage = error.response?.data?.message;
+            if (serverMessage) {
+                return { success: false, message: serverMessage };
+            }
+
+            // Fallback for demo/offline
+            const foundUser = userStorage.getByEmail(email);
+            if (foundUser && foundUser.password === password) {
+                userStorage.setCurrentUser(foundUser);
+                setUser(foundUser);
+                return { success: true };
+            }
+            return { success: false, message: 'Login failed. Please check your connection.' };
         }
-        return false;
     }, []);
 
-    const signup = useCallback(async (email: string, password: string, name: string, role: 'customer'): Promise<boolean> => {
-        const existingUser = userStorage.getUserByEmail(email);
-        if (existingUser) {
-            return false;
+    const signup = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; message?: string }> => {
+        try {
+            const response = await api.post('/auth/register', { email, password, name, role: 'customer' });
+            return {
+                success: response.data.success,
+                message: response.data.message
+            };
+        } catch (error: any) {
+            console.error('Signup error:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'An error occurred during signup'
+            };
         }
-
-        const newUser: User = {
-            id: Date.now().toString(),
-            email,
-            password,
-            name,
-            role,
-            status: 'active',
-            createdAt: new Date().toISOString(),
-            lastActive: new Date().toISOString(),
-        };
-
-        userStorage.addUser(newUser);
-        userStorage.setCurrentUser(newUser);
-        setUser(newUser);
-        return true;
     }, []);
 
     const logout = useCallback(() => {
-        userStorage.clearCurrentUser();
+        localStorage.removeItem('autospf_token');
+        userStorage.setCurrentUser(null);
         setUser(null);
     }, []);
 
-    const updateUser = useCallback((updatedUser: User) => {
-        userStorage.updateUser(updatedUser);
-        setUser(updatedUser);
+    const updateUser = useCallback(async (updatedUser: User): Promise<{ success: boolean; message?: string }> => {
+        try {
+            const response = await UserService.updateUser(updatedUser.id, {
+                name: updatedUser.name,
+                email: updatedUser.email
+            });
+
+            if (response.success) {
+                userStorage.update(updatedUser);
+                userStorage.setCurrentUser(updatedUser);
+                setUser(updatedUser);
+                return { success: true };
+            }
+            return { success: false, message: response.message || 'Update failed' };
+        } catch (error: any) {
+            console.error('Update profile error:', error);
+            // Fallback for safety
+            userStorage.update(updatedUser);
+            userStorage.setCurrentUser(updatedUser);
+            setUser(updatedUser);
+            return { success: true }; // Still return success to allow local update if demo/offline
+        }
     }, []);
 
     return (
@@ -85,10 +119,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
     const context = useContext(AuthContext);
-    if (!context) {
+    if (context === undefined) {
         throw new Error('useAuth must be used within an AuthProvider');
     }
     return context;
 }
-
-

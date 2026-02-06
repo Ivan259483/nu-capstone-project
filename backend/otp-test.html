@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OTP Test</title>
+    <style>
+        body { font-family: monospace; margin: 20px; }
+        input { padding: 8px; margin: 5px; }
+        button { padding: 10px 20px; cursor: pointer; }
+        pre { background: #f0f0f0; padding: 10px; overflow-auto; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>🧪 OTP System Test</h1>
+    
+    <div>
+        <label>Email: <input type="email" id="email" value="test@example.com" /></label>
+        <button onclick="sendOTP()">Send OTP</button>
+    </div>
+
+    <div>
+        <label>OTP: <input type="text" id="otp" /></label>
+        <button onclick="verifyOTP()">Verify OTP</button>
+    </div>
+
+    <h2>Logs:</h2>
+    <pre id="logs"></pre>
+
+    <script>
+        const API_URL = 'http://localhost:3000/api';
+
+        function log(msg) {
+            const logs = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            logs.textContent += `[${timestamp}] ${msg}\n`;
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        async function sendOTP() {
+            const email = document.getElementById('email').value;
+            if (!email) {
+                log('❌ Email required');
+                return;
+            }
+
+            log(`📧 Sending OTP to ${email}...`);
+
+            try {
+                const response = await fetch(`${API_URL}/auth/send-otp`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    log(`✅ SUCCESS: ${data.message}`);
+                    log(`⏱️  Expires in: ${data.data.expiresIn} seconds`);
+                } else {
+                    log(`❌ FAILED: ${data.message}`);
+                }
+            } catch (err) {
+                log(`❌ ERROR: ${err.message}`);
+            }
+        }
+
+        async function verifyOTP() {
+            const email = document.getElementById('email').value;
+            const otp = document.getElementById('otp').value;
+
+            if (!email || !otp) {
+                log('❌ Email and OTP required');
+                return;
+            }
+
+            log(`🔐 Verifying OTP ${otp} for ${email}...`);
+
+            try {
+                const response = await fetch(`${API_URL}/auth/verify-otp`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, otp })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    log(`✅ SUCCESS: ${data.message}`);
+                } else {
+                    log(`❌ FAILED: ${data.message}`);
+                }
+            } catch (err) {
+                log(`❌ ERROR: ${err.message}`);
+            }
+        }
+
+        log('🚀 OTP Test Page Ready');
+        log(`📍 API URL: ${API_URL}`);
+    </script>
+</body>
+</html>
