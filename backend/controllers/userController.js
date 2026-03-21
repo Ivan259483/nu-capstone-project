@@ -1,4 +1,13 @@
 import User from '../models/User.js';
+import Order from '../models/Order.js';
+import Customer from '../models/Customer.js';
+import Vehicle from '../models/Vehicle.js';
+import ChatSession from '../models/ChatSession.js';
+import ChatMessage from '../models/ChatMessage.js';
+import ActivityLog from '../models/ActivityLog.js';
+import Payment from '../models/Payment.js';
+import Store from '../models/Store.js';
+import OTP from '../models/OTP.js';
 
 /**
  * Get all users
@@ -44,11 +53,17 @@ export const getUserById = async (req, res, next) => {
  */
 export const updateUser = async (req, res, next) => {
   try {
-    const { name, email, role } = req.body;
+    const { name, email, role, avatar } = req.body;
+
+    const updatePayload = {};
+    if (typeof name !== 'undefined') updatePayload.name = name;
+    if (typeof email !== 'undefined') updatePayload.email = email;
+    if (typeof role !== 'undefined') updatePayload.role = role;
+    if (typeof avatar !== 'undefined') updatePayload.avatar = avatar;
 
     const user = await User.findByIdAndUpdate(
       req.params.id,
-      { name, email, role },
+      updatePayload,
       { new: true }
     ).select('-password');
 
@@ -70,7 +85,7 @@ export const updateUser = async (req, res, next) => {
 };
 
 /**
- * Delete user
+ * Delete user and cascade-clean all related documents
  */
 export const deleteUser = async (req, res, next) => {
   try {
@@ -83,16 +98,45 @@ export const deleteUser = async (req, res, next) => {
       });
     }
 
-    // In a production environment with refresh tokens or sessions,
-    // we would invalidate them here. For example:
-    // await Session.deleteMany({ userId: user._id });
-    // await Token.deleteMany({ userId: user._id });
+    // Cascade-clean all related documents
+    const userId = user._id;
+    const userEmail = user.email;
+
+    const cleanupLabels = [
+      'Orders (customer)', 'Orders (assignedDetailer)', 'Customers',
+      'Vehicles', 'ChatSessions', 'ChatMessages',
+      'ActivityLogs', 'Payments', 'Stores (unset manager)', 'OTPs',
+    ];
+
+    const cleanup = await Promise.allSettled([
+      Order.deleteMany({ customer: userId }),
+      Order.updateMany({ assignedDetailer: userId }, { $unset: { assignedDetailer: '' } }),
+      Customer.deleteMany({ user: userId }),
+      Vehicle.deleteMany({ customer: userId }),
+      ChatSession.deleteMany({ userId: userId }),
+      ChatMessage.deleteMany({ userId: userId }),
+      ActivityLog.deleteMany({ userId: userId }),
+      Payment.deleteMany({ customer: userId }),
+      Store.updateMany({ manager: userId }, { $unset: { manager: '' } }),
+      OTP.deleteMany({ email: userEmail }),
+    ]);
+
+    const cleanupSummary = cleanup.map((result, i) => ({
+      collection: cleanupLabels[i],
+      status: result.status,
+      affected: result.status === 'fulfilled'
+        ? (result.value.deletedCount ?? result.value.modifiedCount ?? 0)
+        : result.reason?.message,
+    }));
+
+    console.log(`🗑️ User ${userEmail} (${userId}) deleted. Cascade cleanup:`, cleanupSummary);
 
     res.json({
       success: true,
-      message: 'User deleted successfully and sessions invalidated',
+      message: 'User deleted successfully and all related data cleaned up',
     });
   } catch (error) {
+    console.error('❌ Delete User Error:', error);
     next(error);
   }
 };
@@ -102,7 +146,7 @@ export const deleteUser = async (req, res, next) => {
  */
 export const createUser = async (req, res, next) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, avatar } = req.body;
 
     // Check if user already exists
     const userExists = await User.findOne({ email });
@@ -118,6 +162,7 @@ export const createUser = async (req, res, next) => {
       email,
       password,
       role: role || 'customer',
+      avatar,
       isVerified: true, // Admin created users are verified by default
     });
 
@@ -129,6 +174,7 @@ export const createUser = async (req, res, next) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        avatar: user.avatar,
       },
     });
   } catch (error) {

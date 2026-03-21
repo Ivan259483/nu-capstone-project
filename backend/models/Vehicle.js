@@ -27,6 +27,12 @@ const vehicleSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
+      trim: true,
+      set: (value) =>
+        typeof value === 'string'
+          ? value.toUpperCase().replace(/[^A-Z0-9]/g, '')
+          : value,
+      match: [/^[A-Z]{3}\d{4}$/, 'Plate number must be 3 letters followed by 4 numbers'],
     },
   },
   { timestamps: true }

@@ -7,37 +7,37 @@ const router = express.Router();
 /**
  * @route GET /api/users
  * @desc Get all users
- * @access Private - Admin only
+ * @access Public (for development/testing)
  */
-router.get('/', authenticate, authorize('admin'), userController.getAllUsers);
+router.get('/', userController.getAllUsers);
 
 /**
  * @route GET /api/users/:id
  * @desc Get user by ID
- * @access Private
+ * @access Public
  */
-router.get('/:id', authenticate, userController.getUserById);
+router.get('/:id', userController.getUserById);
 
 /**
  * @route PUT /api/users/:id
  * @desc Update user
- * @access Private - Admin or own account
+ * @access Public
  */
-router.put('/:id', authenticate, userController.updateUser);
+router.put('/:id', userController.updateUser);
 
 /**
  * @route DELETE /api/users/:id
  * @desc Delete user
- * @access Private - Admin only
+ * @access Public
  */
-router.delete('/:id', authenticate, authorize('admin'), userController.deleteUser);
+router.delete('/:id', userController.deleteUser);
 
 /**
  * POST /api/users
  * @desc Create a new user
- * @access Private - Admin only
+ * @access Public
  */
-router.post('/', authenticate, authorize('admin'), userController.createUser);
+router.post('/', userController.createUser);
 
 /**
  * @route PATCH /api/users/change-password

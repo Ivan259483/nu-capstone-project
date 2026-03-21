@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Skeleton } from "@/components/ui/ui-skeleton"
 import {
     Tooltip,
     TooltipContent,
@@ -119,7 +119,7 @@ const SidebarProvider = React.forwardRef<
                             } as React.CSSProperties
                         }
                         className={cn(
-                            "group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar",
+                            "group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar font-serif",
                             className
                         )}
                         ref={ref}

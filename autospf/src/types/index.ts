@@ -11,6 +11,10 @@ export interface User {
     lastActive: string;
     jobsCompleted?: number;
     createdAt: string;
+    avatar?: string;
+    phone?: string;
+    displayName?: string;
+    photoURL?: string;
 }
 
 // Inventory Types
@@ -24,6 +28,7 @@ export interface InventoryItem {
     minLevel: number;
     cost: number;
     supplier: string;
+    image?: string;
 }
 
 // Supplier Types
@@ -48,12 +53,19 @@ export interface Service {
     category: 'Basic' | 'Standard' | 'Premium';
     duration: string;
     basePrice: number;
+    recipe?: Array<{
+        product?: string;
+        productName?: string;
+        quantity: number;
+        unit?: string;
+    }>;
     status: 'Active' | 'Inactive';
 }
 
 // Booking Types
 export interface Booking {
     id: string;
+    _id?: string;
     customerId: string;
     customerName: string;
     customerPhone: string;
@@ -61,9 +73,25 @@ export interface Booking {
     vehicleInfo: string;
     serviceId: string;
     serviceName: string;
+    serviceType?: string;
     date: string;
     time: string;
-    status: 'pending' | 'in-progress' | 'completed' | 'cancelled';
+    status: 'pending' | 'confirmed' | 'assigned' | 'processing' | 'in-progress' | 'completed' | 'cancelled' | 'finishing' | 'ready' | 'queued' | 'paid' | 'quality-check';
+    totalPrice?: number;
+    totalAmount?: number;
+    invoiceId?: string;
+    paymentStatus?: 'unpaid' | 'paid' | 'failed' | 'refunded';
+    paymentMethod?: string;
+    paymentProvider?: string;
+    paidAt?: string;
+    addons?: string[];
+    legalCompliance?: {
+        waiverSignature?: string;
+        waiverSignedAt?: string;
+        waiverPdf?: string;
+        preServicePhotos?: string[];
+        damageNotes?: string;
+    };
 
     notes?: string;
     // Backend Populated Fields
@@ -80,9 +108,12 @@ export interface Booking {
     bookingDate?: string;
     bookingTime?: string;
     createdAt: string;
+    updatedAt?: string;
     // Backend Integration Fields
     orderNumber?: string;
     assignedDetailer?: User | string | null; // Populated or ID
+    customerStatus?: 'received' | 'washing' | 'detailing' | 'ready' | 'queued' | 'in-progress' | 'finishing';
+    customerStatusUpdatedAt?: string;
     serviceSteps?: {
         name: string;
         status: 'pending' | 'in-progress' | 'completed';
@@ -94,6 +125,7 @@ export interface Booking {
 // Vehicle Types
 export interface Vehicle {
     id: string;
+    _id?: string;
     customerId: string;
     year: string;
     make: string;
@@ -161,7 +193,7 @@ export interface CustomerNote {
 // Activity Log Types
 export interface ActivityLog {
     id: string;
-    type: 'completed_job' | 'inventory_update' | 'low_stock' | 'new_booking' | 'started_job' | 'generated_report';
+    type: 'completed_job' | 'inventory_update' | 'low_stock' | 'new_booking' | 'started_job' | 'generated_report' | 'status_change' | 'customer_status_change' | 'maintenance' | 'settings';
     title: string;
     description: string;
     userId: string;
@@ -174,6 +206,13 @@ export interface BusinessSettings {
     businessName: string;
     contactEmail: string;
     phoneNumber: string;
+    address?: string;
+    logoUrl?: string;
+    currency?: 'PHP' | 'USD';
+    membershipDiscount?: number;
+    serviceCapacity?: number;
+    inventoryThreshold?: number;
+    systemTheme?: 'light' | 'dark';
     operatingHours: {
         [key: string]: { open: string; close: string };
     };

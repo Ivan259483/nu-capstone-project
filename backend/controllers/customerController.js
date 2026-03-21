@@ -77,11 +77,14 @@ export const createCustomer = async (req, res, next) => {
  */
 export const updateCustomer = async (req, res, next) => {
   try {
-    const customer = await Customer.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true }
-    );
+    if (!req.user || !req.user.id || !req.user.role) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized - Invalid or missing user session',
+      });
+    }
+
+    const customer = await Customer.findById(req.params.id);
 
     if (!customer) {
       return res.status(404).json({
@@ -89,6 +92,19 @@ export const updateCustomer = async (req, res, next) => {
         message: 'Customer not found',
       });
     }
+
+    const isAdmin = req.user.role === 'admin';
+    const isOwner = customer.user && customer.user.toString() === req.user.id;
+
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: You can only update your own customer profile',
+      });
+    }
+
+    Object.assign(customer, req.body);
+    await customer.save();
 
     res.json({
       success: true,
@@ -128,8 +144,27 @@ export const deleteCustomer = async (req, res, next) => {
  */
 export const addVehicle = async (req, res, next) => {
   try {
+    // Controller-Level Authorization Guard
+    if (!req.user || !req.user.id || !req.user.role) {
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Not authorized - Invalid or missing user session' 
+        });
+    }
+
     const { year, make, model, color, plateNumber } = req.body;
     const customerId = req.user.id; // From authenticate middleware
+    const normalizedPlate = typeof plateNumber === 'string'
+      ? plateNumber.toUpperCase().replace(/[^A-Z0-9]/g, '')
+      : '';
+    const platePattern = /^[A-Z]{3}\d{4}$/;
+
+    if (!platePattern.test(normalizedPlate)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Plate number must be 3 letters followed by 4 numbers (e.g., ABC1234)',
+      });
+    }
 
     const vehicle = new Vehicle({
       customer: customerId,
@@ -137,7 +172,7 @@ export const addVehicle = async (req, res, next) => {
       make,
       model,
       color,
-      plateNumber,
+      plateNumber: normalizedPlate,
     });
 
     await vehicle.save();
@@ -169,6 +204,14 @@ export const addVehicle = async (req, res, next) => {
  */
 export const getVehicles = async (req, res, next) => {
   try {
+    // Controller-Level Authorization Guard
+    if (!req.user || !req.user.id || !req.user.role) {
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Not authorized - Invalid or missing user session' 
+        });
+    }
+
     const vehicles = await Vehicle.find({ customer: req.user.id });
 
     res.json({
@@ -185,7 +228,16 @@ export const getVehicles = async (req, res, next) => {
  */
 export const updateVehicle = async (req, res, next) => {
   try {
+    // Controller-Level Authorization Guard
+    if (!req.user || !req.user.id || !req.user.role) {
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Not authorized - Invalid or missing user session' 
+        });
+    }
+
     const { year, make, model, color, plateNumber } = req.body;
+    const platePattern = /^[A-Z]{3}\d{4}$/;
     
     // Find vehicle first to check ownership
     const vehicle = await Vehicle.findById(req.params.id);
@@ -210,7 +262,18 @@ export const updateVehicle = async (req, res, next) => {
     if (make) vehicle.make = make;
     if (model) vehicle.model = model;
     if (color) vehicle.color = color;
-    if (plateNumber) vehicle.plateNumber = plateNumber;
+    if (plateNumber) {
+      const normalizedPlate = typeof plateNumber === 'string'
+        ? plateNumber.toUpperCase().replace(/[^A-Z0-9]/g, '')
+        : '';
+      if (!platePattern.test(normalizedPlate)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Plate number must be 3 letters followed by 4 numbers (e.g., ABC1234)',
+        });
+      }
+      vehicle.plateNumber = normalizedPlate;
+    }
 
     await vehicle.save();
 

@@ -74,11 +74,14 @@ export const createStore = async (req, res, next) => {
  */
 export const updateStore = async (req, res, next) => {
   try {
-    const store = await Store.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true }
-    );
+    if (!req.user || !req.user.id || !req.user.role) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized - Invalid or missing user session',
+      });
+    }
+
+    const store = await Store.findById(req.params.id);
 
     if (!store) {
       return res.status(404).json({
@@ -86,6 +89,19 @@ export const updateStore = async (req, res, next) => {
         message: 'Store not found',
       });
     }
+
+    const isAdmin = req.user.role === 'admin';
+    const isManager = store.manager && store.manager.toString() === req.user.id;
+
+    if (!isAdmin && !isManager) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: You can only update your own store',
+      });
+    }
+
+    Object.assign(store, req.body);
+    await store.save();
 
     res.json({
       success: true,

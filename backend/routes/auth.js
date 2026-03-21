@@ -52,6 +52,14 @@ router.post('/register', authController.register);
 router.post('/login', authController.login);
 
 /**
+ * @route POST /api/auth/social-login
+ * @desc Social Login (Google/Facebook)
+ * @access Public
+ * @body { email: string, name: string, provider: string, providerId: string }
+ */
+router.post('/social-login', authController.socialLogin);
+
+/**
  * @route GET /api/auth/me
  * @desc Get current user
  * @access Private

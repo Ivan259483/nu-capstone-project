@@ -1,16 +1,46 @@
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Always load backend/.env regardless of process cwd
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
+// Determine email provider based on available credentials
+const determineEmailProvider = () => {
+  const providedProvider = process.env.EMAIL_PROVIDER;
+  
+  // If explicitly set, use it
+  if (providedProvider) return providedProvider;
+  
+  // Check for Brevo credentials
+  if (process.env.BREVO_SMTP_USER && process.env.BREVO_SMTP_PASSWORD) {
+    return 'brevo';
+  }
+  
+  // Check for Gmail credentials
+  if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
+    return 'gmail';
+  }
+  
+  // Default to console mode for development
+  console.log('⚠️ No email credentials configured - defaulting to console mode');
+  return 'console';
+};
 
 export const config = {
   port: process.env.PORT || 3000,
   nodeEnv: process.env.NODE_ENV || 'development',
   mongodbUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/autospf',
   jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  corsOrigin: process.env.CORS_ORIGIN 
+    ? process.env.CORS_ORIGIN.split(',') 
+    : ['http://localhost:5173', 'http://192.168.18.94:5173', 'http://192.168.18.94:3000'],
 
   // Email Configuration
-  emailProvider: process.env.EMAIL_PROVIDER || 'brevo', // 'brevo', 'gmail', 'smtp', or 'console'
+  emailProvider: determineEmailProvider(),
   emailFromName: process.env.EMAIL_FROM_NAME || 'AutoSPF+',
   emailFromAddress: process.env.EMAIL_FROM_ADDRESS || 'noreply@autospf.com',
 

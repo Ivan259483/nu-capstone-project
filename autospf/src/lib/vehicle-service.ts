@@ -35,5 +35,10 @@ export const VehicleService = {
             };
         }
         return response.data;
+    },
+
+    async deleteVehicle(id: string) {
+        const response = await api.delete(`/customers/vehicles/${id}`);
+        return response.data;
     }
 };

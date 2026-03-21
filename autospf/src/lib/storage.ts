@@ -130,8 +130,8 @@ export function initializeStorage(): void {
 
     if (!localStorage.getItem(STORAGE_KEYS.VEHICLES)) {
         const seedVehicles: Vehicle[] = [
-            { id: 'veh-1', customerId: 'customer-1', year: '2023', make: 'Tesla', model: 'Model 3', color: 'White', plateNumber: 'APT-2024-090' },
-            { id: 'veh-2', customerId: 'customer-1', year: '2024', make: 'Porsche', model: '911', color: 'Red', plateNumber: 'APT-2024-089' },
+            { id: 'veh-1', customerId: 'customer-1', year: '2023', make: 'Tesla', model: 'Model 3', color: 'White', plateNumber: 'ABC1234' },
+            { id: 'veh-2', customerId: 'customer-1', year: '2024', make: 'Porsche', model: '911', color: 'Red', plateNumber: 'XYZ5678' },
         ];
         setItem(STORAGE_KEYS.VEHICLES, seedVehicles);
     }

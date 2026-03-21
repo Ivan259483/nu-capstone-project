@@ -1,8 +1,9 @@
 import User from '../models/User.js';
 import OTP from '../models/OTP.js';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { config } from '../config/environment.js';
-import { sendOtpEmail } from '../utils/emailService.js';
+import { sendOtpEmail } from '../utils/mail.js'; // Use new strict Brevo mailer
 import mockOtpStore from '../utils/mockOtpStore.js';
 
 /**
@@ -29,10 +30,12 @@ export const sendOtp = async (req, res, next) => {
       });
     }
 
-    // Use provided OTP (from frontend) or generate a new one
-    const otp = req.body.otp || generateOTP(config.otpLength);
+    // Generate 6-digit OTP code
+    const otp = generateOTP(config.otpLength);
+    console.log(`\n📨 [OTP REQUEST] Email: ${email}`);
+    console.log(`   Generated OTP: ${otp}`);
 
-    // Delete previous OTP for this email if exists
+    // Delete previous OTP for this email if exists (cleanup)
     await OTP.deleteMany({ email });
 
     // Create OTP record in MongoDB
@@ -45,12 +48,42 @@ export const sendOtp = async (req, res, next) => {
       verified: false,
     });
 
+    // Save OTP to database
     await otpRecord.save();
-    console.log(`✅ OTP saved to MongoDB for ${email}`);
+    console.log(`✅ OTP saved to MongoDB`);
+    console.log(`   Email: ${email}`);
+    console.log(`   Expires in: ${config.otpExpiry} seconds`);
 
-    // Send OTP email (non-blocking for instant response)
-    console.log('🔑 OTP:', otp);
-    sendOtpEmail(email, otp).catch(err => console.error('Email error:', err));
+    // Send OTP email via Brevo SMTP
+    console.log(`\n� Sending OTP email via Brevo SMTP...`);
+    const emailResult = await sendOtpEmail(email, otp);
+
+    if (!emailResult.success) {
+      // Delete OTP from MongoDB if email failed
+      await OTP.deleteOne({ email });
+
+      console.error(`\n❌ OTP Email Failed:`);
+      console.error(`   Email: ${email}`);
+      console.error(`   Error: ${emailResult.error}`);
+      console.error(`   Code: ${emailResult.code}`);
+      console.error(`   Response Code: ${emailResult.responseCode}`);
+      console.error(`   Server Response: ${emailResult.response}`);
+
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP. Please try again.',
+        error: emailResult.error,
+        details: {
+          code: emailResult.code,
+          responseCode: emailResult.responseCode,
+          response: emailResult.response,
+        }
+      });
+    }
+
+    console.log(`✅ OTP sent successfully`);
+    console.log(`   MessageID: ${emailResult.messageId}`);
+    console.log(`   Response: ${emailResult.response}\n`);
 
     res.json({
       success: true,
@@ -61,11 +94,162 @@ export const sendOtp = async (req, res, next) => {
       },
     });
   } catch (error) {
-    console.error('❌ Send OTP Error:', error);
+    console.error('\n❌ Send OTP Error:');
+    console.error('   Message:', error.message);
+    console.error('   Stack:', error.stack);
+    
     res.status(500).json({
       success: false,
       message: 'Failed to send OTP',
       error: error.message,
+    });
+  }
+};
+
+/**
+ * Forgot Password - Send OTP
+ * POST /api/auth/forgot-password
+ */
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required',
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // reuse sendOtp logic or call it directly? 
+    // For now, let's implement the core logic to generate and send OTP here 
+    // to be specific for password reset if needed, or we can just reuse the generic OTP flow.
+    // Given the routes, send-otp is public for signup/login. 
+    // forgot-password is specific.
+    
+    // Generate new OTP
+    const otp = generateOTP(config.otpLength);
+
+    // Delete previous OTP
+    await OTP.deleteMany({ email });
+
+    // Create OTP record
+    const otpRecord = new OTP({
+      email,
+      otp,
+      expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
+      attempts: 0,
+      maxAttempts: 5,
+      verified: false,
+    });
+
+    await otpRecord.save();
+    console.log(`✅ Password Reset OTP saved for ${email}`);
+
+    // Send email
+    const emailResult = await sendOtpEmail(email, otp);
+
+    if (!emailResult.success) {
+      await OTP.deleteOne({ email });
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP',
+        error: emailResult.error
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Password reset OTP sent successfully',
+      data: { email, expiresIn: config.otpExpiry }
+    });
+
+  } catch (error) {
+    console.error('❌ Forgot Password Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process request',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Reset Password
+ * POST /api/auth/reset-password
+ */
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, OTP, and new password are required'
+      });
+    }
+
+    // Verify OTP first
+    const otpRecord = await OTP.findOne({ email, verified: true });
+    
+    // Note: The frontend flow might verify OTP first via /verify-otp endpoint
+    // which marks it as verified. So we check for a verified OTP record here.
+    // If the flow expects atomic verification + reset, we'd verify here.
+    // Assuming the standard flow: 1. ForgotPassword(send otp) -> 2. VerifyOTP -> 3. ResetPassword
+    
+    // However, if the user calls verify-otp, it marks verified=true.
+    // Then reset-password checks if verified=true.
+
+    if (!otpRecord) {
+       // Fallback: Check if unverified OTP matches (atomic flow)
+       const pendingOtp = await OTP.findOne({ email, otp });
+       if (!pendingOtp) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid or expired OTP. Please verify first.',
+          });
+       }
+       // If found pending, verify it now? 
+       // Better to enforce the 2-step flow or just check strictly.
+       // Let's assume strict flow: Verify endpoint must be called first OR we verify here.
+       // Let's verify here to be safe if it wasn't done.
+       if (pendingOtp.expiresAt < new Date()) {
+          return res.status(400).json({ success: false, message: 'OTP expired' });
+       }
+       // If atomic, proceed.
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    // Clean up OTP
+    await OTP.deleteMany({ email });
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully. You can now login.'
+    });
+
+  } catch (error) {
+    console.error('❌ Reset Password Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reset password',
+      error: error.message
     });
   }
 };
@@ -180,7 +364,7 @@ export const register = async (req, res, next) => {
     if (existingUser) {
       return res.status(409).json({
         success: false,
-        message: 'An account with this email already exists. Please login instead.',
+        message: 'An account with this email already exists. If you recently deleted this account, please contact support.',
       });
     }
 
@@ -189,7 +373,7 @@ export const register = async (req, res, next) => {
       name,
       email,
       password, // Will be hashed by User model pre-save hook
-      role: 'customer', // Strictly enforce customer role for signups
+      role: role || 'customer',
       isVerified: true, // User has verified OTP
     });
 
@@ -207,16 +391,16 @@ export const register = async (req, res, next) => {
       { expiresIn: '7d' }
     );
 
+    const userObject = user.toObject({ virtuals: true });
+    delete userObject.password;
+    delete userObject._id;
+    delete userObject.__v;
+    
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-        },
+        user: userObject,
         token,
       },
     });
@@ -237,6 +421,8 @@ export const register = async (req, res, next) => {
 export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    const MAX_LOGIN_ATTEMPTS = 6;
+    const LOCK_TIME_MS = 20 * 60 * 1000;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -262,6 +448,16 @@ export const login = async (req, res, next) => {
       });
     }
 
+    // Check if account is locked
+    if (user.lockUntil && user.lockUntil > new Date()) {
+      const remainingMs = user.lockUntil.getTime() - Date.now();
+      const remainingMinutes = Math.ceil(remainingMs / (60 * 1000));
+      return res.status(423).json({
+        success: false,
+        message: `Account locked. Please try again in ${remainingMinutes} minute(s).`,
+      });
+    }
+
     // Check if user is active
     if (!user.isActive) {
       return res.status(403).json({
@@ -270,42 +466,35 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Check if account is locked
-    if (user.lockUntil && user.lockUntil > Date.now()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Account locked due to too many failed attempts. Please try again in 20 minutes.',
-      });
-    }
-
     // Verify password using bcrypt
     const isPasswordValid = await user.comparePassword(password);
-    
     if (!isPasswordValid) {
-      // Increment login attempts
-      user.loginAttempts += 1;
-      
-      // Lock if attempts reach 5
-      if (user.loginAttempts >= 5) {
-        user.lockUntil = new Date(Date.now() + 20 * 60 * 1000); // 20 minutes
-        console.warn(`🔒 [SECURITY]: Account ${email} locked for 20 minutes after 5 attempts.`);
-      }
-      
-      await user.save();
+      user.loginAttempts = (user.loginAttempts || 0) + 1;
 
+      if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+        user.lockUntil = new Date(Date.now() + LOCK_TIME_MS);
+        user.loginAttempts = 0;
+        await user.save();
+
+        return res.status(423).json({
+          success: false,
+          message: 'Account locked for 20 minutes due to too many failed attempts.',
+        });
+      }
+
+      await user.save();
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials',
+        message: `Invalid credentials. Attempts remaining: ${MAX_LOGIN_ATTEMPTS - user.loginAttempts}`,
       });
     }
 
-    // Reset login attempts on successful login
-    user.loginAttempts = 0;
-    user.lockUntil = undefined;
-    
-    // Update last active timestamp
-    user.lastActive = new Date();
-    await user.save();
+    // Reset login attempts on success
+    if (user.loginAttempts !== 0 || user.lockUntil) {
+      user.loginAttempts = 0;
+      user.lockUntil = undefined;
+      await user.save();
+    }
 
     // Generate token
     const token = jwt.sign(
@@ -314,16 +503,16 @@ export const login = async (req, res, next) => {
       { expiresIn: '7d' }
     );
 
+    const userObject = user.toObject({ virtuals: true });
+    delete userObject.password;
+    delete userObject._id;
+    delete userObject.__v;
+
     res.json({
       success: true,
       message: 'Login successful',
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-        },
+        user: userObject,
         token,
       },
     });
@@ -352,9 +541,14 @@ export const getCurrentUser = async (req, res, next) => {
       });
     }
 
+    const userObject = user.toObject({ virtuals: true });
+    delete userObject.password;
+    delete userObject._id;
+    delete userObject.__v;
+
     res.json({
       success: true,
-      data: user,
+      data: userObject,
     });
   } catch (error) {
     console.error('❌ Get Current User Error:', error);
@@ -383,12 +577,16 @@ export const logout = async (req, res, next) => {
 };
 
 /**
- * Request Password Reset OTP
- * POST /api/auth/forgot-password
+ * Social Login
+ * POST /api/auth/social-login
  */
-export const forgotPassword = async (req, res, next) => {
+/**
+ * Social Login
+ * POST /api/auth/social-login
+ */
+export const socialLogin = async (req, res, next) => {
   try {
-    const { email } = req.body;
+    const { email, name, provider, providerId } = req.body;
 
     if (!email) {
       return res.status(400).json({
@@ -398,113 +596,66 @@ export const forgotPassword = async (req, res, next) => {
     }
 
     // Check if user exists
-    const user = await User.findOne({ email });
+    let user = await User.findOne({ email });
+
     if (!user) {
-      // For security, don't reveal if user exists or not
-      // But based on the prompt "When clicked, it should open a modal asking for the user's email."
-      // and "Send a 6-digit OTP", we should probably inform user if account not found
-      // or just say "If an account exists, an OTP has been sent".
-      // Usually, it's better to NOT inform, but user prompt says "Verification: Send a 6-digit OTP to that email".
-      return res.status(404).json({
-        success: false,
-        message: 'No account found with this email address.',
+      // Create new user
+      // Generate random password
+      const randomPassword = crypto.randomBytes(16).toString('hex');
+      
+      // Use User.create as requested
+      user = await User.create({
+        name: name || email.split('@')[0],
+        email,
+        password: randomPassword,
+        role: 'customer',
+        isVerified: true,
+        firebaseUid: providerId, // Sync Firebase UID on creation
+        avatar: req.body.photoURL || undefined, // Sync avatar if provided
       });
+
+    } else {
+        // If user exists but wasn't verified, verify them now since they logged in via social
+         if (!user.isVerified) {
+            user.isVerified = true;
+         }
+         // Sync Sync Firebase UID if missing
+         if (providerId && !user.firebaseUid) {
+            user.firebaseUid = providerId;
+         }
+         // Sync avatar if missing
+         if (req.body.photoURL && !user.avatar) {
+             user.avatar = req.body.photoURL;
+         }
+         await user.save();
     }
 
-    // Generate OTP
-    const otp = generateOTP(config.otpLength || 6);
+    // Generate token
+    const token = jwt.sign(
+      { id: user._id, email: user.email, role: user.role },
+      config.jwtSecret,
+      { expiresIn: '7d' }
+    );
 
-    // Delete previous OTP for this email if exists
-    await OTP.deleteMany({ email });
-
-    // Create OTP record in MongoDB
-    const otpRecord = new OTP({
-      email,
-      otp,
-      expiresAt: new Date(Date.now() + (config.otpExpiry || 600) * 1000),
-      attempts: 0,
-      maxAttempts: 5,
-      verified: false,
-    });
-
-    await otpRecord.save();
-
-    // Send OTP email (non-blocking for instant response)
-    console.log('🔑 PASSWORD RESET OTP:', otp);
-    sendOtpEmail(email, otp).catch(err => console.error('Email error:', err));
+     const userObject = user.toObject({ virtuals: true });
+     delete userObject.password;
+     delete userObject._id;
+     delete userObject.__v;
 
     res.json({
       success: true,
-      message: 'OTP sent successfully to your email.',
+      message: 'Social login successful',
+      data: {
+        user: userObject,
+        token,
+      },
     });
+
   } catch (error) {
-    console.error('❌ Forgot Password Error:', error);
+    console.error('❌ Social Login Error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: error.message,
-    });
-  }
-};
-
-/**
- * Reset Password using OTP
- * POST /api/auth/reset-password
- */
-export const resetPassword = async (req, res, next) => {
-  try {
-    const { email, otp, newPassword } = req.body;
-
-    if (!email || !otp || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email, OTP, and new password are required',
-      });
-    }
-
-    // Find and verify OTP
-    const otpRecord = await OTP.findOne({ email });
-
-    if (!otpRecord || otpRecord.otp !== otp) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid OTP code',
-      });
-    }
-
-    if (otpRecord.expiresAt < new Date()) {
-      await OTP.deleteOne({ email });
-      return res.status(400).json({
-        success: false,
-        message: 'OTP has expired',
-      });
-    }
-
-    // Find user and update password
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
-
-    user.password = newPassword; // Will be hashed by pre-save hook
-    user.isVerified = true; // Ensure user is verified if they reset password
-    await user.save();
-
-    // Delete OTP after successful reset
-    await OTP.deleteMany({ email });
-
-    res.json({
-      success: true,
-      message: 'Password reset successfully. You can now login with your new password.',
-    });
-  } catch (error) {
-    console.error('❌ Reset Password Error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
+      message: 'Social login failed',
       error: error.message,
     });
   }

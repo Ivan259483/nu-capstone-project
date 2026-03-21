@@ -6,29 +6,30 @@
         body { font-family: monospace; margin: 20px; }
         input { padding: 8px; margin: 5px; }
         button { padding: 10px 20px; cursor: pointer; }
-        pre { background: #f0f0f0; padding: 10px; overflow-auto; }
-        .success { color: green; }
-        .error { color: red; }
+        button:disabled { cursor: not-allowed; opacity: 0.6; }
+        pre { background: #f0f0f0; padding: 10px; overflow: auto; max-height: 400px; }
+        .form-group { margin-bottom: 20px; }
     </style>
 </head>
 <body>
     <h1>🧪 OTP System Test</h1>
-    
-    <div>
-        <label>Email: <input type="email" id="email" value="test@example.com" /></label>
-        <button onclick="sendOTP()">Send OTP</button>
-    </div>
 
-    <div>
-        <label>OTP: <input type="text" id="otp" /></label>
-        <button onclick="verifyOTP()">Verify OTP</button>
-    </div>
+    <form class="form-group" id="sendForm">
+        <label>Email: <input type="email" id="email" value="test@example.com" required /></label>
+        <button type="submit" id="btnSend">Send OTP</button>
+    </form>
+
+    <form class="form-group" id="verifyForm">
+        <label>OTP: <input type="text" id="otp" required /></label>
+        <button type="submit" id="btnVerify">Verify OTP</button>
+    </form>
 
     <h2>Logs:</h2>
     <pre id="logs"></pre>
 
     <script>
-        const API_URL = 'http://localhost:3000/api';
+        // Updated to port 3001 to match your backend environment configuration
+        const API_URL = 'http://localhost:3001/api';
 
         function log(msg) {
             const logs = document.getElementById('logs');
@@ -37,55 +38,63 @@
             logs.scrollTop = logs.scrollHeight;
         }
 
+        async function safeFetch(url, options) {
+            const response = await fetch(url, options);
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+                return { response, data: await response.json() };
+            }
+            throw new Error(`Server returned non-JSON response: ${response.status}`);
+        }
+
         async function sendOTP() {
             const email = document.getElementById('email').value;
-            if (!email) {
-                log('❌ Email required');
-                return;
-            }
-
+            const btn = document.getElementById('btnSend');
+            
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
             log(`📧 Sending OTP to ${email}...`);
 
             try {
-                const response = await fetch(`${API_URL}/auth/send-otp`, {
+                const { response, data } = await safeFetch(`${API_URL}/auth/send-otp`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email })
                 });
 
-                const data = await response.json();
-                
                 if (response.ok && data.success) {
                     log(`✅ SUCCESS: ${data.message}`);
-                    log(`⏱️  Expires in: ${data.data.expiresIn} seconds`);
+                    if (data.data?.expiresIn) {
+                        log(`⏱️  Expires in: ${data.data.expiresIn} seconds`);
+                    }
                 } else {
-                    log(`❌ FAILED: ${data.message}`);
+                    log(`❌ FAILED: ${data.message || 'Unknown error'}`);
                 }
             } catch (err) {
                 log(`❌ ERROR: ${err.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Send OTP';
             }
         }
 
         async function verifyOTP() {
             const email = document.getElementById('email').value;
             const otp = document.getElementById('otp').value;
+            const btn = document.getElementById('btnVerify');
 
-            if (!email || !otp) {
-                log('❌ Email and OTP required');
-                return;
-            }
-
-            log(`🔐 Verifying OTP ${otp} for ${email}...`);
+            btn.disabled = true;
+            btn.textContent = 'Verifying...';
+            const maskedOtp = otp.length > 2 ? `${otp.substring(0,2)}***` : '***';
+            log(`🔐 Verifying OTP ${maskedOtp} for ${email}...`);
 
             try {
-                const response = await fetch(`${API_URL}/auth/verify-otp`, {
+                const { response, data } = await safeFetch(`${API_URL}/auth/verify-otp`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, otp })
                 });
 
-                const data = await response.json();
-                
                 if (response.ok && data.success) {
                     log(`✅ SUCCESS: ${data.message}`);
                 } else {
@@ -93,8 +102,22 @@
                 }
             } catch (err) {
                 log(`❌ ERROR: ${err.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Verify OTP';
             }
         }
+
+        // Attach event listeners safely
+        document.getElementById('sendForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            sendOTP();
+        });
+
+        document.getElementById('verifyForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            verifyOTP();
+        });
 
         log('🚀 OTP Test Page Ready');
         log(`📍 API URL: ${API_URL}`);

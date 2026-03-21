@@ -1,6 +1,19 @@
 import Supplier from '../models/Supplier.js';
 import SupplierOrder from '../models/SupplierOrder.js';
 
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const normalizeProducts = (products) => {
+    if (!products) return [];
+    if (Array.isArray(products)) {
+        return products.map((p) => String(p).trim()).filter(Boolean);
+    }
+    if (typeof products === 'string') {
+        return products.split(',').map((p) => p.trim()).filter(Boolean);
+    }
+    return [];
+};
+
 export const getAllSuppliers = async (req, res, next) => {
     try {
         const suppliers = await Supplier.find();
@@ -12,10 +25,64 @@ export const getAllSuppliers = async (req, res, next) => {
 
 export const createSupplier = async (req, res, next) => {
     try {
-        const supplier = new Supplier(req.body);
+        const {
+            name,
+            companyName,
+            email,
+            contactPerson,
+            phone,
+            products
+        } = req.body;
+
+        const normalizedName = (name || companyName || '').trim();
+        if (!normalizedName) {
+            return res.status(400).json({
+                success: false,
+                message: 'Company name is required'
+            });
+        }
+
+        const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+        if (normalizedEmail) {
+            const existingEmail = await Supplier.findOne({
+                email: new RegExp(`^${escapeRegex(normalizedEmail)}$`, 'i')
+            });
+            if (existingEmail) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'Duplicate entry: email already exists'
+                });
+            }
+        }
+
+        const existingName = await Supplier.findOne({
+            name: new RegExp(`^${escapeRegex(normalizedName)}$`, 'i')
+        });
+        if (existingName) {
+            return res.status(409).json({
+                success: false,
+                message: 'Duplicate entry: company name already exists'
+            });
+        }
+
+        const supplier = new Supplier({
+            name: normalizedName,
+            contactPerson,
+            email: normalizedEmail || undefined,
+            phone,
+            products: normalizeProducts(products)
+        });
         await supplier.save();
         res.status(201).json({ success: true, data: supplier });
     } catch (error) {
+        if (error?.code === 11000) {
+            const key = Object.keys(error.keyPattern || {})[0] || 'field';
+            const message = key === 'email'
+                ? 'Duplicate entry: email already exists'
+                : 'Duplicate entry: company name already exists';
+            return res.status(409).json({ success: false, message });
+        }
         next(error);
     }
 };

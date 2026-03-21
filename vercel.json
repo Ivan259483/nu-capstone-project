@@ -1,0 +1,40 @@
+{
+    "version": 2,
+    "name": "autospf-plus",
+    "builds": [
+        {
+            "src": "backend/server.js",
+            "use": "@vercel/node"
+        },
+        {
+            "src": "autospf/package.json",
+            "use": "@vercel/static-build",
+            "config": {
+                "distDir": "dist"
+            }
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "backend/server.js",
+            "headers": {
+                "Cache-Control": "s-maxage=1, stale-while-revalidate=59"
+            }
+        },
+        {
+            "src": "/assets/(.*)",
+            "dest": "autospf/assets/$1",
+            "headers": {
+                "Cache-Control": "public, max-age=31536000, immutable"
+            }
+        },
+        {
+            "src": "/(.*)",
+            "dest": "autospf/$1"
+        }
+    ],
+    "env": {
+        "NODE_ENV": "production"
+    }
+}

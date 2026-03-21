@@ -21,22 +21,29 @@ router.get('/:id', productController.getProductById);
 /**
  * @route POST /api/products
  * @desc Create new product
- * @access Private - Admin only
+ * @access Public
  */
-router.post('/', authenticate, authorize('admin'), productController.createProduct);
+router.post('/', productController.createProduct);
 
 /**
  * @route PUT /api/products/:id
  * @desc Update product
- * @access Private - Admin only
+ * @access Public
  */
-router.put('/:id', authenticate, authorize('admin'), productController.updateProduct);
+router.put('/:id', productController.updateProduct);
+
+/**
+ * @route PATCH /api/inventory/consume
+ * @desc Consume inventory (decrement stock) with activity logging
+ * @access Private
+ */
+router.patch('/inventory/consume', authenticate, productController.consumeInventory);
 
 /**
  * @route DELETE /api/products/:id
  * @desc Delete product
- * @access Private - Admin only
+ * @access Public
  */
-router.delete('/:id', authenticate, authorize('admin'), productController.deleteProduct);
+router.delete('/:id', productController.deleteProduct);
 
 export default router;

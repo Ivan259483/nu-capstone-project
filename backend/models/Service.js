@@ -12,6 +12,23 @@ const serviceSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    recipe: {
+      type: [
+        {
+          product: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Product',
+          },
+          productName: String,
+          quantity: {
+            type: Number,
+            required: true,
+          },
+          unit: String,
+        }
+      ],
+      default: [],
+    },
     status: {
       type: String,
       enum: ['Active', 'Inactive'],
