@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { config } from './config/environment.js';
-import Service from './models/Service.js';
+import Service from './models/service.model.js';
 
 const seedServicesOnly = async () => {
     try {

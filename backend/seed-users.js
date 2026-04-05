@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
-import User from './models/User.js';
+import User from './models/user.model.js';
 import connectDB from './config/database.js';
 
 const seedUsers = async () => {
@@ -13,7 +13,7 @@ const seedUsers = async () => {
         name: 'System Admin',
         email: 'admin@autospf.com',
         password: 'Admin123!',
-        role: 'admin',
+        role: 'administrator',
         isVerified: true,
         isActive: true,
       },
@@ -21,7 +21,7 @@ const seedUsers = async () => {
         name: 'Mike Detailer',
         email: 'mike@detailshop.com',
         password: 'Detailer123!',
-        role: 'detailer',
+        role: 'service_staff',
         isVerified: true,
         isActive: true,
       },

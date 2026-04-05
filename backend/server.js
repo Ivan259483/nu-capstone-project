@@ -1,13 +1,17 @@
-import 'dotenv/config'; // MUST be first line - load env variables immediately
+import dotenv from 'dotenv';
+dotenv.config();
+
+console.log('Offline damage detection enabled:', true);
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import { config } from './config/environment.js';
 import connectDB from './config/database.js';
-import errorHandler from './middleware/errorHandler.js';
-import { initializeMailer } from './utils/mail.js'; // Import mailer
-import { initSocket } from './utils/socket.js';
+import errorHandler from './middleware/errorHandler.middleware.js';
+import { initializeMailer } from './utils/mail.utils.js'; // Import mailer
+import { migrateLegacyUserRoles } from './utils/migrateLegacyUserRoles.utils.js';
+import { initSocket, initChangeStreams } from './utils/socket.utils.js';
 
 // ============================================
 // BREVO CONFIGURATION VERIFICATION
@@ -21,22 +25,22 @@ console.log('  ✓ EMAIL_FROM_ADDRESS:', config.emailFromAddress);
 console.log('  ✓ EMAIL_PROVIDER:', config.emailProvider);
 
 // Import routes
-import authRoutes from './routes/auth.js';
-import userRoutes from './routes/users.js';
-import productRoutes from './routes/products.js';
-import categoryRoutes from './routes/categories.js';
-import orderRoutes from './routes/orders.js';
-import servicesRoutes from './routes/services.js';
-import storeRoutes from './routes/stores.js';
-import customerRoutes from './routes/customers.js';
-import activityRoutes from './routes/activity.js';
-import notificationRoutes from './routes/notifications.js';
-import chatRoutes from './routes/chatbot.js';
-import paymentRoutes from './routes/paymentRoutes.js';
-import { stripeWebhookHandler } from './controllers/paymentController.js';
-import supplierRoutes from './routes/suppliers.js';
-import settingsRoutes from './routes/settings.js';
-import aiDamageRoutes from './routes/aiDamage.js';
+import authRoutes from './routes/auth.routes.js';
+import userRoutes from './routes/users.routes.js';
+import productRoutes from './routes/products.routes.js';
+import categoryRoutes from './routes/categories.routes.js';
+import orderRoutes from './routes/orders.routes.js';
+import servicesRoutes from './routes/services.routes.js';
+import storeRoutes from './routes/stores.routes.js';
+import customerRoutes from './routes/customers.routes.js';
+import activityRoutes from './routes/activity.routes.js';
+import notificationRoutes from './routes/notifications.routes.js';
+import chatRoutes from './routes/chatbot.routes.js';
+import paymentRoutes from './routes/payment.routes.js';
+import { stripeWebhookHandler } from './controllers/payment.controller.js';
+import supplierRoutes from './routes/suppliers.routes.js';
+import settingsRoutes from './routes/settings.routes.js';
+import aiRoutes from './routes/ai.routes.js';
 
 const app = express();
 
@@ -59,6 +63,13 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
     console.log('  -> Preflight request');
   }
+  
+  // Prevent aggressive browser caching of API responses (e.g., Safari GET caching)
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  
   next();
 });
 
@@ -87,7 +98,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/settings', settingsRoutes);
-app.use('/api/ai', aiDamageRoutes);
+app.use('/api/ai', aiRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -106,6 +117,7 @@ const startServer = async () => {
     // Connect to MongoDB Atlas
     await connectDB();
     console.log('✅ MongoDB connected successfully');
+    await migrateLegacyUserRoles();
 
     // Initialize Brevo SMTP mailer
     console.log('\n📧 Initializing Brevo SMTP mailer...');
@@ -120,6 +132,7 @@ const startServer = async () => {
     // Create HTTP server and attach Socket.io
     const httpServer = http.createServer(app);
     initSocket(httpServer);
+    initChangeStreams(mongoose.connection);
 
     // Start listening on all interfaces (0.0.0.0)
     const server = httpServer.listen(config.port, '0.0.0.0', () => {

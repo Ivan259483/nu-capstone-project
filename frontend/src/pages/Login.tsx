@@ -1,0 +1,564 @@
+import { useState, useEffect, useCallback } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Eye, EyeOff, Car, LogIn, UserPlus, Mail, Lock, User, Loader2 } from "lucide-react";
+import { signInWithPopup } from "firebase/auth";
+import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import Navbar from "@/components/Navbar";
+import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
+import { getDashboardPathForRole } from "@/lib/roles";
+import { auth, googleProvider, isFirebaseInitialized } from "@/config/firebase";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+
+/* ─────────────────────── Password validation ─────────────────────── */
+const validatePassword = (password: string) => {
+    const specialChars = '!@#$%^&*()_+-=[]{}|;:,.<>?';
+    const errors: string[] = [];
+    const requirements = {
+        length: password.length >= 8,
+        uppercase: /[A-Z]/.test(password),
+        lowercase: /[a-z]/.test(password),
+        number: /[0-9]/.test(password),
+        specialChar: new RegExp(`[${specialChars.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}]`).test(password),
+    };
+    if (!requirements.length) errors.push('At least 8 characters');
+    if (!requirements.uppercase) errors.push('One uppercase letter');
+    if (!requirements.lowercase) errors.push('One lowercase letter');
+    if (!requirements.number) errors.push('One number');
+    if (!requirements.specialChar) errors.push('One special character');
+    return { isValid: errors.length === 0, errors, requirements };
+};
+
+
+/* ═══════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════ */
+export default function Login() {
+    const { t } = useLanguage();
+    const navigate = useNavigate();
+    const { login, signup, resetPassword, user, isLoading: isAuthLoading } = useAuth();
+
+    /* ── Form state ── */
+    const [tab, setTab] = useState<"login" | "register">("login");
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
+    const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+    const [registerForm, setRegisterForm] = useState({ name: "", email: "", password: "", confirm: "", agree: false });
+    const [isLoading, setIsLoading] = useState(false);
+    const [rememberMe, setRememberMe] = useState(false);
+    const [passwordValidation, setPasswordValidation] = useState(validatePassword(""));
+    const [confirmPasswordError, setConfirmPasswordError] = useState("");
+
+    /* ── Forgot password ── */
+    const [showForgotModal, setShowForgotModal] = useState(false);
+    const [forgotEmail, setForgotEmail] = useState("");
+    const [forgotLoading, setForgotLoading] = useState(false);
+
+    const isRegister = tab === "register";
+
+    /* ── Load remembered email ── */
+    useEffect(() => {
+        const rememberedEmail = localStorage.getItem("remembered_email");
+        if (rememberedEmail) {
+            setLoginForm((current) => ({ ...current, email: rememberedEmail }));
+            setRememberMe(true);
+        }
+    }, []);
+
+    /* ── Validate password in register mode ── */
+    useEffect(() => {
+        if (isRegister) {
+            setPasswordValidation(validatePassword(registerForm.password));
+            setConfirmPasswordError(
+                registerForm.confirm && registerForm.password !== registerForm.confirm
+                    ? "Passwords do not match"
+                    : ""
+            );
+        }
+    }, [registerForm.password, registerForm.confirm, isRegister]);
+
+    /* ── Redirect helper ── */
+    const performRedirect = useCallback((role: string) => {
+        const redirectUrl = sessionStorage.getItem("redirect_after_login");
+        if (redirectUrl) {
+            sessionStorage.removeItem("redirect_after_login");
+            navigate(redirectUrl, { replace: true });
+            return;
+        }
+        navigate(getDashboardPathForRole(role), { replace: true });
+    }, [navigate]);
+
+    /* ── Redirect on auth state ── */
+    useEffect(() => {
+        if (user && !isAuthLoading) {
+            performRedirect(user.role);
+        }
+    }, [user, isAuthLoading, performRedirect]);
+
+    /* ── Social login ── */
+    const handleSocialLogin = async (providerName: "google") => {
+        if (!isFirebaseInitialized) {
+            toast.error("Firebase configuration is missing.");
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const provider = googleProvider;
+            await signInWithPopup(auth, provider);
+            toast.success("Welcome back!");
+        } catch (error: any) {
+            toast.error(error.message || "Social login failed");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    /* ── Login submit ── */
+    const handleLoginSubmit = async () => {
+        if (!loginForm.email || !loginForm.password) {
+            toast.error("Please fill in all fields.");
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const result = await login(loginForm.email, loginForm.password);
+            if (!result.success) {
+                toast.error(result.message || "Invalid credentials");
+                return;
+            }
+            if (rememberMe) localStorage.setItem("remembered_email", loginForm.email);
+            else localStorage.removeItem("remembered_email");
+            toast.success("Welcome back.");
+            if (user?.role) performRedirect(user.role);
+        } catch {
+            toast.error("Login failed");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    /* ── Register submit ── */
+    const handleRegisterSubmit = async () => {
+        if (!registerForm.name || !registerForm.email || !registerForm.password || !registerForm.confirm) {
+            toast.error("Please fill in all fields.");
+            return;
+        }
+        if (!registerForm.agree) {
+            toast.error("Please accept the Terms & Conditions.");
+            return;
+        }
+        if (!validatePassword(registerForm.password).isValid) {
+            toast.error("Please use a stronger password.");
+            return;
+        }
+        if (registerForm.password !== registerForm.confirm) {
+            toast.error("Passwords do not match.");
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const result = await signup(registerForm.email, registerForm.password, registerForm.name);
+            if (!result.success) {
+                toast.error(result.message || "Failed to create account");
+                return;
+            }
+            toast.success("Account created successfully.");
+            setTab("login");
+            setLoginForm({ email: registerForm.email, password: "" });
+            setRegisterForm({ name: "", email: "", password: "", confirm: "", agree: false });
+        } catch {
+            toast.error("Failed to create account");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    /* ── Forgot password ── */
+    const handleForgotPassword = async () => {
+        if (!forgotEmail) {
+            toast.error("Enter your email address");
+            return;
+        }
+        setForgotLoading(true);
+        try {
+            const result = await resetPassword(forgotEmail);
+            if (result.success) {
+                toast.success("Password reset email sent! Check your inbox.");
+                setShowForgotModal(false);
+                setForgotEmail("");
+            } else {
+                toast.error(result.message || "Failed to request reset");
+            }
+        } catch {
+            toast.error("Failed to request reset");
+        } finally {
+            setForgotLoading(false);
+        }
+    };
+
+
+    /* ═══════════════════════════════════════════════════════
+       RENDER
+    ═══════════════════════════════════════════════════════ */
+    return (
+        <div className="min-h-screen flex flex-col bg-background">
+            <Navbar />
+
+            {/* ── Ambient Background ── */}
+            <div className="absolute inset-0 bg-hero-pattern pointer-events-none" />
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                <div className="absolute top-1/4 -left-32 w-80 h-80 rounded-full border border-gold/5 animate-spin-slow" />
+                <div
+                    className="absolute bottom-1/4 -right-32 w-96 h-96 rounded-full border border-gold/5"
+                    style={{ animation: "spin-slow 20s linear infinite reverse" }}
+                />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-gradient-radial-gold opacity-30" />
+            </div>
+
+            {/* ── Main Content ── */}
+            <div className="flex-1 flex items-center justify-center px-6 pt-24 pb-12 relative z-10">
+                <div className="w-full max-w-md animate-scale-in">
+                    {/* Logo */}
+                    <div className="text-center mb-8">
+                        <Link to="/" className="inline-flex items-center gap-2.5 group mb-4">
+                            <div className="w-11 h-11 rounded-xl bg-gradient-gold flex items-center justify-center glow-gold group-hover:scale-110 transition-transform">
+                                <Car className="w-6 h-6 text-primary-foreground" />
+                            </div>
+                            <span className="text-2xl font-bold">
+                                <span className="gradient-text">Auto</span>
+                                <span className="text-foreground">SPF+</span>
+                            </span>
+                        </Link>
+                        <h1 className="text-2xl font-bold text-foreground mt-2">
+                            {tab === "login" ? t("login.title") : t("login.register")}
+                        </h1>
+                        <p className="text-sm text-muted-foreground mt-1">
+                            {tab === "login" ? t("login.subtitle") : t("login.registerSubtitle")}
+                        </p>
+                    </div>
+
+                    {/* ── Glass Card ── */}
+                    <div className="glass rounded-3xl p-8 border border-gold/15">
+                        {/* Tabs */}
+                        <div className="flex rounded-xl p-1 bg-muted/30 mb-8 gap-1">
+                            <button
+                                onClick={() => setTab("login")}
+                                className={cn(
+                                    "flex-1 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2",
+                                    tab === "login"
+                                        ? "bg-gradient-gold text-primary-foreground glow-gold-sm"
+                                        : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <LogIn className="w-3.5 h-3.5" />
+                                {t("login.tabLogin")}
+                            </button>
+                            <button
+                                onClick={() => setTab("register")}
+                                className={cn(
+                                    "flex-1 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2",
+                                    tab === "register"
+                                        ? "bg-gradient-gold text-primary-foreground glow-gold-sm"
+                                        : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <UserPlus className="w-3.5 h-3.5" />
+                                {t("login.tabRegister")}
+                            </button>
+                        </div>
+
+                        {/* ══════════ LOGIN FORM ══════════ */}
+                        {tab === "login" && (
+                            <div className="space-y-4 animate-slide-up">
+                                {/* Email */}
+                                <div>
+                                    <Label className="text-sm text-muted-foreground mb-1.5 block">{t("login.email")}</Label>
+                                    <div className="relative">
+                                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                        <Input
+                                            type="email"
+                                            value={loginForm.email}
+                                            onChange={(e) => setLoginForm((f) => ({ ...f, email: e.target.value }))}
+                                            placeholder="your@email.com"
+                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Password */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <Label className="text-sm text-muted-foreground">{t("login.password")}</Label>
+                                        <button
+                                            onClick={() => setShowForgotModal(true)}
+                                            className="text-xs text-primary hover:text-accent transition-colors"
+                                        >
+                                            {t("login.forgotPassword")}
+                                        </button>
+                                    </div>
+                                    <div className="relative">
+                                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                        <Input
+                                            type={showPassword ? "text" : "password"}
+                                            value={loginForm.password}
+                                            onChange={(e) => setLoginForm((f) => ({ ...f, password: e.target.value }))}
+                                            placeholder="••••••••"
+                                            className="pl-9 pr-9 bg-muted/40 border-border focus:border-primary"
+                                            onKeyDown={(e) => e.key === "Enter" && handleLoginSubmit()}
+                                        />
+                                        <button
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                        >
+                                            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Remember me */}
+                                <label className="flex items-center gap-2 cursor-pointer group">
+                                    <div
+                                        onClick={() => setRememberMe(!rememberMe)}
+                                        className={cn(
+                                            "w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all",
+                                            rememberMe ? "bg-gradient-gold border-gold" : "border-border group-hover:border-gold/40"
+                                        )}
+                                    >
+                                        {rememberMe && <span className="text-primary-foreground text-[10px] font-bold leading-none">✓</span>}
+                                    </div>
+                                    <span className="text-xs text-muted-foreground">Remember me</span>
+                                </label>
+
+                                {/* Submit */}
+                                <Button
+                                    onClick={handleLoginSubmit}
+                                    className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold mt-2 group"
+                                    disabled={!loginForm.email || !loginForm.password || isLoading}
+                                >
+                                    {isLoading ? (
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    ) : (
+                                        <LogIn className="w-4 h-4 mr-2 group-hover:translate-x-0.5 transition-transform" />
+                                    )}
+                                    {isLoading ? "Signing in..." : t("login.signIn")}
+                                </Button>
+
+                                {/* Divider */}
+                                <div className="relative my-4">
+                                    <div className="absolute inset-0 flex items-center">
+                                        <div className="w-full border-t border-border" />
+                                    </div>
+                                    <div className="relative flex justify-center text-xs text-muted-foreground bg-transparent">
+                                        <span className="bg-card px-2">{t("login.orContinueWith")}</span>
+                                    </div>
+                                </div>
+
+                                {/* Google Sign-in */}
+                                <Button
+                                    variant="outline"
+                                    onClick={() => handleSocialLogin("google")}
+                                    disabled={isLoading}
+                                    className="w-full relative overflow-hidden bg-background/50 border-border text-white text-xs hover:text-white transition-all duration-300 rounded-lg group hover:border-[#4285F4]/30 hover:shadow-[0_0_15px_rgba(66,133,244,0.15)]"
+                                >
+                                    {/* Google-inspired accent glow */}
+                                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-r from-[#4285F4]/10 via-[#EA4335]/10 via-[#FBBC05]/10 to-[#34A853]/10" />
+                                    
+                                    <div className="relative flex items-center justify-center gap-2.5">
+                                        <svg className="w-4 h-4" viewBox="0 0 24 24">
+                                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
+                                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                                        </svg>
+                                        <span className="font-medium tracking-wide">Continue with Google</span>
+                                    </div>
+                                </Button>
+                            </div>
+                        )}
+
+                        {/* ══════════ REGISTER FORM ══════════ */}
+                        {tab === "register" && (
+                            <div className="space-y-4 animate-slide-up">
+                                {/* Full Name */}
+                                <div>
+                                    <Label className="text-sm text-muted-foreground mb-1.5 block">{t("login.fullName")}</Label>
+                                    <div className="relative">
+                                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                        <Input
+                                            value={registerForm.name}
+                                            onChange={(e) => setRegisterForm((f) => ({ ...f, name: e.target.value }))}
+                                            placeholder="Juan dela Cruz"
+                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Email */}
+                                <div>
+                                    <Label className="text-sm text-muted-foreground mb-1.5 block">{t("login.email")}</Label>
+                                    <div className="relative">
+                                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                        <Input
+                                            type="email"
+                                            value={registerForm.email}
+                                            onChange={(e) => setRegisterForm((f) => ({ ...f, email: e.target.value }))}
+                                            placeholder="your@email.com"
+                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Password */}
+                                <div>
+                                    <Label className="text-sm text-muted-foreground mb-1.5 block">{t("login.password")}</Label>
+                                    <div className="relative">
+                                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                        <Input
+                                            type={showPassword ? "text" : "password"}
+                                            value={registerForm.password}
+                                            onChange={(e) => setRegisterForm((f) => ({ ...f, password: e.target.value }))}
+                                            placeholder="••••••••"
+                                            className="pl-9 pr-9 bg-muted/40 border-border focus:border-primary"
+                                        />
+                                        <button
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                        >
+                                            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                        </button>
+                                    </div>
+                                    {/* Password strength indicators */}
+                                    {registerForm.password && (
+                                        <div className="mt-2 space-y-1">
+                                            {Object.entries(passwordValidation.requirements).map(([key, met]) => (
+                                                <div key={key} className="flex items-center gap-1.5 text-[10px]">
+                                                    <div className={cn(
+                                                        "w-1.5 h-1.5 rounded-full transition-colors",
+                                                        met ? "bg-emerald-500" : "bg-muted-foreground/30"
+                                                    )} />
+                                                    <span className={cn(
+                                                        "transition-colors",
+                                                        met ? "text-emerald-400" : "text-muted-foreground"
+                                                    )}>
+                                                        {key === "length" && "8+ characters"}
+                                                        {key === "uppercase" && "Uppercase letter"}
+                                                        {key === "lowercase" && "Lowercase letter"}
+                                                        {key === "number" && "Number"}
+                                                        {key === "specialChar" && "Special character"}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Confirm Password */}
+                                <div>
+                                    <Label className="text-sm text-muted-foreground mb-1.5 block">{t("login.confirmPassword")}</Label>
+                                    <div className="relative">
+                                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                        <Input
+                                            type={showConfirm ? "text" : "password"}
+                                            value={registerForm.confirm}
+                                            onChange={(e) => setRegisterForm((f) => ({ ...f, confirm: e.target.value }))}
+                                            placeholder="••••••••"
+                                            className={cn(
+                                                "pl-9 pr-9 bg-muted/40 border-border focus:border-primary",
+                                                confirmPasswordError && "border-destructive"
+                                            )}
+                                        />
+                                        <button
+                                            onClick={() => setShowConfirm(!showConfirm)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                        >
+                                            {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                        </button>
+                                    </div>
+                                    {confirmPasswordError && (
+                                        <p className="text-xs text-destructive mt-1">{confirmPasswordError}</p>
+                                    )}
+                                </div>
+
+                                {/* Terms */}
+                                <label className="flex items-start gap-2.5 cursor-pointer group">
+                                    <div
+                                        onClick={() => setRegisterForm((f) => ({ ...f, agree: !f.agree }))}
+                                        className={cn(
+                                            "w-4 h-4 rounded border mt-0.5 flex items-center justify-center shrink-0 transition-all",
+                                            registerForm.agree ? "bg-gradient-gold border-gold" : "border-border group-hover:border-gold/40"
+                                        )}
+                                    >
+                                        {registerForm.agree && <span className="text-primary-foreground text-[10px] font-bold leading-none">✓</span>}
+                                    </div>
+                                    <span className="text-xs text-muted-foreground">{t("login.agreeTerms")}</span>
+                                </label>
+
+                                {/* Submit */}
+                                <Button
+                                    onClick={handleRegisterSubmit}
+                                    className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold mt-2 group"
+                                    disabled={!registerForm.name || !registerForm.email || !registerForm.password || !registerForm.agree || isLoading}
+                                >
+                                    {isLoading ? (
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    ) : (
+                                        <UserPlus className="w-4 h-4 mr-2" />
+                                    )}
+                                    {isLoading ? "Creating account..." : t("login.register")}
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Back to home */}
+                    <p className="text-center text-sm text-muted-foreground mt-6">
+                        <Link to="/" className="text-primary hover:text-accent transition-colors">
+                            ← {t("nav.home")}
+                        </Link>
+                    </p>
+                </div>
+            </div>
+
+            {/* ═══════════════ Forgot Password Modal ═══════════════ */}
+            <Dialog open={showForgotModal} onOpenChange={setShowForgotModal}>
+                <DialogContent className="glass border-gold/15 sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="text-foreground">Reset Password</DialogTitle>
+                        <DialogDescription className="text-muted-foreground">
+                            Enter your email address and we'll send you a link to reset your password.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 mt-2">
+                        <div className="relative">
+                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <Input
+                                type="email"
+                                value={forgotEmail}
+                                onChange={(e) => setForgotEmail(e.target.value)}
+                                placeholder="your@email.com"
+                                className="pl-9 bg-muted/40 border-border focus:border-primary"
+                                onKeyDown={(e) => e.key === "Enter" && handleForgotPassword()}
+                            />
+                        </div>
+                        <Button
+                            onClick={handleForgotPassword}
+                            className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold"
+                            disabled={!forgotEmail || forgotLoading}
+                        >
+                            {forgotLoading ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                                <Mail className="w-4 h-4 mr-2" />
+                            )}
+                            {forgotLoading ? "Sending..." : "Send Reset Link"}
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+}

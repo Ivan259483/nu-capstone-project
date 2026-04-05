@@ -37,7 +37,7 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
   corsOrigin: process.env.CORS_ORIGIN 
     ? process.env.CORS_ORIGIN.split(',') 
-    : ['http://localhost:5173', 'http://192.168.18.94:5173', 'http://192.168.18.94:3000'],
+    : ['http://localhost:5173', 'http://192.168.18.94:5173', 'http://192.168.18.94:3000', 'http://192.168.18.165:5173', 'http://192.168.18.165:3001', 'http://192.168.18.165:8081'],
 
   // Email Configuration
   emailProvider: determineEmailProvider(),

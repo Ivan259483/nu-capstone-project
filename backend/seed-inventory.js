@@ -1,8 +1,8 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import Product from './models/Product.js';
-import Category from './models/Category.js';
-import Supplier from './models/Supplier.js';
+import Product from './models/product.model.js';
+import Category from './models/category.model.js';
+import Supplier from './models/supplier.model.js';
 
 dotenv.config();
 

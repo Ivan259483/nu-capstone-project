@@ -3,8 +3,8 @@ import bcrypt from 'bcryptjs';
 import { config } from './config/environment.js';
 
 // Import models
-import User from './models/User.js';
-import Service from './models/Service.js';
+import User from './models/user.model.js';
+import Service from './models/service.model.js';
 
 /**
  * Seed Script for AutoSPF+ Local Database
@@ -46,7 +46,7 @@ const seedDatabase = async () => {
         name: 'Admin User',
         email: 'admin@test.com',
         password: hashedPassword,
-        role: 'admin',
+        role: 'administrator',
         isVerified: true,
         isActive: true,
         loginAttempts: 0,
