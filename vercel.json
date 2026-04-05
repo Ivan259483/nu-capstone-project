@@ -30,8 +30,15 @@
             }
         },
         {
-            "src": "/(.*)",
+            "src": "/(.*\\..*)",
             "dest": "frontend/$1"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "frontend/index.html",
+            "headers": {
+                "Cache-Control": "no-cache, no-store, must-revalidate"
+            }
         }
     ],
     "env": {
