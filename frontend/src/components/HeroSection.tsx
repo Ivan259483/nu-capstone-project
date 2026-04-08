@@ -77,17 +77,6 @@ export default function HeroSection() {
                 />
             </div>
 
-            {/* Thin diagonal gold hairline */}
-            <div 
-                className="hidden lg:block absolute top-[-10%] bottom-[-10%] z-10 pointer-events-none"
-                style={{
-                    left: "35%",
-                    width: "1px",
-                    background: "rgba(240,165,0,0.4)",
-                    transform: "rotate(4deg)",
-                    transformOrigin: "center"
-                }}
-            />
 
             {/* Content Container */}
             <div className="container max-w-7xl mx-auto px-6 relative z-20 h-full flex flex-col lg:flex-row pt-32 pb-20 lg:py-0">
