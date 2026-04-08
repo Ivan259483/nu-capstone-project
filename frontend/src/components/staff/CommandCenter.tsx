@@ -58,11 +58,19 @@ export function CommandCenter({
                     </div>
                     <div>
                         <p style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Vehicle</p>
-                        <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{activeJob.vehicleInfo || 'N/A'}</p>
+                        <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+                            {[
+                                (activeJob as any).vehicleType || activeJob.vehicleMake,
+                                activeJob.vehicleModel,
+                                (activeJob as any).plateNumber || activeJob.vehiclePlate
+                            ].filter(Boolean).join(' - ') || activeJob.vehicleInfo || 'N/A'}
+                        </p>
                     </div>
                     <div>
                         <p style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Service</p>
-                        <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--accent)' }}>{activeJob.serviceName}</p>
+                        <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--accent)' }}>
+                            {(activeJob as any).serviceCategory || activeJob.jobOrder?.serviceCategory || activeJob.serviceType || activeJob.serviceName || 'N/A'}
+                        </p>
                     </div>
                 </div>
                 {/* Ingress Checklist */}

@@ -185,15 +185,15 @@ export const authService = {
     }
 
     const authPayload = await exchangeTokenForLogin(firebaseUser, email, password);
+    await persistSession(authPayload.token, authPayload.user);
 
     let syncedUser = authPayload.user;
     try {
       syncedUser = await syncUserWithMongo(firebaseUser, authPayload.user);
+      await persistSession(authPayload.token, syncedUser);
     } catch (error) {
       console.warn('Mongo user sync failed during login:', getApiErrorMessage(error));
     }
-
-    await persistSession(authPayload.token, syncedUser);
 
     return {
       firebaseUser,
@@ -225,15 +225,15 @@ export const authService = {
       email,
       password
     );
+    await persistSession(authPayload.token, authPayload.user);
 
     let syncedUser = authPayload.user;
     try {
       syncedUser = await syncUserWithMongo(firebaseUser, authPayload.user);
+      await persistSession(authPayload.token, syncedUser);
     } catch (error) {
       console.warn('Mongo user sync failed during registration:', getApiErrorMessage(error));
     }
-
-    await persistSession(authPayload.token, syncedUser);
 
     return {
       firebaseUser,
@@ -257,15 +257,15 @@ export const authService = {
     }
 
     const authPayload = await socialLogin(firebaseUser);
+    await persistSession(authPayload.token, authPayload.user);
 
     let syncedUser = authPayload.user;
     try {
       syncedUser = await syncUserWithMongo(firebaseUser, authPayload.user);
+      await persistSession(authPayload.token, syncedUser);
     } catch (error) {
       console.warn('Mongo user sync failed during bootstrap:', getApiErrorMessage(error));
     }
-
-    await persistSession(authPayload.token, syncedUser);
 
     return {
       token: authPayload.token,

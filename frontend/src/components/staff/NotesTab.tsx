@@ -14,6 +14,26 @@ interface NotesTabProps {
 }
 
 export function NotesTab({ activeJob, newNote, setNewNote, handleSaveNote, customerNotes }: NotesTabProps) {
+    // Merge backend staff notes with local legacy notes
+    const backendNotes = activeJob?.staffNotes || [];
+    const localNotes = customerNotes.filter(n => n.jobId === (activeJob?.id || (activeJob as any)?._id));
+    
+    // Convert to a unified format for rendering
+    const allNotes = [
+        ...backendNotes.map((n: any) => ({
+            id: n._id || String(Date.now() + Math.random()),
+            content: n.content,
+            author: n.detailerName || `Staff ${n.detailerId}`,
+            time: n.timestamp
+        })),
+        ...localNotes.map(n => ({
+            id: n.id,
+            content: n.content,
+            author: `Staff ${n.detailerId}`,
+            time: n.createdAt
+        }))
+    ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
     return (
         <motion.div key="notes" variants={pageVariants} initial="initial" animate="animate" exit="exit">
             <motion.div className="glass-panel" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
@@ -44,16 +64,18 @@ export function NotesTab({ activeJob, newNote, setNewNote, handleSaveNote, custo
                         <h4 style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
                             Recent Notes
                         </h4>
-                        {customerNotes.filter(n => n.jobId === (activeJob?.id || (activeJob as any)?._id)).length === 0 ? (
+                        {!activeJob ? (
+                            <p style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>Please start a job to view or add notes.</p>
+                        ) : allNotes.length === 0 ? (
                             <p style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No notes for this job yet.</p>
                         ) : (
                             <motion.div variants={staggerContainer} initial="initial" animate="animate" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {customerNotes.filter(n => n.jobId === (activeJob?.id || (activeJob as any)?._id)).map(note => (
+                                {allNotes.map(note => (
                                     <motion.div key={note.id} variants={staggerItem} className="queue-card" whileHover={cardHover} style={{ padding: 14 }}>
                                         <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{note.content}</p>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 8 }}>
-                                            <span>Staff {note.detailerId}</span>
-                                            <span>{new Date(note.createdAt).toLocaleString()}</span>
+                                            <span>{note.author}</span>
+                                            <span>{new Date(note.time).toLocaleString()}</span>
                                         </div>
                                     </motion.div>
                                 ))}

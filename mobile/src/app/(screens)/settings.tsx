@@ -220,7 +220,7 @@ export default function SettingsScreen() {
               sub="Manage your registered vehicles"
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push('/(tabs)/book');
+                router.push('/(customer)/book');
               }}
             />
           </View>

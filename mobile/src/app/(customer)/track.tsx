@@ -621,6 +621,20 @@ export default function TrackScreen() {
   const detailer = booking?.assignedDetailer;
   const pastBookings = allBookings.filter((b) => ['completed', 'cancelled'].includes(b.status));
 
+  const trackTitle = (booking?.vehicleType && booking?.vehicleColor)
+    ? `${booking.vehicleType} • ${booking.vehicleColor}`
+    : (booking?.customerName && booking?.serviceName)
+    ? `${booking.customerName} - ${booking.serviceName}`
+    : booking?.vehicleModel
+    ? booking.vehicleModel
+    : booking?.vehiclePlate || 'Vehicle Service';
+
+  const trackSubTitle = booking?.orderNumber
+    ? `Order #${booking.orderNumber}`
+    : booking?.serviceName
+    ? booking.serviceName
+    : 'Active Order';
+
   return (
     <View style={s.screen}>
       <AnimatedHeader />
@@ -662,7 +676,7 @@ export default function TrackScreen() {
                 activeOpacity={0.85}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  router.push('/(tabs)/book');
+                  router.push('/(customer)/book');
                 }}
               >
                 <Text style={s.emptyBtnText}>Book a Service</Text>
@@ -698,10 +712,10 @@ export default function TrackScreen() {
                   <View style={s.pcHeader}>
                     <View style={{ flex: 1 }}>
                       <Text style={s.pcServiceName}>
-                        {booking.vehiclePlate || 'Toyota Fortuner'}
+                        {trackTitle}
                       </Text>
                       <Text style={s.pcOrderId}>
-                        {booking.orderNumber || `#${(booking.id || '').substring(0, 8).toUpperCase()}`} · 2022 Model · Black
+                        {trackSubTitle}
                       </Text>
                     </View>
                     <View style={s.pcEstDoneWrap}>

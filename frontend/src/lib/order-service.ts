@@ -84,6 +84,23 @@ const normalizeBooking = (raw: any): Booking => {
         customerStatusUpdatedAt: raw?.customerStatusUpdatedAt,
         serviceSteps: raw?.serviceSteps,
         currentStepIndex: raw?.currentStepIndex,
+        // Workflow pipeline
+        workflowStep: raw?.workflowStep,
+        workflowCompletedSteps: raw?.workflowCompletedSteps,
+        jobOrder: raw?.jobOrder,
+        ingressChecklist: raw?.ingressChecklist,
+        damageAnnotations: raw?.damageAnnotations,
+        damagePhotos: raw?.damagePhotos,
+        damageCompletedAt: raw?.damageCompletedAt,
+        customerWaiver: raw?.customerWaiver,
+        serviceProper: raw?.serviceProper,
+        qcChecklist: raw?.qcChecklist,
+        qcCompletedAt: raw?.qcCompletedAt,
+        egressData: raw?.egressData,
+        operationsChecklist: raw?.operationsChecklist,
+        warrantyAndReceipt: raw?.warrantyAndReceipt,
+        staffNotes: raw?.staffNotes,
+        photos: raw?.photos,
     } as Booking;
 };
 
@@ -255,6 +272,13 @@ export const OrderService = {
      */
     async getDetailerOrders() {
         const response = await api.get('/bookings/detailer/my-orders');
+        // Normalize: backend may return raw Mongoose docs with _id but no id
+        if (response.data?.success && Array.isArray(response.data.data)) {
+            response.data.data = response.data.data.map((order: any) => ({
+                ...order,
+                id: order.id || order._id,
+            }));
+        }
         return response.data;
     },
 
@@ -327,6 +351,35 @@ export const OrderService = {
     },
 
     /**
+     * Add a note to the order (for service staff).
+     * @param {string} orderId - The order ID.
+     * @param {string} content - The note text.
+     */
+    async addNote(orderId: string, content: string) {
+        const response = await api.patch(`/bookings/${orderId}/notes`, { content });
+        if (response.data.success && response.data.data) {
+            // We just update firestore blindly to cause UI reload
+            this.syncBookingToFirestore({ id: orderId, staffNotes: response.data.data.staffNotes } as any).catch(console.error);
+        }
+        return response.data;
+    },
+
+    /**
+     * Add a before/after photo to the order (for service staff).
+     * @param {string} orderId - The order ID.
+     * @param {'before' | 'after'} phase - The photo phase.
+     * @param {string} photoUrl - The photo data URL or external URL.
+     */
+    async addPhoto(orderId: string, phase: 'before' | 'after', photoUrl: string) {
+        const response = await api.patch(`/bookings/${orderId}/photos`, { phase, photoUrl });
+        if (response.data.success && response.data.data) {
+            // We just update firestore blindly to cause UI reload
+            this.syncBookingToFirestore({ id: orderId, photos: response.data.data.photos } as any).catch(console.error);
+        }
+        return response.data;
+    },
+
+    /**
      * Archive stale bookings with missing labels or processing status.
      */
     async cleanupStaleBookings() {
@@ -357,6 +410,22 @@ export const OrderService = {
             archivedAt: new Date().toISOString(),
             archivedReason: 'customer_pickup_confirmed'
         });
+        return response.data;
+    },
+
+    /**
+     * Update a workflow step with strict locking.
+     * @param orderId - The target order ID.
+     * @param step - Step number (1-7).
+     * @param data - Step-specific payload.
+     */
+    async updateWorkflowStep(orderId: string, step: number, data: any) {
+        const response = await api.patch(`/bookings/${orderId}/workflow`, { step, data });
+        if (response.data.success && response.data.data) {
+            const booking = { ...response.data.data };
+            booking.id = booking._id || booking.id;
+            this.syncBookingToFirestore(booking).catch(console.error);
+        }
         return response.data;
     },
 

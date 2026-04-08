@@ -218,7 +218,7 @@ export default function AppointmentsScreen() {
         </TouchableOpacity>
         <Text style={s.headerTitle}>My Appointments</Text>
         <TouchableOpacity
-          onPress={() => router.push('/(tabs)/book')}
+          onPress={() => router.push('/(customer)/book')}
           style={s.addBtn}
         >
           <Ionicons name="add" size={18} color={ACCENT} />
@@ -321,7 +321,7 @@ export default function AppointmentsScreen() {
                 <TouchableOpacity
                   style={s.emptyBtn}
                   activeOpacity={0.88}
-                  onPress={() => router.push('/(tabs)/book')}
+                  onPress={() => router.push('/(customer)/book')}
                 >
                   <Ionicons name="add-circle" size={18} color={BLACK} />
                   <Text style={s.emptyBtnText}>Book a Service</Text>
@@ -336,7 +336,7 @@ export default function AppointmentsScreen() {
             index={index}
             onPress={(id) => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push('/(tabs)/track');
+              router.push('/(customer)/track');
             }}
           />
         )}

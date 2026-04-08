@@ -69,6 +69,19 @@ export interface BookingRecord {
   notes?: string;
   vehiclePlate?: string;
   createdAt?: string;
+  workflow?: {
+    currentStep: number;
+    completedSteps: number[];
+    status: string;
+  };
+  jobOrder?: any;
+  ingressChecklist?: any;
+  customerWaiver?: any;
+  damageAnnotations?: any[];
+  damagePhotos?: string[];
+  serviceProper?: any;
+  qcChecklist?: any[];
+  egressData?: any;
   [key: string]: unknown;
 }
 

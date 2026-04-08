@@ -117,5 +117,24 @@ export const bookingService = {
     );
     return normalizeBooking(response.data.data);
   },
+
+  /**
+   * Update the Mobile App specific 9-Step Operations Workflow state.
+   * Preserves backend sequence logic securely.
+   */
+  async updateMobileWorkflow(
+    bookingId: string,
+    payload: {
+      workflow?: { currentStep: number; completedSteps: number[]; status: string };
+      step?: number;
+      stepData?: any;
+    }
+  ): Promise<BookingRecord> {
+    const response = await apiClient.patch<ApiEnvelope<any>>(
+      `/bookings/${bookingId}/mobile-workflow`,
+      payload
+    );
+    return normalizeBooking(response.data.data);
+  },
 };
 

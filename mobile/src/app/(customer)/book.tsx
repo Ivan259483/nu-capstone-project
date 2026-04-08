@@ -577,7 +577,7 @@ export default function BookScreen() {
                 icon="navigate-outline"
                 onPress={() => {
                   reset();
-                  router.push('/(tabs)/track');
+                  router.push('/(customer)/track');
                 }}
               />
               <PremiumButton

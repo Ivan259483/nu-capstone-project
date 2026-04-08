@@ -195,7 +195,7 @@ export default function HomeScreen() {
     {
       icon: 'calendar-outline' as const,
       label: 'Book Service',
-      onPress: () => { Haptics.selectionAsync(); router.push('/(tabs)/book'); },
+      onPress: () => { Haptics.selectionAsync(); router.push('/(customer)/book'); },
     },
     {
       icon: 'list-outline' as const,

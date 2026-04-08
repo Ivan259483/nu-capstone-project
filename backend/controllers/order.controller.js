@@ -315,12 +315,23 @@ export const cleanupStaleBookings = async (req, res, next) => {
  */
 export const getActiveJobs = async (req, res, next) => {
   try {
-    const query = {
-      status: { $in: ['assigned', 'processing', 'in-progress'] }
+    let query = {
+      status: { $in: ['pending', 'confirmed', 'assigned', 'processing', 'in-progress'] }
     };
 
     if (isServiceStaffRole(req.user.role)) {
-      query.assignedDetailer = req.user.id;
+      // Service staff sees their assigned jobs PLUS unassigned pending jobs
+      query = {
+        $or: [
+          { assignedDetailer: req.user.id, status: { $in: ['assigned', 'processing', 'in-progress'] } },
+          {
+            $and: [
+              { $or: [{ assignedDetailer: null }, { assignedDetailer: { $exists: false } }] },
+              { status: { $in: ['pending', 'confirmed'] } }
+            ]
+          }
+        ]
+      };
     } else if (!isBookingManagerRole(req.user.role)) {
       return res.status(403).json({
         success: false,
@@ -881,8 +892,16 @@ export const updateOrder = async (req, res, next) => {
       });
     }
 
-    // Check ownership or admin status
-    if (!order.customer || (order.customer.toString() !== req.user.id && !isBookingManagerRole(req.user.role))) {
+    // Check ownership, assigned detailer, or admin status
+    const isOwner = order.customer && order.customer.toString() === req.user.id;
+    const isAdmin = isBookingManagerRole(req.user.role);
+    const assignedDetailerId = order.assignedDetailer
+      ? (typeof order.assignedDetailer === 'object' ? order.assignedDetailer._id?.toString() : order.assignedDetailer.toString())
+      : null;
+    const isAssignedDetailer = isServiceStaffRole(req.user.role) && assignedDetailerId === req.user.id;
+    const isClaimingUnassigned = isServiceStaffRole(req.user.role) && !assignedDetailerId && ['pending', 'confirmed'].includes(order.status);
+
+    if (!isOwner && !isAdmin && !isAssignedDetailer && !isClaimingUnassigned) {
       return res.status(403).json({
         success: false,
         message: 'Access denied: You can only update your own bookings',
@@ -1622,13 +1641,39 @@ export const updateCustomerStatus = async (req, res, next) => {
  */
 export const getDetailerOrders = async (req, res, next) => {
   try {
-    const orders = await Order.find({ assignedDetailer: req.user.id })
+    console.log('📋 [DETAILER_ORDERS] Fetching for detailer:', req.user.id, req.user.name || req.user.email);
+
+    // Single query: assigned to me OR unassigned pending/confirmed
+    const orders = await Order.find({
+      archived: { $ne: true },
+      $or: [
+        { assignedDetailer: req.user.id },
+        {
+          $and: [
+            { $or: [
+              { assignedDetailer: null },
+              { assignedDetailer: { $exists: false } }
+            ]},
+            { status: { $in: ['pending', 'confirmed'] } }
+          ]
+        }
+      ]
+    })
       .populate('customer', 'name email phone')
       .populate('assignedDetailer', 'name email')
       .sort({ createdAt: -1 });
 
+    console.log('📋 [DETAILER_ORDERS] Total orders returned:', orders.length);
+    console.log('📋 [DETAILER_ORDERS] Breakdown:', {
+      assigned: orders.filter(o => o.assignedDetailer && o.assignedDetailer._id?.toString() === req.user.id).length,
+      unassigned_pending: orders.filter(o => !o.assignedDetailer && o.status === 'pending').length,
+      unassigned_confirmed: orders.filter(o => !o.assignedDetailer && o.status === 'confirmed').length,
+      statuses: [...new Set(orders.map(o => o.status))],
+    });
+
     res.json({ success: true, data: orders });
   } catch (error) {
+    console.error('❌ [DETAILER_ORDERS] Error:', error.message);
     next(error);
   }
 };
@@ -1826,6 +1871,291 @@ export const updateWarrantyReceipt = async (req, res, next) => {
         warrantyAndReceipt: order.warrantyAndReceipt
       }
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Add a note to the order's staffNotes array
+ */
+export const addOrderNote = async (req, res, next) => {
+  try {
+    const { content } = req.body;
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (!content) {
+      return res.status(400).json({ success: false, message: 'Note content is required' });
+    }
+
+    if (!order.staffNotes) {
+      order.staffNotes = [];
+    }
+
+    order.staffNotes.push({
+      content,
+      detailerId: req.user.id,
+      detailerName: req.user.name || 'Staff Member',
+    });
+
+    await order.save();
+
+    // Log the action
+    logActivity({
+      req,
+      type: 'system',
+      module: 'Service',
+      action: 'Note Added',
+      description: `${req.user.name || 'Staff Member'} added a note to order ${order.orderNumber}.`,
+      status: 'success',
+      referenceId: order._id,
+      metadata: { role: req.user.role }
+    });
+
+    res.json({
+      success: true,
+      data: { staffNotes: order.staffNotes }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Add a photo to the order's photos array (before/after)
+ */
+export const addOrderPhoto = async (req, res, next) => {
+  try {
+    const { phase, photoUrl } = req.body; // phase: 'before' or 'after'
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (!photoUrl) {
+      return res.status(400).json({ success: false, message: 'Photo URL/Data is required' });
+    }
+
+    if (phase !== 'before' && phase !== 'after') {
+      return res.status(400).json({ success: false, message: 'Phase must be "before" or "after"' });
+    }
+
+    if (!order.photos) {
+      order.photos = { before: [], after: [] };
+    }
+
+    order.photos[phase].push(photoUrl);
+
+    await order.save();
+    
+    // Log the action
+    logActivity({
+      req,
+      type: 'system',
+      module: 'Service',
+      action: 'Photo Uploaded',
+      description: `${req.user.name || 'Staff Member'} uploaded a ${phase} photo to order ${order.orderNumber}.`,
+      status: 'success',
+      referenceId: order._id,
+      metadata: { role: req.user.role, phase }
+    });
+
+    res.json({
+      success: true,
+      data: { photos: order.photos }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Update a specific workflow step for an order.
+ * Strict step-locking: step N+1 cannot be saved unless step N is completed.
+ * PATCH /api/orders/:id/workflow
+ */
+export const updateWorkflowStep = async (req, res, next) => {
+  try {
+    const { step, data } = req.body;
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (!step || step < 1 || step > 7) {
+      return res.status(400).json({ success: false, message: 'Invalid step number (1-7)' });
+    }
+
+    // Strict step-locking: all previous steps must be completed
+    const completedSteps = order.workflowCompletedSteps || [];
+    for (let i = 1; i < step; i++) {
+      if (!completedSteps.includes(i)) {
+        return res.status(403).json({
+          success: false,
+          message: `Step ${i} must be completed before step ${step} can be saved.`,
+          requiredStep: i,
+        });
+      }
+    }
+
+    const STEP_FIELD_MAP = {
+      1: 'jobOrder',
+      2: 'ingressChecklist',
+      3: null, // handled specially (damageAnnotations + damagePhotos)
+      4: 'customerWaiver',
+      5: 'serviceProper',
+      6: null, // handled specially (qcChecklist)
+      7: 'egressData',
+    };
+
+    const now = new Date();
+    const userId = req.user?._id || req.user?.id;
+
+    // Apply step-specific data
+    switch (step) {
+      case 1:
+        order.jobOrder = { ...(order.jobOrder || {}), ...data, completedAt: now, completedBy: userId };
+        // Also sync top-level fields
+        if (data.vehicleModel) order.vehicleModel = data.vehicleModel;
+        if (data.vehicleYear) order.vehicleYear = data.vehicleYear;
+        if (data.vehicleColor) order.vehicleColor = data.vehicleColor;
+        if (data.vehiclePlate) order.vehiclePlate = data.vehiclePlate;
+        if (data.customerName) order.customerName = data.customerName;
+        if (data.serviceCategory) order.serviceType = data.serviceCategory;
+        break;
+
+      case 2:
+        order.ingressChecklist = { ...(order.ingressChecklist || {}), ...data, completedAt: now, completedBy: userId };
+        break;
+
+      case 3:
+        if (data.annotations) order.damageAnnotations = data.annotations;
+        if (data.photos) order.damagePhotos = data.photos;
+        order.damageCompletedAt = now;
+        break;
+
+      case 4:
+        order.customerWaiver = { ...(order.customerWaiver || {}), ...data, completedAt: now };
+        break;
+
+      case 5:
+        order.serviceProper = { ...(order.serviceProper || {}), ...data, completedAt: now, completedBy: userId };
+        break;
+
+      case 6:
+        if (data.items) order.qcChecklist = data.items;
+        order.qcCompletedAt = now;
+        break;
+
+      case 7:
+        order.egressData = { ...(order.egressData || {}), ...data, completedAt: now, completedBy: userId };
+        if (data.releaseTimestamp) {
+          order.status = 'completed';
+          order.customerStatus = 'ready';
+          order.customerStatusUpdatedAt = now;
+        }
+        break;
+    }
+
+    // Mark step as completed
+    if (!order.workflowCompletedSteps) order.workflowCompletedSteps = [];
+    if (!order.workflowCompletedSteps.includes(step)) {
+      order.workflowCompletedSteps.push(step);
+    }
+    order.workflowStep = Math.max(order.workflowStep || 0, step);
+
+    await order.save();
+
+    // Log activity
+    const STEP_LABELS = ['', 'Job Order', 'Ingress Checklist', 'Damage Annotation', 'Customer Waiver', 'Service Proper', 'QC Checklist', 'Egress Release'];
+    logActivity({
+      req,
+      type: 'system',
+      module: 'Workflow',
+      action: `Step ${step} Completed`,
+      description: `${req.user?.name || 'Staff'} completed "${STEP_LABELS[step]}" for order ${order.orderNumber}.`,
+      status: 'success',
+      referenceId: order._id,
+      metadata: { step, stepLabel: STEP_LABELS[step] },
+    });
+
+    res.json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Mobile-Specific Workflow Updater
+ * Handles the 9-step operations flow securely.
+ * PATCH /api/orders/:id/mobile-workflow
+ */
+export const updateMobileWorkflow = async (req, res, next) => {
+  try {
+    const { workflow, stepData, step } = req.body;
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // 1. Update the generic Mobile Workflow state
+    if (workflow) {
+      if (!order.workflow) order.workflow = {};
+      
+      if (typeof workflow.currentStep === 'number') {
+        order.workflow.currentStep = workflow.currentStep;
+      }
+      if (Array.isArray(workflow.completedSteps)) {
+        order.workflow.completedSteps = workflow.completedSteps;
+      }
+      if (typeof workflow.status === 'string') {
+        order.workflow.status = workflow.status;
+      }
+    }
+
+    const now = new Date();
+    const userId = req.user?._id || req.user?.id;
+
+    // 2. Map payload (if provided) directly into the MongoDB document exactly like the desktop site
+    if (step && stepData) {
+      switch (step) {
+        case 2: // Ingress
+          order.ingressChecklist = { ...(order.ingressChecklist || {}), ...stepData, completedAt: now, completedBy: userId };
+          break;
+        case 3: // Service Terms
+          order.customerWaiver = { ...(order.customerWaiver || {}), ...stepData, completedAt: now };
+          break;
+        case 4: // Damage Annotation
+          if (stepData.annotations) order.damageAnnotations = stepData.annotations;
+          if (stepData.photos) order.damagePhotos = stepData.photos;
+          order.damageCompletedAt = now;
+          break;
+        case 5: // Job Order
+          order.jobOrder = { ...(order.jobOrder || {}), ...stepData, completedAt: now, completedBy: userId };
+          break;
+        case 6: // Live Progress
+          order.serviceProper = { ...(order.serviceProper || {}), ...stepData, completedAt: now, completedBy: userId };
+          break;
+        case 7: // QC
+          if (stepData.items) order.qcChecklist = stepData.items;
+          order.qcCompletedAt = now;
+          break;
+        case 8: // Warranty & Receipt
+        case 9: // Release
+          order.egressData = { ...(order.egressData || {}), ...stepData, completedAt: now, completedBy: userId };
+          break;
+      }
+    }
+
+    await order.save();
+    res.json({ success: true, data: order });
   } catch (error) {
     next(error);
   }

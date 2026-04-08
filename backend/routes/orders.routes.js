@@ -100,6 +100,20 @@ router.post('/', orderController.createOrder);
 router.put('/:id', orderController.updateOrder);
 
 /**
+ * @route PATCH /api/orders/:id/workflow
+ * @desc Update a workflow step (1-7) with strict step locking
+ * @access Private - Detailer/Admin
+ */
+router.patch('/:id/workflow', authorize(...SERVICE_OPERATION_ROLES), orderController.updateWorkflowStep);
+
+/**
+ * @route PATCH /api/orders/:id/mobile-workflow
+ * @desc Specifically manages the dedicated Mobile 9-Step workflow
+ * @access Private - Detailer/Admin
+ */
+router.patch('/:id/mobile-workflow', authorize(...SERVICE_OPERATION_ROLES), orderController.updateMobileWorkflow);
+
+/**
  * @route PATCH /api/orders/:id
  * @desc Partial update order
  * @access Private - Admin or order owner
@@ -151,6 +165,20 @@ router.patch('/:id/operations-checklist', authorize(...SERVICE_OPERATION_ROLES),
  * @access Private - Detailer/Admin
  */
 router.patch('/:id/warranty-receipt', authorize(...SERVICE_OPERATION_ROLES), orderController.updateWarrantyReceipt);
+
+/**
+ * @route PATCH /api/orders/:id/notes
+ * @desc Add a note to the order's staffNotes
+ * @access Private - Detailer/Admin
+ */
+router.patch('/:id/notes', authorize(...SERVICE_OPERATION_ROLES), orderController.addOrderNote);
+
+/**
+ * @route PATCH /api/orders/:id/photos
+ * @desc Add a photo to the order's before/after photos
+ * @access Private - Detailer/Admin
+ */
+router.patch('/:id/photos', authorize(...SERVICE_OPERATION_ROLES), orderController.addOrderPhoto);
 
 /**
  * @route PUT /api/orders/:id/status

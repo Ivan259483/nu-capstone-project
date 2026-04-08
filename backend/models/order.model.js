@@ -73,6 +73,20 @@ const orderSchema = new mongoose.Schema(
     bookingDate: String,
     bookingTime: String,
     notes: String,
+    staffNotes: [
+      {
+        content: String,
+        detailerId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+        },
+        detailerName: String,
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
     assignedDetailer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -135,6 +149,110 @@ const orderSchema = new mongoose.Schema(
       score: { type: Number, min: 1, max: 5 },
       comment: String,
       ratedAt: Date,
+    },
+
+    // ═══════ WORKFLOW PIPELINE ═══════
+    workflowStep: { type: Number, default: 0 },
+    workflowCompletedSteps: { type: [Number], default: [] },
+    
+    // Dedicated Mobile Operations State
+    workflow: {
+      currentStep: { type: Number, default: 1 },
+      completedSteps: { type: [Number], default: [] },
+      status: { type: String, default: 'pending' },
+    },
+
+    // Step 1 — Job Order
+    jobOrder: {
+      contactNumber: String,
+      ingressDateTime: Date,
+      targetReleaseDate: Date,
+      estimatedDays: Number,
+      serviceCategory: String,
+      completedAt: Date,
+      completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    },
+
+    // Step 2 — Ingress Checklist
+    ingressChecklist: {
+      items: [{
+        category: String,
+        name: String,
+        checked: { type: Boolean, default: false },
+        note: String,
+      }],
+      beforeServiceNotes: String,
+      preExistingConditions: String,
+      completedAt: Date,
+      completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    },
+
+    // Step 3 — Damage Annotations
+    damageAnnotations: [{
+      x: Number,
+      y: Number,
+      view: { type: String, enum: ['top', 'left', 'right'], default: 'top' },
+      panel: String,
+      type: { type: String, enum: ['scratch', 'dent', 'chip', 'repaint', 'cracked_light', 'swirl_mark', 'curb_rash', 'swirl', 'crack', 'stain'] },
+      severity: String,
+      note: String,
+      images: [String],
+      addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      addedAt: { type: Date, default: Date.now },
+    }],
+    damagePhotos: { type: [String], default: [] },
+    damageCompletedAt: Date,
+
+    // Step 4 — Customer Waiver
+    customerWaiver: {
+      termsAccepted: [{ label: String, accepted: { type: Boolean, default: false } }],
+      customerFullName: String,
+      digitalSignature: String,
+      dateSigned: Date,
+      completedAt: Date,
+    },
+
+    // Step 5 — Service Proper
+    serviceProper: {
+      checklist: [{
+        name: String,
+        status: { type: String, enum: ['pending', 'in-progress', 'completed'], default: 'pending' },
+        completedAt: Date,
+      }],
+      materialsUsed: [{
+        productId: String,
+        productName: String,
+        quantity: Number,
+        unit: String,
+      }],
+      technicianNotes: String,
+      progressPercentage: { type: Number, default: 0 },
+      completedAt: Date,
+      completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    },
+
+    // Step 6 — QC Checklist
+    qcChecklist: [{
+      item: String,
+      passed: { type: Boolean, default: false },
+      note: String,
+      checkedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      checkedAt: Date,
+    }],
+    qcCompletedAt: Date,
+
+    // Step 7 — Egress / Release
+    egressData: {
+      aftercareChecklist: [{
+        item: String,
+        checked: { type: Boolean, default: false },
+      }],
+      paymentConfirmed: { type: Boolean, default: false },
+      customerSignature: String,
+      detailerName: String,
+      releaseTimestamp: Date,
+      completedAt: Date,
+      completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     },
   },
   { timestamps: true }

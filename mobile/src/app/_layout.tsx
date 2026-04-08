@@ -6,9 +6,9 @@
  * │  1. Wrap the app in ThemeProvider + AuthProvider (global state)     │
  * │  2. Listen for auth state changes via AuthContext                   │
  * │  3. Route to the correct dashboard based on user role:             │
- * │     - customer        → (tabs) Customer Dashboard                  │
- * │     - service_staff   → (tabs) Staff Dashboard                     │
- * │     - admin-family    → (tabs) Admin Dashboard                     │
+ * │     - customer        → (customer) Customer Dashboard               │
+ * │     - service_staff   → (staff) Staff Dashboard                     │
+ * │     - admin-family    → (staff) Admin Dashboard                     │
  * │  4. Redirect unauthenticated users to (auth)/welcome              │
  * │  5. Show a premium cinematic splash screen on cold start          │
  * │                                                                      │
@@ -32,18 +32,20 @@ SplashScreen.preventAutoHideAsync();
 
 // ── Role-Based Route Resolver ──────────────────────────────────────────
 // Determines which route group to send the user to after authentication.
-// Currently all roles share the (tabs) shell — each tab screen internally
-// checks `profile.role` to show/hide role-specific features. This keeps
-// the nav tree simple and avoids maintaining 3 separate tab navigators.
+// Customers use (customer) and staff/admin use (staff) — each group has its
+// own tab navigator. The resolver below determines which to send users to.
 //
 // If you later need fully separate dashboards, create (staff-tabs) and
 // (admin-tabs) route groups and update this resolver.
 
-type RouteTarget = '/(tabs)' | '/(auth)/welcome';
+type RouteTarget = '/(customer)' | '/(staff)' | '/(auth)/welcome';
 
 function resolveRouteForRole(role: string | undefined): RouteTarget {
-  getSafeUserRole(role);
-  return '/(tabs)';
+  const safeRole = getSafeUserRole(role);
+  if (safeRole === 'service_staff' || safeRole === 'admin' || safeRole === 'super_admin' || safeRole === 'booking_manager' || safeRole === 'pos_manager') {
+    return '/(staff)';
+  }
+  return '/(customer)';
 }
 
 // ── Inner Layout (consumes AuthContext) ────────────────────────────────
@@ -82,7 +84,8 @@ function InnerLayout() {
           freezeOnBlur: true,
         }}
       >
-        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(customer)" options={{ animation: 'fade' }} />
+        <Stack.Screen name="(staff)" options={{ animation: 'fade' }} />
         <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
         <Stack.Screen
           name="(screens)/payments"

@@ -80,7 +80,7 @@ export default function SignUpScreen() {
     const result = await signUp(fullName.trim(), email.trim(), password);
     if (result.success) {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace('/(tabs)');
+      router.replace('/');
     } else {
       Toast.show(result.message || 'Unable to create account.', 'error');
     }

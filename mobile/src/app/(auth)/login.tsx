@@ -90,7 +90,7 @@ export default function LoginScreen() {
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-      router.replace('/(tabs)');
+      router.replace('/');
     } else {
       // If rate-limited, enforce a 30-second cooldown to prevent further abuse
       if (result.message?.toLowerCase().includes('too many')) {

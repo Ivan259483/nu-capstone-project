@@ -163,6 +163,70 @@ export interface Booking {
         signedAt?: string;
     };
     currentStepIndex?: number;
+    staffNotes?: {
+        _id?: string;
+        detailerId: string;
+        detailerName?: string;
+        content: string;
+        timestamp: string;
+    }[];
+    photos?: {
+        before: string[];
+        after: string[];
+    };
+    // ═══ Workflow Pipeline ═══
+    workflowStep?: number;
+    workflowCompletedSteps?: number[];
+    jobOrder?: {
+        contactNumber?: string;
+        ingressDateTime?: string;
+        targetReleaseDate?: string;
+        estimatedDays?: number;
+        serviceCategory?: string;
+        completedAt?: string;
+        completedBy?: string;
+    };
+    ingressChecklist?: {
+        items?: { category: string; name: string; checked: boolean; note?: string }[];
+        beforeServiceNotes?: string;
+        preExistingConditions?: string;
+        completedAt?: string;
+    };
+    damageAnnotations?: {
+        x: number;
+        y: number;
+        view: 'top' | 'left' | 'right';
+        type: string;
+        note?: string;
+        addedBy?: string;
+        addedAt?: string;
+    }[];
+    damagePhotos?: string[];
+    damageCompletedAt?: string;
+    customerWaiver?: {
+        termsAccepted?: { label: string; accepted: boolean }[];
+        customerFullName?: string;
+        digitalSignature?: string;
+        dateSigned?: string;
+        completedAt?: string;
+    };
+    serviceProper?: {
+        checklist?: { name: string; status: string; completedAt?: string }[];
+        materialsUsed?: { productId: string; productName: string; quantity: number; unit: string }[];
+        technicianNotes?: string;
+        progressPercentage?: number;
+        completedAt?: string;
+    };
+    qcChecklist?: { item: string; passed: boolean; note?: string; checkedAt?: string }[];
+    qcCompletedAt?: string;
+    egressData?: {
+        aftercareChecklist?: { item: string; checked: boolean }[];
+        paymentConfirmed?: boolean;
+        customerSignature?: string;
+        detailerName?: string;
+        releaseTimestamp?: string;
+        completedAt?: string;
+    };
 }
 
 // Vehicle Types

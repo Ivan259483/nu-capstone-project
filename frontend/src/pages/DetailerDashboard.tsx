@@ -15,8 +15,8 @@ import { InventoryTab } from '@/components/staff/InventoryTab';
 import { PhotosTab } from '@/components/staff/PhotosTab';
 import { NotesTab } from '@/components/staff/NotesTab';
 import { SettingsTab } from '@/components/staff/SettingsTab';
-import { ServiceRequestsTab } from '@/components/staff/ServiceRequestsTab';
-import { CustomerDetailsTab } from '@/components/staff/CustomerDetailsTab';
+import { ServiceRecordsTab } from '@/components/staff/ServiceRecordsTab';
+import { ProgressReportsTab } from '@/components/staff/ProgressReportsTab';
 import { ActivityLogsTab } from '@/components/staff/ActivityLogsTab';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { formatDistanceToNow } from 'date-fns';
@@ -33,7 +33,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
-import { jobStorage, inventoryStorage, inventoryUsageStorage, customerNoteStorage } from '@/lib/storage';
+import { jobStorage, inventoryStorage, inventoryUsageStorage } from '@/lib/storage';
 import { InventoryService } from '@/lib/inventory-service-api';
 import { OrderService } from '@/lib/order-service';
 import { ActivityService } from '@/lib/activity-service-api';
@@ -48,9 +48,10 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import type { Booking, InventoryItem, InventoryUsage, CustomerNote } from '@/types';
+import WorkflowOrchestrator from '@/components/staff/workflow/WorkflowOrchestrator';
 import './DetailerDashboard.css';
 
-type TabType = 'dashboard' | 'queue' | 'schedule' | 'inventory' | 'requests' | 'customers' | 'activity' | 'photos' | 'notes' | 'settings';
+type TabType = 'dashboard' | 'queue' | 'schedule' | 'inventory' | 'records' | 'progress' | 'activity' | 'photos' | 'notes' | 'settings';
 
 const LOW_STOCK_THRESHOLD = 10;
 const normalizeBookingId = (id?: string) => (id ? String(id).replace(/^#/, '') : '');
@@ -179,7 +180,7 @@ export default function DetailerDashboard() {
 
 
 
-    const validTabs: TabType[] = ['dashboard', 'queue', 'schedule', 'inventory', 'requests', 'customers', 'activity', 'photos', 'notes', 'settings'];
+    const validTabs: TabType[] = ['dashboard', 'queue', 'schedule', 'inventory', 'records', 'progress', 'activity', 'photos', 'notes', 'settings'];
     const [activeTab, setActiveTab] = useState<TabType>(() => {
         const hash = window.location.hash.replace('#', '');
         return validTabs.includes(hash as TabType) ? (hash as TabType) : 'dashboard';
@@ -200,6 +201,7 @@ export default function DetailerDashboard() {
     }, [activeTab]);
     const [jobs, setJobs] = useState<Booking[]>([]);
     const [warrantyReceiptJob, setWarrantyReceiptJob] = useState<Booking | null>(null);
+    const [workflowJob, setWorkflowJob] = useState<Booking | null>(null);
     const [storageUpdateTrigger, setStorageUpdateTrigger] = useState(0); // Force re-render trigger
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
     const [inventoryUsage, setInventoryUsage] = useState<InventoryUsage[]>([]);
@@ -214,6 +216,7 @@ export default function DetailerDashboard() {
     const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
 
     const [isLoading, setIsLoading] = useState(false);
+    const apiDataLoadedRef = useRef(false);
     const [isCompleting, setIsCompleting] = useState(false);
     // Time tracking
     const [elapsedTime, setElapsedTime] = useState(0);
@@ -233,7 +236,11 @@ export default function DetailerDashboard() {
 
         try {
             const response = await OrderService.getDetailerOrders();
+            console.log('📋 [DASHBOARD] RAW API response:', response);
             if (response.success && Array.isArray(response.data)) {
+                console.log('📋 [DASHBOARD] RAW ORDERS count:', response.data.length);
+                console.log('📋 [DASHBOARD] RAW ORDERS statuses:', response.data.map((j: Booking) => ({ id: j.id, status: j.status, assignedDetailer: j.assignedDetailer, customerName: j.customerName })));
+                apiDataLoadedRef.current = true;
                 setJobs(response.data.map(ensureWaiverSigned));
 
                 // Check for active job start time (derived from status)
@@ -264,7 +271,7 @@ export default function DetailerDashboard() {
             }
 
             setInventoryUsage(inventoryUsageStorage.getAll());
-            setCustomerNotes(customerNoteStorage.getAll());
+            // local legacy notes sync is now fully handled in NotesTab backend integration
 
             const notifyRes = await NotificationService.getNotifications();
             if (notifyRes.success) {
@@ -305,25 +312,54 @@ export default function DetailerDashboard() {
             return;
         }
 
-        // REAL-TIME LISTENER (Replaces Polling)
+        // Fetch initial data from API
+        loadData();
+
+        // REAL-TIME LISTENER — Merge Firestore status updates into API-loaded jobs
+        // MongoDB API is the authoritative data source; Firestore only provides live status patches.
         const q = query(collection(db, 'bookings'), orderBy('createdAt', 'desc'));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const liveJobs: Booking[] = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            } as Booking));
+            const firestoreDocs = new Map<string, any>();
+            snapshot.docs.forEach(doc => {
+                firestoreDocs.set(doc.id, { id: doc.id, ...doc.data() });
+            });
 
-            // Client-side filtering for detailer scope (optional, or rely on backend for heavy lifting)
-            // For now, we sync ALL bookings to ensure instant updates, then filter in render
-            setJobs(liveJobs.map(ensureWaiverSigned));
+            console.log('🔥 [FIRESTORE] Real-time snapshot:', firestoreDocs.size, 'docs');
 
-            // Also check for active job start time
-            const activeJob = liveJobs.find((j: Booking) => j.status === 'in-progress' || j.status === 'processing');
-            if (activeJob) {
+            // Merge: update existing jobs with Firestore status, don't wipe API data
+            setJobs(prevJobs => {
+                if (!apiDataLoadedRef.current && prevJobs.length === 0 && firestoreDocs.size > 0) {
+                    // API hasn't loaded yet — use Firestore as temporary fallback
+                    const liveJobs = Array.from(firestoreDocs.values()) as Booking[];
+                    console.log('🔥 [FIRESTORE] API not loaded yet, using Firestore fallback:', liveJobs.length);
+                    return liveJobs.map(ensureWaiverSigned);
+                }
+
+                // Merge Firestore real-time fields into existing API jobs
+                const merged = prevJobs.map(job => {
+                    const jobId = (job.id || (job as any)._id || '').toString().replace(/^#/, '');
+                    const firestoreData = firestoreDocs.get(jobId);
+                    if (firestoreData) {
+                        // Only merge real-time trackable fields, not replace whole job
+                        return {
+                            ...job,
+                            ...(firestoreData.status && { status: firestoreData.status }),
+                            ...(firestoreData.customerStatus && { customerStatus: firestoreData.customerStatus }),
+                            ...(firestoreData.customerStatusUpdatedAt && { customerStatusUpdatedAt: firestoreData.customerStatusUpdatedAt }),
+                        };
+                    }
+                    return job;
+                });
+
+                console.log('🔥 [FIRESTORE] Merged', firestoreDocs.size, 'Firestore updates into', merged.length, 'API jobs');
+                return merged;
+            });
+
+            // Check for active job
+            const activeDoc = Array.from(firestoreDocs.values()).find((j: any) => j.status === 'in-progress' || j.status === 'processing');
+            if (activeDoc) {
                 setActiveJobStartTime(prev => prev || Date.now());
             }
-
-            console.log('🔥 Detailer Dashboard: Real-time update received', liveJobs.length);
         });
 
         // Keep notification polling distinct as it might be a different service
@@ -489,22 +525,17 @@ export default function DetailerDashboard() {
 
     const handleStartJob = async (job: Booking) => {
         try {
-            // BYPASS INSPECTION FOR DEMO - FORCE START
             const jobId = getJobId(job);
             if (!jobId) {
                 toast.error('Missing job identifier.');
                 return false;
             }
-            const normalizedJobId = normalizeBookingId(jobId);
 
-            // OPTIMISTIC UPDATE (Immediate UI Feedback)
-            const updatedJobs = jobs.map(j =>
-                getJobId(j) === jobId ? { ...j, status: 'in-progress' as const } : j
-            );
-            setJobs(updatedJobs);
-            setActiveJobStartTime(Date.now());
-            dispatchStorageSync();
-            console.log('🚀 Job started optimistically:', jobId);
+            // Open the 7-step workflow overlay
+            setWorkflowJob(job);
+
+            // Also update status to in-progress for live tracking
+            const normalizedJobId = normalizeBookingId(jobId);
 
             // ATOMIC FIRESTORE UPDATE (Critical for Live Tracking)
             if (normalizedJobId && db) {
@@ -521,8 +552,14 @@ export default function DetailerDashboard() {
             }
 
             try {
+                // If this is an unassigned booking, claim it for this detailer
+                const updatePayload: Record<string, any> = { status: 'in-progress' };
+                if (!job.assignedDetailer && (job.status === 'pending' || job.status === 'confirmed')) {
+                    updatePayload.assignedDetailer = user?.id;
+                    updatePayload.status = 'assigned'; // Will be set to in-progress by workflow step
+                }
                 // Backend Sync
-                const response = await OrderService.updateOrder(jobId, { status: 'in-progress' });
+                const response = await OrderService.updateOrder(jobId, updatePayload);
                 if (response.success) {
                     toast.success('Job started successfully!');
                     
@@ -825,51 +862,47 @@ export default function DetailerDashboard() {
         }
 
         const activeJob = safeJobs.find(j => j.status === 'in-progress' || j.status === 'processing');
+        if (!activeJob) {
+            toast.error('No active job found to add a note to.');
+            return;
+        }
 
         const noteContent = newNote;
-        
-        if (activeJob && (activeJob.id || activeJob._id)) {
-            try {
-                const jobId = activeJob.id || activeJob._id;
-                const existingNotes = activeJob.notes ? activeJob.notes + "\n\n" : "";
-                const updatedNotes = existingNotes + `[${new Date().toLocaleString()}] By ${user.name || user.email}:\n${noteContent}`;
-                
-                await OrderService.updateOrder(jobId, { notes: updatedNotes });
-            } catch (error) {
-                console.error("Failed to sync note to backend:", error);
-            }
-        }
-
-        const note: CustomerNote = {
-            id: `note-${Date.now()}`,
-            jobId: activeJob?.id || activeJob?._id || 'general',
-            detailerId: user.id,
-            content: noteContent,
-            createdAt: new Date().toISOString(),
-        };
-
-        customerNoteStorage.add(note);
+        const jobId = activeJob.id || (activeJob as any)._id;
         
         try {
-            await ActivityService.createActivityLog(
-                'status_change',
-                'Notes Updated',
-                `Added a new note for job ${activeJob?.id || activeJob?._id || 'general'}`,
-                user?.id || 'unknown',
-                user?.name || user?.email || 'Detailer',
-                { jobId: activeJob?.id || activeJob?._id || 'general' },
-                { module: 'Service', action: 'add_note', status: 'success' }
-            );
-        } catch (e) {
-            console.error('Failed to log activity', e);
-        }
+            // Call our new backend API endpoint
+            const res = await OrderService.addNote(jobId, noteContent);
+            if (res.success) {
+                // Let real-time Firestore sync or loadData() fetch the updated note
+                try {
+                    await ActivityService.createActivityLog(
+                        'status_change',
+                        'Notes Updated',
+                        `Added a new note for job ${jobId}`,
+                        user?.id || 'unknown',
+                        user?.name || user?.email || 'Detailer',
+                        { jobId: jobId },
+                        { module: 'Service', action: 'add_note', status: 'success' }
+                    );
+                } catch (e) {
+                    console.error('Failed to log activity', e);
+                }
 
-        loadData();
-        setNewNote('');
-        toast.success('Note saved!');
+                loadData();
+                setNewNote('');
+                toast.success('Note saved!');
+            } else {
+                toast.error(res.message || 'Failed to save note');
+            }
+        } catch (error) {
+            console.error("Failed to sync note to backend:", error);
+            toast.error('Error saving note.');
+        }
     };
 
     const safeJobs = Array.isArray(jobs) ? jobs : [];
+    console.log('📋 [DASHBOARD] STATE JOBS exactly as set in state:', safeJobs.length, safeJobs.map(j => ({ id: j.id, status: j.status })));
     const activeJobRaw = safeJobs.find(j => j.status === 'in-progress') || safeJobs.find(j => j.status === 'processing');
 
     const activeJob = activeJobRaw;
@@ -891,15 +924,19 @@ export default function DetailerDashboard() {
 
     const pendingJobs = safeJobs.filter(j =>
         j.status === 'pending'
+        || j.status === 'confirmed'
         || j.status === 'assigned'
+        || j.status === 'processing'
         || j.status === 'in-progress'
         || j.customerStatus === 'received'
         || j.customerStatus === 'washing'
         || j.customerStatus === 'detailing'
     );
+    console.log('📋 [DASHBOARD] safeJobs total:', safeJobs.length, '→ FILTERED pendingJobs:', pendingJobs.length, pendingJobs.map(j => ({ id: j.id, status: j.status, name: j.customerName })));
     const finalPendingJobs = pendingJobs.filter(j =>
         activeTab === 'queue' ? (j.status !== 'completed' && j.status !== 'cancelled') : true
     );
+    console.log('📋 [DASHBOARD] finalPendingJobs:', finalPendingJobs.length);
     const completedToday = safeJobs.filter(j => {
         if (j.status !== 'completed' && j.customerStatus !== 'ready') return false;
 
@@ -923,8 +960,8 @@ export default function DetailerDashboard() {
         { id: 'queue' as TabType, label: 'Job Queue', icon: ClipboardList, badge: finalPendingJobs.length > 0 ? finalPendingJobs.length : undefined },
         { id: 'schedule' as TabType, label: 'Schedule', icon: Calendar },
         { id: 'inventory' as TabType, label: 'Inventory', icon: Package },
-        { id: 'requests' as TabType, label: 'Requests', icon: BadgeHelp },
-        { id: 'customers' as TabType, label: 'Customers', icon: User },
+        { id: 'records' as TabType, label: 'Service Records', icon: ClipboardList },
+        { id: 'progress' as TabType, label: 'Progress Reports', icon: CheckCircle },
         { id: 'activity' as TabType, label: 'Activity Logs', icon: Activity },
         { id: 'photos' as TabType, label: 'Photos', icon: Camera },
         { id: 'notes' as TabType, label: 'Notes', icon: MessageSquare },
@@ -1184,12 +1221,21 @@ export default function DetailerDashboard() {
                                 />
                             )}
                             
-                            {activeTab === 'requests' && (
-                                <ServiceRequestsTab />
+                            {activeTab === 'records' && (
+                                <ServiceRecordsTab activeJob={activeJob} />
                             )}
                             
-                            {activeTab === 'customers' && (
-                                <CustomerDetailsTab />
+                            {activeTab === 'progress' && (
+                                <ProgressReportsTab
+                                    activeJob={activeJob}
+                                    handleStartJob={handleStartJob}
+                                    handleCompleteJob={handleCompleteJob}
+                                    handleForceReady={handleForceReady}
+                                    handleToggleChecklist={handleToggleChecklist}
+                                    handleToggleOperationsChecklist={handleToggleOperationsChecklist}
+                                    isChecklistComplete={isChecklistComplete}
+                                    isCompleting={isCompleting}
+                                />
                             )}
                             
                             {activeTab === 'activity' && (
@@ -1232,6 +1278,19 @@ export default function DetailerDashboard() {
                     onSubmit={submitWarrantyReceipt}
                 />
             )}
+
+            {/* ═══ WORKFLOW OVERLAY ═══ */}
+            <AnimatePresence>
+                {workflowJob && (
+                    <WorkflowOrchestrator
+                        order={workflowJob}
+                        onClose={() => { setWorkflowJob(null); loadData(); }}
+                        onOrderUpdated={(updated) => {
+                            setJobs(prev => prev.map(j => (getJobId(j) === getJobId(updated)) ? { ...j, ...updated } : j));
+                        }}
+                    />
+                )}
+            </AnimatePresence>
         </div>
     );
 }

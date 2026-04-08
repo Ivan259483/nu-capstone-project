@@ -67,7 +67,18 @@ export const getActivityLogs = async (req, res, next) => {
 
     const query = {};
     if (type) query.type = type;
-    if (module) query.module = module;
+    
+    // Module filtering logic (role based scoping)
+    if (req.user?.role === 'service_staff') {
+      // Service staff only sees these specific modules. Limit query if none provided, or enforce bounds.
+      query.module = { $in: ['Booking', 'Service', 'Inventory'] };
+      if (module && ['Booking', 'Service', 'Inventory'].includes(module)) {
+        query.module = module;
+      }
+    } else if (module) {
+      query.module = module;
+    }
+    
     if (status) query.status = status;
 
     // Date range filter
