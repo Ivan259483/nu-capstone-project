@@ -436,6 +436,10 @@ html.light *, html.dark * {
 }
 
 @media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   body * {
     visibility: hidden;
   }
@@ -443,10 +447,12 @@ html.light *, html.dark * {
     visibility: visible;
   }
   #printable-receipt {
-    position: fixed;
+    position: absolute;
     left: 0;
     top: 0;
     width: 100%;
-    background-color: #000;
+    max-width: 800px;
+    margin: 0 auto;
+    background-color: #18181b !important;
   }
 }
