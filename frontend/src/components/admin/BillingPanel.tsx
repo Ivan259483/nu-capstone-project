@@ -543,7 +543,7 @@ export function BillingPanel({ payments, onRefresh }: BillingPanelProps) {
                                         className="space-y-4"
                                     >
                                         {/* Receipt card */}
-                                        <div className="rounded-xl border border-zinc-700/40 bg-zinc-800/40 overflow-hidden">
+                                        <div id="printable-receipt" className="rounded-xl border border-zinc-700/40 bg-zinc-800/40 overflow-hidden">
                                             {/* Orange top stripe */}
                                             <div className="h-1 bg-gradient-to-r from-orange-500 to-orange-400" />
 
