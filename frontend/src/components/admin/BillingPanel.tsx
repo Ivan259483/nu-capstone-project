@@ -94,57 +94,56 @@ export function BillingPanel({ payments, onRefresh }: BillingPanelProps) {
         const content = document.getElementById('printable-receipt');
         if (!content) return;
         
+        // Open window SYNCHRONOUSLY to bypass popup blockers
+        const printWindow = window.open('', '_blank', 'width=800,height=900,left=200,top=100');
+        if (!printWindow) {
+            toast.error("Please allow pop-ups to print the receipt.");
+            return;
+        }
+
         const stylesHtml = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
             .map(node => node.outerHTML)
             .join('\n');
             
         toast.info('Preparing document...');
         
-        setTimeout(() => {
-            const printWindow = window.open('', '_blank', 'width=800,height=900,left=200,top=100');
-            if (!printWindow) {
-                toast.error("Please allow pop-ups to print the receipt.");
-                return;
-            }
-            
-            printWindow.document.write(`
-                <!DOCTYPE html>
-                <html>
-                    <head>
-                        <title>AutoSPF+ Receipt</title>
-                        ${stylesHtml}
-                        <style>
-                            html, body {
-                                background-color: #18181b !important;
-                                color: #e8edf5 !important;
-                                margin: 0;
-                                padding: 40px 20px;
-                                display: flex;
-                                justify-content: center;
-                                -webkit-print-color-adjust: exact !important;
-                                print-color-adjust: exact !important;
-                            }
-                            #printable-receipt {
-                                width: 100% !important;
-                                max-width: 700px !important;
-                                position: static !important;
-                                margin: 0 auto !important;
-                            }
-                        </style>
-                    </head>
-                    <body>
-                        ${content.outerHTML}
-                        <script>
-                            setTimeout(() => {
-                                window.print();
-                                window.close();
-                            }, 600);
-                        </script>
-                    </body>
-                </html>
-            `);
-            printWindow.document.close();
-        }, 150);
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+                <head>
+                    <title>AutoSPF+ Receipt</title>
+                    ${stylesHtml}
+                    <style>
+                        html, body {
+                            background-color: #18181b !important;
+                            color: #e8edf5 !important;
+                            margin: 0;
+                            padding: 40px 20px;
+                            display: flex;
+                            justify-content: center;
+                            -webkit-print-color-adjust: exact !important;
+                            print-color-adjust: exact !important;
+                        }
+                        #printable-receipt {
+                            width: 100% !important;
+                            max-width: 700px !important;
+                            position: static !important;
+                            margin: 0 auto !important;
+                        }
+                    </style>
+                </head>
+                <body>
+                    ${content.outerHTML}
+                    <script>
+                        setTimeout(() => {
+                            window.print();
+                            window.close();
+                        }, 600);
+                    </script>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
     };
 
     // ─── Revenue calculations ───────────────────────────────────────────
