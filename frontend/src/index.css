@@ -434,3 +434,19 @@ html.light *, html.dark * {
         transform: translateY(0) scale(1);
     }
 }
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-receipt, #printable-receipt * {
+    visibility: visible;
+  }
+  #printable-receipt {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background-color: #000;
+  }
+}

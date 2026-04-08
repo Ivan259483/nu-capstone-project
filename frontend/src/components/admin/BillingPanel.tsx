@@ -467,7 +467,10 @@ export function BillingPanel({ payments, onRefresh }: BillingPanelProps) {
                             <h3 className="text-sm font-semibold text-white">Receipt preview</h3>
                             {selectedPayment && (
                                 <button
-                                    onClick={() => toast.info('Printing receipt...')}
+                                    onClick={() => {
+                                        toast.info('Preparing document...');
+                                        setTimeout(() => window.print(), 300);
+                                    }}
                                     className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-orange-400 transition-colors"
                                 >
                                     <Printer className="w-3.5 h-3.5" /> Print
@@ -607,7 +610,10 @@ export function BillingPanel({ payments, onRefresh }: BillingPanelProps) {
                                             </Button>
                                             <Button
                                                 className="h-9 text-xs bg-[#E87C2F] hover:bg-orange-600 text-white shadow-md shadow-orange-500/20 gap-1.5"
-                                                onClick={() => toast.success('PDF downloaded!')}
+                                                onClick={() => {
+                                                    toast.info('Preparing PDF preview...');
+                                                    setTimeout(() => window.print(), 300);
+                                                }}
                                             >
                                                 <Download className="w-3.5 h-3.5" /> Download PDF
                                             </Button>
