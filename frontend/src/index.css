@@ -435,24 +435,3 @@ html.light *, html.dark * {
     }
 }
 
-@media print {
-  * {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  body * {
-    visibility: hidden;
-  }
-  #printable-receipt, #printable-receipt * {
-    visibility: visible;
-  }
-  #printable-receipt {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    max-width: 800px;
-    margin: 0 auto;
-    background-color: #18181b !important;
-  }
-}
