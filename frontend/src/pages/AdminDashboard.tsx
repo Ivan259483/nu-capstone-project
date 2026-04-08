@@ -1942,7 +1942,6 @@ export default function AdminDashboard() {
             { id: 'suppliers' as TabType, label: 'Suppliers', icon: ShoppingCart },
             { id: 'pricing' as TabType, label: 'Pricing', icon: PhilippinePeso },
             { id: 'activity' as TabType, label: 'Activity Logs', icon: Activity },
-            { id: 'landing' as TabType, label: 'Landing Config', icon: LayoutTemplate },
             { id: 'settings' as TabType, label: 'Settings', icon: Settings },
             { id: 'profile' as TabType, label: 'My Profile', icon: UserIcon },
         ];

@@ -145,6 +145,7 @@ export const en = {
         emailValue: "autospf2023@gmail.com",
         hours: "Business Hours",
         hoursValue: "Mon – Sat: 8:00 AM – 6:00 PM",
+        contactInfo: "Contact Information",
         sendMessage: "Send a Message",
         yourName: "Your Name",
         yourEmail: "Your Email",

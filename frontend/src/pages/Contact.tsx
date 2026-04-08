@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import PageLayout from "@/components/PageLayout";
+import LocationMapSection from "@/components/LocationMapSection";
 import { cn } from "@/lib/utils";
 
 const contactInfo = [
@@ -48,7 +49,7 @@ export default function Contact() {
                 >
                     {/* Contact Info */}
                     <div className={cn("reveal-left space-y-6", isVisible ? "visible" : "")}>
-                        <h2 className="text-2xl font-bold text-foreground mb-6">{t("contact.sendMessage")}</h2>
+                        <h2 className="text-2xl font-bold text-foreground mb-6">{t("contact.contactInfo")}</h2>
 
                         {contactInfo.map(({ icon: Icon, key, valueKey }, i) => (
                             <div
@@ -65,21 +66,9 @@ export default function Contact() {
                                 </div>
                             </div>
                         ))}
-
-                        {/* Map placeholder */}
-                        <div className="glass rounded-2xl overflow-hidden border border-gold/10 h-52 flex items-center justify-center relative">
-                            <div className="absolute inset-0 bg-gradient-to-br from-zinc-900/60 to-zinc-950/80" />
-                            <div className="absolute inset-0 opacity-10"
-                                style={{
-                                    backgroundImage: "repeating-linear-gradient(0deg, rgba(212,175,55,0.1) 0px, rgba(212,175,55,0.1) 1px, transparent 1px, transparent 40px), repeating-linear-gradient(90deg, rgba(212,175,55,0.1) 0px, rgba(212,175,55,0.1) 1px, transparent 1px, transparent 40px)"
-                                }}
-                            />
-                            <div className="relative z-10 flex flex-col items-center gap-2 text-muted-foreground">
-                                <MapPin className="w-8 h-8 text-primary animate-bounce" />
-                                <span className="text-sm">Las Piñas, Philippines</span>
-                            </div>
-                        </div>
                     </div>
+
+
 
                     {/* Contact Form */}
                     <div className={cn("reveal-right", isVisible ? "visible" : "")}>
@@ -107,7 +96,7 @@ export default function Contact() {
                                         value={form.name}
                                         onChange={(e) => update("name", e.target.value)}
                                         placeholder="Juan dela Cruz"
-                                        className="bg-background/40 border border-gold/20 focus:border-gold/50 focus:ring-1 focus:ring-gold/50 transition-colors"
+                                        className="bg-background/40 border border-gold/20 focus:border-gold/60 focus:ring-1 focus:ring-gold/60 transition-all duration-300 focus:shadow-[0_0_15px_rgba(212,175,55,0.15)]"
                                     />
                                 </div>
                                 <div>
@@ -117,7 +106,7 @@ export default function Contact() {
                                         value={form.email}
                                         onChange={(e) => update("email", e.target.value)}
                                         placeholder="juan@email.com"
-                                        className="bg-background/40 border border-gold/20 focus:border-gold/50 focus:ring-1 focus:ring-gold/50 transition-colors"
+                                        className="bg-background/40 border border-gold/20 focus:border-gold/60 focus:ring-1 focus:ring-gold/60 transition-all duration-300 focus:shadow-[0_0_15px_rgba(212,175,55,0.15)]"
                                     />
                                 </div>
                                 <div>
@@ -127,13 +116,13 @@ export default function Contact() {
                                         onChange={(e) => update("message", e.target.value)}
                                         placeholder={t("contact.messagePlaceholder")}
                                         rows={5}
-                                        className="w-full px-3 py-2 rounded-lg bg-background/40 border border-gold/20 focus:border-gold/50 focus:ring-1 focus:ring-gold/50 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none transition-colors"
+                                        className="w-full px-3 py-2 rounded-lg bg-background/40 border border-gold/20 focus:border-gold/60 focus:ring-1 focus:ring-gold/60 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none transition-all duration-300 focus:shadow-[0_0_15px_rgba(212,175,55,0.15)]"
                                     />
                                 </div>
                                 <Button
                                     onClick={() => setSent(true)}
                                     disabled={!form.name || !form.email || !form.message}
-                                    className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm disabled:opacity-40 group"
+                                    className="w-full bg-gradient-gold text-primary-foreground hover:opacity-100 hover:shadow-[0_0_20px_rgba(212,175,55,0.4)] disabled:opacity-40 group transition-all duration-300"
                                 >
                                     <Send className="w-4 h-4 mr-2 group-hover:translate-x-1 transition-transform" />
                                     {t("contact.send")}
@@ -143,6 +132,8 @@ export default function Contact() {
                     </div>
                 </div>
             </section>
+
+            <LocationMapSection />
         </PageLayout>
     );
 }
