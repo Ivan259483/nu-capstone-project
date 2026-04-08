@@ -16,6 +16,39 @@ import { authStorage } from '@/services/storage/authStorage';
 
 const DEFAULT_ROLE: UserRole = CUSTOMER_ROLE;
 
+/**
+ * Converts Firebase Auth error codes into user-friendly messages.
+ */
+const getFirebaseAuthErrorMessage = (error: any): string => {
+  const code = error?.code || '';
+  switch (code) {
+    case 'auth/too-many-requests':
+      return 'Too many login attempts. Please wait a few minutes and try again.';
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+      return 'Invalid email or password. Please try again.';
+    case 'auth/invalid-email':
+      return 'Please enter a valid email address.';
+    case 'auth/user-disabled':
+      return 'This account has been disabled. Contact support.';
+    case 'auth/email-already-in-use':
+      return 'An account with this email already exists.';
+    case 'auth/weak-password':
+      return 'Password is too weak. Use at least 6 characters.';
+    case 'auth/network-request-failed':
+      return 'Network error. Check your internet connection and try again.';
+    case 'auth/operation-not-allowed':
+      return 'This sign-in method is not enabled. Contact support.';
+    default:
+      // If it has a Firebase code we don't handle, show a cleaner message
+      if (code.startsWith('auth/')) {
+        return `Authentication error: ${code.replace('auth/', '').replace(/-/g, ' ')}`;
+      }
+      return error?.message || 'Something went wrong. Please try again.';
+  }
+};
+
 const safeNameFromEmail = (email: string): string => {
   return email.split('@')[0] || 'Customer';
 };
@@ -142,8 +175,14 @@ export const authService = {
     token: string;
     backendUser: BackendUser;
   }> {
-    const credentials = await signInWithEmailAndPassword(auth, email, password);
-    const firebaseUser = credentials.user;
+    let firebaseUser: FirebaseUser;
+    try {
+      const credentials = await signInWithEmailAndPassword(auth, email, password);
+      firebaseUser = credentials.user;
+    } catch (firebaseError: any) {
+      // Translate Firebase errors (like auth/too-many-requests) to user-friendly messages
+      throw new Error(getFirebaseAuthErrorMessage(firebaseError));
+    }
 
     const authPayload = await exchangeTokenForLogin(firebaseUser, email, password);
 
@@ -168,8 +207,13 @@ export const authService = {
     token: string;
     backendUser: BackendUser;
   }> {
-    const credentials = await createUserWithEmailAndPassword(auth, email, password);
-    const firebaseUser = credentials.user;
+    let firebaseUser: FirebaseUser;
+    try {
+      const credentials = await createUserWithEmailAndPassword(auth, email, password);
+      firebaseUser = credentials.user;
+    } catch (firebaseError: any) {
+      throw new Error(getFirebaseAuthErrorMessage(firebaseError));
+    }
 
     if (name.trim()) {
       await updateProfile(firebaseUser, { displayName: name.trim() });

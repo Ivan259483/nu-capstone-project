@@ -1,11 +1,6 @@
+import api from './api';
+import { cachedGet, TTL } from './queryCache';
 import type { ActivityLog } from '@/types';
-
-const API_BASE = '/api';
-
-const getAuthHeaders = () => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${localStorage.getItem('autospf_token')}`
-});
 
 export interface ActivityLogFilters {
     limit?: number;
@@ -19,23 +14,21 @@ export interface ActivityLogFilters {
 
 export const ActivityService = {
     /**
-     * Get activity logs with optional filters
+     * Get activity logs with optional filters.
+     * Uses the shared axios api client (with interceptors) instead of raw fetch.
      */
     async getActivityLogs(filters: ActivityLogFilters = {}) {
         try {
-            const params = new URLSearchParams();
-            if (filters.limit) params.append('limit', filters.limit.toString());
-            if (filters.type) params.append('type', filters.type);
-            if (filters.module) params.append('module', filters.module);
-            if (filters.status) params.append('status', filters.status);
-            if (filters.search) params.append('search', filters.search);
-            if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
-            if (filters.dateTo) params.append('dateTo', filters.dateTo);
+            const params: Record<string, string> = {};
+            if (filters.limit) params.limit = filters.limit.toString();
+            if (filters.type) params.type = filters.type;
+            if (filters.module) params.module = filters.module;
+            if (filters.status) params.status = filters.status;
+            if (filters.search) params.search = filters.search;
+            if (filters.dateFrom) params.dateFrom = filters.dateFrom;
+            if (filters.dateTo) params.dateTo = filters.dateTo;
 
-            const response = await fetch(`${API_BASE}/activity?${params.toString()}`, {
-                headers: getAuthHeaders()
-            });
-            const data = await response.json();
+            const data = await cachedGet('/activity', { params }, TTL.SHORT);
 
             return {
                 success: data.success,
@@ -53,14 +46,11 @@ export const ActivityService = {
     },
 
     /**
-     * Get today's activity stats
+     * Get today's activity stats.
      */
     async getActivityStats() {
         try {
-            const response = await fetch(`${API_BASE}/activity/stats`, {
-                headers: getAuthHeaders()
-            });
-            const data = await response.json();
+            const data = await cachedGet('/activity/stats', undefined, TTL.SHORT);
             return { success: data.success, data: data.data };
         } catch (error: any) {
             return { success: false, data: null };
@@ -68,7 +58,7 @@ export const ActivityService = {
     },
 
     /**
-     * Create new activity log
+     * Create new activity log.
      */
     async createActivityLog(
         type: ActivityLog['type'],
@@ -85,24 +75,19 @@ export const ActivityService = {
         }
     ) {
         try {
-            const response = await fetch(`${API_BASE}/activity`, {
-                method: 'POST',
-                headers: getAuthHeaders(),
-                body: JSON.stringify({
-                    type,
-                    title,
-                    description,
-                    userId,
-                    userName,
-                    metadata,
-                    ...extra,
-                })
+            const response = await api.post('/activity', {
+                type,
+                title,
+                description,
+                userId,
+                userName,
+                metadata,
+                ...extra,
             });
-            const data = await response.json();
 
             return {
-                success: data.success,
-                data: data.data as EnrichedActivityLog,
+                success: response.data.success,
+                data: response.data.data as EnrichedActivityLog,
             };
         } catch (error: any) {
             console.error('Failed to create activity log:', error);
@@ -114,16 +99,12 @@ export const ActivityService = {
     },
 
     /**
-     * Seed sample data (calls backend seed endpoint)
+     * Seed sample data (calls backend seed endpoint).
      */
     async seedSampleData() {
         try {
-            const response = await fetch(`${API_BASE}/activity/seed`, {
-                method: 'POST',
-                headers: getAuthHeaders(),
-            });
-            const data = await response.json();
-            return { success: data.success, message: data.message };
+            const response = await api.post('/activity/seed');
+            return { success: response.data.success, message: response.data.message };
         } catch (error: any) {
             return { success: false, message: error.message };
         }

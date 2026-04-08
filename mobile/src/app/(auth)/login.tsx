@@ -32,12 +32,33 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   
   // Validation errors
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
+  // Cooldown timer for rate-limiting
+  React.useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => {
+      setCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
+
   async function handleLogin() {
+    if (cooldown > 0) {
+      Toast.show(`Please wait ${cooldown}s before trying again.`, 'error');
+      return;
+    }
+
     setEmailError('');
     setPasswordError('');
     
@@ -71,6 +92,10 @@ export default function LoginScreen() {
       }
       router.replace('/(tabs)');
     } else {
+      // If rate-limited, enforce a 30-second cooldown to prevent further abuse
+      if (result.message?.toLowerCase().includes('too many')) {
+        setCooldown(30);
+      }
       Toast.show(result.message || 'Invalid credentials.', 'error');
     }
     setLoading(false);
@@ -180,10 +205,10 @@ export default function LoginScreen() {
             {/* Sign In Button */}
             <Animated.View entering={FadeInUp.delay(600).springify().damping(15).stiffness(100)} style={{ marginTop: 32 }}>
               <PremiumButton
-                title={loading ? 'SIGNING IN...' : 'SIGN IN'}
-                icon={loading ? undefined : 'log-in-outline'}
+                title={cooldown > 0 ? `WAIT ${cooldown}s` : loading ? 'SIGNING IN...' : 'SIGN IN'}
+                icon={loading || cooldown > 0 ? undefined : 'log-in-outline'}
                 onPress={handleLogin}
-                disabled={loading}
+                disabled={loading || cooldown > 0}
               />
             </Animated.View>
         </View>

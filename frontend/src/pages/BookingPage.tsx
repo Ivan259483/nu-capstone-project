@@ -179,7 +179,6 @@ export default function BookingPage() {
     const [searchParams] = useSearchParams();
     const defaultPkg = searchParams.get('pkg') ?? '';
 
-    const [step, setStep] = useState(1);
     const [submitted, setSubmitted] = useState(false);
     
     // DB Services
@@ -227,24 +226,15 @@ export default function BookingPage() {
     const update = (key: string, value: string) =>
         setForm((f) => ({ ...f, [key]: value }));
 
-    const steps = [
-        { label: t("booking.step1") || "Vehicle", icon: Car, num: 1 },
-        { label: t("booking.step2") || "Schedule", icon: Calendar, num: 2 },
-        { label: t("booking.step3") || "Confirm", icon: User, num: 3 },
-    ];
-
-    const canNext = (s: number) => {
-        if (s === 1) return form.service && form.vehicleModel && form.vehicleYear && form.vehicleColor;
-        if (s === 2) return form.date && form.time;
-        return form.name && form.phone;
-    };
-
     const selectedService = dbServices.find(s => s.id === form.service);
     const selectedPrice = selectedService?.basePrice || 0;
     const fmt = (n: number) => '₱' + n.toLocaleString();
 
+    const isComplete = form.service && form.vehicleModel && form.vehicleYear && form.vehicleColor && form.date && form.time && form.name && form.phone;
+
     const handleSubmit = async () => {
         if (!user) return toast.error("Please login first");
+        if (!isComplete) return toast.error("Please explicitly fill out all required fields.");
 
         try {
             const payload = {
@@ -284,103 +274,73 @@ export default function BookingPage() {
     return (
         <PageLayout>
             {/* Hero */}
-            <section className="relative pt-32 pb-12 section-dark overflow-hidden min-h-[40vh] flex flex-col items-center justify-center">
+            <section className="relative pt-32 pb-12 section-dark overflow-hidden min-h-[30vh] flex flex-col items-center justify-center">
                 <div className="absolute inset-0 bg-hero-pattern opacity-50" />
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent to-background" />
-                <div className="container max-w-3xl mx-auto px-6 relative z-10 text-center">
+                <div className="container max-w-4xl mx-auto px-6 relative z-10 text-center">
                     <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-gold/20 text-xs font-semibold text-primary mb-6 animate-slide-up">
                         <Calendar className="w-3.5 h-3.5" />
-                        Book Appointment
+                        Express Booking
                     </div>
                     <h1 className="text-4xl sm:text-5xl font-bold text-foreground mb-3 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-                        {t("booking.title") || "Schedule a Detail"}
+                        {t("booking.title") || "Schedule Your Detail"}
                     </h1>
-                    <p className="text-muted-foreground animate-slide-up" style={{ animationDelay: "0.2s" }}>
-                        {t("booking.subtitle") || "Premium care for your vehicle, directly at your convenience."}
-                    </p>
                 </div>
             </section>
 
-            <section className="py-16 section-darker relative z-20">
-                <div className="container max-w-2xl mx-auto px-6">
+            <section className="py-12 section-darker relative z-20 pb-32">
+                <div className="container max-w-6xl mx-auto px-6">
                     {!user ? (
                         <div className="glass rounded-3xl p-8 border border-gold/15 max-w-md mx-auto animate-scale-in">
                             <StepAuth />
                         </div>
                     ) : submitted ? (
-                        <div className="glass rounded-3xl p-12 text-center border border-gold/20 animate-scale-in">
+                        <div className="glass rounded-3xl p-12 text-center border border-gold/20 animate-scale-in max-w-2xl mx-auto">
                             <div className="w-20 h-20 rounded-full bg-gradient-gold mx-auto mb-6 flex items-center justify-center glow-gold animate-pulse-gold">
                                 <CheckCircle className="w-10 h-10 text-primary-foreground" />
                             </div>
-                            <h2 className="text-2xl font-bold text-foreground mb-3">Booking Confirmed!</h2>
-                            <p className="text-muted-foreground mb-8">Your appointment request has been sent securely. Redirecting you to your dashboard...</p>
+                            <h2 className="text-3xl font-bold text-foreground mb-4">Booking Confirmed!</h2>
+                            <p className="text-muted-foreground mb-8 text-lg">Your appointment request has been sent securely. You will be redirected to your dashboard shortly.</p>
                         </div>
                     ) : (
-                        <>
-                            {/* Progress Steps */}
-                            <div className="flex items-center justify-between mb-10 relative px-4">
-                                <div className="absolute top-5 left-12 right-12 h-0.5 bg-border" />
-                                <div
-                                    className="absolute top-5 left-12 h-0.5 bg-gradient-gold transition-all duration-500"
-                                    style={{ width: `calc(${((step - 1) / (steps.length - 1)) * 100}% - 2rem * ${(step - 1) / (steps.length - 1)})` }}
-                                />
-                                {steps.map(({ label, icon: Icon, num }) => (
-                                    <div key={num} className="relative flex flex-col items-center gap-2">
-                                        <div
-                                            className={cn(
-                                                "w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all duration-500 z-10",
-                                                num < step
-                                                    ? "bg-gradient-gold border-gold text-primary-foreground"
-                                                    : num === step
-                                                        ? "bg-background border-primary text-primary glow-gold-sm"
-                                                        : "bg-background border-border text-muted-foreground"
-                                            )}
-                                        >
-                                            {num < step ? <CheckCircle className="w-5 h-5" /> : <Icon className="w-4 h-4" />}
-                                        </div>
-                                        <span className={cn("text-xs font-semibold tracking-wider uppercase hidden sm:block", num === step ? "text-primary" : "text-muted-foreground")}>
-                                            {label}
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Form Card */}
-                            <div className="glass rounded-3xl p-8 border border-gold/15 shadow-2xl relative overflow-hidden">
-                                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold/30 to-transparent" />
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 relative items-start">
+                            {/* Left Column: Form Details */}
+                            <div className="lg:col-span-8 flex flex-col gap-8 animate-slide-up">
                                 
-                                {/* Step 1: Vehicle & Service */}
-                                {step === 1 && (
-                                    <div className="animate-slide-up space-y-6">
+                                {/* 1. Vehicle & Service */}
+                                <div className="glass rounded-3xl p-6 md:p-8 border border-gold/15 shadow-xl relative overflow-hidden">
+                                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-gold/30 to-transparent" />
+                                    <h3 className="text-xl font-bold flex items-center gap-3 mb-6 text-foreground">
+                                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                                            <Car className="w-4 h-4" />
+                                        </div>
+                                        Vehicle & Service
+                                    </h3>
+                                    
+                                    <div className="space-y-6">
                                         <div>
-                                            <Label className="text-sm text-muted-foreground mb-3 block">Select Service</Label>
+                                            <Label className="text-sm font-semibold text-foreground mb-3 block tracking-wide">Select Service</Label>
                                             {dbServices.length === 0 ? (
-                                                <div className="text-center py-6 text-muted-foreground text-sm">
-                                                    Loading services...
-                                                </div>
+                                                <div className="text-center py-6 text-muted-foreground text-sm">Loading services...</div>
                                             ) : (
-                                                <div className="grid grid-cols-1 gap-3 max-h-[300px] overflow-y-auto pr-2
-                                                    [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent
-                                                    [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                                                     {dbServices.map((svc) => (
                                                         <button
                                                             key={svc.id}
                                                             onClick={() => update("service", svc.id)}
                                                             className={cn(
-                                                                "p-4 rounded-xl border text-left transition-all duration-300 flex justify-between items-center",
+                                                                "p-4 rounded-xl border text-left transition-all duration-300 flex flex-col justify-between h-full min-h-[90px]",
                                                                 form.service === svc.id
-                                                                    ? "border-gold/60 bg-gold/10 text-primary"
+                                                                    ? "border-gold/60 bg-gold/10 text-primary ring-1 ring-gold/30"
                                                                     : "border-border hover:border-gold/30 text-muted-foreground hover:text-foreground bg-muted/20"
                                                             )}
                                                         >
-                                                            <div>
-                                                                <div className="text-sm font-bold mb-0.5 text-foreground">{svc.name}</div>
-                                                                <div className="text-xs opacity-70">{svc.duration} • {svc.category}</div>
-                                                            </div>
-                                                            <div className="text-right">
-                                                                <div className={cn("font-bold", form.service === svc.id ? "text-primary" : "text-foreground")}>
+                                                            <div className="font-bold text-sm mb-1 leading-tight">{svc.name}</div>
+                                                            <div className="flex justify-between items-end mt-auto w-full">
+                                                                <span className="text-xs opacity-70">{svc.duration}</span>
+                                                                <span className={cn("font-bold text-sm", form.service === svc.id ? "text-primary" : "text-foreground")}>
                                                                     {fmt(svc.basePrice)}
-                                                                </div>
+                                                                </span>
                                                             </div>
                                                         </button>
                                                     ))}
@@ -388,51 +348,58 @@ export default function BookingPage() {
                                             )}
                                         </div>
 
-                                        <div>
-                                            <Label className="text-sm text-muted-foreground mb-1.5 block">Vehicle Model</Label>
-                                            <Input
-                                                value={form.vehicleModel}
-                                                onChange={(e) => update("vehicleModel", e.target.value)}
-                                                placeholder="e.g. Toyota GR86"
-                                                className="bg-muted/40 border-border focus:border-primary"
-                                            />
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <Label className="text-sm text-muted-foreground mb-1.5 block">Year</Label>
-                                                <select
-                                                    value={form.vehicleYear}
-                                                    onChange={e => update('vehicleYear', e.target.value)}
-                                                    className="w-full h-10 px-3 py-2 rounded-md bg-muted/40 border border-border focus:border-primary text-sm text-foreground outline-none appearance-none cursor-pointer"
-                                                >
-                                                    <option value="" disabled>Select year</option>
-                                                    {YEARS.map(y => <option key={y} value={y} className="bg-background">{y}</option>)}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <Label className="text-sm text-muted-foreground mb-1.5 block">Color</Label>
-                                                <select
-                                                    value={form.vehicleColor}
-                                                    onChange={e => update('vehicleColor', e.target.value)}
-                                                    className="w-full h-10 px-3 py-2 rounded-md bg-muted/40 border border-border focus:border-primary text-sm text-foreground outline-none appearance-none cursor-pointer"
-                                                >
-                                                    <option value="" disabled>Select color</option>
-                                                    {CAR_COLORS.map(c => <option key={c} value={c} className="bg-background">{c}</option>)}
-                                                </select>
+                                        <div className="pt-4 border-t border-border">
+                                            <Label className="text-sm font-semibold text-foreground mb-4 block tracking-wide">Vehicle Details</Label>
+                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                                                <div className="sm:col-span-6">
+                                                    <Label className="text-xs text-muted-foreground mb-1.5 block">Model</Label>
+                                                    <Input
+                                                        value={form.vehicleModel}
+                                                        onChange={(e) => update("vehicleModel", e.target.value)}
+                                                        placeholder="e.g. Toyota GR86"
+                                                        className="bg-muted/40 border-border focus:border-primary h-11"
+                                                    />
+                                                </div>
+                                                <div className="sm:col-span-3">
+                                                    <Label className="text-xs text-muted-foreground mb-1.5 block">Year</Label>
+                                                    <select
+                                                        value={form.vehicleYear}
+                                                        onChange={e => update('vehicleYear', e.target.value)}
+                                                        className="w-full h-11 px-3 py-2 rounded-md bg-muted/40 border border-border focus:border-primary text-sm text-foreground outline-none appearance-none cursor-pointer"
+                                                    >
+                                                        <option value="" disabled>Year</option>
+                                                        {YEARS.map(y => <option key={y} value={y} className="bg-background">{y}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div className="sm:col-span-3">
+                                                    <Label className="text-xs text-muted-foreground mb-1.5 block">Color</Label>
+                                                    <select
+                                                        value={form.vehicleColor}
+                                                        onChange={e => update('vehicleColor', e.target.value)}
+                                                        className="w-full h-11 px-3 py-2 rounded-md bg-muted/40 border border-border focus:border-primary text-sm text-foreground outline-none appearance-none cursor-pointer"
+                                                    >
+                                                        <option value="" disabled>Color</option>
+                                                        {CAR_COLORS.map(c => <option key={c} value={c} className="bg-background">{c}</option>)}
+                                                    </select>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                )}
+                                </div>
 
-                                {/* Step 2: Date & Time */}
-                                {step === 2 && (
-                                    <div className="animate-slide-up space-y-6">
+                                {/* 2. Schedule */}
+                                <div className="glass rounded-3xl p-6 md:p-8 border border-gold/15 shadow-xl relative overflow-hidden">
+                                     <h3 className="text-xl font-bold flex items-center gap-3 mb-6 text-foreground">
+                                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                                            <Calendar className="w-4 h-4" />
+                                        </div>
+                                        Schedule
+                                    </h3>
+                                    
+                                    <div className="space-y-6">
                                         <div>
-                                            <Label className="text-sm text-muted-foreground mb-3 block">Preferred Date</Label>
-                                            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 max-h-52 overflow-y-auto pr-2
-                                                [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent
-                                                [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
+                                            <Label className="text-sm font-semibold text-foreground mb-3 block tracking-wide">Preferred Date</Label>
+                                            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 max-h-52 overflow-y-auto pr-2 custom-scrollbar">
                                                 {AVAILABLE_DATES.map(d => {
                                                     const iso = d.toISOString().split('T')[0];
                                                     const sel = form.date === iso;
@@ -441,17 +408,17 @@ export default function BookingPage() {
                                                             key={iso}
                                                             onClick={() => update('date', iso)}
                                                             className={cn(
-                                                                "flex flex-col items-center justify-center py-3 rounded-xl border text-center transition-all duration-200 text-xs",
+                                                                "flex flex-col items-center justify-center py-3 rounded-xl border text-center transition-all duration-200",
                                                                 sel
-                                                                    ? "border-gold/60 bg-gold/10 text-primary"
+                                                                    ? "border-gold/60 bg-gold/10 text-primary ring-1 ring-gold/30"
                                                                     : "border-border hover:border-gold/30 text-muted-foreground hover:text-foreground bg-muted/20"
                                                             )}
                                                         >
                                                             <span className="font-bold text-[10px] uppercase">
                                                                 {d.toLocaleDateString('en-PH', { weekday: 'short' })}
                                                             </span>
-                                                            <span className="text-lg font-black leading-none my-1">{d.getDate()}</span>
-                                                            <span className="text-[9px] opacity-70">
+                                                            <span className="text-xl font-black leading-none my-1.5">{d.getDate()}</span>
+                                                            <span className="text-[10px] opacity-70">
                                                                 {d.toLocaleDateString('en-PH', { month: 'short' })}
                                                             </span>
                                                         </button>
@@ -460,17 +427,17 @@ export default function BookingPage() {
                                             </div>
                                         </div>
 
-                                        <div>
-                                            <Label className="text-sm text-muted-foreground mb-3 block">Preferred Time</Label>
-                                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                        <div className="pt-2">
+                                            <Label className="text-sm font-semibold text-foreground mb-3 block tracking-wide">Preferred Time</Label>
+                                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                                                 {timeSlots.map((slot) => (
                                                     <button
                                                         key={slot}
                                                         onClick={() => update("time", slot)}
                                                         className={cn(
-                                                            "py-2.5 rounded-xl border text-sm font-medium transition-all duration-300",
+                                                            "py-3 rounded-xl border text-sm font-medium transition-all duration-300",
                                                             form.time === slot
-                                                                ? "border-gold/60 bg-gold/10 text-primary"
+                                                                ? "border-gold/60 bg-gold/10 text-primary ring-1 ring-gold/30"
                                                                 : "border-border hover:border-gold/30 text-muted-foreground bg-muted/20 hover:text-foreground"
                                                         )}
                                                     >
@@ -479,114 +446,119 @@ export default function BookingPage() {
                                                 ))}
                                             </div>
                                         </div>
-
-                                        {form.service && (
-                                            <div className="glass-subtle rounded-xl p-4 border border-gold/10 mt-6">
-                                                <div className="text-[10px] text-muted-foreground mb-2 uppercase tracking-widest font-semibold">Booking Summary</div>
-                                                <div className="flex justify-between text-sm items-center">
-                                                    <span className="text-foreground font-medium">{selectedService?.name || 'Service'}</span>
-                                                    <span className="text-primary font-bold">{fmt(selectedPrice)}</span>
-                                                </div>
-                                                {form.vehicleModel && (
-                                                    <div className="text-xs text-muted-foreground mt-1">
-                                                        {form.vehicleYear} {form.vehicleModel} ({form.vehicleColor})
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
                                     </div>
-                                )}
+                                </div>
 
-                                {/* Step 3: Contact Info */}
-                                {step === 3 && (
-                                    <div className="animate-slide-up space-y-4">
+                                {/* 3. Contact Info */}
+                                <div className="glass rounded-3xl p-6 md:p-8 border border-gold/15 shadow-xl relative overflow-hidden">
+                                     <h3 className="text-xl font-bold flex items-center gap-3 mb-6 text-foreground">
+                                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                                            <User className="w-4 h-4" />
+                                        </div>
+                                        Contact Information
+                                    </h3>
+                                    
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                                         <div>
-                                            <Label className="text-sm text-muted-foreground mb-1.5 block">Full Name</Label>
+                                            <Label className="text-xs text-muted-foreground mb-1.5 block">Full Name</Label>
                                             <div className="relative">
-                                                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                                 <Input
                                                     value={form.name}
                                                     onChange={(e) => update("name", e.target.value)}
                                                     placeholder="Juan dela Cruz"
-                                                    className="bg-muted/40 border-border focus:border-primary pl-9"
+                                                    className="bg-muted/40 border-border focus:border-primary pl-10 h-11"
                                                 />
                                             </div>
                                         </div>
                                         <div>
-                                            <Label className="text-sm text-muted-foreground mb-1.5 block">Phone Number</Label>
+                                            <Label className="text-xs text-muted-foreground mb-1.5 block">Phone Number</Label>
                                             <Input
                                                 type="tel"
                                                 value={form.phone}
                                                 onChange={(e) => update("phone", e.target.value)}
                                                 placeholder="+63 912 345 6789"
-                                                className="bg-muted/40 border-border focus:border-primary"
+                                                className="bg-muted/40 border-border focus:border-primary h-11"
                                             />
                                         </div>
-                                        <div>
-                                            <Label className="text-sm text-muted-foreground mb-1.5 block">Additional Notes <span className="text-xs opacity-50">(optional)</span></Label>
+                                        <div className="sm:col-span-2">
+                                            <Label className="text-xs text-muted-foreground mb-1.5 block">Additional Notes <span className="opacity-50">(optional)</span></Label>
                                             <textarea
                                                 value={form.notes}
                                                 onChange={(e) => update("notes", e.target.value)}
-                                                placeholder="Any pre-existing scratches, specific concerns..."
+                                                placeholder="Any pre-existing scratches, specific instructions, etc."
                                                 rows={3}
-                                                className="w-full px-3 py-2 rounded-lg bg-muted/40 border border-border focus:border-primary text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none transition-colors"
+                                                className="w-full px-3 py-2.5 rounded-lg bg-muted/40 border border-border focus:border-primary text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none transition-colors"
                                             />
                                         </div>
-                                        
-                                        <div className="glass-subtle rounded-xl p-4 border border-gold/10 mt-6">
-                                            <div className="text-[10px] text-muted-foreground mb-3 uppercase tracking-widest font-semibold">Final Review</div>
-                                            <div className="space-y-2">
-                                                <div className="flex justify-between text-xs">
-                                                    <span className="text-muted-foreground">Date & Time</span>
-                                                    <span className="text-foreground font-medium">{form.date} at {form.time}</span>
-                                                </div>
-                                                <div className="flex justify-between text-xs">
-                                                    <span className="text-muted-foreground">Service</span>
-                                                    <span className="text-foreground font-medium">{selectedService?.name}</span>
-                                                </div>
-                                                <div className="flex justify-between text-xs font-bold pt-2 border-t border-border">
-                                                    <span className="text-muted-foreground">Total</span>
-                                                    <span className="text-primary">{fmt(selectedPrice)}</span>
-                                                </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Right Column: Sticky Summary */}
+                            <div className="lg:col-span-4 relative h-full">
+                                <div className="sticky top-24 glass rounded-3xl p-6 md:p-8 border border-gold/20 shadow-2xl animate-fade-in">
+                                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-gold/50 to-transparent" />
+                                    
+                                    <h3 className="text-lg font-bold text-foreground mb-6 pb-4 border-b border-border">Booking Summary</h3>
+                                    
+                                    <div className="space-y-6">
+                                        {/* Service */}
+                                        <div>
+                                            <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold mb-1">Service</p>
+                                            <p className="font-medium text-foreground text-sm sm:text-base">
+                                                {selectedService ? selectedService.name : <span className="text-muted-foreground/50 italic">Not Selected</span>}
+                                            </p>
+                                        </div>
+
+                                        {/* Vehicle */}
+                                        <div>
+                                            <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold mb-1">Vehicle</p>
+                                            <p className="font-medium text-foreground text-sm">
+                                                {(form.vehicleYear || form.vehicleModel || form.vehicleColor) ? (
+                                                    `${form.vehicleYear} ${form.vehicleModel} ${form.vehicleColor ? `(${form.vehicleColor})` : ''}`
+                                                ) : <span className="text-muted-foreground/50 italic">Required</span>}
+                                            </p>
+                                        </div>
+
+                                        {/* Date & Time */}
+                                        <div>
+                                            <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold mb-1">Schedule</p>
+                                            <p className="font-medium text-foreground text-sm">
+                                                {(form.date && form.time) ? (
+                                                    `${new Date(form.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric'})} at ${form.time}`
+                                                ) : <span className="text-muted-foreground/50 italic">Required</span>}
+                                            </p>
+                                        </div>
+
+                                        {/* Price */}
+                                        <div className="pt-6 border-t border-border flex items-end justify-between">
+                                            <div>
+                                                <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Total Price</p>
+                                                <p className="text-2xl font-bold text-primary mt-1">{form.service ? fmt(selectedPrice) : '₱0'}</p>
                                             </div>
                                         </div>
                                     </div>
-                                )}
 
-                                {/* Navigation Footer */}
-                                <div className="flex justify-between mt-8 pt-6 border-t border-border">
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => setStep((s) => s - 1)}
-                                        disabled={step === 1}
-                                        className="border-border hover:border-gold/30 text-muted-foreground hover:text-foreground bg-transparent"
-                                    >
-                                        <ChevronLeft className="w-4 h-4 mr-1" />
-                                        Back
-                                    </Button>
-
-                                    {step < 3 ? (
-                                        <Button
-                                            onClick={() => setStep((s) => s + 1)}
-                                            disabled={!canNext(step)}
-                                            className="bg-gradient-gold text-primary-foreground hover:opacity-90 disabled:opacity-40"
-                                        >
-                                            Next Step
-                                            <ChevronRight className="w-4 h-4 ml-1" />
-                                        </Button>
-                                    ) : (
+                                    <div className="mt-8">
                                         <Button
                                             onClick={handleSubmit}
-                                            disabled={!canNext(3)}
-                                            className="bg-gradient-gold text-primary-foreground glow-gold-sm hover:opacity-90 disabled:opacity-40 shadow-lg shadow-gold/20"
+                                            disabled={!isComplete}
+                                            className="w-full h-12 text-base font-bold bg-gradient-gold text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-all duration-300 shadow-xl shadow-gold/10 group"
                                         >
-                                            <Sparkles className="w-4 h-4 mr-2" />
-                                            Confirm Booking
+                                            <Sparkles className="w-5 h-5 mr-2 group-disabled:opacity-50" />
+                                            {isComplete ? "Confirm Booking" : "Finish Form"}
                                         </Button>
+                                    </div>
+                                    {!isComplete && (
+                                        <p className="text-center text-xs text-muted-foreground mt-3">
+                                            Please fill out all required fields.
+                                        </p>
                                     )}
                                 </div>
                             </div>
-                        </>
+
+                        </div>
                     )}
                 </div>
             </section>

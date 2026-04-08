@@ -1,6 +1,15 @@
 import express from 'express';
 import * as authController from '../controllers/auth.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
+import {
+  validateRegistration,
+  validateLogin,
+  validateSendOtp,
+  validateVerifyOtp,
+  validateForgotPassword,
+  validateResetPassword,
+  validateSocialLogin,
+} from '../middleware/validation.middleware.js';
 
 const router = express.Router();
 
@@ -10,21 +19,21 @@ const router = express.Router();
  * @access Public
  * @body { email: string }
  */
-router.post('/send-otp', authController.sendOtp);
+router.post('/send-otp', validateSendOtp, authController.sendOtp);
 
 /**
  * @route POST /api/auth/forgot-password
  * @desc Request OTP for password reset
  * @access Public
  */
-router.post('/forgot-password', authController.forgotPassword);
+router.post('/forgot-password', validateForgotPassword, authController.forgotPassword);
 
 /**
  * @route POST /api/auth/reset-password
  * @desc Reset password using OTP
  * @access Public
  */
-router.post('/reset-password', authController.resetPassword);
+router.post('/reset-password', validateResetPassword, authController.resetPassword);
 
 
 /**
@@ -33,7 +42,7 @@ router.post('/reset-password', authController.resetPassword);
  * @access Public
  * @body { email: string, otp: string }
  */
-router.post('/verify-otp', authController.verifyOtp);
+router.post('/verify-otp', validateVerifyOtp, authController.verifyOtp);
 
 /**
  * @route POST /api/auth/register
@@ -41,7 +50,7 @@ router.post('/verify-otp', authController.verifyOtp);
  * @access Public
  * @body { name: string, email: string, password: string, role?: string }
  */
-router.post('/register', authController.register);
+router.post('/register', validateRegistration, authController.register);
 
 /**
  * @route POST /api/auth/login
@@ -49,7 +58,7 @@ router.post('/register', authController.register);
  * @access Public
  * @body { email: string, password: string }
  */
-router.post('/login', authController.login);
+router.post('/login', validateLogin, authController.login);
 
 /**
  * @route POST /api/auth/social-login
@@ -57,7 +66,7 @@ router.post('/login', authController.login);
  * @access Public
  * @body { email: string, name: string, provider: string, providerId: string }
  */
-router.post('/social-login', authController.socialLogin);
+router.post('/social-login', validateSocialLogin, authController.socialLogin);
 
 /**
  * @route GET /api/auth/me

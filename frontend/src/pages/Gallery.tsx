@@ -1,177 +1,712 @@
-import { useState } from "react";
-import { Image, ZoomIn, X } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
+import {
+    Image, ZoomIn, X, ChevronLeft, ChevronRight,
+    Camera, Sparkles, Eye, ArrowRight, Filter
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import type { Variants } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 import PageLayout from "@/components/PageLayout";
 import { cn } from "@/lib/utils";
 
-const categories = ["all", "exterior", "interior", "paint", "ceramic"] as const;
-type Category = typeof categories[number];
+/* ── Framer Variants ── */
+const EASE = [0.16, 1, 0.3, 1] as const;
 
+const fadeUp: Variants = {
+    hidden: { opacity: 0, y: 40 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: EASE } },
+};
+
+const stagger: Variants = {
+    hidden: {},
+    visible: { transition: { staggerChildren: 0.08, delayChildren: 0.05 } },
+};
+
+const cardReveal: Variants = {
+    hidden: { opacity: 0, scale: 0.9, y: 30 },
+    visible: (i: number) => ({
+        opacity: 1,
+        scale: 1,
+        y: 0,
+        transition: { duration: 0.5, ease: EASE, delay: i * 0.06 },
+    }),
+};
+
+const lightboxVariants: Variants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { duration: 0.25 } },
+    exit: { opacity: 0, transition: { duration: 0.2 } },
+};
+
+const lightboxImgVariants: Variants = {
+    hidden: { opacity: 0, scale: 0.92 },
+    visible: { opacity: 1, scale: 1, transition: { duration: 0.35, ease: EASE } },
+    exit: { opacity: 0, scale: 0.92, transition: { duration: 0.2 } },
+};
+
+/* ── Categories ── */
+const categories = [
+    { key: "all", label: "All Work", icon: Filter },
+    { key: "exterior", label: "Exterior", icon: Sparkles },
+    { key: "interior", label: "Interior", icon: Eye },
+    { key: "paint", label: "Paint", icon: Camera },
+    { key: "ceramic", label: "Ceramic", icon: Image },
+] as const;
+type Category = (typeof categories)[number]["key"];
+
+/* ── Gallery Data — high-quality Unsplash auto detailing images ── */
 const FALLBACK_IMAGE = "https://images.unsplash.com/photo-1518306727298-4c17e1bf6942?auto=format&fit=crop&q=80&w=1200";
 
 const galleryData = [
-    { id: 1, category: "exterior", label: "Premium Exterior Wash", src: "https://images.unsplash.com/photo-1528597469186-bddab681a37f?auto=format&fit=crop&q=80&w=1200", size: "tall" },
-    { id: 2, category: "ceramic", label: "Ceramic Coating — Sedan", src: "https://images.unsplash.com/photo-1567808291548-fc3ee04dbcf0?auto=format&fit=crop&q=80&w=1200", size: "normal" },
-    { id: 3, category: "paint", label: "Paint Correction Detail", src: "https://images.unsplash.com/photo-1605437241278-c1806d14a4d9?auto=format&fit=crop&q=80&w=1200", size: "normal" },
-    { id: 4, category: "interior", label: "Full Interior Detail", src: "https://images.unsplash.com/photo-1619431856706-ca2cc58258f6?auto=format&fit=crop&q=80&w=1200", size: "wide" },
-    { id: 5, category: "exterior", label: "SUV Exterior Shine", src: "https://images.unsplash.com/photo-1620584898989-d39f7f9ed1b7?auto=format&fit=crop&q=80&w=1200", size: "normal" },
-    { id: 6, category: "ceramic", label: "Ceramic on BMW", src: "https://images.unsplash.com/photo-1620584899131-a5ff5f8fbb03?auto=format&fit=crop&q=80&w=1200", size: "tall" },
-    { id: 7, category: "paint", label: "Scratch Removal", src: "https://images.unsplash.com/photo-1622329821376-a19fd6002562?auto=format&fit=crop&q=80&w=1200", size: "wide" },
-    { id: 8, category: "interior", label: "Leather Conditioning", src: "https://images.unsplash.com/photo-1632823469850-2f77dd9c7f93?auto=format&fit=crop&q=80&w=1200", size: "normal" },
-    { id: 9, category: "exterior", label: "Sports Car Detail", src: "https://images.unsplash.com/photo-1632823471799-c3812077da2d?auto=format&fit=crop&q=80&w=1200", size: "normal" },
-    { id: 10, category: "paint", label: "Multi-Stage Polish", src: "https://images.unsplash.com/photo-1633014041037-f5446fb4ce99?auto=format&fit=crop&q=80&w=1200", size: "normal" },
-    { id: 11, category: "ceramic", label: "Nano Coating SUV", src: "https://images.unsplash.com/photo-1633014332834-c94559ff5439?auto=format&fit=crop&q=80&w=1200", size: "normal" },
-    { id: 12, category: "interior", label: "Dashboard Detail", src: "https://images.unsplash.com/photo-1652454449601-e83b62eabe94?auto=format&fit=crop&q=80&w=1200", size: "wide" },
+    {
+        id: 1,
+        category: "exterior",
+        label: "Premium Exterior Wash",
+        desc: "Full hand wash with foam cannon and clay bar treatment",
+        src: "https://images.unsplash.com/photo-1528597469186-bddab681a37f?auto=format&fit=crop&q=80&w=1200",
+        span: "col-span-2 row-span-2",
+        featured: true,
+    },
+    {
+        id: 2,
+        category: "ceramic",
+        label: "Ceramic Coating Application",
+        desc: "Professional nano-ceramic protection for lasting brilliance",
+        src: "https://images.unsplash.com/photo-1567808291548-fc3ee04dbcf0?auto=format&fit=crop&q=80&w=1200",
+        span: "",
+        featured: false,
+    },
+    {
+        id: 3,
+        category: "paint",
+        label: "Paint Correction Detail",
+        desc: "Multi-stage machine polish for a flawless mirror finish",
+        src: "https://images.unsplash.com/photo-1605437241278-c1806d14a4d9?auto=format&fit=crop&q=80&w=1200",
+        span: "",
+        featured: false,
+    },
+    {
+        id: 4,
+        category: "interior",
+        label: "Full Interior Restoration",
+        desc: "Deep cleaning, leather conditioning, and odor elimination",
+        src: "https://images.unsplash.com/photo-1619431856706-ca2cc58258f6?auto=format&fit=crop&q=80&w=1200",
+        span: "col-span-2",
+        featured: false,
+    },
+    {
+        id: 5,
+        category: "exterior",
+        label: "SUV Exterior Detail",
+        desc: "Full exterior restoration on a luxury SUV",
+        src: "https://images.unsplash.com/photo-1620584898989-d39f7f9ed1b7?auto=format&fit=crop&q=80&w=1200",
+        span: "",
+        featured: false,
+    },
+    {
+        id: 6,
+        category: "ceramic",
+        label: "Ceramic on BMW M4",
+        desc: "9H ceramic coating on Alpine White — candy gloss achieved",
+        src: "https://images.unsplash.com/photo-1620584899131-a5ff5f8fbb03?auto=format&fit=crop&q=80&w=1200",
+        span: "row-span-2",
+        featured: true,
+    },
+    {
+        id: 7,
+        category: "paint",
+        label: "Scratch & Swirl Removal",
+        desc: "Deep scratch removal with 3-stage machine polishing",
+        src: "https://images.unsplash.com/photo-1622329821376-a19fd6002562?auto=format&fit=crop&q=80&w=1200",
+        span: "",
+        featured: false,
+    },
+    {
+        id: 8,
+        category: "interior",
+        label: "Leather Conditioning",
+        desc: "Premium leather care and UV protection treatment",
+        src: "https://images.unsplash.com/photo-1632823469850-2f77dd9c7f93?auto=format&fit=crop&q=80&w=1200",
+        span: "",
+        featured: false,
+    },
+    {
+        id: 9,
+        category: "exterior",
+        label: "Supercar Detailing",
+        desc: "Full exterior detail on a Lamborghini Huracan",
+        src: "https://images.unsplash.com/photo-1632823471799-c3812077da2d?auto=format&fit=crop&q=80&w=1200",
+        span: "col-span-2",
+        featured: false,
+    },
+    {
+        id: 10,
+        category: "paint",
+        label: "Multi-Stage Polish",
+        desc: "Removing years of oxidation and micro-scratches",
+        src: "https://images.unsplash.com/photo-1633014041037-f5446fb4ce99?auto=format&fit=crop&q=80&w=1200",
+        span: "",
+        featured: false,
+    },
+    {
+        id: 11,
+        category: "ceramic",
+        label: "Nano Coating on Range Rover",
+        desc: "Full body ceramic with hydrophobic top coat",
+        src: "https://images.unsplash.com/photo-1633014332834-c94559ff5439?auto=format&fit=crop&q=80&w=1200",
+        span: "",
+        featured: false,
+    },
+    {
+        id: 12,
+        category: "interior",
+        label: "Dashboard & Console Detail",
+        desc: "Complete dashboard restoration and UV protectant",
+        src: "https://images.unsplash.com/photo-1652454449601-e83b62eabe94?auto=format&fit=crop&q=80&w=1200",
+        span: "col-span-2 row-span-2",
+        featured: true,
+    },
 ] as const;
 
+/* ── Stats ── */
+const GALLERY_STATS = [
+    { value: "500+", label: "Projects Completed" },
+    { value: "12+", label: "Services Offered" },
+    { value: "98%", label: "Client Satisfaction" },
+    { value: "5★", label: "Average Rating" },
+];
+
+/* ═══════════════════════════════════════
+   GalleryCard
+═══════════════════════════════════════ */
 function GalleryCard({
     item,
     index,
-    isVisible,
     onOpen,
 }: {
     item: (typeof galleryData)[number];
     index: number;
-    isVisible: boolean;
-    onOpen: (item: (typeof galleryData)[number]) => void;
+    onOpen: (idx: number) => void;
 }) {
-    const [imgSrc, setImgSrc] = useState(item.src);
+    const [imgSrc, setImgSrc] = useState<string>(item.src);
+    const [isHovered, setIsHovered] = useState(false);
 
     return (
-        <div
+        <motion.div
+            custom={index}
+            variants={cardReveal}
+            layout
+            layoutId={`gallery-${item.id}`}
+            onClick={() => onOpen(index)}
+            onHoverStart={() => setIsHovered(true)}
+            onHoverEnd={() => setIsHovered(false)}
             className={cn(
-                "reveal group relative overflow-hidden rounded-2xl glass cursor-pointer",
-                item.size === "tall" ? "row-span-2" : item.size === "wide" ? "col-span-2" : "",
-                isVisible ? "visible" : ""
+                "group relative overflow-hidden rounded-2xl cursor-pointer",
+                item.span || "",
             )}
-            style={{ transitionDelay: `${(index % 6) * 70}ms`, minHeight: 180 }}
-            onClick={() => onOpen(item)}
+            style={{ minHeight: 200 }}
+            whileHover={{ scale: 1.02, transition: { duration: 0.3 } }}
         >
-            <img 
-                src={imgSrc} 
+            {/* Image */}
+            <motion.img
+                src={imgSrc}
                 alt={item.label}
                 onError={() => setImgSrc(FALLBACK_IMAGE)}
-                className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                className="absolute inset-0 w-full h-full object-cover"
+                animate={{ scale: isHovered ? 1.12 : 1.0 }}
+                transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
             />
-            {/* Subtle dark overlay for contrast */}
-            <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors duration-500" />
 
-            {/* Hover reveal */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-400 flex flex-col items-center justify-end p-4 gap-2">
-                <ZoomIn className="w-6 h-6 text-primary mb-1 drop-shadow-md" />
-                <span className="text-sm font-semibold text-white text-center drop-shadow-md">{item.label}</span>
-            </div>
+            {/* Permanent gradient overlay */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
 
-            {/* Gold border */}
-            <div className="absolute inset-0 rounded-2xl border-2 border-gold/0 group-hover:border-gold/40 transition-all duration-300 pointer-events-none glow-gold-sm opacity-0 group-hover:opacity-100" />
-        </div>
+            {/* Hover overlay */}
+            <motion.div
+                className="absolute inset-0 flex flex-col justify-end p-5 sm:p-6"
+                initial={false}
+                animate={{ opacity: isHovered ? 1 : 0.7 }}
+                transition={{ duration: 0.3 }}
+            >
+                {/* Zoom icon */}
+                <motion.div
+                    className="absolute top-4 right-4 w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center"
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: isHovered ? 1 : 0, scale: isHovered ? 1 : 0.8 }}
+                    transition={{ duration: 0.25 }}
+                >
+                    <ZoomIn className="w-4 h-4 text-white" />
+                </motion.div>
+
+                {/* Category badge */}
+                <motion.span
+                    className="inline-flex self-start px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-[0.2em] bg-white/10 backdrop-blur-sm border border-white/15 text-white/80 mb-2"
+                    animate={{ y: isHovered ? 0 : 8, opacity: isHovered ? 1 : 0 }}
+                    transition={{ duration: 0.3, ease: EASE }}
+                >
+                    {item.category}
+                </motion.span>
+
+                {/* Title */}
+                <motion.h3
+                    className="text-white font-bold text-sm sm:text-base leading-tight drop-shadow-lg"
+                    animate={{ y: isHovered ? 0 : 6 }}
+                    transition={{ duration: 0.35, ease: EASE }}
+                >
+                    {item.label}
+                </motion.h3>
+
+                {/* Description (only on hover) */}
+                <motion.p
+                    className="text-white/50 text-xs mt-1 leading-relaxed"
+                    animate={{ y: isHovered ? 0 : 10, opacity: isHovered ? 1 : 0 }}
+                    transition={{ duration: 0.35, delay: 0.05, ease: EASE }}
+                >
+                    {item.desc}
+                </motion.p>
+
+                {/* Gold accent underline */}
+                <motion.div
+                    className="w-8 h-0.5 bg-gradient-to-r from-amber-400 to-orange-500 rounded-full mt-2.5"
+                    animate={{ width: isHovered ? 32 : 0, opacity: isHovered ? 1 : 0 }}
+                    transition={{ duration: 0.3, delay: 0.08 }}
+                />
+            </motion.div>
+
+            {/* Border glow on hover */}
+            <motion.div
+                className="absolute inset-0 rounded-2xl pointer-events-none"
+                animate={{
+                    boxShadow: isHovered
+                        ? "inset 0 0 0 1.5px rgba(245,158,11,0.35), 0 0 30px rgba(245,158,11,0.12)"
+                        : "inset 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 transparent",
+                }}
+                transition={{ duration: 0.35 }}
+            />
+
+            {/* Featured badge */}
+            {item.featured && (
+                <div className="absolute top-4 left-4 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/20 backdrop-blur-md border border-amber-500/30 text-amber-400">
+                    <Sparkles className="w-3 h-3" />
+                    <span className="text-[9px] font-bold uppercase tracking-wider">Featured</span>
+                </div>
+            )}
+        </motion.div>
     );
 }
 
+/* ═══════════════════════════════════════
+   Lightbox Component
+═══════════════════════════════════════ */
+function Lightbox({
+    items,
+    currentIndex,
+    onClose,
+    onNavigate,
+    onGoTo,
+}: {
+    items: readonly (typeof galleryData)[number][];
+    currentIndex: number;
+    onClose: () => void;
+    onNavigate: (dir: -1 | 1) => void;
+    onGoTo: (index: number) => void;
+}) {
+    const item = items[currentIndex];
+    const [imgSrc, setImgSrc] = useState<string>(item.src);
+
+    useEffect(() => {
+        setImgSrc(item.src);
+    }, [item.src]);
+
+    // Keyboard navigation
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === "Escape") onClose();
+            if (e.key === "ArrowLeft") onNavigate(-1);
+            if (e.key === "ArrowRight") onNavigate(1);
+        };
+        window.addEventListener("keydown", handler);
+        return () => window.removeEventListener("keydown", handler);
+    }, [onClose, onNavigate]);
+
+    return (
+        <motion.div
+            variants={lightboxVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            onClick={onClose}
+        >
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/92 backdrop-blur-xl" />
+
+            {/* Close button */}
+            <button
+                onClick={onClose}
+                className="absolute top-6 right-6 z-[60] w-11 h-11 rounded-full bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all duration-200"
+            >
+                <X className="w-5 h-5" />
+            </button>
+
+            {/* Navigation arrows */}
+            <button
+                onClick={(e) => { e.stopPropagation(); onNavigate(-1); }}
+                className="absolute left-4 sm:left-8 z-[60] w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all duration-200"
+            >
+                <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button
+                onClick={(e) => { e.stopPropagation(); onNavigate(1); }}
+                className="absolute right-4 sm:right-8 z-[60] w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all duration-200"
+            >
+                <ChevronRight className="w-5 h-5" />
+            </button>
+
+            {/* Image container */}
+            <div
+                className="relative z-[55] w-full max-w-5xl mx-6 sm:mx-10"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <AnimatePresence mode="wait">
+                    <motion.div
+                        key={item.id}
+                        variants={lightboxImgVariants}
+                        initial="hidden"
+                        animate="visible"
+                        exit="exit"
+                        className="relative rounded-2xl overflow-hidden shadow-2xl"
+                    >
+                        <img
+                            src={imgSrc}
+                            alt={item.label}
+                            onError={() => setImgSrc(FALLBACK_IMAGE)}
+                            className="w-full h-auto max-h-[80vh] object-contain bg-zinc-950 rounded-2xl"
+                        />
+
+                        {/* Info bar at bottom */}
+                        <div className="absolute bottom-0 inset-x-0 p-6 sm:p-8 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
+                            <div className="flex items-end justify-between gap-4">
+                                <div>
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-[0.2em] bg-white/10 border border-white/15 text-white/70 mb-2">
+                                        {item.category}
+                                    </span>
+                                    <h3 className="text-xl sm:text-2xl font-bold text-white drop-shadow-lg">
+                                        {item.label}
+                                    </h3>
+                                    <p className="text-white/40 text-sm mt-1">{item.desc}</p>
+                                </div>
+                                <span className="text-white/25 text-sm font-mono whitespace-nowrap shrink-0">
+                                    {currentIndex + 1} / {items.length}
+                                </span>
+                            </div>
+                            <div className="w-12 h-0.5 bg-gradient-to-r from-amber-400 to-orange-500 rounded-full mt-4" />
+                        </div>
+                    </motion.div>
+                </AnimatePresence>
+
+                {/* Thumbnail strip */}
+                <div className="flex items-center justify-center gap-2 mt-4 overflow-x-auto py-2 px-4">
+                    {items.map((thumb, i) => (
+                        <button
+                            key={thumb.id}
+                            onClick={() => onGoTo(i)}
+                            className={cn(
+                                "w-12 h-12 rounded-lg overflow-hidden border-2 transition-all duration-200 shrink-0",
+                                i === currentIndex
+                                    ? "border-amber-500 ring-2 ring-amber-500/30 scale-110"
+                                    : "border-white/10 opacity-50 hover:opacity-80"
+                            )}
+                        >
+                            <img src={thumb.src} alt="" className="w-full h-full object-cover" />
+                        </button>
+                    ))}
+                </div>
+            </div>
+        </motion.div>
+    );
+}
+
+/* ═══════════════════════════════════════
+   GALLERY PAGE
+═══════════════════════════════════════ */
 export default function Gallery() {
     const { t } = useLanguage();
     const [activeCategory, setActiveCategory] = useState<Category>("all");
-    const [lightbox, setLightbox] = useState<(typeof galleryData)[number] | null>(null);
-    const { ref, isVisible } = useScrollAnimation<HTMLDivElement>({ threshold: 0.05 });
+    const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
     const filtered = activeCategory === "all"
         ? galleryData
         : galleryData.filter((i) => i.category === activeCategory);
 
-    const catLabels: Record<Category, string> = {
-        all: t("gallery.all"),
-        exterior: t("gallery.exterior"),
-        interior: t("gallery.interior"),
-        paint: t("gallery.paint"),
-        ceramic: t("gallery.ceramic"),
-    };
+    const openLightbox = useCallback((idx: number) => {
+        setLightboxIndex(idx);
+        document.body.style.overflow = "hidden";
+    }, []);
+
+    const closeLightbox = useCallback(() => {
+        setLightboxIndex(null);
+        document.body.style.overflow = "";
+    }, []);
+
+    const navigateLightbox = useCallback((dir: -1 | 1) => {
+        setLightboxIndex((prev) => {
+            if (prev === null) return null;
+            const next = prev + dir;
+            if (next < 0) return filtered.length - 1;
+            if (next >= filtered.length) return 0;
+            return next;
+        });
+    }, [filtered.length]);
+
+    // Lock scroll when lightbox open
+    useEffect(() => {
+        return () => { document.body.style.overflow = ""; };
+    }, []);
 
     return (
         <PageLayout>
-            {/* Hero */}
-            <section className="relative pt-32 pb-16 section-dark overflow-hidden">
+            {/* ══════════════════════════════════
+                HERO
+            ══════════════════════════════════ */}
+            <section className="relative pt-36 pb-24 overflow-hidden">
                 <div className="absolute inset-0 bg-hero-pattern" />
-                <div className="container max-w-7xl mx-auto px-6 relative z-10 text-center">
-                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-gold/20 text-xs font-semibold text-primary mb-6 animate-slide-up">
-                        <Image className="w-3.5 h-3.5" />
-                        {t("gallery.title")}
-                    </div>
-                    <h1 className="text-4xl sm:text-5xl font-bold text-foreground mb-4 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-                        {t("gallery.subtitle")}
-                    </h1>
-                </div>
-            </section>
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background" />
+                <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-amber-500/[0.05] blur-[160px] rounded-full pointer-events-none" />
 
-            {/* Filter */}
-            <section className="py-8 section-darker border-b border-gold/10 sticky top-16 z-30">
-                <div className="container max-w-7xl mx-auto px-6">
-                    <div className="flex flex-wrap gap-2 justify-center">
-                        {categories.map((cat) => (
-                            <button
-                                key={cat}
-                                onClick={() => setActiveCategory(cat)}
-                                className={cn(
-                                    "px-5 py-2 rounded-full text-sm font-medium transition-all duration-300",
-                                    activeCategory === cat
-                                        ? "bg-gradient-gold text-primary-foreground glow-gold-sm"
-                                        : "glass border border-gold/15 text-muted-foreground hover:text-primary hover:border-gold/35"
-                                )}
-                            >
-                                {catLabels[cat]}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            </section>
-
-            {/* Grid */}
-            <section className="py-16 section-dark">
-                <div ref={ref} className="container max-w-7xl mx-auto px-6">
-                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-[180px]">
-                        {filtered.map((item, i) => (
-                            <GalleryCard
-                                key={item.id}
-                                item={item}
-                                index={i}
-                                isVisible={isVisible}
-                                onOpen={setLightbox}
-                            />
-                        ))}
-                    </div>
-                </div>
-            </section>
-
-            {/* Lightbox */}
-            {lightbox && (
-                <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-md animate-fade-in"
-                    onClick={() => setLightbox(null)}
-                >
-                    <div
-                        className="relative w-full max-w-2xl mx-6 glass rounded-3xl overflow-hidden border border-gold/20 animate-scale-in"
-                        onClick={(e) => e.stopPropagation()}
+                <div className="container max-w-5xl mx-auto px-6 relative z-10 text-center">
+                    <motion.div
+                        variants={stagger}
+                        initial="hidden"
+                        animate="visible"
                     >
-                        <div className="relative h-80 sm:h-96 w-full overflow-hidden">
-                            <img 
-                                src={lightbox.src} 
-                                alt={lightbox.label}
-                                className="absolute inset-0 w-full h-full object-cover"
-                            />
-                        </div>
-                        <div className="p-6">
-                            <h3 className="text-xl font-bold text-foreground mb-2">{lightbox.label}</h3>
-                            <p className="text-sm text-muted-foreground capitalize">{lightbox.category} Service</p>
-                        </div>
-                        <button
-                            onClick={() => setLightbox(null)}
-                            className="absolute top-4 right-4 w-8 h-8 rounded-full glass border border-gold/20 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                        <motion.div
+                            variants={fadeUp}
+                            className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-white/[0.04] border border-white/10 text-[11px] font-bold uppercase tracking-[0.3em] text-amber-400/80 mb-6 backdrop-blur-sm"
                         >
-                            <X className="w-4 h-4" />
-                        </button>
-                    </div>
+                            <Camera className="w-3.5 h-3.5" />
+                            {t("gallery.title") || "Our Portfolio"}
+                        </motion.div>
+
+                        <motion.h1
+                            variants={fadeUp}
+                            className="text-5xl sm:text-6xl lg:text-7xl font-serif font-medium text-white tracking-tight mb-5 leading-[1.05]"
+                        >
+                            See the{" "}
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">
+                                Transformation
+                            </span>
+                        </motion.h1>
+
+                        <motion.p
+                            variants={fadeUp}
+                            className="text-white/35 text-base md:text-lg max-w-2xl mx-auto font-light leading-relaxed"
+                        >
+                            Before and after — real results from real vehicles.
+                            Every image showcases our commitment to precision, protection, and perfection.
+                        </motion.p>
+                    </motion.div>
                 </div>
-            )}
+
+                <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-500/15 to-transparent" />
+            </section>
+
+            {/* ══════════════════════════════════
+                STATS STRIP
+            ══════════════════════════════════ */}
+            <section className="relative py-10 border-b border-white/5 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-amber-500/[0.02] to-transparent" />
+                <motion.div
+                    variants={stagger}
+                    initial="hidden"
+                    whileInView="visible"
+                    viewport={{ once: true, margin: "-40px" }}
+                    className="max-w-4xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-6"
+                >
+                    {GALLERY_STATS.map((stat) => (
+                        <motion.div key={stat.label} variants={fadeUp} className="text-center">
+                            <p className="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-1">{stat.value}</p>
+                            <p className="text-[10px] text-white/25 uppercase tracking-[0.2em] font-medium">{stat.label}</p>
+                        </motion.div>
+                    ))}
+                </motion.div>
+            </section>
+
+            {/* ══════════════════════════════════
+                CATEGORY FILTER
+            ══════════════════════════════════ */}
+            <section className="sticky top-16 z-30 py-5 backdrop-blur-xl bg-background/80 border-b border-white/5">
+                <div className="container max-w-5xl mx-auto px-6">
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: 0.3, ease: EASE }}
+                        className="flex justify-center"
+                    >
+                        <div className="inline-flex flex-wrap justify-center p-1 bg-white/[0.03] backdrop-blur-md rounded-2xl border border-white/8 gap-1">
+                            {categories.map((cat) => {
+                                const Icon = cat.icon;
+                                const isActive = activeCategory === cat.key;
+                                const count = cat.key === "all"
+                                    ? galleryData.length
+                                    : galleryData.filter((g) => g.category === cat.key).length;
+
+                                return (
+                                    <motion.button
+                                        key={cat.key}
+                                        onClick={() => setActiveCategory(cat.key)}
+                                        whileHover={{ scale: isActive ? 1 : 1.03 }}
+                                        whileTap={{ scale: 0.97 }}
+                                        className={cn(
+                                            "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all duration-300",
+                                            isActive
+                                                ? "bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/20"
+                                                : "text-white/40 hover:text-white/70 hover:bg-white/5"
+                                        )}
+                                    >
+                                        <Icon className="w-3.5 h-3.5" />
+                                        {cat.label}
+                                        <span
+                                            className={cn(
+                                                "text-[10px] font-bold px-1.5 py-0.5 rounded-md",
+                                                isActive ? "bg-white/20" : "bg-white/5 text-white/25"
+                                            )}
+                                        >
+                                            {count}
+                                        </span>
+                                    </motion.button>
+                                );
+                            })}
+                        </div>
+                    </motion.div>
+                </div>
+            </section>
+
+            {/* ══════════════════════════════════
+                GALLERY GRID — Masonry
+            ══════════════════════════════════ */}
+            <section className="relative py-16 overflow-hidden">
+                {/* Ambient blobs */}
+                <div className="absolute top-20 left-0 w-[500px] h-[500px] bg-indigo-500/[0.02] blur-[140px] rounded-full pointer-events-none" />
+                <div className="absolute bottom-20 right-0 w-[400px] h-[400px] bg-amber-500/[0.03] blur-[120px] rounded-full pointer-events-none" />
+
+                <div className="container max-w-7xl mx-auto px-6 relative z-10">
+                    <AnimatePresence mode="wait">
+                        <motion.div
+                            key={activeCategory}
+                            variants={stagger}
+                            initial="hidden"
+                            animate="visible"
+                            exit={{ opacity: 0, transition: { duration: 0.15 } }}
+                            className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 auto-rows-[180px] sm:auto-rows-[220px]"
+                        >
+                            {filtered.map((item, i) => (
+                                <GalleryCard
+                                    key={item.id}
+                                    item={item}
+                                    index={i}
+                                    onOpen={() => openLightbox(i)}
+                                />
+                            ))}
+                        </motion.div>
+                    </AnimatePresence>
+
+                    {/* Empty state */}
+                    {filtered.length === 0 && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="text-center py-24"
+                        >
+                            <Camera className="w-12 h-12 text-white/10 mx-auto mb-4" />
+                            <p className="text-white/30 text-sm">No photos in this category yet.</p>
+                        </motion.div>
+                    )}
+
+                    {/* Results count */}
+                    <motion.div
+                        variants={fadeUp}
+                        initial="hidden"
+                        whileInView="visible"
+                        viewport={{ once: true }}
+                        className="text-center mt-12"
+                    >
+                        <div className="inline-flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/[0.03] border border-white/8 backdrop-blur-sm">
+                            <Sparkles className="w-4 h-4 text-amber-400/60" />
+                            <p className="text-xs text-white/30 font-medium">
+                                Showing {filtered.length} of {galleryData.length} projects &bull;{" "}
+                                <span className="text-amber-400/60">Updated weekly with new work</span>
+                            </p>
+                        </div>
+                    </motion.div>
+                </div>
+            </section>
+
+            {/* ══════════════════════════════════
+                CTA SECTION
+            ══════════════════════════════════ */}
+            <section className="relative py-28 px-6 overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/8 to-transparent" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-amber-500/[0.04] blur-[140px] rounded-full pointer-events-none" />
+
+                <motion.div
+                    variants={stagger}
+                    initial="hidden"
+                    whileInView="visible"
+                    viewport={{ once: true, margin: "-80px" }}
+                    className="max-w-3xl mx-auto text-center relative z-10"
+                >
+                    <motion.h2
+                        variants={fadeUp}
+                        className="text-4xl md:text-5xl font-serif font-medium text-white tracking-tight mb-5"
+                    >
+                        Ready to see your car{" "}
+                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">
+                            transformed?
+                        </span>
+                    </motion.h2>
+                    <motion.p
+                        variants={fadeUp}
+                        className="text-white/35 text-base mb-10 font-light max-w-md mx-auto"
+                    >
+                        Book your premium detailing session today and join our portfolio of satisfied clients.
+                    </motion.p>
+                    <motion.div variants={fadeUp} className="flex items-center justify-center gap-4 flex-wrap">
+                        <a href="/booking">
+                            <motion.button
+                                whileHover={{ scale: 1.04 }}
+                                whileTap={{ scale: 0.97 }}
+                                className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-2xl shadow-amber-500/30 hover:shadow-amber-500/50 transition-all duration-200 cursor-pointer"
+                            >
+                                Book Now <ArrowRight className="w-4 h-4" />
+                            </motion.button>
+                        </a>
+                        <a href="/services">
+                            <motion.button
+                                whileHover={{ scale: 1.04 }}
+                                whileTap={{ scale: 0.97 }}
+                                className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-sm text-white/60 hover:text-white border border-white/15 hover:border-white/30 transition-all duration-200 cursor-pointer"
+                            >
+                                View Services
+                            </motion.button>
+                        </a>
+                    </motion.div>
+                </motion.div>
+            </section>
+
+            {/* ══════════════════════════════════
+                LIGHTBOX
+            ══════════════════════════════════ */}
+            <AnimatePresence>
+                {lightboxIndex !== null && (
+                    <Lightbox
+                        items={filtered}
+                        currentIndex={lightboxIndex}
+                        onClose={closeLightbox}
+                        onNavigate={navigateLightbox}
+                        onGoTo={(i) => setLightboxIndex(i)}
+                    />
+                )}
+            </AnimatePresence>
         </PageLayout>
     );
 }

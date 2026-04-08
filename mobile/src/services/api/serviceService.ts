@@ -1,4 +1,4 @@
-import { apiClient } from '@/services/api/client';
+import { apiClient, cachedGet, TTL } from '@/services/api/client';
 import type { ApiEnvelope, ServiceOption } from '@/services/api/types';
 
 const CATEGORY_ICON_MAP: Record<string, string> = {
@@ -27,8 +27,8 @@ const toServiceOption = (raw: any): ServiceOption => {
 
 export const serviceService = {
   async getPublishedServices(): Promise<ServiceOption[]> {
-    const response = await apiClient.get<ApiEnvelope<any[]>>('/services/published');
-    const items = Array.isArray(response.data.data) ? response.data.data : [];
+    const data = await cachedGet<ApiEnvelope<any[]>>('/services/published', undefined, TTL.MEDIUM);
+    const items = Array.isArray(data.data) ? data.data : [];
     return items.map(toServiceOption);
   },
 };

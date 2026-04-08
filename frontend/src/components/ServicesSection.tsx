@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Sparkles, Wind, Layers, Shield, Wrench, Package, ArrowRight } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import QuickBookModal from "./QuickBookModal";
 
 const serviceIcons = [Sparkles, Wind, Layers, Shield, Wrench, Package];
 const servicePrices = ["₱499", "₱699", "₱1,499", "₱3,999", "₱799", "₱5,499"];
@@ -17,9 +19,10 @@ interface ServiceCardProps {
     isPopular?: boolean;
     delay: number;
     isVisible: boolean;
+    onBookClick: () => void;
 }
 
-function ServiceCard({ icon: Icon, name, desc, price, isPopular, delay, isVisible }: ServiceCardProps) {
+function ServiceCard({ icon: Icon, name, desc, price, isPopular, delay, isVisible, onBookClick }: ServiceCardProps) {
     const { t } = useLanguage();
     return (
         <div
@@ -48,11 +51,9 @@ function ServiceCard({ icon: Icon, name, desc, price, isPopular, delay, isVisibl
                     <span className="text-xs text-muted-foreground">{t("services.startingAt")}</span>
                     <div className="text-lg font-bold gradient-text">{price}</div>
                 </div>
-                <Link to="/booking">
-                    <Button size="sm" variant="outline" className="border-gold/25 text-primary hover:bg-gold/10 hover:border-gold/50 text-xs">
-                        {t("services.bookNow")}
-                    </Button>
-                </Link>
+                <Button onClick={onBookClick} size="sm" variant="outline" className="border-gold/25 text-primary hover:bg-gold/10 hover:border-gold/50 text-xs z-10 relative">
+                    {t("services.bookNow")}
+                </Button>
             </div>
         </div>
     );
@@ -61,6 +62,7 @@ function ServiceCard({ icon: Icon, name, desc, price, isPopular, delay, isVisibl
 export default function ServicesSection() {
     const { t } = useLanguage();
     const { ref, isVisible } = useScrollAnimation<HTMLDivElement>({ threshold: 0.1 });
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
     return (
         <section className="relative pt-24 pb-32 mb-8 section-dark z-20 min-h-max isolate">
@@ -92,6 +94,7 @@ export default function ServicesSection() {
                             isPopular={key === "full"}
                             delay={i * 80}
                             isVisible={isVisible}
+                            onBookClick={() => setIsModalOpen(true)}
                         />
                     ))}
                 </div>
@@ -105,6 +108,7 @@ export default function ServicesSection() {
                     </Link>
                 </div>
             </div>
+            <QuickBookModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
         </section>
     );
 }

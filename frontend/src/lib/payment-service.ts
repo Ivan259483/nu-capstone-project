@@ -72,7 +72,8 @@ export const PaymentService = {
         orderId: string;
         items: { name: string; price: number; quantity?: number }[];
         addons?: { name: string; price: number; quantity?: number }[];
-        paymentMethod: 'cash' | 'gcash' | 'maya' | 'card';
+        paymentMethod: 'cash' | 'gcash' | 'maya' | 'card' | 'split';
+        splitPayments?: { method: string; amount: number }[];
         staffId?: string | null;
         discount?: { discountType: 'fixed' | 'percent'; value: number; reason?: string } | null;
         cashReceived?: number | null;

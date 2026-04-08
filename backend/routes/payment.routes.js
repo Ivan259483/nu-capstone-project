@@ -7,6 +7,7 @@ import {
   confirmStripePayment,
   getSalesToday,
   getAllPayments,
+  getMyPayments,
   createPOSTransaction,
   getReceiptData,
 } from '../controllers/payment.controller.js';
@@ -15,6 +16,9 @@ import { POS_MANAGER_ROLES } from '../constants/roles.js';
 const router = express.Router();
 
 router.use(authenticate);
+
+// Customer-accessible: own payment history
+router.get('/my', getMyPayments);
 
 router.post('/stripe/checkout', createStripeCheckoutSession);
 router.post('/stripe/intent', createStripePaymentIntent);

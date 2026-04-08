@@ -363,6 +363,37 @@ export const register = async (req, res, next) => {
       });
     }
 
+    // Server-side email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid email address',
+      });
+    }
+
+    // Server-side name validation
+    if (name.trim().length < 2 || name.trim().length > 80) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name must be between 2 and 80 characters',
+      });
+    }
+
+    // Server-side password policy enforcement (mirrors frontend requirements)
+    const passwordErrors = [];
+    if (password.length < 8) passwordErrors.push('at least 8 characters');
+    if (!/[A-Z]/.test(password)) passwordErrors.push('one uppercase letter');
+    if (!/[a-z]/.test(password)) passwordErrors.push('one lowercase letter');
+    if (!/[0-9]/.test(password)) passwordErrors.push('one number');
+    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) passwordErrors.push('one special character');
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Password must contain: ${passwordErrors.join(', ')}`,
+      });
+    }
+
     // Check if OTP is verified (if OTP flow is enabled)
     if (config.emailProvider !== 'console') {
       const otpRecord = await OTP.findOne({ email, verified: true });
@@ -460,6 +491,15 @@ export const login = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: 'Email and password are required',
+      });
+    }
+
+    // Server-side email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid email address',
       });
     }
 

@@ -1,7 +1,11 @@
 import { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { ArrowRight, ChevronDown, Shield, Zap, Star, CheckCircle2, Award, Clock, Users } from 'lucide-react';
+import {
+    ArrowRight, ChevronDown, Shield, Zap, Star, CheckCircle2,
+    Award, Clock, Users, Droplets, Palette, Eye, Gem, HandMetal,
+    ScanLine, ShieldCheck
+} from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { SettingsService } from '@/lib/settings-service';
@@ -9,14 +13,15 @@ import type { BusinessSettings } from '@/types';
 import ContactSection from '@/components/ContactSection';
 import GallerySection from '@/components/GallerySection';
 import AboutSection from '@/components/AboutSection';
+import FAQSection from '@/components/FAQSection';
+
+import type { Variants } from 'framer-motion';
 
 /* ── Assets ── */
 const HERO_IMAGE = '/images/login/hero.png';
 const COATING_IMG = '/images/login/coating.png';
 const INTERIOR_IMG = '/images/login/interior.png';
 const CORRECTION_IMG = '/images/login/correction.png';
-
-import type { Variants } from 'framer-motion';
 
 /* ── Framer variants ── */
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -31,12 +36,17 @@ const stagger: Variants = {
     visible: { transition: { staggerChildren: 0.13 } },
 };
 
-/* ── Service card data ── */
+const scaleIn: Variants = {
+    hidden: { opacity: 0, scale: 0.85 },
+    visible: { opacity: 1, scale: 1, transition: { duration: 0.6, ease: EASE } },
+};
+
+/* ── Service card data (expanded to 6) ── */
 export const SERVICES = [
     {
         title: 'Paint Protection Film',
         subtitle: 'Invisible armour',
-        desc: 'Military-grade urethane film that shields your paint from rock chips, scratches, and UV degradation — virtually invisible.',
+        desc: 'Military-grade self-healing urethane film that shields against rock chips, scratches, and UV degradation — virtually invisible, infinitely durable.',
         image: COATING_IMG,
         badge: 'Most Popular',
         badgeColor: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
@@ -47,7 +57,7 @@ export const SERVICES = [
     {
         title: 'Interior Detailing',
         subtitle: 'Pristine sanctuary',
-        desc: 'Deep-clean every surface, leather conditioning, and odour elimination — restoring that unmistakable new-car feel.',
+        desc: 'Deep-clean every surface, leather conditioning, and odour elimination — restoring that unmistakable new-car feel from the inside out.',
         image: INTERIOR_IMG,
         badge: 'Premium',
         badgeColor: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
@@ -66,6 +76,39 @@ export const SERVICES = [
         icon: Zap,
         glow: 'rgba(16,185,129,0.15)',
     },
+    {
+        title: 'Ceramic Coating',
+        subtitle: 'Diamond shield',
+        desc: 'Nano-ceramic technology that bonds to your paint at a molecular level, delivering years of hydrophobic protection with a candy-like gloss.',
+        image: COATING_IMG,
+        badge: 'Best Seller',
+        badgeColor: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+        features: ['9H hardness rating', 'UV & chemical resistance', '5-year protection'],
+        icon: Gem,
+        glow: 'rgba(245,158,11,0.15)',
+    },
+    {
+        title: 'Exterior Detailing',
+        subtitle: 'Showroom finish',
+        desc: 'A meticulous hand wash, clay bar decontamination, and protective wax finish that makes your vehicle look better than the day you bought it.',
+        image: CORRECTION_IMG,
+        badge: 'Essential',
+        badgeColor: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
+        features: ['Clay bar treatment', 'Tire & trim dressing', 'Glass polishing'],
+        icon: Droplets,
+        glow: 'rgba(6,182,212,0.12)',
+    },
+    {
+        title: 'Full Detail Package',
+        subtitle: 'The ultimate',
+        desc: 'Our flagship service — a comprehensive inside-out restoration combining paint correction, ceramic coating, interior deep-clean, and engine bay detail.',
+        image: INTERIOR_IMG,
+        badge: 'Flagship',
+        badgeColor: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
+        features: ['Complete restoration', 'Multi-day process', 'Certificate of care'],
+        icon: Palette,
+        glow: 'rgba(244,63,94,0.12)',
+    },
 ];
 
 /* ── Stats ── */
@@ -76,13 +119,48 @@ export const STATS = [
     { icon: Star, value: '4.9★', label: 'Average Rating' },
 ];
 
+/* ── Process Steps ── */
+const PROCESS_STEPS = [
+    {
+        num: '01',
+        title: 'Consultation',
+        desc: "We assess your vehicle's condition, discuss your goals, and recommend the ideal service package.",
+        icon: Eye,
+        accent: 'from-orange-500 to-amber-600',
+    },
+    {
+        num: '02',
+        title: 'Inspection',
+        desc: 'A thorough paint depth scan and 360° inspection to document every imperfection before we begin.',
+        icon: ScanLine,
+        accent: 'from-indigo-500 to-violet-600',
+    },
+    {
+        num: '03',
+        title: 'Execution',
+        desc: 'Our certified technicians execute each step with surgical precision using world-class products.',
+        icon: HandMetal,
+        accent: 'from-emerald-500 to-teal-600',
+    },
+    {
+        num: '04',
+        title: 'Quality Assurance',
+        desc: 'Final inspection under studio lighting ensures every surface meets our exacting standards.',
+        icon: ShieldCheck,
+        accent: 'from-rose-500 to-pink-600',
+    },
+];
+
+/* ── Brands / Trust strip ── */
+const TRUST_LABELS = ['XPEL', 'Gtechniq', 'Gyeon', 'Koch Chemie', 'CarPro', 'Rupes'];
+
 /* ════════════════════════════════════════
    COMPONENT
 ════════════════════════════════════════ */
 export default function LandingPage() {
     const heroRef = useRef<HTMLDivElement>(null);
     const { scrollY } = useScroll();
-    
+
     const [publicData, setPublicData] = useState<BusinessSettings | null>(null);
 
     useEffect(() => {
@@ -101,12 +179,12 @@ export default function LandingPage() {
 
     const getDynamicIcon = (name: any, Fallback: any) => {
         if (!name) return Fallback;
-        if (typeof name !== 'string') return name; // It's already a React component
+        if (typeof name !== 'string') return name;
         const IconMatch = (LucideIcons as any)[name] || (LucideIcons as any)[name.charAt(0).toUpperCase() + name.slice(1)];
         return IconMatch || Fallback;
     };
 
-    /* Parallax: image moves up at half scroll speed */
+    /* Parallax */
     const bgY = useTransform(scrollY, [0, 700], ['0%', '20%']);
     const heroOp = useTransform(scrollY, [0, 500], [1, 0]);
 
@@ -228,31 +306,36 @@ export default function LandingPage() {
             </section>
 
             {/* ══════════════════════════════════════
-                SERVICES SECTION
+                SERVICES SECTION — 6 premium cards
             ══════════════════════════════════════ */}
-            <section id="services" className="relative py-28 px-6 overflow-hidden">
+            <section id="services" className="relative py-32 px-6 overflow-hidden">
                 {/* Ambient blobs */}
                 <div className="absolute top-20 left-10 w-96 h-96 bg-indigo-500/4 blur-[120px] rounded-full pointer-events-none" />
                 <div className="absolute bottom-10 right-10 w-80 h-80 bg-orange-500/5 blur-[100px] rounded-full pointer-events-none" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[500px] bg-amber-500/[0.02] blur-[180px] rounded-full pointer-events-none" />
 
-                <div className="max-w-6xl mx-auto">
+                <div className="max-w-7xl mx-auto">
                     {/* Section header */}
-                    <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }} className="text-center mb-16">
+                    <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }} className="text-center mb-20">
                         <motion.p variants={fadeUp} className="text-[11px] uppercase tracking-[0.4em] text-orange-400/70 font-semibold mb-3">
                             What We Offer
                         </motion.p>
-                        <motion.h2 variants={fadeUp} className="text-4xl md:text-6xl font-serif font-medium text-white tracking-tight mb-5">
-                            Premium Services
+                        <motion.h2 variants={fadeUp} className="text-4xl md:text-6xl lg:text-7xl font-serif font-medium text-white tracking-tight mb-5">
+                            Premium{' '}
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-500 italic">
+                                Services
+                            </span>
                         </motion.h2>
-                        <motion.p variants={fadeUp} className="text-white/35 text-base max-w-lg mx-auto font-light">
+                        <motion.p variants={fadeUp} className="text-white/35 text-base max-w-2xl mx-auto font-light">
                             Every service is performed by certified detailers using only the finest professional-grade products.
+                            World-class results, right here in Metro Manila.
                         </motion.p>
                     </motion.div>
 
-                    {/* Service cards */}
+                    {/* Service cards — 3 columns */}
                     <motion.div
                         variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }}
-                        className="grid grid-cols-1 md:grid-cols-3 gap-6"
+                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
                     >
                         {activeServices.map(({ title, subtitle, desc, image, badge, badgeColor, features, icon, glow }: any, idx: number) => {
                             const Icon = getDynamicIcon(icon, Shield);
@@ -260,27 +343,30 @@ export default function LandingPage() {
                             <motion.div
                                 key={title || idx}
                                 variants={fadeUp}
-                                whileHover={{ y: -8, transition: { duration: 0.25 } }}
-                                className="group relative rounded-2xl overflow-hidden border border-white/10 bg-white/[0.04] backdrop-blur-sm hover:border-white/20 transition-all duration-300"
+                                whileHover={{ y: -10, transition: { duration: 0.3, ease: EASE } }}
+                                className="group relative rounded-2xl overflow-hidden border border-white/10 bg-white/[0.04] backdrop-blur-sm hover:border-white/20 transition-all duration-500"
                                 style={{ boxShadow: `0 0 0 0 ${glow || 'rgba(255,165,0,0.1)'}` }}
-                                whileInView={{ boxShadow: `0 20px 60px ${glow || 'rgba(255,165,0,0.2)'}` } as any}
+                                whileInView={{ boxShadow: `0 20px 60px ${glow || 'rgba(255,165,0,0.08)'}` } as any}
                             >
                                 {/* Card image */}
                                 <div className="relative h-52 overflow-hidden">
                                     <img
                                         src={image || COATING_IMG} alt={title}
+                                        loading="lazy"
                                         className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 opacity-70"
                                     />
                                     <div className="absolute inset-0 bg-gradient-to-t from-[#0B1120] via-[#0B1120]/40 to-transparent" />
+
                                     {/* Badge */}
                                     {badge && (
                                         <span className={`absolute top-4 left-4 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider border ${badgeColor || 'bg-white/10 text-white/70 border-white/20'}`}>
                                             {badge}
                                         </span>
                                     )}
+
                                     {/* Icon */}
-                                    <div className="absolute bottom-4 right-4 w-9 h-9 rounded-xl bg-white/10 backdrop-blur-sm border border-white/15 flex items-center justify-center">
-                                        <Icon className="w-4 h-4 text-white" />
+                                    <div className="absolute bottom-4 right-4 w-9 h-9 rounded-xl bg-white/10 backdrop-blur-sm border border-white/15 flex items-center justify-center group-hover:bg-orange-500/15 group-hover:border-orange-500/30 transition-all duration-300">
+                                        <Icon className="w-4 h-4 text-white group-hover:text-orange-400 transition-colors" />
                                     </div>
                                 </div>
 
@@ -289,7 +375,7 @@ export default function LandingPage() {
                                     <p className="text-[10px] uppercase tracking-widest text-white/30 font-medium mb-1">
                                         {subtitle}
                                     </p>
-                                    <h3 className="text-xl font-bold text-white mb-3 group-hover:text-orange-400 transition-colors">
+                                    <h3 className="text-xl font-bold text-white mb-3 group-hover:text-orange-400 transition-colors duration-300">
                                         {title}
                                     </h3>
                                     <p className="text-sm text-white/40 mb-6 leading-relaxed line-clamp-3">
@@ -318,7 +404,123 @@ export default function LandingPage() {
                             </motion.div>
                         )})}
                     </motion.div>
+
+                    {/* View all services link */}
+                    <motion.div
+                        variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}
+                        className="text-center mt-14"
+                    >
+                        <Link to="/services">
+                            <motion.button
+                                whileHover={{ scale: 1.03 }}
+                                whileTap={{ scale: 0.98 }}
+                                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-orange-400/80 hover:text-orange-400 border border-orange-500/20 hover:border-orange-500/40 bg-orange-500/[0.04] hover:bg-orange-500/[0.08] backdrop-blur-sm transition-all duration-300"
+                            >
+                                View Pricing & All Services
+                                <ArrowRight className="w-4 h-4" />
+                            </motion.button>
+                        </Link>
+                    </motion.div>
                 </div>
+            </section>
+
+            {/* ══════════════════════════════════════
+                OUR PROCESS — 4 steps
+            ══════════════════════════════════════ */}
+            <section className="relative py-32 px-6 overflow-hidden">
+                {/* Top gradient line */}
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/8 to-transparent" />
+
+                {/* Ambient blobs */}
+                <div className="absolute top-1/3 right-0 w-[500px] h-[500px] bg-orange-500/[0.03] blur-[140px] rounded-full pointer-events-none" />
+                <div className="absolute bottom-20 left-20 w-[400px] h-[400px] bg-indigo-500/[0.03] blur-[120px] rounded-full pointer-events-none" />
+
+                <div className="max-w-6xl mx-auto">
+                    {/* Header */}
+                    <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }} className="text-center mb-20">
+                        <motion.p variants={fadeUp} className="text-[11px] uppercase tracking-[0.4em] text-orange-400/70 font-semibold mb-3">
+                            How It Works
+                        </motion.p>
+                        <motion.h2 variants={fadeUp} className="text-4xl md:text-6xl font-serif font-medium text-white tracking-tight mb-5">
+                            Our{' '}
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-500 italic">
+                                Process
+                            </span>
+                        </motion.h2>
+                        <motion.p variants={fadeUp} className="text-white/35 text-base max-w-lg mx-auto font-light">
+                            A systematic, four-stage approach that guarantees consistent, world-class results on every vehicle.
+                        </motion.p>
+                    </motion.div>
+
+                    {/* Steps Grid */}
+                    <motion.div
+                        variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-40px' }}
+                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+                    >
+                        {PROCESS_STEPS.map((step, idx) => {
+                            const Icon = step.icon;
+                            return (
+                                <motion.div
+                                    key={step.num}
+                                    variants={fadeUp}
+                                    whileHover={{ y: -6, transition: { duration: 0.25 } }}
+                                    className="group relative rounded-2xl p-7 border border-white/8 bg-white/[0.02] backdrop-blur-sm hover:border-white/15 hover:bg-white/[0.04] transition-all duration-300"
+                                >
+                                    {/* Number watermark */}
+                                    <span className="absolute top-4 right-5 text-[72px] font-black text-white/[0.03] leading-none select-none pointer-events-none group-hover:text-white/[0.06] transition-colors duration-500">
+                                        {step.num}
+                                    </span>
+
+                                    {/* Icon */}
+                                    <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${step.accent} flex items-center justify-center mb-5 shadow-lg group-hover:shadow-xl transition-shadow duration-300`}>
+                                        <Icon className="w-5 h-5 text-white" />
+                                    </div>
+
+                                    <h3 className="text-lg font-bold text-white mb-2 group-hover:text-orange-400 transition-colors duration-300">
+                                        {step.title}
+                                    </h3>
+                                    <p className="text-sm text-white/35 leading-relaxed font-light">
+                                        {step.desc}
+                                    </p>
+
+                                    {/* Connector line (hidden on last) */}
+                                    {idx < PROCESS_STEPS.length - 1 && (
+                                        <div className="hidden lg:block absolute top-1/2 -right-3 w-6 h-[1px] bg-gradient-to-r from-white/10 to-transparent" />
+                                    )}
+                                </motion.div>
+                            );
+                        })}
+                    </motion.div>
+                </div>
+            </section>
+
+            {/* ══════════════════════════════════════
+                TRUSTED BY / BRANDS STRIP
+            ══════════════════════════════════════ */}
+            <section className="relative py-16 border-y border-white/5 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/[0.01] to-transparent" />
+                <motion.div
+                    variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-40px' }}
+                    className="max-w-5xl mx-auto px-6"
+                >
+                    <motion.p variants={fadeUp} className="text-center text-[11px] uppercase tracking-[0.5em] text-white/20 font-semibold mb-10">
+                        Trusted Products We Use
+                    </motion.p>
+                    <motion.div variants={stagger} className="flex flex-wrap items-center justify-center gap-x-14 gap-y-6">
+                        {TRUST_LABELS.map((brand) => (
+                            <motion.div
+                                key={brand}
+                                variants={scaleIn}
+                                whileHover={{ scale: 1.08, transition: { duration: 0.2 } }}
+                                className="group"
+                            >
+                                <span className="text-xl md:text-2xl font-bold tracking-tight text-white/15 group-hover:text-white/40 transition-colors duration-300 cursor-default select-none">
+                                    {brand}
+                                </span>
+                            </motion.div>
+                        ))}
+                    </motion.div>
+                </motion.div>
             </section>
 
             {/* ══════════════════════════════════════
@@ -332,9 +534,17 @@ export default function LandingPage() {
             <GallerySection />
 
             {/* ══════════════════════════════════════
+                FAQ SECTION
+            ══════════════════════════════════════ */}
+            <FAQSection />
+
+            {/* ══════════════════════════════════════
                 CTA SECTION
             ══════════════════════════════════════ */}
-            <section className="relative py-28 px-6 overflow-hidden">
+            <section className="relative py-32 px-6 overflow-hidden">
+                {/* Ambient glow */}
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-orange-500/[0.05] blur-[150px] rounded-full pointer-events-none" />
+
                 <motion.div
                     className="max-w-3xl mx-auto text-center"
                     variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}
@@ -355,6 +565,13 @@ export default function LandingPage() {
                                 className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 shadow-2xl shadow-orange-500/30 hover:shadow-orange-500/50 transition-all duration-200 cursor-pointer"
                             >
                                 Get Started <ArrowRight className="w-4 h-4" />
+                            </motion.div>
+                        </Link>
+                        <Link to="/services">
+                            <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
+                                className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-sm text-white/60 hover:text-white border border-white/15 hover:border-white/30 transition-all duration-200 cursor-pointer"
+                            >
+                                Explore Services
                             </motion.div>
                         </Link>
                     </motion.div>

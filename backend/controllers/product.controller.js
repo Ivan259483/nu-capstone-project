@@ -16,21 +16,27 @@ export const getAllProducts = async (req, res, next) => {
     const query = { isActive: true };
     if (category) query.category = category;
 
+    const parsedSkip = parseInt(skip);
+    const parsedLimit = parseInt(limit);
+
     const products = await Product.find(query)
       .populate('category')
       .populate('supplier')
-      .skip(parseInt(skip))
-      .limit(parseInt(limit));
+      .skip(parsedSkip)
+      .limit(parsedLimit)
+      .lean();
 
-    const total = await Product.countDocuments(query);
+    const total = parsedLimit >= 500
+      ? parsedSkip + products.length
+      : await Product.countDocuments(query);
 
     res.json({
       success: true,
       data: products,
       pagination: {
         total,
-        skip: parseInt(skip),
-        limit: parseInt(limit),
+        skip: parsedSkip,
+        limit: parsedLimit,
       },
     });
   } catch (error) {

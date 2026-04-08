@@ -139,6 +139,20 @@ router.put(
 router.put('/:id/progress', authorize(...SERVICE_OPERATION_ROLES), orderController.updateOrderProgress);
 
 /**
+ * @route PATCH /api/orders/:id/operations-checklist
+ * @desc Update operations checklist items (Ingress/Egress)
+ * @access Private - Detailer/Admin
+ */
+router.patch('/:id/operations-checklist', authorize(...SERVICE_OPERATION_ROLES), orderController.updateOperationsChecklist);
+
+/**
+ * @route PATCH /api/orders/:id/warranty-receipt
+ * @desc Update warranty and receipt details
+ * @access Private - Detailer/Admin
+ */
+router.patch('/:id/warranty-receipt', authorize(...SERVICE_OPERATION_ROLES), orderController.updateWarrantyReceipt);
+
+/**
  * @route PUT /api/orders/:id/status
  * @desc Update customer-facing status
  * @access Private - Detailer/Admin

@@ -6,7 +6,9 @@ import {
     MoreVertical,
     AlertCircle,
     CheckCircle,
-    ArrowRight
+    ArrowRight,
+    Shield,
+    FileText
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -20,6 +22,13 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+} from "@/components/ui/dialog";
 
 interface MyBookingsProps {
     bookings: Booking[];
@@ -29,6 +38,7 @@ interface MyBookingsProps {
 }
 
 export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBooking, onRescheduleBooking, onNavigate }) => {
+    const [selectedReceipt, setSelectedReceipt] = useState<Booking | null>(null);
 
     const upcomingBookings = bookings.filter(b =>
         ['pending', 'confirmed', 'assigned', 'in-progress', 'processing', 'finishing', 'ready', 'queued', 'paid'].includes(b.status) ||
@@ -108,8 +118,13 @@ export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBookin
                                 </DropdownMenu>
                             </div>
                         )}
-                        {booking.status === 'completed' && (
-                            <Button variant="ghost" size="sm" className="text-[var(--gold-primary)] hover:text-white hover:bg-white/10 transition-colors">
+                        {booking.status === 'completed' && booking.warrantyAndReceipt && (
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-[var(--gold-primary)] hover:text-white hover:bg-white/10 transition-colors"
+                                onClick={() => setSelectedReceipt(booking)}
+                            >
                                 View Receipt <ArrowRight className="w-4 h-4 ml-1" />
                             </Button>
                         )}
@@ -176,6 +191,78 @@ export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBookin
                     )}
                 </TabsContent>
             </Tabs>
+
+            {/* Warranty and Receipt Dialog */}
+            <Dialog open={!!selectedReceipt} onOpenChange={(open) => !open && setSelectedReceipt(null)}>
+                <DialogContent className="sm:max-w-md glass border-white/10">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold flex items-center text-white">
+                            <Shield className="w-5 h-5 mr-2 text-[var(--gold-primary)]" />
+                            Warranty & Service Receipt
+                        </DialogTitle>
+                        <DialogDescription className="text-[var(--text-secondary)]">
+                            Official digital receipt and warranty certificate.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {selectedReceipt?.warrantyAndReceipt && (
+                        <div className="space-y-4 py-4">
+                            <div className="flex justify-between items-center bg-black/40 p-3 rounded-lg border border-white/5">
+                                <span className="text-sm text-[var(--text-secondary)]">Certificate ID</span>
+                                <span className="font-mono text-[var(--gold-primary)] font-medium">
+                                    {selectedReceipt.warrantyAndReceipt.certificateNumber}
+                                </span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-white/5 p-3 rounded-lg border border-white/5 flex flex-col items-center justify-center text-center">
+                                    <span className="text-xs text-[var(--text-secondary)] mb-1">Issue Date</span>
+                                    <span className="text-sm font-medium text-white">
+                                        {selectedReceipt.warrantyAndReceipt.signedAt ? new Date(selectedReceipt.warrantyAndReceipt.signedAt).toLocaleDateString() : new Date().toLocaleDateString()}
+                                    </span>
+                                </div>
+                                <div className="bg-white/5 p-3 rounded-lg border border-white/5 flex flex-col items-center justify-center text-center">
+                                    <span className="text-xs text-[var(--text-secondary)] mb-1">Amount Paid</span>
+                                    <span className="text-sm font-bold text-white">
+                                        {formatCurrency(selectedReceipt.warrantyAndReceipt.amountPaid || selectedReceipt.totalPrice || 0)}
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <div className="bg-white/5 p-4 rounded-lg border border-white/5 space-y-2">
+                                <h4 className="text-sm font-semibold text-[var(--gold-primary)] mb-2 flex items-center">
+                                    <FileText className="w-4 h-4 mr-2" /> Coverage Details
+                                </h4>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--text-secondary)]">Service</span>
+                                    <span className="text-white text-right max-w-[200px] truncate">{selectedReceipt.serviceName}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--text-secondary)]">Vehicle</span>
+                                    <span className="text-white">{selectedReceipt.vehicleInfo || 'N/A'}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--text-secondary)]">Payment Method</span>
+                                    <span className="text-white">{selectedReceipt.warrantyAndReceipt.paymentMethod || 'Card'}</span>
+                                </div>
+                            </div>
+
+                            {selectedReceipt.warrantyAndReceipt.customerSignature && (
+                                <div className="mt-4 flex flex-col items-center">
+                                    <span className="text-xs text-[var(--text-secondary)] mb-2">Authenticated Customer Signature</span>
+                                    <div className="bg-white/90 rounded-lg p-2 border border-white/20 w-[250px] flex justify-center">
+                                        <img 
+                                            src={selectedReceipt.warrantyAndReceipt.customerSignature} 
+                                            alt="Customer Signature"
+                                            className="h-16 object-contain filter contrast-125"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

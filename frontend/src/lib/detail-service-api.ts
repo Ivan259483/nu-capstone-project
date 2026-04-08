@@ -1,4 +1,5 @@
 import api from './api';
+import { cachedGet, TTL } from './queryCache';
 
 /**
  * Service for managing service packages (e.g., Ceramic Coating, Full Detail).
@@ -9,14 +10,14 @@ export const DetailService = {
      * Maps MongoDB _id to id for frontend consistency.
      */
     async getAllServices() {
-        const response = await api.get('/services');
-        if (response.data.success && Array.isArray(response.data.data)) {
-            response.data.data = response.data.data.map((s: any) => ({
+        const data = await cachedGet('/services', undefined, TTL.MEDIUM);
+        if (data.success && Array.isArray(data.data)) {
+            data.data = data.data.map((s: any) => ({
                 ...s,
                 id: s._id || s.id
             }));
         }
-        return response.data;
+        return data;
     },
 
     /**

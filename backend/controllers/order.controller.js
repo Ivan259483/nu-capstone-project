@@ -10,6 +10,7 @@ import InventoryTransaction from '../models/inventoryTransaction.model.js';
 import emailService from '../utils/emailService.utils.js';
 import { getIO } from '../utils/socket.utils.js';
 import { jsPDF } from 'jspdf';
+import { generateOperationsChecklist } from '../utils/checklist.utils.js';
 import {
   FULL_ADMIN_ROLES,
   isBookingManagerRole,
@@ -211,22 +212,32 @@ export const getAllOrders = async (req, res, next) => {
       });
     }
 
+    const parsedSkip = parseInt(skip);
+    const parsedLimit = parseInt(limit);
+
     const orders = await Order.find(query)
       .populate('customer', 'name email phone')
       .populate('items.product')
       .populate('assignedDetailer', 'name email')
-      .skip(parseInt(skip))
-      .limit(parseInt(limit));
+      .sort({ createdAt: -1 })
+      .skip(parsedSkip)
+      .limit(parsedLimit)
+      .lean();
 
-    const total = await Order.countDocuments(query);
+    // Skip the expensive countDocuments round-trip when the client
+    // requests a large batch (dashboard loads). Only count when
+    // the client uses real pagination (small limit).
+    const total = parsedLimit >= 500
+      ? parsedSkip + orders.length
+      : await Order.countDocuments(query);
 
     res.json({
       success: true,
       data: orders.map((o) => formatBookingDto(o)),
       pagination: {
         total,
-        skip: parseInt(skip),
-        limit: parseInt(limit),
+        skip: parsedSkip,
+        limit: parsedLimit,
       },
     });
   } catch (error) {
@@ -252,7 +263,7 @@ export const getAvailableSlots = async (req, res, next) => {
     const bookings = await Order.find({
       bookingDate: date,
       status: { $nin: ['cancelled', 'failed'] }
-    }).select('bookingTime');
+    }).select('bookingTime').lean();
 
     // Extract just the time slots that are taken
     const bookedSlots = bookings
@@ -320,7 +331,8 @@ export const getActiveJobs = async (req, res, next) => {
     const orders = await Order.find(query)
       .populate('customer', 'name email phone')
       .populate('assignedDetailer', 'name email')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     res.json({
       success: true,
@@ -599,6 +611,9 @@ export const createOrder = async (req, res, next) => {
       bookingDate,
       bookingTime
     });
+
+    const checklist = generateOperationsChecklist(finalServiceType);
+    order.operationsChecklist = checklist;
 
     // Auto-assign a default available detailer when possible
     if (isCustomerRole(req.user.role)) {
@@ -1745,6 +1760,71 @@ export const sendWaiverReminder = async (req, res, next) => {
     return res.status(200).json({ 
       success: true, 
       message: 'Reminder sent successfully' 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+export const updateOperationsChecklist = async (req, res, next) => {
+  try {
+    const { phase, index, completed } = req.body;
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (!order.operationsChecklist || !order.operationsChecklist[phase]) {
+       return res.status(400).json({ success: false, message: 'Invalid checklist phase' });
+    }
+
+    order.operationsChecklist[phase][index].completed = completed;
+    order.operationsChecklist[phase][index].completedAt = completed ? new Date() : null;
+
+    await order.save();
+
+    res.json({
+      success: true,
+      data: {
+        operationsChecklist: order.operationsChecklist
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateWarrantyReceipt = async (req, res, next) => {
+  try {
+    const { warrantyAndReceipt } = req.body;
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (!order.warrantyAndReceipt) {
+      order.warrantyAndReceipt = {};
+    }
+
+    // Auto-generate certificate number if not already present
+    if (!order.warrantyAndReceipt.certificateNumber && !warrantyAndReceipt.certificateNumber) {
+        const timestamp = Date.now().toString().slice(-4);
+        const orderSuffix = order._id.toString().slice(-4);
+        order.warrantyAndReceipt.certificateNumber = `W-${orderSuffix}${timestamp}`;
+    }
+
+    // Merge incoming warrantyAndReceipt fields with the existing ones
+    Object.assign(order.warrantyAndReceipt, warrantyAndReceipt);
+    order.warrantyAndReceipt.signedAt = new Date();
+
+    await order.save();
+
+    res.json({
+      success: true,
+      data: {
+        warrantyAndReceipt: order.warrantyAndReceipt
+      }
     });
   } catch (error) {
     next(error);

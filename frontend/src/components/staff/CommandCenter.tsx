@@ -12,6 +12,7 @@ interface CommandCenterProps {
     handleCompleteJob: (job: Booking) => void;
     handleForceReady: (job: Booking) => void;
     handleToggleChecklist: (job: Booking, idx: number) => void;
+    handleToggleOperationsChecklist: (job: Booking, phase: 'ingress' | 'egress', idx: number) => void;
 }
 
 const formatElapsedTimeJSX = (seconds: number) => {
@@ -33,7 +34,8 @@ export function CommandCenter({
     isCompleting,
     handleCompleteJob,
     handleForceReady,
-    handleToggleChecklist
+    handleToggleChecklist,
+    handleToggleOperationsChecklist
 }: CommandCenterProps) {
     return (
         <motion.div className="command-center" style={{ marginBottom: 24 }} initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: 'spring', stiffness: 200, damping: 25, delay: 0.2 }}>
@@ -63,17 +65,60 @@ export function CommandCenter({
                         <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--accent)' }}>{activeJob.serviceName}</p>
                     </div>
                 </div>
-                {/* Checklist */}
+                {/* Ingress Checklist */}
+                {activeJob.operationsChecklist?.ingress && activeJob.operationsChecklist.ingress.length > 0 && (
+                    <div style={{ marginBottom: 20 }}>
+                        <h4 style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Ingress Operations</h4>
+                        <div className="progress-track" style={{ marginBottom: 12 }}>
+                            <motion.div className="progress-fill" initial={{ width: 0 }} animate={{ width: `${(activeJob.operationsChecklist.ingress.filter(s => s.completed).length / activeJob.operationsChecklist.ingress.length) * 100}%` }} transition={{ duration: 0.8 }} />
+                        </div>
+                        <motion.div variants={staggerContainer} initial="initial" animate="animate" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6 }}>
+                            {activeJob.operationsChecklist.ingress.map((step, idx) => (
+                                <motion.div key={`ing-${idx}`} variants={staggerItem} className={`checklist-item${step.completed ? ' checked' : ''}`} onClick={() => handleToggleOperationsChecklist(activeJob, 'ingress', idx)} whileHover={{ x: 4 }} whileTap={{ scale: 0.97 }}>
+                                    <Checkbox checked={step.completed} className="border-zinc-600 data-[state=checked]:bg-orange-500 data-[state=checked]:border-orange-500" />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                                        <span className="checklist-label" style={{ textDecoration: step.completed ? 'line-through' : 'none' }}>{step.name}</span>
+                                        {step.isMustExplain && <span title="MUST BE EXPLAINED 1 BY 1" style={{ fontSize: 13, cursor: 'help' }}>⚠️</span>}
+                                    </div>
+                                </motion.div>
+                            ))}
+                        </motion.div>
+                    </div>
+                )}
+
+                {/* Service Steps Checklist */}
                 {activeJob.serviceSteps && activeJob.serviceSteps.length > 0 && (
-                    <div>
+                    <div style={{ marginBottom: 20 }}>
+                        <h4 style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Service Steps</h4>
                         <div className="progress-track" style={{ marginBottom: 12 }}>
                             <motion.div className="progress-fill" initial={{ width: 0 }} animate={{ width: `${(activeJob.serviceSteps.filter(s => s.status === 'completed').length / activeJob.serviceSteps.length) * 100}%` }} transition={{ duration: 0.8, ease: [0.25, 0.1, 0.25, 1] }} />
                         </div>
                         <motion.div variants={staggerContainer} initial="initial" animate="animate" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 6 }}>
                             {activeJob.serviceSteps.map((step, idx) => (
-                                <motion.div key={idx} variants={staggerItem} className={`checklist-item${step.status === 'completed' ? ' checked' : ''}`} onClick={() => handleToggleChecklist(activeJob, idx)} whileHover={{ x: 4 }} whileTap={{ scale: 0.97 }}>
+                                <motion.div key={`srv-${idx}`} variants={staggerItem} className={`checklist-item${step.status === 'completed' ? ' checked' : ''}`} onClick={() => handleToggleChecklist(activeJob, idx)} whileHover={{ x: 4 }} whileTap={{ scale: 0.97 }}>
                                     <Checkbox checked={step.status === 'completed'} className="border-zinc-600 data-[state=checked]:bg-orange-500 data-[state=checked]:border-orange-500" />
                                     <span className="checklist-label" style={{ textDecoration: step.status === 'completed' ? 'line-through' : 'none' }}>{step.name}</span>
+                                </motion.div>
+                            ))}
+                        </motion.div>
+                    </div>
+                )}
+
+                {/* Egress Checklist */}
+                {activeJob.operationsChecklist?.egress && activeJob.operationsChecklist.egress.length > 0 && (
+                    <div style={{ marginBottom: 20 }}>
+                        <h4 style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Egress Operations</h4>
+                        <div className="progress-track" style={{ marginBottom: 12 }}>
+                            <motion.div className="progress-fill" initial={{ width: 0 }} animate={{ width: `${(activeJob.operationsChecklist.egress.filter(s => s.completed).length / activeJob.operationsChecklist.egress.length) * 100}%` }} transition={{ duration: 0.8 }} />
+                        </div>
+                        <motion.div variants={staggerContainer} initial="initial" animate="animate" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6 }}>
+                            {activeJob.operationsChecklist.egress.map((step, idx) => (
+                                <motion.div key={`eg-${idx}`} variants={staggerItem} className={`checklist-item${step.completed ? ' checked' : ''}`} onClick={() => handleToggleOperationsChecklist(activeJob, 'egress', idx)} whileHover={{ x: 4 }} whileTap={{ scale: 0.97 }}>
+                                    <Checkbox checked={step.completed} className="border-zinc-600 data-[state=checked]:bg-orange-500 data-[state=checked]:border-orange-500" />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                                        <span className="checklist-label" style={{ textDecoration: step.completed ? 'line-through' : 'none' }}>{step.name}</span>
+                                        {step.isMustExplain && <span title="MUST BE EXPLAINED 1 BY 1" style={{ fontSize: 13, cursor: 'help' }}>⚠️</span>}
+                                    </div>
                                 </motion.div>
                             ))}
                         </motion.div>

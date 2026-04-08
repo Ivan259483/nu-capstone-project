@@ -130,6 +130,38 @@ export interface Booking {
         status: 'pending' | 'in-progress' | 'completed';
         completedAt?: string;
     }[];
+    operationsChecklist?: {
+        ingress: {
+            name: string;
+            isMustExplain: boolean;
+            isRequired: boolean;
+            completed: boolean;
+            completedAt?: string;
+            _id?: string;
+        }[];
+        egress: {
+            name: string;
+            isMustExplain: boolean;
+            isRequired: boolean;
+            completed: boolean;
+            completedAt?: string;
+            _id?: string;
+        }[];
+    };
+    warrantyAndReceipt?: {
+        certificateNumber?: string;
+        warrantyType?: string;
+        warrantyPeriod?: string;
+        customerSignature?: string;
+        amountPaid?: number;
+        paymentMethod?: 'cash' | 'others';
+        paymentExtent?: 'partial' | 'full';
+        checkerName?: string;
+        installationDate?: string;
+        existingFwsAndShade?: string;
+        reasonForChanging?: string;
+        signedAt?: string;
+    };
     currentStepIndex?: number;
 }
 

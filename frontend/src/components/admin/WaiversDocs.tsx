@@ -127,9 +127,11 @@ export function WaiversDocs({ bookings }: WaiversDocsProps) {
         if (!searchTerm.trim()) return waivers;
         const q = searchTerm.toLowerCase();
         return waivers.filter(w =>
-            w.customerName.toLowerCase().includes(q) ||
-            w.vehicle.toLowerCase().includes(q) ||
-            w.refId.toLowerCase().includes(q)
+            (w.customerName || '').toLowerCase().includes(q) ||
+            (w.vehicle || '').toLowerCase().includes(q) ||
+            (w.refId || '').toLowerCase().includes(q) ||
+            (w.service || '').toLowerCase().includes(q) ||
+            (w.date || '').toLowerCase().includes(q)
         );
     }, [waivers, searchTerm]);
 
@@ -155,17 +157,6 @@ export function WaiversDocs({ bookings }: WaiversDocsProps) {
                         <Badge variant="outline" className="bg-orange-500/10 text-orange-400 border-orange-500/30 text-[10px] uppercase font-bold">Encrypted</Badge>
                     </h2>
                     <p className="text-xs text-zinc-500 mt-0.5">Manage digital signatures, pre-service agreements, and liability protections.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <div className="relative">
-                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-                        <Input 
-                            placeholder="Search waivers..." 
-                            className="bg-zinc-900/50 border-zinc-800 text-sm pl-9 w-[200px] h-9 focus-visible:ring-orange-500/50"
-                            value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
-                        />
-                    </div>
                 </div>
             </div>
 
@@ -247,15 +238,27 @@ export function WaiversDocs({ bookings }: WaiversDocsProps) {
                     <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/50 overflow-hidden flex flex-col min-h-[400px]">
                         
                         {/* Header */}
-                        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800/50 bg-zinc-900/30">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-zinc-800/50 bg-zinc-900/30">
                             <div>
                                 <h3 className="text-sm font-semibold text-white">Recent Documents</h3>
                                 <p className="text-[11px] text-zinc-500 mt-0.5">{filteredWaivers.length} records</p>
                             </div>
-                            <Button size="sm" className="h-8 text-[11px] bg-[#E87C2F] hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20 gap-1.5"
-                                onClick={() => toast.info('New waiver creation coming soon')}>
-                                <FileSignature className="w-3.5 h-3.5" /> Generate Document
-                            </Button>
+                            <div className="flex items-center gap-3">
+                                {/* Search input */}
+                                <div className="relative">
+                                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                    <Input 
+                                        placeholder="Search waivers..." 
+                                        className="bg-zinc-900/50 border-zinc-800 text-xs pl-8 w-[200px] h-8 focus-visible:ring-orange-500/50"
+                                        value={searchTerm}
+                                        onChange={e => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                                <Button size="sm" className="h-8 text-[11px] bg-[#E87C2F] hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20 gap-1.5"
+                                    onClick={() => toast.info('New waiver creation coming soon')}>
+                                    <FileSignature className="w-3.5 h-3.5" /> Generate Document
+                                </Button>
+                            </div>
                         </div>
 
                         {/* List */}

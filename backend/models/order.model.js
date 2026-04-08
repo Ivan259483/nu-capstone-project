@@ -89,6 +89,40 @@ const orderSchema = new mongoose.Schema(
         completedAt: Date,
       },
     ],
+    operationsChecklist: {
+      ingress: [
+        {
+          name: String,
+          isMustExplain: { type: Boolean, default: false },
+          isRequired: { type: Boolean, default: true },
+          completed: { type: Boolean, default: false },
+          completedAt: Date
+        }
+      ],
+      egress: [
+        {
+          name: String,
+          isMustExplain: { type: Boolean, default: false },
+          isRequired: { type: Boolean, default: true },
+          completed: { type: Boolean, default: false },
+          completedAt: Date
+        }
+      ]
+    },
+    warrantyAndReceipt: {
+      certificateNumber: String,
+      warrantyType: String,
+      warrantyPeriod: String,
+      customerSignature: String,
+      amountPaid: Number,
+      paymentMethod: { type: String, enum: ['cash', 'others'] },
+      paymentExtent: { type: String, enum: ['partial', 'full'] },
+      checkerName: String,
+      installationDate: Date,
+      existingFwsAndShade: String,
+      reasonForChanging: String,
+      signedAt: Date
+    },
     currentStepIndex: {
       type: Number,
       default: 0,
@@ -123,6 +157,9 @@ orderSchema.pre('save', function (next) {
   if (this.isModified('legalCompliance.damageNotes') && this.legalCompliance?.damageNotes) {
     this.legalCompliance.damageNotes = encrypt(this.legalCompliance.damageNotes);
   }
+  if (this.isModified('warrantyAndReceipt.customerSignature') && this.warrantyAndReceipt?.customerSignature) {
+    this.warrantyAndReceipt.customerSignature = encrypt(this.warrantyAndReceipt.customerSignature);
+  }
   next();
 });
 
@@ -137,6 +174,18 @@ orderSchema.post('init', function (doc) {
   if (doc.legalCompliance?.damageNotes) {
     doc.legalCompliance.damageNotes = decrypt(doc.legalCompliance.damageNotes);
   }
+  if (doc.warrantyAndReceipt?.customerSignature) {
+    doc.warrantyAndReceipt.customerSignature = decrypt(doc.warrantyAndReceipt.customerSignature);
+  }
 });
+
+// ── Performance Indexes ──────────────────────────────────────────────
+// These compound indexes cover the most common query patterns and
+// eliminate full collection scans on the orders collection.
+orderSchema.index({ customer: 1, archived: 1, createdAt: -1 });       // Customer bookings (getAllOrders for customers)
+orderSchema.index({ assignedDetailer: 1, status: 1 });                // Detailer queue & active jobs
+orderSchema.index({ status: 1, archived: 1 });                        // Admin status filtering
+orderSchema.index({ bookingDate: 1, bookingTime: 1, status: 1 });     // Available slots lookup
+orderSchema.index({ archived: 1, createdAt: -1 });                    // Archived orders listing
 
 export default mongoose.model('Order', orderSchema);

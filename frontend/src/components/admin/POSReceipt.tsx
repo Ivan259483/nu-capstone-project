@@ -21,6 +21,7 @@ export interface ReceiptData {
     discount?: { type: string; value: number; amount: number; reason?: string } | null;
     total: number;
     paymentMethod: string;
+    splitPayments?: { method: string; amount: number }[];
     cashReceived?: number | null;
     changeGiven?: number | null;
     staff?: { id?: string; name: string } | null;
@@ -97,7 +98,10 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
             </div>
             <div class="divider"></div>
             <div class="section">
-                <div class="row"><span>Payment:</span><span>${receipt.paymentMethod.toUpperCase()}</span></div>
+                ${receipt.paymentMethod === 'split' && receipt.splitPayments ? `
+                    <div class="section-title">Split Payment</div>
+                    ${receipt.splitPayments.map(sp => `<div class="row"><span>${sp.method.toUpperCase()}</span><span>${formatCurrency(sp.amount)}</span></div>`).join('')}
+                ` : `<div class="row"><span>Payment:</span><span>${receipt.paymentMethod.toUpperCase()}</span></div>`}
                 ${receipt.cashReceived ? `<div class="row"><span>Received:</span><span>${formatCurrency(receipt.cashReceived)}</span></div>` : ''}
                 ${receipt.changeGiven != null && receipt.changeGiven > 0 ? `<div class="row"><span>Change:</span><span>${formatCurrency(receipt.changeGiven)}</span></div>` : ''}
             </div>
@@ -218,9 +222,19 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
 
         doc.setFont('courier', 'normal');
         doc.setFontSize(8);
-        doc.text('Payment:', x, y);
-        doc.text(receipt.paymentMethod.toUpperCase(), x + w, y, { align: 'right' });
-        y += 12;
+        if (receipt.paymentMethod === 'split' && receipt.splitPayments) {
+            doc.text('Split Payment:', x, y);
+            y += 12;
+            for (const sp of receipt.splitPayments) {
+                doc.text(`- ${sp.method.toUpperCase()}`, x + 8, y);
+                doc.text(formatCurrency(sp.amount), x + w, y, { align: 'right' });
+                y += 12;
+            }
+        } else {
+            doc.text('Payment:', x, y);
+            doc.text(receipt.paymentMethod.toUpperCase(), x + w, y, { align: 'right' });
+            y += 12;
+        }
         if (receipt.cashReceived) {
             doc.text('Received:', x, y);
             doc.text(formatCurrency(receipt.cashReceived), x + w, y, { align: 'right' });
@@ -247,114 +261,129 @@ export function POSReceipt({ receipt, businessName = 'AutoSPF+', businessAddress
     const vehicleStr = [receipt.vehicle?.year, receipt.vehicle?.make, receipt.vehicle?.model].filter(Boolean).join(' ');
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md" onClick={onClose}>
             <div
-                className="relative w-full max-w-[420px] max-h-[90vh] overflow-y-auto rounded-2xl bg-white text-gray-900 shadow-2xl"
+                className="relative w-full max-w-[420px] max-h-[90vh] overflow-y-auto rounded-3xl bg-[#0a0a0a] border border-white/10 text-zinc-300 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
+                {/* Glow Effect */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-32 bg-orange-500/10 blur-[60px] pointer-events-none" />
+
                 {/* Close button */}
                 <button
                     onClick={onClose}
-                    className="absolute top-3 right-3 z-10 p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors"
+                    className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white transition-all"
                 >
                     <X className="w-4 h-4" />
                 </button>
 
-                <div ref={receiptRef} className="p-6">
+                <div ref={receiptRef} className="p-8 relative z-10 bg-transparent">
                     {/* Header */}
-                    <div className="text-center mb-4 pb-4 border-b-2 border-dashed border-gray-300">
-                        <h2 className="text-xl font-black tracking-[3px] text-gray-900">{businessName}</h2>
-                        {businessAddress && <p className="text-[10px] text-gray-500 mt-1">{businessAddress}</p>}
-                        {businessPhone && <p className="text-[10px] text-gray-500">Tel: {businessPhone}</p>}
-                        <p className="text-[10px] text-gray-400 mt-2 font-mono">{receipt.transactionId}</p>
+                    <div className="text-center mb-6 pb-6 border-b border-dashed border-white/10">
+                        <h2 className="text-2xl font-black tracking-[4px] text-white font-serif">{businessName}</h2>
+                        {businessAddress && <p className="text-[11px] text-zinc-500 mt-2">{businessAddress}</p>}
+                        {businessPhone && <p className="text-[11px] text-zinc-500">Tel: {businessPhone}</p>}
+                        <p className="text-[11px] text-zinc-600 mt-3 font-mono tracking-wider">{receipt.transactionId}</p>
                     </div>
 
                     {/* Meta Info */}
-                    <div className="space-y-1.5 text-[12px] mb-4">
-                        <div className="flex justify-between"><span className="text-gray-500">Date</span><span className="font-medium">{new Date(receipt.date).toLocaleString()}</span></div>
-                        <div className="flex justify-between"><span className="text-gray-500">Customer</span><span className="font-medium">{receipt.customerName}</span></div>
-                        {vehicleStr && <div className="flex justify-between"><span className="text-gray-500">Vehicle</span><span className="font-medium">{vehicleStr}</span></div>}
-                        {receipt.vehicle?.plate && <div className="flex justify-between"><span className="text-gray-500">Plate</span><span className="font-mono font-medium">{receipt.vehicle.plate}</span></div>}
-                        {receipt.bookingRef && <div className="flex justify-between"><span className="text-gray-500">Booking</span><span className="font-mono text-orange-600 font-semibold">#{receipt.bookingRef}</span></div>}
-                        {receipt.staff?.name && <div className="flex justify-between"><span className="text-gray-500">Technician</span><span className="font-medium">{receipt.staff.name}</span></div>}
+                    <div className="space-y-2.5 text-[12px] mb-6 bg-white/[0.02] p-4 rounded-xl border border-white/5">
+                        <div className="flex justify-between"><span className="text-zinc-500">Date</span><span className="font-semibold text-zinc-200">{new Date(receipt.date).toLocaleString()}</span></div>
+                        <div className="flex justify-between"><span className="text-zinc-500">Customer</span><span className="font-semibold text-zinc-200">{receipt.customerName}</span></div>
+                        {vehicleStr && <div className="flex justify-between"><span className="text-zinc-500">Vehicle</span><span className="font-semibold text-zinc-200">{vehicleStr}</span></div>}
+                        {receipt.vehicle?.plate && <div className="flex justify-between"><span className="text-zinc-500">Plate</span><span className="font-mono font-semibold text-orange-400 bg-orange-500/10 px-1.5 rounded">{receipt.vehicle.plate}</span></div>}
+                        {receipt.bookingRef && <div className="flex justify-between"><span className="text-zinc-500">Booking</span><span className="font-mono text-orange-500 font-semibold">#{receipt.bookingRef}</span></div>}
+                        {receipt.staff?.name && <div className="flex justify-between"><span className="text-zinc-500">Technician</span><span className="font-semibold text-zinc-200">{receipt.staff.name}</span></div>}
                     </div>
 
-                    {/* Divider */}
-                    <div className="border-t border-dashed border-gray-300 my-3" />
-
                     {/* Items */}
-                    <div className="mb-1">
-                        <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[1.5px] mb-2">Services</p>
+                    <div className="mb-2">
+                        <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-[2px] mb-3">Services</p>
                         {receipt.items.filter(i => !i.isAddon).map((item, idx) => (
-                            <div key={idx} className="flex justify-between text-[12px] py-1">
-                                <span>{item.quantity > 1 ? `${item.quantity}× ` : ''}{item.name}</span>
-                                <span className="font-semibold">{formatCurrency(item.price * item.quantity)}</span>
+                            <div key={idx} className="flex justify-between text-[13px] py-1.5">
+                                <span className="text-zinc-200">{item.quantity > 1 ? <span className="text-orange-400 font-bold">{item.quantity}× </span> : ''}{item.name}</span>
+                                <span className="font-bold text-white">{formatCurrency(item.price * item.quantity)}</span>
                             </div>
                         ))}
                     </div>
 
                     {receipt.items.some(i => i.isAddon) && (
-                        <div className="mb-1 mt-2">
-                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[1.5px] mb-2">Add-ons</p>
+                        <div className="mb-2 mt-4">
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-[2px] mb-3">Add-ons</p>
                             {receipt.items.filter(i => i.isAddon).map((item, idx) => (
-                                <div key={idx} className="flex justify-between text-[12px] py-1">
-                                    <span>{item.quantity > 1 ? `${item.quantity}× ` : ''}{item.name}</span>
-                                    <span className="font-semibold">{formatCurrency(item.price * item.quantity)}</span>
+                                <div key={idx} className="flex justify-between text-[13px] py-1.5">
+                                    <span className="text-zinc-400">{item.quantity > 1 ? <span className="text-orange-400 font-bold">{item.quantity}× </span> : ''}{item.name}</span>
+                                    <span className="font-bold text-zinc-300">{formatCurrency(item.price * item.quantity)}</span>
                                 </div>
                             ))}
                         </div>
                     )}
 
                     {/* Totals */}
-                    <div className="border-t border-dashed border-gray-300 my-3" />
-                    <div className="space-y-1.5 text-[12px]">
-                        <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><span>{formatCurrency(receipt.subtotal)}</span></div>
+                    <div className="border-t border-dashed border-white/10 my-5" />
+                    <div className="space-y-2 text-[13px]">
+                        <div className="flex justify-between"><span className="text-zinc-400">Subtotal</span><span className="font-semibold">{formatCurrency(receipt.subtotal)}</span></div>
                         {receipt.discount && (
-                            <div className="flex justify-between text-red-500">
+                            <div className="flex justify-between text-orange-400">
                                 <span>Discount{receipt.discount.reason ? ` (${receipt.discount.reason})` : ''}</span>
-                                <span>−{formatCurrency(receipt.discount.amount)}</span>
+                                <span className="font-semibold">−{formatCurrency(receipt.discount.amount)}</span>
                             </div>
                         )}
-                        <div className="border-t border-dashed border-gray-300 my-2" />
-                        <div className="flex justify-between text-[16px] font-black">
-                            <span>TOTAL</span>
-                            <span>{formatCurrency(receipt.total)}</span>
+                        <div className="border-t border-dashed border-white/10 my-3" />
+                        <div className="flex justify-between items-end">
+                            <span className="text-[14px] font-black tracking-widest text-zinc-500">TOTAL</span>
+                            <span className="text-2xl font-black text-orange-500 drop-shadow-[0_0_15px_rgba(249,115,22,0.3)]">{formatCurrency(receipt.total)}</span>
                         </div>
                     </div>
 
                     {/* Payment Info */}
-                    <div className="border-t border-dashed border-gray-300 my-3" />
-                    <div className="space-y-1.5 text-[12px]">
-                        <div className="flex justify-between"><span className="text-gray-500">Payment</span><span className="font-bold uppercase">{receipt.paymentMethod}</span></div>
+                    <div className="border-t border-dashed border-white/10 my-5" />
+                    <div className="space-y-2 text-[12px] bg-white/[0.02] p-4 rounded-xl border border-white/5">
+                        {receipt.paymentMethod === 'split' && receipt.splitPayments ? (
+                            <>
+                                <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-[2px] mb-2">Split Payment Breakdown</div>
+                                {receipt.splitPayments.map((sp, idx) => (
+                                    <div key={idx} className="flex justify-between">
+                                        <span className="text-zinc-400 capitalize">{sp.method}</span>
+                                        <span className="font-semibold text-white">{formatCurrency(sp.amount)}</span>
+                                    </div>
+                                ))}
+                            </>
+                        ) : (
+                            <div className="flex justify-between"><span className="text-zinc-500">Payment</span><span className="font-bold text-white uppercase tracking-wider">{receipt.paymentMethod}</span></div>
+                        )}
                         {receipt.cashReceived != null && receipt.cashReceived > 0 && (
-                            <div className="flex justify-between"><span className="text-gray-500">Received</span><span>{formatCurrency(receipt.cashReceived)}</span></div>
+                            <div className="flex justify-between"><span className="text-zinc-500">Received</span><span className="font-semibold text-zinc-300">{formatCurrency(receipt.cashReceived)}</span></div>
                         )}
                         {receipt.changeGiven != null && receipt.changeGiven > 0 && (
-                            <div className="flex justify-between text-emerald-600 font-semibold"><span>Change</span><span>{formatCurrency(receipt.changeGiven)}</span></div>
+                            <div className="flex justify-between text-emerald-400 font-semibold mt-1 pt-1 border-t border-emerald-500/10">
+                                <span>Change</span>
+                                <span>{formatCurrency(receipt.changeGiven)}</span>
+                            </div>
                         )}
                     </div>
 
                     {/* Footer */}
-                    <div className="border-t-2 border-dashed border-gray-300 mt-4 pt-4 text-center">
-                        <p className="text-[11px] text-gray-600 font-medium">Thank you for choosing {businessName}!</p>
-                        <p className="text-[10px] text-gray-400 mt-1">Drive clean, drive proud. 🚗✨</p>
+                    <div className="mt-8 text-center bg-orange-500/5 py-4 rounded-xl border border-orange-500/10">
+                        <p className="text-[12px] text-zinc-300 font-bold tracking-wide">Thank you for choosing {businessName}!</p>
+                        <p className="text-[10px] text-orange-400/80 mt-1.5 uppercase tracking-widest">Drive clean, drive proud.</p>
                     </div>
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-2 p-4 pt-0">
+                <div className="flex gap-3 p-6 pt-0 relative z-10 bg-[#0a0a0a]">
                     <Button
                         onClick={handlePrint}
-                        className="flex-1 bg-gray-900 hover:bg-gray-800 text-white gap-2"
+                        className="flex-1 bg-orange-500 hover:bg-orange-400 text-black font-bold h-12 shadow-[0_0_20px_rgba(249,115,22,0.2)] hover:shadow-[0_0_25px_rgba(249,115,22,0.4)] transition-all gap-2"
                     >
-                        <Printer className="w-4 h-4" /> Print
+                        <Printer className="w-4 h-4" /> Print Receipt
                     </Button>
                     <Button
                         onClick={handleExportPDF}
                         variant="outline"
-                        className="flex-1 border-gray-300 text-gray-700 hover:bg-gray-50 gap-2"
+                        className="flex-1 bg-white/5 border-white/10 text-white hover:bg-white/10 hover:text-white font-bold h-12 gap-2"
                     >
-                        <Download className="w-4 h-4" /> PDF
+                        <Download className="w-4 h-4" /> Save PDF
                     </Button>
                 </div>
             </div>

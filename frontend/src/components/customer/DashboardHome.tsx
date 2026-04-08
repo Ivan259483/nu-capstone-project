@@ -41,7 +41,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-white">
-                        Hello, <span className="text-[var(--gold-primary)]">{userName || 'Customer'}</span>
+                        Hello, <span className="text-violet-400">{userName || 'Customer'}</span>
                     </h1>
                     <p className="text-[var(--text-secondary)] mt-1">Welcome back to your premium service dashboard.</p>
                 </div>
@@ -81,13 +81,13 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                 </div>
             </div>
 
-        {/* Top Stats Row */}
+            {/* Top Stats Row */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Active Status Card */}
                 <Card className="glass border-white/5 h-full flex flex-col justify-between">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium text-[var(--text-secondary)]">Current Status</CardTitle>
-                        <Navigation className={`w-4 h-4 ${activeBooking ? 'text-indigo-400 animate-pulse' : 'text-zinc-600'}`} />
+                        <Navigation className={`w-4 h-4 ${activeBooking ? 'text-violet-400 animate-pulse' : 'text-zinc-600'}`} />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold text-white">
@@ -95,7 +95,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                                 ['queued', 'paid', 'pending'].includes(activeBooking.status) ? 'Service Queued' : 'Service Active'
                             ) : 'No Active Service'}
                         </div>
-                        <p className="text-xs text-[var(--gold-primary)] opacity-70 mt-1">
+                        <p className="text-xs text-violet-400 opacity-70 mt-1">
                             {activeBooking
                                 ? `Vehicle: ${activeBooking.vehicleInfo || 'Your Vehicle'}`
                                 : 'Ready for your next booking'}
@@ -103,7 +103,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                         {activeBooking && (
                             <Button
                                 variant="link"
-                                className="px-0 text-indigo-400 h-auto mt-2 text-xs"
+                                className="px-0 text-violet-400 h-auto mt-2 text-xs"
                                 onClick={() => onNavigate('tracking')}
                             >
                                 Track Progress <ArrowRight className="w-3 h-3 ml-1" />
@@ -116,7 +116,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                 <Card className="glass border-white/5 h-full flex flex-col justify-between">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium text-[var(--text-secondary)]">Next Appointment</CardTitle>
-                        <Calendar className="w-4 h-4 text-emerald-400" />
+                        <Calendar className="w-4 h-4 text-violet-300" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold text-white">
@@ -126,7 +126,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                                 'None Scheduled'
                             )}
                         </div>
-                        <p className="text-xs text-[var(--gold-primary)] opacity-70 mt-1">
+                        <p className="text-xs text-violet-400 opacity-70 mt-1">
                             {upcomingBooking
                                 ? `${upcomingBooking.serviceName} @ ${upcomingBooking.time}`
                                 : 'Check our availability today'}
@@ -134,7 +134,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                         {upcomingBooking && (
                             <Button
                                 variant="link"
-                                className="px-0 text-emerald-400 h-auto mt-2 text-xs"
+                                className="px-0 text-violet-400 h-auto mt-2 text-xs"
                                 onClick={() => onNavigate('bookings')}
                             >
                                 View Details <ArrowRight className="w-3 h-3 ml-1" />
@@ -147,20 +147,20 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                 <Card className="glass border-white/5 h-full flex flex-col justify-between">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium text-[var(--text-secondary)]">Last Service</CardTitle>
-                        <CreditCard className="w-4 h-4 text-[var(--gold-primary)]" />
+                        <CreditCard className="w-4 h-4 text-violet-400" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold text-white">
                             {lastCompleted ? formatCurrency(lastCompleted.totalPrice || 0) : '--'}
                         </div>
-                        <p className="text-xs text-[var(--gold-primary)] opacity-70 mt-1">
+                        <p className="text-xs text-violet-400 opacity-70 mt-1">
                             {lastCompleted
                                 ? `Paid on ${new Date(lastCompleted.date).toLocaleDateString()}`
                                 : 'No payment history yet'}
                         </p>
                         <Button
                             variant="link"
-                            className="px-0 text-[var(--gold-primary)] h-auto mt-2 text-xs"
+                            className="px-0 text-violet-400 h-auto mt-2 text-xs"
                             onClick={() => onNavigate('payments')}
                         >
                             View History <ArrowRight className="w-3 h-3 ml-1" />
@@ -174,30 +174,30 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div
                     onClick={() => onNavigate('book')}
-                    className="cursor-pointer group relative flex flex-col items-center justify-center p-6 glass border border-white/5 rounded-xl hover:bg-white/5 transition-all duration-300 hover:border-gold-500/30"
+                    className="cursor-pointer group relative flex flex-col items-center justify-center p-6 glass border border-white/5 rounded-xl hover:bg-white/5 transition-all duration-300 hover:border-violet-500/30"
                 >
-                    <div className="w-12 h-12 rounded-full bg-black/50 border border-white/5 shadow-inner flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300 group-hover:bg-gold-500/10">
-                        <Calendar className="w-6 h-6 text-[var(--gold-primary)]" />
+                    <div className="w-12 h-12 rounded-full bg-black/50 border border-white/5 shadow-inner flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300 group-hover:bg-violet-500/10">
+                        <Calendar className="w-6 h-6 text-violet-400" />
                     </div>
                     <span className="text-sm font-medium text-[var(--text-secondary)] group-hover:text-white">Book Now</span>
                 </div>
 
                 <div
                     onClick={() => onNavigate('bookings')}
-                    className="cursor-pointer group relative flex flex-col items-center justify-center p-6 glass border border-white/5 rounded-xl hover:bg-white/5 transition-all duration-300 hover:border-emerald-500/30"
+                    className="cursor-pointer group relative flex flex-col items-center justify-center p-6 glass border border-white/5 rounded-xl hover:bg-white/5 transition-all duration-300 hover:border-violet-400/30"
                 >
-                    <div className="w-12 h-12 rounded-full bg-black/50 border border-white/5 shadow-inner flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300 group-hover:bg-emerald-500/10">
-                        <Clock className="w-6 h-6 text-emerald-400" />
+                    <div className="w-12 h-12 rounded-full bg-black/50 border border-white/5 shadow-inner flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300 group-hover:bg-violet-500/10">
+                        <Clock className="w-6 h-6 text-violet-300" />
                     </div>
                     <span className="text-sm font-medium text-[var(--text-secondary)] group-hover:text-white">My Bookings</span>
                 </div>
 
                 <div
                     onClick={() => onNavigate('tracking')}
-                    className="cursor-pointer group relative flex flex-col items-center justify-center p-6 glass border border-white/5 rounded-xl hover:bg-white/5 transition-all duration-300 hover:border-amber-500/30"
+                    className="cursor-pointer group relative flex flex-col items-center justify-center p-6 glass border border-white/5 rounded-xl hover:bg-white/5 transition-all duration-300 hover:border-fuchsia-500/30"
                 >
-                    <div className="w-12 h-12 rounded-full bg-black/50 border border-white/5 shadow-inner flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300 group-hover:bg-amber-500/10">
-                        <Navigation className="w-6 h-6 text-amber-400" />
+                    <div className="w-12 h-12 rounded-full bg-black/50 border border-white/5 shadow-inner flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300 group-hover:bg-fuchsia-500/10">
+                        <Navigation className="w-6 h-6 text-fuchsia-400" />
                     </div>
                     <span className="text-sm font-medium text-[var(--text-secondary)] group-hover:text-white">Live Tracking</span>
                 </div>
@@ -222,7 +222,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                             <div className="flex items-center gap-4">
                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center border shadow-inner ${booking.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                                     booking.status === 'cancelled' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                                        'bg-gold-500/10 text-[var(--gold-primary)] border-gold-500/20'
+                                        'bg-violet-500/10 text-violet-400 border-violet-500/20'
                                     }`}>
                                     <CheckCircle className="w-5 h-5" />
                                 </div>
@@ -231,7 +231,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ bookings, onNaviga
                                     <p className="text-xs text-[var(--text-secondary)]">{new Date(booking.date).toLocaleDateString()} • {booking.status}</p>
                                 </div>
                             </div>
-                            <Button variant="ghost" size="sm" onClick={() => onNavigate('bookings')} className="text-[var(--gold-primary)] opacity-80 hover:opacity-100 hover:bg-white/5">
+                            <Button variant="ghost" size="sm" onClick={() => onNavigate('bookings')} className="text-violet-400 opacity-80 hover:opacity-100 hover:bg-white/5">
                                 View
                             </Button>
                         </div>

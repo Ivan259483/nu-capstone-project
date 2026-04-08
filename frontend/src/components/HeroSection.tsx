@@ -1,15 +1,24 @@
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ChevronDown, Star, Shield, Zap } from "lucide-react";
+import { ArrowRight, Star } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Button } from "@/components/ui/button";
-import { useEffect, useRef } from "react";
 
 export default function HeroSection() {
     const { t } = useLanguage();
+    const [activeService, setActiveService] = useState("Ceramic Coating");
     const typingRef = useRef<HTMLSpanElement>(null);
 
+    const services = [
+        "Ceramic Coating",
+        "Full Detail",
+        "Paint Correction",
+        "PPF",
+        "Interior Detail",
+        "Tinting"
+    ];
+
     useEffect(() => {
-        const texts = ["Excellence.", "Perfection.", "Brilliance.", "Prestige."];
+        const texts = ["The Best.", "Excellence.", "Perfection.", "Prestige."];
         let textIndex = 0;
         let charIndex = 0;
         let isDeleting = false;
@@ -41,98 +50,181 @@ export default function HeroSection() {
         return () => clearTimeout(timeout);
     }, []);
 
-    const badges = [
-        { icon: Star, label: "4.9/5 Rating" },
-        { icon: Shield, label: "Certified Pro" },
-        { icon: Zap, label: "Same Day" },
-    ];
-
     return (
-        <section className="relative min-h-screen flex items-center overflow-hidden bg-background">
-            {/* Subtle ambient glow — minimal, non-distracting */}
-            <div className="absolute top-1/3 right-[10%] w-[500px] h-[500px] rounded-full bg-primary/[0.04] blur-[120px] pointer-events-none" />
-            <div className="absolute bottom-0 left-0 right-0 h-px gold-line opacity-40" />
+        <section className="relative min-h-screen w-full flex items-center overflow-hidden" style={{ backgroundColor: "#07070A" }}>
+            
+            {/* Right side background image with gradient mask */}
+            <div className="absolute top-0 right-0 w-full lg:w-[65%] h-full z-0 overflow-hidden">
+                <img 
+                    src="https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?q=80&w=2670&auto=format&fit=crop"
+                    alt="Luxury Car Detailing"
+                    className="w-full h-full object-cover object-center opacity-40 lg:opacity-100"
+                    style={{ animation: "hero-car-drift 25s ease-in-out infinite", transformOrigin: "center center" }}
+                />
+                {/* Gradient mask bleeding into the background naturally */}
+                <div 
+                    className="absolute inset-0 z-10 hidden lg:block"
+                    style={{
+                        background: "linear-gradient(to right, #07070A 0%, rgba(7,7,10,0.85) 15%, rgba(7,7,10,0) 45%, rgba(7,7,10,0) 100%)"
+                    }}
+                />
+                {/* Mobile overlay mask */}
+                <div 
+                    className="absolute inset-0 z-10 lg:hidden"
+                    style={{
+                        background: "linear-gradient(to top, #07070A 0%, rgba(7,7,10,0.8) 50%, rgba(7,7,10,0) 100%)"
+                    }}
+                />
+            </div>
 
-            <div className="container max-w-7xl mx-auto px-6 pt-24 pb-16 relative z-10">
-                <div className="max-w-3xl">
-                    {/* Badge */}
-                    <div
-                        className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-gold/25 text-xs font-semibold text-primary mb-8 animate-slide-up"
-                        style={{ animationDelay: "0.1s" }}
-                    >
-                        <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                        {t("hero.badge")}
-                    </div>
+            {/* Thin diagonal gold hairline */}
+            <div 
+                className="hidden lg:block absolute top-[-10%] bottom-[-10%] z-10 pointer-events-none"
+                style={{
+                    left: "35%",
+                    width: "1px",
+                    background: "rgba(240,165,0,0.4)",
+                    transform: "rotate(4deg)",
+                    transformOrigin: "center"
+                }}
+            />
 
-                    {/* Heading */}
-                    <h1
-                        className="text-5xl sm:text-6xl lg:text-7xl font-bold leading-[1.08] mb-6 animate-slide-up"
-                        style={{ animationDelay: "0.2s" }}
+            {/* Content Container */}
+            <div className="container max-w-7xl mx-auto px-6 relative z-20 h-full flex flex-col lg:flex-row pt-32 pb-20 lg:py-0">
+                
+                {/* Left Column (Content) */}
+                <div className="w-full lg:w-[55%] flex flex-col justify-center min-h-[calc(100vh-160px)] lg:min-h-screen pt-10">
+
+
+                    {/* Headline */}
+                    <h1 
+                        className="text-5xl sm:text-6xl lg:text-[76px] leading-[1.05] mb-8 text-white flex flex-col animate-slide-up"
+                        style={{ fontFamily: 'Georgia, serif', animationDelay: "0.2s" }}
                     >
-                        {t("hero.title")}
-                        <br />
-                        <span className="gradient-text text-glow-gold">
-                            {t("hero.titleHighlight")}
-                        </span>
-                        <br />
-                        <span className="text-foreground/70">
-                            <span ref={typingRef} className="text-primary" />
-                            <span className="border-r-2 border-primary ml-0.5 animate-blink" />
+                        <span className="font-light tracking-tight pb-1">Your Car</span>
+                        <span className="font-light tracking-tight pb-1">Deserves</span>
+                        <span className="italic font-bold" style={{ color: "#F0A500" }}>
+                            <span ref={typingRef}></span>
+                            <span className="border-r-2 border-[#F0A500] ml-1 animate-blink" />
                         </span>
                     </h1>
 
+                    {/* Short gold rule divider */}
+                    <div className="w-12 h-[1.5px] bg-[#F0A500] mb-8 animate-slide-up" style={{ animationDelay: "0.3s" }} />
+
                     {/* Subtitle */}
-                    <p
-                        className="text-lg text-muted-foreground leading-relaxed max-w-xl mb-10 animate-slide-up"
-                        style={{ animationDelay: "0.35s" }}
-                    >
-                        {t("hero.subtitle")}
+                    <p className="text-[15px] leading-relaxed max-w-md mb-10 font-sans animate-slide-up" style={{ color: "rgba(255,255,255,0.6)", animationDelay: "0.4s" }}>
+                        {t("hero.subtitle") || "Professional detailing services that bring out the brilliance in every vehicle. We treat your car like our own with premium protection and unmatched aesthetic perfection."}
                     </p>
 
+                    {/* Star rating row */}
+                    <div className="flex items-center gap-4 mb-12 animate-slide-up" style={{ animationDelay: "0.5s" }}>
+                        <span className="text-[40px] font-light text-white leading-none" style={{ fontFamily: 'Georgia, serif' }}>4.9</span>
+                        <div className="flex flex-col gap-1">
+                            <div className="flex text-[#F0A500] gap-[2px]">
+                                {[...Array(5)].map((_, i) => (
+                                    <Star key={i} className="w-4 h-4 fill-current" />
+                                ))}
+                            </div>
+                            <span className="text-[10px] font-sans uppercase tracking-widest text-[rgba(255,255,255,0.4)]">2,400+ Reviews</span>
+                        </div>
+                    </div>
+
                     {/* CTA Buttons */}
-                    <div
-                        className="flex flex-wrap gap-4 mb-14 animate-slide-up"
-                        style={{ animationDelay: "0.45s" }}
-                    >
-                        <Link to="/booking">
-                            <Button
-                                size="lg"
-                                className="bg-gradient-gold text-primary-foreground glow-gold font-semibold px-8 hover:opacity-90 hover:scale-105 transition-all duration-300"
+                    <div className="flex flex-wrap items-center gap-5 mb-14 animate-slide-up font-sans" style={{ animationDelay: "0.6s" }}>
+                        <Link to={`/booking?service=${encodeURIComponent(activeService)}`}>
+                            <button 
+                                className="group relative px-10 py-[17px] font-semibold text-sm tracking-wide uppercase overflow-hidden rounded-none flex items-center gap-3 transition-all duration-500"
+                                style={{ 
+                                    background: "linear-gradient(135deg, #F0A500 0%, #D4920A 50%, #F0A500 100%)",
+                                    color: "#07070A",
+                                    boxShadow: "0 0 30px rgba(240,165,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2)"
+                                }}
                             >
-                                {t("hero.cta")}
-                                <ArrowRight className="w-4 h-4 ml-2" />
-                            </Button>
+                                {/* Shimmer sweep */}
+                                <span 
+                                    className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                                    style={{
+                                        background: "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.3) 50%, transparent 70%)",
+                                        animation: "shimmer 2s ease-in-out infinite"
+                                    }}
+                                />
+                                <span className="relative z-10 flex items-center gap-2">
+                                    Book a Service 
+                                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" />
+                                </span>
+                            </button>
                         </Link>
                         <Link to="/gallery">
-                            <Button
-                                size="lg"
-                                variant="outline"
-                                className="border-gold/30 text-foreground hover:bg-gold/10 hover:border-gold/60 hover:text-primary transition-all duration-300 px-8"
+                            <button 
+                                className="group relative px-10 py-[16px] font-medium text-sm tracking-wide uppercase rounded-none overflow-hidden transition-all duration-500"
+                                style={{ 
+                                    border: "1px solid rgba(240,165,0,0.25)",
+                                    color: "rgba(255,255,255,0.85)",
+                                    backdropFilter: "blur(8px)",
+                                    background: "rgba(240,165,0,0.04)"
+                                }}
                             >
-                                {t("hero.ctaSecondary")}
-                            </Button>
+                                {/* Hover fill */}
+                                <span 
+                                    className="absolute inset-0 bg-[rgba(240,165,0,0.08)] scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left"
+                                />
+                                <span className="relative z-10 group-hover:text-[#F0A500] transition-colors duration-300">
+                                    View Work
+                                </span>
+                            </button>
                         </Link>
                     </div>
 
-                    {/* Trust badges */}
-                    <div
-                        className="flex flex-wrap items-center gap-4 animate-fade-in"
-                        style={{ animationDelay: "0.6s" }}
-                    >
-                        {badges.map(({ icon: Icon, label }) => (
-                            <div key={label} className="flex items-center gap-2 px-3 py-2 rounded-lg glass-subtle text-xs text-muted-foreground">
-                                <Icon className="w-3.5 h-3.5 text-primary" />
-                                <span>{label}</span>
+                    {/* Service tags */}
+                    <div className="flex flex-wrap items-center gap-x-1 gap-y-2 max-w-[560px] animate-slide-up font-sans" style={{ animationDelay: "0.7s" }}>
+                        {services.map((service, index) => (
+                            <div key={service} className="flex items-center">
+                                <button
+                                    onClick={() => setActiveService(service)}
+                                    className={`relative px-3 py-1.5 text-[10px] tracking-[0.18em] uppercase transition-all duration-400 ${
+                                        activeService === service 
+                                        ? "text-[#F0A500]" 
+                                        : "text-[rgba(255,255,255,0.35)] hover:text-[rgba(255,255,255,0.8)]"
+                                    }`}
+                                >
+                                    {service}
+                                    {/* Gold underline indicator */}
+                                    <span 
+                                        className={`absolute bottom-0 left-3 right-3 h-[1px] transition-all duration-400 ${
+                                            activeService === service
+                                            ? "bg-[#F0A500] opacity-100 scale-x-100"
+                                            : "bg-white opacity-0 scale-x-0"
+                                        }`}
+                                        style={{ transformOrigin: "left" }}
+                                    />
+                                </button>
+                                {index < services.length - 1 && (
+                                    <span className="text-[rgba(255,255,255,0.1)] text-[8px] select-none">/</span>
+                                )}
                             </div>
                         ))}
                     </div>
                 </div>
-            </div>
 
-            {/* Scroll indicator */}
-            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 animate-bounce text-muted-foreground">
-                <span className="text-xs tracking-widest uppercase opacity-60">{t("hero.scrollDown")}</span>
-                <ChevronDown className="w-4 h-4 opacity-60" />
+                {/* Right Column (Floating Elements) - Hidden on mobile */}
+                <div className="hidden lg:flex w-[45%] relative h-screen flex-col justify-center items-end pr-0 xl:pr-10">
+                    
+                    {/* Architectural framing - Corners */}
+                    <div className="absolute top-[25%] right-[-10px] w-8 h-8 border-t border-r border-[#F0A500] opacity-80" />
+                    <div className="absolute bottom-[25%] left-10 w-8 h-8 border-b border-l border-[#F0A500] opacity-80" />
+
+
+
+
+                    {/* Vertical text stamp */}
+                    <div className="absolute top-1/2 right-[-60px] rotate-[270deg] origin-center z-10 animate-fade-in translate-y-[-50%]">
+                        <span className="text-[10px] uppercase tracking-[0.4em] text-[rgba(255,255,255,0.25)] font-sans whitespace-nowrap">
+                            AutoSPF+ Premium · 2026
+                        </span>
+                    </div>
+
+                </div>
             </div>
         </section>
     );

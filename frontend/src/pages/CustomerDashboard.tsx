@@ -312,9 +312,9 @@ export default function CustomerDashboard() {
     return (
         <div className="flex h-screen bg-[#0c0b08] text-[var(--text-primary)] font-sans overflow-hidden relative">
             {/* Subtle gold radial glow — no image background */}
-            <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle at top right, rgba(201,162,39,0.10) 0%, transparent 60%)' }} />
-            <div className="absolute w-[500px] h-[500px] -top-40 -left-40 rounded-full bg-gold/5 blur-3xl pointer-events-none" />
-            <div className="absolute w-[500px] h-[500px] top-1/2 -right-40 rounded-full bg-amber-500/5 blur-3xl pointer-events-none" />
+            <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle at top right, rgba(139,92,246,0.10) 0%, transparent 60%)' }} />
+            <div className="absolute w-[500px] h-[500px] -top-40 -left-40 rounded-full bg-violet-500/5 blur-3xl pointer-events-none" />
+            <div className="absolute w-[500px] h-[500px] top-1/2 -right-40 rounded-full bg-purple-500/5 blur-3xl pointer-events-none" />
             
             {/* Sidebar Navigation (Desktop) */}
             <CustomerSidebar
@@ -336,10 +336,10 @@ export default function CustomerDashboard() {
                 {/* Mobile Header Trigger */}
                 <div className="lg:hidden p-4 border-b border-white/10 flex items-center justify-between bg-black/40 backdrop-blur-md z-10">
                     <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-gradient-gold flex items-center justify-center">
+                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center">
                             <span className="text-black font-bold">A</span>
                         </div>
-                        <span className="font-bold tracking-tight"><span className="text-white">Auto</span><span className="text-[var(--gold-primary)]">SPF</span><span className="text-white">+</span></span>
+                        <span className="font-bold tracking-tight"><span className="text-white">Auto</span><span className="text-violet-400">SPF</span><span className="text-white">+</span></span>
                     </div>
                     <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(true)}>
                         <div className="space-y-1.5">

@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { CheckCircle2, ArrowRight, Star } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import QuickBookModal from './QuickBookModal';
 
 /* ── Easing ── */
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -18,6 +19,7 @@ const stagger: Variants = {
 
 /* ── Packages ── */
 interface Package {
+    id: string;
     name: string;
     tagline: string;
     price: string;
@@ -31,6 +33,7 @@ interface Package {
 
 const PACKAGES: Package[] = [
     {
+        id: 'essential',
         name: 'Essential',
         tagline: 'The perfect starting point',
         price: '₱3,500',
@@ -47,6 +50,7 @@ const PACKAGES: Package[] = [
         ],
     },
     {
+        id: 'elite',
         name: 'Elite',
         tagline: 'Our most popular package',
         price: '₱8,500',
@@ -66,6 +70,7 @@ const PACKAGES: Package[] = [
         ],
     },
     {
+        id: 'ultimate',
         name: 'Ultimate',
         tagline: 'Uncompromising perfection',
         price: '₱22,000',
@@ -88,6 +93,8 @@ const PACKAGES: Package[] = [
    COMPONENT
 ════════════════════════════════════════ */
 export default function PricingSection() {
+    const [isModalOpen, setIsModalOpen] = useState(false);
+
     return (
         <section id="pricing" className="relative py-28 px-6 overflow-hidden">
             {/* Ambient blobs */}
@@ -180,18 +187,17 @@ export default function PricingSection() {
                                 </ul>
 
                                 {/* CTA */}
-                                <Link to="/login">
-                                    <motion.button
-                                        whileHover={{ scale: 1.025 }} whileTap={{ scale: 0.975 }}
-                                        className={`w-full h-11 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200
-                                            ${pkg.recommended
-                                                ? 'bg-gradient-gold hover:shadow-[0_0_20px_rgba(212,175,55,0.4)] text-black shadow-lg shadow-gold/20'
-                                                : 'glass-subtle border border-white/10 hover:border-gold/30 hover:bg-gold/5 text-white/80 hover:text-white'
-                                            }`}
-                                    >
-                                        Book This Package <ArrowRight className="w-4 h-4" />
-                                    </motion.button>
-                                </Link>
+                                <motion.button
+                                    onClick={() => setIsModalOpen(true)}
+                                    whileHover={{ scale: 1.025 }} whileTap={{ scale: 0.975 }}
+                                    className={`w-full h-11 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200 z-10 relative
+                                        ${pkg.recommended
+                                            ? 'bg-gradient-gold hover:shadow-[0_0_20px_rgba(212,175,55,0.4)] text-black shadow-lg shadow-gold/20'
+                                            : 'glass-subtle border border-white/10 hover:border-gold/30 hover:bg-gold/5 text-white/80 hover:text-white'
+                                        }`}
+                                >
+                                    Book This Package <ArrowRight className="w-4 h-4" />
+                                </motion.button>
                             </div>
                         </motion.div>
                     ))}
@@ -207,6 +213,8 @@ export default function PricingSection() {
                     Contact us for a custom assessment.
                 </motion.p>
             </div>
+            
+            <QuickBookModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
         </section>
     );
 }

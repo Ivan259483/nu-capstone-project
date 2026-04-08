@@ -108,6 +108,14 @@ function InnerLayout() {
           name="(screens)/appointments"
           options={{ animation: 'ios_from_right' }}
         />
+        <Stack.Screen
+          name="(screens)/change-password"
+          options={{ animation: 'ios_from_right' }}
+        />
+        <Stack.Screen
+          name="(screens)/edit-profile"
+          options={{ animation: 'ios_from_right' }}
+        />
       </Stack>
     </>
   );

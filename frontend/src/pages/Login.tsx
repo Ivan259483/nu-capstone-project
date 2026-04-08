@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Car, LogIn, UserPlus, Mail, Lock, User, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Car, LogIn, UserPlus, Mail, Lock, User, Loader2, ArrowLeft, ShieldCheck, RefreshCw } from "lucide-react";
 import { signInWithPopup } from "firebase/auth";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -53,12 +53,36 @@ export default function Login() {
     const [passwordValidation, setPasswordValidation] = useState(validatePassword(""));
     const [confirmPasswordError, setConfirmPasswordError] = useState("");
 
+    /* ── OTP verification state ── */
+    const [otpStep, setOtpStep] = useState<"form" | "verify">("form");
+    const [otpDigits, setOtpDigits] = useState(["" , "", "", "", "", ""]);
+    const [otpCountdown, setOtpCountdown] = useState(0);
+    const [otpSending, setOtpSending] = useState(false);
+    const [otpVerifying, setOtpVerifying] = useState(false);
+    const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
     /* ── Forgot password ── */
     const [showForgotModal, setShowForgotModal] = useState(false);
     const [forgotEmail, setForgotEmail] = useState("");
     const [forgotLoading, setForgotLoading] = useState(false);
 
     const isRegister = tab === "register";
+
+    /* ── OTP countdown timer ── */
+    useEffect(() => {
+        if (otpCountdown <= 0) return;
+        const timer = setInterval(() => setOtpCountdown((c) => c - 1), 1000);
+        return () => clearInterval(timer);
+    }, [otpCountdown]);
+
+    /* ── Reset OTP state when switching tabs ── */
+    useEffect(() => {
+        if (tab === "login") {
+            setOtpStep("form");
+            setOtpDigits(["", "", "", "", "", ""]);
+            setOtpCountdown(0);
+        }
+    }, [tab]);
 
     /* ── Load remembered email ── */
     useEffect(() => {
@@ -108,9 +132,50 @@ export default function Login() {
         setIsLoading(true);
         try {
             const provider = googleProvider;
-            await signInWithPopup(auth, provider);
+            const result = await signInWithPopup(auth, provider);
+            const firebaseUser = result.user;
+
+            // ── CRITICAL: Call backend /social-login to ensure a backend user
+            // record exists and to obtain a JWT for API calls ──
+            try {
+                const backendUrl = import.meta.env.MODE === 'development'
+                    ? '/api'
+                    : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
+                const resp = await fetch(`${backendUrl}/auth/social-login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: firebaseUser.email,
+                        name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+                        provider: providerName,
+                        providerId: firebaseUser.uid,
+                        photoURL: firebaseUser.photoURL || undefined,
+                    }),
+                    signal: AbortSignal.timeout(8000),
+                });
+                if (resp.ok) {
+                    const json = await resp.json();
+                    if (json.data?.token) {
+                        localStorage.setItem('autospf_token', json.data.token);
+                    }
+                    if (json.data?.user) {
+                        localStorage.setItem('autospf_backend_user', JSON.stringify(json.data.user));
+                    }
+                    console.log('✅ [Login] Backend social-login synced successfully');
+                } else {
+                    console.warn('⚠️ [Login] Backend social-login returned', resp.status);
+                }
+            } catch (backendErr) {
+                console.warn('⚠️ [Login] Backend social-login call failed:', backendErr);
+                // Non-blocking: onAuthStateChanged will still resolve the user via GET /users
+            }
+
             toast.success("Welcome back!");
         } catch (error: any) {
+            // Don't show error for user-cancelled popup
+            if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
+                return;
+            }
             toast.error(error.message || "Social login failed");
         } finally {
             setIsLoading(false);
@@ -133,7 +198,8 @@ export default function Login() {
             if (rememberMe) localStorage.setItem("remembered_email", loginForm.email);
             else localStorage.removeItem("remembered_email");
             toast.success("Welcome back.");
-            if (user?.role) performRedirect(user.role);
+            // Redirect is handled by the useEffect watching `user` state.
+            // Do NOT access `user?.role` here — it holds the stale pre-login value.
         } catch {
             toast.error("Login failed");
         } finally {
@@ -141,7 +207,7 @@ export default function Login() {
         }
     };
 
-    /* ── Register submit ── */
+    /* ── Register Step 1: Validate form & send OTP ── */
     const handleRegisterSubmit = async () => {
         if (!registerForm.name || !registerForm.email || !registerForm.password || !registerForm.confirm) {
             toast.error("Please fill in all fields.");
@@ -159,21 +225,147 @@ export default function Login() {
             toast.error("Passwords do not match.");
             return;
         }
-        setIsLoading(true);
+
+        // Send OTP to the user's email
+        setOtpSending(true);
         try {
-            const result = await signup(registerForm.email, registerForm.password, registerForm.name);
-            if (!result.success) {
-                toast.error(result.message || "Failed to create account");
+            const backendUrl = import.meta.env.MODE === 'development'
+                ? '/api'
+                : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
+            const resp = await fetch(`${backendUrl}/auth/send-otp`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: registerForm.email }),
+                signal: AbortSignal.timeout(15000),
+            });
+            const json = await resp.json();
+            if (resp.ok && json.success) {
+                toast.success(`Verification code sent to ${registerForm.email}`);
+                setOtpStep("verify");
+                setOtpDigits(["", "", "", "", "", ""]);
+                setOtpCountdown(60);
+                // Auto-focus first OTP input
+                setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
+            } else {
+                toast.error(json.message || "Failed to send verification code.");
+            }
+        } catch {
+            toast.error("Failed to send verification code. Please try again.");
+        } finally {
+            setOtpSending(false);
+        }
+    };
+
+    /* ── Resend OTP ── */
+    const handleResendOtp = async () => {
+        if (otpCountdown > 0) return;
+        setOtpSending(true);
+        try {
+            const backendUrl = import.meta.env.MODE === 'development'
+                ? '/api'
+                : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
+            const resp = await fetch(`${backendUrl}/auth/send-otp`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: registerForm.email }),
+                signal: AbortSignal.timeout(15000),
+            });
+            const json = await resp.json();
+            if (resp.ok && json.success) {
+                toast.success("New code sent!");
+                setOtpDigits(["", "", "", "", "", ""]);
+                setOtpCountdown(60);
+                otpInputRefs.current[0]?.focus();
+            } else {
+                toast.error(json.message || "Failed to resend code.");
+            }
+        } catch {
+            toast.error("Failed to resend code.");
+        } finally {
+            setOtpSending(false);
+        }
+    };
+
+    /* ── OTP digit input handler ── */
+    const handleOtpChange = (index: number, value: string) => {
+        if (!/^\d*$/.test(value)) return; // digits only
+        const updated = [...otpDigits];
+        updated[index] = value.slice(-1); // single digit
+        setOtpDigits(updated);
+        // Auto-advance to next input
+        if (value && index < 5) {
+            otpInputRefs.current[index + 1]?.focus();
+        }
+    };
+
+    const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
+        if (e.key === "Backspace" && !otpDigits[index] && index > 0) {
+            otpInputRefs.current[index - 1]?.focus();
+        }
+        if (e.key === "Enter" && otpDigits.every((d) => d)) {
+            handleVerifyOtp();
+        }
+    };
+
+    const handleOtpPaste = (e: React.ClipboardEvent) => {
+        e.preventDefault();
+        const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+        if (pasted.length > 0) {
+            const updated = [...otpDigits];
+            for (let i = 0; i < 6; i++) updated[i] = pasted[i] || "";
+            setOtpDigits(updated);
+            const focusIdx = Math.min(pasted.length, 5);
+            otpInputRefs.current[focusIdx]?.focus();
+        }
+    };
+
+    /* ── Verify OTP & Create Account ── */
+    const handleVerifyOtp = async () => {
+        const code = otpDigits.join("");
+        if (code.length !== 6) {
+            toast.error("Please enter the complete 6-digit code.");
+            return;
+        }
+
+        setOtpVerifying(true);
+        try {
+            const backendUrl = import.meta.env.MODE === 'development'
+                ? '/api'
+                : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
+
+            // Step 1: Verify OTP with backend
+            const verifyResp = await fetch(`${backendUrl}/auth/verify-otp`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: registerForm.email, otp: code }),
+                signal: AbortSignal.timeout(10000),
+            });
+            const verifyJson = await verifyResp.json();
+
+            if (!verifyResp.ok || !verifyJson.success) {
+                toast.error(verifyJson.message || "Invalid verification code.");
+                setOtpDigits(["", "", "", "", "", ""]);
+                otpInputRefs.current[0]?.focus();
                 return;
             }
-            toast.success("Account created successfully.");
+
+            // Step 2: OTP verified — now create the account
+            const result = await signup(registerForm.email, registerForm.password, registerForm.name);
+            if (!result.success) {
+                toast.error(result.message || "Failed to create account.");
+                return;
+            }
+
+            toast.success("Account created successfully!");
+            setOtpStep("form");
+            setOtpDigits(["", "", "", "", "", ""]);
             setTab("login");
             setLoginForm({ email: registerForm.email, password: "" });
             setRegisterForm({ name: "", email: "", password: "", confirm: "", agree: false });
         } catch {
-            toast.error("Failed to create account");
+            toast.error("Verification failed. Please try again.");
         } finally {
-            setIsLoading(false);
+            setOtpVerifying(false);
         }
     };
 
@@ -276,11 +468,14 @@ export default function Login() {
                             <div className="space-y-4 animate-slide-up">
                                 {/* Email */}
                                 <div>
-                                    <Label className="text-sm text-muted-foreground mb-1.5 block">{t("login.email")}</Label>
+                                    <Label htmlFor="login-email" className="text-sm text-muted-foreground mb-1.5 block">{t("login.email")}</Label>
                                     <div className="relative">
                                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                         <Input
+                                            id="login-email"
+                                            name="email"
                                             type="email"
+                                            autoComplete="email"
                                             value={loginForm.email}
                                             onChange={(e) => setLoginForm((f) => ({ ...f, email: e.target.value }))}
                                             placeholder="your@email.com"
@@ -292,7 +487,7 @@ export default function Login() {
                                 {/* Password */}
                                 <div>
                                     <div className="flex items-center justify-between mb-1.5">
-                                        <Label className="text-sm text-muted-foreground">{t("login.password")}</Label>
+                                        <Label htmlFor="login-password" className="text-sm text-muted-foreground">{t("login.password")}</Label>
                                         <button
                                             onClick={() => setShowForgotModal(true)}
                                             className="text-xs text-primary hover:text-accent transition-colors"
@@ -303,7 +498,10 @@ export default function Login() {
                                     <div className="relative">
                                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                         <Input
+                                            id="login-password"
+                                            name="password"
                                             type={showPassword ? "text" : "password"}
+                                            autoComplete="current-password"
                                             value={loginForm.password}
                                             onChange={(e) => setLoginForm((f) => ({ ...f, password: e.target.value }))}
                                             placeholder="••••••••"
@@ -374,21 +572,24 @@ export default function Login() {
                                             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
                                             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
                                         </svg>
-                                        <span className="font-medium tracking-wide">Continue with Google</span>
+                                        <span className="font-medium tracking-wide">Google</span>
                                     </div>
                                 </Button>
                             </div>
                         )}
 
                         {/* ══════════ REGISTER FORM ══════════ */}
-                        {tab === "register" && (
+                        {tab === "register" && otpStep === "form" && (
                             <div className="space-y-4 animate-slide-up">
                                 {/* Full Name */}
                                 <div>
-                                    <Label className="text-sm text-muted-foreground mb-1.5 block">{t("login.fullName")}</Label>
+                                    <Label htmlFor="register-name" className="text-sm text-muted-foreground mb-1.5 block">{t("login.fullName")}</Label>
                                     <div className="relative">
                                         <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                         <Input
+                                            id="register-name"
+                                            name="name"
+                                            autoComplete="name"
                                             value={registerForm.name}
                                             onChange={(e) => setRegisterForm((f) => ({ ...f, name: e.target.value }))}
                                             placeholder="Juan dela Cruz"
@@ -399,11 +600,14 @@ export default function Login() {
 
                                 {/* Email */}
                                 <div>
-                                    <Label className="text-sm text-muted-foreground mb-1.5 block">{t("login.email")}</Label>
+                                    <Label htmlFor="register-email" className="text-sm text-muted-foreground mb-1.5 block">{t("login.email")}</Label>
                                     <div className="relative">
                                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                         <Input
+                                            id="register-email"
+                                            name="email"
                                             type="email"
+                                            autoComplete="email"
                                             value={registerForm.email}
                                             onChange={(e) => setRegisterForm((f) => ({ ...f, email: e.target.value }))}
                                             placeholder="your@email.com"
@@ -414,11 +618,14 @@ export default function Login() {
 
                                 {/* Password */}
                                 <div>
-                                    <Label className="text-sm text-muted-foreground mb-1.5 block">{t("login.password")}</Label>
+                                    <Label htmlFor="register-password" className="text-sm text-muted-foreground mb-1.5 block">{t("login.password")}</Label>
                                     <div className="relative">
                                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                         <Input
+                                            id="register-password"
+                                            name="password"
                                             type={showPassword ? "text" : "password"}
+                                            autoComplete="new-password"
                                             value={registerForm.password}
                                             onChange={(e) => setRegisterForm((f) => ({ ...f, password: e.target.value }))}
                                             placeholder="••••••••"
@@ -458,11 +665,14 @@ export default function Login() {
 
                                 {/* Confirm Password */}
                                 <div>
-                                    <Label className="text-sm text-muted-foreground mb-1.5 block">{t("login.confirmPassword")}</Label>
+                                    <Label htmlFor="register-confirm" className="text-sm text-muted-foreground mb-1.5 block">{t("login.confirmPassword")}</Label>
                                     <div className="relative">
                                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                         <Input
+                                            id="register-confirm"
+                                            name="confirm-password"
                                             type={showConfirm ? "text" : "password"}
+                                            autoComplete="new-password"
                                             value={registerForm.confirm}
                                             onChange={(e) => setRegisterForm((f) => ({ ...f, confirm: e.target.value }))}
                                             placeholder="••••••••"
@@ -497,18 +707,101 @@ export default function Login() {
                                     <span className="text-xs text-muted-foreground">{t("login.agreeTerms")}</span>
                                 </label>
 
-                                {/* Submit */}
+                                {/* Submit — sends OTP first */}
                                 <Button
                                     onClick={handleRegisterSubmit}
                                     className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold mt-2 group"
-                                    disabled={!registerForm.name || !registerForm.email || !registerForm.password || !registerForm.agree || isLoading}
+                                    disabled={!registerForm.name || !registerForm.email || !registerForm.password || !registerForm.agree || otpSending}
                                 >
-                                    {isLoading ? (
+                                    {otpSending ? (
                                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                                     ) : (
-                                        <UserPlus className="w-4 h-4 mr-2" />
+                                        <Mail className="w-4 h-4 mr-2" />
                                     )}
-                                    {isLoading ? "Creating account..." : t("login.register")}
+                                    {otpSending ? "Sending code..." : "Send Verification Code"}
+                                </Button>
+                            </div>
+                        )}
+
+                        {/* ══════════ OTP VERIFICATION STEP ══════════ */}
+                        {tab === "register" && otpStep === "verify" && (
+                            <div className="space-y-6 animate-slide-up">
+                                {/* Back button */}
+                                <button
+                                    onClick={() => { setOtpStep("form"); setOtpDigits(["", "", "", "", "", ""]); }}
+                                    className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                    <ArrowLeft className="w-3.5 h-3.5" />
+                                    Back to form
+                                </button>
+
+                                {/* Shield icon & instructions */}
+                                <div className="text-center space-y-3">
+                                    <div className="mx-auto w-14 h-14 rounded-2xl bg-gradient-gold flex items-center justify-center glow-gold">
+                                        <ShieldCheck className="w-7 h-7 text-primary-foreground" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-lg font-bold text-foreground">Verify Your Email</h2>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            We sent a 6-digit code to{" "}
+                                            <span className="text-primary font-medium">{registerForm.email}</span>
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* 6-digit OTP inputs */}
+                                <div className="flex justify-center gap-2.5" onPaste={handleOtpPaste}>
+                                    {otpDigits.map((digit, i) => (
+                                        <input
+                                            key={i}
+                                            ref={(el) => { otpInputRefs.current[i] = el; }}
+                                            type="text"
+                                            inputMode="numeric"
+                                            maxLength={1}
+                                            value={digit}
+                                            onChange={(e) => handleOtpChange(i, e.target.value)}
+                                            onKeyDown={(e) => handleOtpKeyDown(i, e)}
+                                            className={cn(
+                                                "w-11 h-13 text-center text-xl font-bold rounded-xl border-2 bg-muted/40 text-foreground",
+                                                "outline-none transition-all duration-200",
+                                                "focus:border-primary focus:ring-2 focus:ring-primary/20 focus:bg-muted/60",
+                                                digit ? "border-primary/50" : "border-border"
+                                            )}
+                                            style={{ caretColor: 'transparent' }}
+                                        />
+                                    ))}
+                                </div>
+
+                                {/* Countdown & Resend */}
+                                <div className="text-center">
+                                    {otpCountdown > 0 ? (
+                                        <p className="text-xs text-muted-foreground">
+                                            Resend code in <span className="text-primary font-semibold">{otpCountdown}s</span>
+                                        </p>
+                                    ) : (
+                                        <button
+                                            onClick={handleResendOtp}
+                                            disabled={otpSending}
+                                            className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-accent transition-colors font-medium disabled:opacity-50"
+                                        >
+                                            <RefreshCw className={cn("w-3 h-3", otpSending && "animate-spin")} />
+                                            {otpSending ? "Sending..." : "Resend Code"}
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Verify & Create Account */}
+                                <Button
+                                    onClick={handleVerifyOtp}
+                                    className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold group"
+                                    disabled={otpDigits.some((d) => !d) || otpVerifying}
+                                >
+                                    {otpVerifying ? (
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    ) : (
+                                        <ShieldCheck className="w-4 h-4 mr-2" />
+                                    )}
+                                    {otpVerifying ? "Verifying..." : "Verify & Create Account"}
                                 </Button>
                             </div>
                         )}

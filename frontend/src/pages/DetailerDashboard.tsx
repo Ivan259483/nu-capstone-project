@@ -39,6 +39,7 @@ import { OrderService } from '@/lib/order-service';
 import { ActivityService } from '@/lib/activity-service-api';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
 import InspectionCapture from '@/components/InspectionCapture';
+import WarrantyReceiptModal from '@/components/staff/WarrantyReceiptModal';
 import api from '@/lib/api';
 import { SERVICE_STAFF_ROLE } from '@/lib/roles';
 import {
@@ -198,6 +199,7 @@ export default function DetailerDashboard() {
         window.location.hash = activeTab;
     }, [activeTab]);
     const [jobs, setJobs] = useState<Booking[]>([]);
+    const [warrantyReceiptJob, setWarrantyReceiptJob] = useState<Booking | null>(null);
     const [storageUpdateTrigger, setStorageUpdateTrigger] = useState(0); // Force re-render trigger
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
     const [inventoryUsage, setInventoryUsage] = useState<InventoryUsage[]>([]);
@@ -556,7 +558,28 @@ export default function DetailerDashboard() {
         }
     };
 
-    const handleCompleteJob = async (job: Booking) => {
+    const handleCompleteJob = (job: Booking) => {
+        setWarrantyReceiptJob(job);
+    };
+
+    const submitWarrantyReceipt = async (data: any) => {
+        if (!warrantyReceiptJob) return;
+        try {
+            const jobId = getJobId(warrantyReceiptJob);
+            if (!jobId) return;
+            const res = await api.patch(`/orders/${jobId}/warranty-receipt`, { warrantyAndReceipt: data });
+            if (res.data.success) {
+                await executeCompleteJob(warrantyReceiptJob);
+                setWarrantyReceiptJob(null);
+            } else {
+                toast.error(res.data.message || 'Failed to save warranty receipt');
+            }
+        } catch (error) {
+            toast.error('Error saving warranty receipt');
+        }
+    };
+
+    const executeCompleteJob = async (job: Booking) => {
         try {
             const jobId = getJobId(job);
             if (!jobId) {
@@ -706,6 +729,54 @@ export default function DetailerDashboard() {
         }
     };
 
+    const handleToggleOperationsChecklist = async (job: Booking, phase: 'ingress' | 'egress', stepIndex: number) => {
+        try {
+            const jobId = getJobId(job);
+            if (!jobId) return;
+            const checklist = job.operationsChecklist?.[phase];
+            if (!checklist || !checklist[stepIndex]) return;
+
+            const previousJobs = [...jobs];
+            const currentStep = checklist[stepIndex];
+            const nextStatus = !currentStep.completed;
+
+            const updatedJobs: Booking[] = jobs.map(j => {
+                if (getJobId(j) !== jobId) return j;
+                const newPhaseChecklist = j.operationsChecklist?.[phase]?.map((step, idx) => {
+                    if (idx !== stepIndex) return step;
+                    return { ...step, completed: nextStatus, completedAt: nextStatus ? new Date().toISOString() : undefined };
+                });
+                return {
+                    ...j,
+                    operationsChecklist: {
+                        ...j.operationsChecklist,
+                        [phase]: newPhaseChecklist
+                    }
+                };
+            });
+            setJobs(updatedJobs);
+            dispatchStorageSync();
+
+            try {
+                const response = await api.patch(`/orders/${jobId}/operations-checklist`, {
+                    phase,
+                    stepIndex,
+                    completed: nextStatus
+                });
+                if (!response.data.success) {
+                    throw new Error(response.data.message || 'Failed to update operations checklist');
+                }
+                dispatchStorageSync();
+            } catch (error: any) {
+                setJobs(previousJobs);
+                const errorMessage = error?.response?.data?.message || error?.message || 'Failed to update operations checklist';
+                toast.error(errorMessage);
+            }
+        } catch (error) {
+            console.warn('Operations checklist update failed:', error);
+        }
+    };
+
     const handleLogUsage = async () => {
         if (!selectedItem || !usageQuantity || !user) {
             toast.error('Please fill in all fields');
@@ -802,8 +873,21 @@ export default function DetailerDashboard() {
     const activeJobRaw = safeJobs.find(j => j.status === 'in-progress') || safeJobs.find(j => j.status === 'processing');
 
     const activeJob = activeJobRaw;
-    const isChecklistComplete = !!activeJob?.serviceSteps?.length &&
-        activeJob.serviceSteps.every(step => step.status === 'completed');
+    const isChecklistComplete = (() => {
+        if (!activeJob) return false;
+        
+        const hasServiceSteps = activeJob.serviceSteps && activeJob.serviceSteps.length > 0;
+        const hasIngress = activeJob.operationsChecklist?.ingress && activeJob.operationsChecklist.ingress.length > 0;
+        const hasEgress = activeJob.operationsChecklist?.egress && activeJob.operationsChecklist.egress.length > 0;
+
+        if (!hasServiceSteps && !hasIngress && !hasEgress) return false;
+        
+        const serviceComplete = !hasServiceSteps || activeJob.serviceSteps!.every(s => s.status === 'completed');
+        const ingressComplete = !hasIngress || activeJob.operationsChecklist!.ingress.every(s => s.completed);
+        const egressComplete = !hasEgress || activeJob.operationsChecklist!.egress.every(s => s.completed);
+
+        return serviceComplete && ingressComplete && egressComplete;
+    })();
 
     const pendingJobs = safeJobs.filter(j =>
         j.status === 'pending'
@@ -938,14 +1022,14 @@ export default function DetailerDashboard() {
 
                 {/* ══════════ SIDEBAR ══════════ */}
                 <aside className={`detailer-sidebar${sidebarCollapsed ? ' collapsed' : ''}${sidebarOpen ? ' open' : ''}`}>
-                    {/* Brand */}
+                    {/* Brand + User Combined */}
                     <div className="sidebar-brand" style={{ position: 'relative' }}>
                         <motion.div className="sidebar-brand-logo" whileHover={{ rotate: -8, scale: 1.1 }} whileTap={{ scale: 0.9 }}>
                             <Zap style={{ width: 18, height: 18, color: '#fff' }} />
                         </motion.div>
                         <div className="sidebar-brand-text">
                             <span className="sidebar-brand-name">AutoSPF+</span>
-                            <span className="sidebar-brand-sub">Service Portal</span>
+                            <span className="sidebar-brand-sub" style={{ fontSize: 10, opacity: 0.5 }}>{user?.name || 'Service Staff'} · {roleLabel}</span>
                         </div>
                         <motion.button
                             className="sidebar-collapse-btn"
@@ -956,15 +1040,6 @@ export default function DetailerDashboard() {
                         >
                             {sidebarCollapsed ? <ChevronRight style={{ width: 12, height: 12 }} /> : <ChevronLeft style={{ width: 12, height: 12 }} />}
                         </motion.button>
-                    </div>
-
-                    {/* User Card */}
-                    <div className="sidebar-user-card">
-                        <motion.div className="sidebar-avatar" whileHover={{ scale: 1.08 }}>{userInitials}</motion.div>
-                        <div className="sidebar-user-info">
-                            <div className="sidebar-user-name">{user?.name || 'Service Staff'}</div>
-                            <div className="sidebar-user-role">{roleLabel}</div>
-                        </div>
                     </div>
 
                     {/* Navigation */}
@@ -1062,11 +1137,13 @@ export default function DetailerDashboard() {
                                     elapsedTime={elapsedTime}
                                     isChecklistComplete={isChecklistComplete}
                                     isCompleting={isCompleting}
+                                    userName={user?.name}
                                     setActiveTab={(tab: string) => setActiveTab(tab as TabType)}
                                     handleStartJob={handleStartJob}
                                     handleCompleteJob={handleCompleteJob}
                                     handleForceReady={handleForceReady}
                                     handleToggleChecklist={handleToggleChecklist}
+                                    handleToggleOperationsChecklist={handleToggleOperationsChecklist}
                                 />
                             )}
 
@@ -1081,6 +1158,7 @@ export default function DetailerDashboard() {
                                     handleCompleteJob={handleCompleteJob}
                                     handleForceReady={handleForceReady}
                                     handleToggleChecklist={handleToggleChecklist}
+                                    handleToggleOperationsChecklist={handleToggleOperationsChecklist}
                                 />
                             )}
 
@@ -1146,6 +1224,14 @@ export default function DetailerDashboard() {
                     </div>
                 </div>
             </div>
+            
+            {warrantyReceiptJob && (
+                <WarrantyReceiptModal
+                    job={warrantyReceiptJob}
+                    onClose={() => setWarrantyReceiptJob(null)}
+                    onSubmit={submitWarrantyReceipt}
+                />
+            )}
         </div>
     );
 }

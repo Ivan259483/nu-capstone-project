@@ -4,12 +4,13 @@ import {
     TrendingUp, TrendingDown, AlertCircle, FileText, RotateCcw,
     Download, Plus, Mail, Printer, ChevronRight, CreditCard,
     Smartphone, Banknote, CheckCircle2, Clock, XCircle,
-    ArrowUpRight, ArrowDownRight, Dot, Sparkles, Eye
+    ArrowUpRight, ArrowDownRight, Dot, Sparkles, Eye, Search
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
 
 interface BillingPanelProps {
     payments: any[];
@@ -86,6 +87,7 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
 export function BillingPanel({ payments, onRefresh }: BillingPanelProps) {
     const [selectedPayment, setSelectedPayment] = useState<any>(null);
     const [filterStatus, setFilterStatus] = useState<'all' | InvoiceStatus>('all');
+    const [searchTerm, setSearchTerm] = useState('');
 
     // ─── Revenue calculations ───────────────────────────────────────────
     const now = useMemo(() => new Date(), []);
@@ -133,9 +135,18 @@ export function BillingPanel({ payments, onRefresh }: BillingPanelProps) {
         return { ...p, invoiceStatus: status, customer, ref };
     }), [payments]);
 
-    const filteredInvoices = useMemo(() =>
-        filterStatus === 'all' ? invoices : invoices.filter(i => i.invoiceStatus === filterStatus),
-        [invoices, filterStatus]);
+    const filteredInvoices = useMemo(() => {
+        let result = filterStatus === 'all' ? invoices : invoices.filter(i => i.invoiceStatus === filterStatus);
+        if (searchTerm.trim()) {
+            const q = searchTerm.toLowerCase();
+            result = result.filter(i => 
+                (i.customer || '').toLowerCase().includes(q) ||
+                (i.ref || '').toLowerCase().includes(q) ||
+                (i.order?.serviceType || '').toLowerCase().includes(q)
+            );
+        }
+        return result;
+    }, [invoices, filterStatus, searchTerm]);
 
     const paidCount = invoices.filter(i => i.invoiceStatus === 'paid').length;
     const unpaidCount = invoices.filter(i => i.invoiceStatus === 'unpaid').length;
@@ -313,9 +324,19 @@ export function BillingPanel({ payments, onRefresh }: BillingPanelProps) {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 border-b border-zinc-800/50">
                         <div>
                             <h3 className="text-sm font-semibold text-white">Invoices</h3>
-                            <p className="text-[11px] text-zinc-500 mt-0.5">{invoices.length} total records</p>
+                            <p className="text-[11px] text-zinc-500 mt-0.5">{filteredInvoices.length} total records</p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col sm:flex-row items-center gap-3">
+                            {/* Search input */}
+                            <div className="relative">
+                                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                <Input 
+                                    placeholder="Search invoices..." 
+                                    className="bg-zinc-900/50 border-zinc-800 text-xs pl-8 w-[200px] h-8 focus-visible:ring-orange-500/50"
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                />
+                            </div>
                             {/* Filter pills */}
                             <div className="flex gap-1 p-0.5 bg-zinc-800/60 rounded-lg border border-zinc-700/30">
                                 {(['all', 'paid', 'unpaid', 'overdue'] as const).map(s => {

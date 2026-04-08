@@ -14,8 +14,17 @@ const paymentSchema = new mongoose.Schema(
     },
     method: {
       type: String,
-      enum: ['card', 'gcash', 'maya', 'cash', 'other'],
+      enum: ['card', 'gcash', 'maya', 'cash', 'other', 'split'],
       default: 'card',
+    },
+    splitPayments: {
+      type: [
+        {
+          method: String,
+          amount: Number,
+        }
+      ],
+      default: []
     },
     provider: { type: String, default: 'stripe' },
     providerReference: String,

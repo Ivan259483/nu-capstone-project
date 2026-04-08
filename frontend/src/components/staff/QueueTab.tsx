@@ -14,6 +14,7 @@ interface QueueTabProps {
     handleCompleteJob: (job: Booking) => void;
     handleForceReady: (job: Booking) => void;
     handleToggleChecklist: (job: Booking, idx: number) => void;
+    handleToggleOperationsChecklist: (job: Booking, phase: 'ingress' | 'egress', idx: number) => void;
 }
 
 export function QueueTab({
@@ -25,7 +26,8 @@ export function QueueTab({
     handleStartJob,
     handleCompleteJob,
     handleForceReady,
-    handleToggleChecklist
+    handleToggleChecklist,
+    handleToggleOperationsChecklist
 }: QueueTabProps) {
     const getJobId = (job: Booking) => (job.id || (job as any)._id) as string;
 
@@ -41,6 +43,7 @@ export function QueueTab({
                     handleCompleteJob={handleCompleteJob}
                     handleForceReady={handleForceReady}
                     handleToggleChecklist={handleToggleChecklist}
+                    handleToggleOperationsChecklist={handleToggleOperationsChecklist}
                 />
             )}
 

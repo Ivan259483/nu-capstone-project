@@ -1,4 +1,5 @@
 import api from './api';
+import { cachedGet, TTL, invalidate } from './queryCache';
 import type { Booking } from '@/types';
 import { db } from '@/config/firebase';
 import { collection, query, where, onSnapshot, orderBy, doc, setDoc } from 'firebase/firestore';
@@ -99,18 +100,18 @@ export const OrderService = {
     async getAllOrders(options?: { suppressErrorToast?: boolean }) {
         const requestConfig: any = {
             params: {
-                limit: 1000,  // Override default cap of 10 so Admin Calendar sees all bookings
+                limit: 1000,
                 skip: 0,
             },
             meta: {
                 suppressErrorToast: Boolean(options?.suppressErrorToast),
             },
         };
-        const response = await api.get('/bookings', requestConfig);
-        if (response.data.success && Array.isArray(response.data.data)) {
-            response.data.data = response.data.data.map((o: any) => normalizeBooking(o));
+        const data = await cachedGet('/bookings', requestConfig, TTL.SHORT);
+        if (data.success && Array.isArray(data.data)) {
+            data.data = data.data.map((o: any) => normalizeBooking(o));
         }
-        return response.data;
+        return data;
     },
 
     /**
@@ -338,9 +339,12 @@ export const OrderService = {
      * @param {string} date - The date to check (YYYY-MM-DD)
      */
     async getAvailableSlots(date: string) {
-        // use /orders/ instead of /bookings/ based on backend setup
-        const response = await api.get(`/orders/available-slots?date=${date}`);
-        return response.data;
+        const data = await cachedGet(
+            `/orders/available-slots?date=${date}`,
+            undefined,
+            TTL.MEDIUM
+        );
+        return data;
     },
 
     /**

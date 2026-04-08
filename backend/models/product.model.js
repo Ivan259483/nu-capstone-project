@@ -41,4 +41,7 @@ const productSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// ── Performance Index ─────────────────────────────────────────────────
+productSchema.index({ isActive: 1, category: 1 });
+
 export default mongoose.model('Product', productSchema);

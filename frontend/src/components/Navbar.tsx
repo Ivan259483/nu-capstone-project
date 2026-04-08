@@ -87,11 +87,11 @@ export default function Navbar() {
                         {/* Language Toggle */}
                         <button
                             onClick={() => setLang(lang === "en" ? "fil" : "en")}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gold/25 text-xs font-semibold text-primary hover:bg-gold/10 transition-all duration-300"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-gold/30 bg-background text-xs font-semibold text-primary hover:bg-gold/10 transition-all duration-300"
                         >
-                            <span className={cn("transition-opacity", lang === "en" ? "opacity-100" : "opacity-40")}>EN</span>
-                            <span className="text-muted-foreground">|</span>
-                            <span className={cn("transition-opacity", lang === "fil" ? "opacity-100" : "opacity-40")}>FIL</span>
+                            <span className={cn("transition-opacity", lang === "en" ? "text-primary opacity-100" : "text-muted-foreground opacity-60")}>EN</span>
+                            <span className="text-muted-foreground/50">|</span>
+                            <span className={cn("transition-opacity", lang === "fil" ? "text-primary opacity-100" : "text-muted-foreground opacity-60")}>FIL</span>
                         </button>
 
                         <Link to="/login">
@@ -111,7 +111,7 @@ export default function Navbar() {
                     <div className="flex lg:hidden items-center gap-3">
                         <button
                             onClick={() => setLang(lang === "en" ? "fil" : "en")}
-                            className="flex items-center justify-center gap-1 px-3 py-2 min-h-[44px] min-w-[44px] rounded-full border border-gold/25 text-xs font-semibold text-primary"
+                            className="flex items-center justify-center gap-1 px-3 py-2 min-h-[44px] min-w-[44px] rounded-md border border-gold/30 bg-background text-xs font-semibold text-primary"
                         >
                             <span>{lang === "en" ? "EN" : "FIL"}</span>
                         </button>

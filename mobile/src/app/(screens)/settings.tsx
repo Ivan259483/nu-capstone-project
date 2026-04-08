@@ -181,7 +181,10 @@ export default function SettingsScreen() {
                 </Text>
               </View>
             </View>
-            <TouchableOpacity style={s.editBtn}>
+            <TouchableOpacity style={s.editBtn} onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push('/(screens)/edit-profile' as any);
+            }}>
               <Ionicons name="create-outline" size={16} color={ACCENT} />
             </TouchableOpacity>
           </View>
@@ -196,8 +199,8 @@ export default function SettingsScreen() {
               label="Personal Information"
               sub="Name, phone number, address"
               onPress={() => {
-                // For now, just alert — later navigate to edit profile
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/(screens)/edit-profile' as any);
               }}
             />
             <View style={s.divider} />
@@ -205,7 +208,10 @@ export default function SettingsScreen() {
               icon="lock-closed-outline"
               label="Change Password"
               sub="Update your secure credentials"
-              onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/(screens)/change-password' as any);
+              }}
             />
             <View style={s.divider} />
             <MenuItem

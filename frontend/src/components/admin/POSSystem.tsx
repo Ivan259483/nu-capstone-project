@@ -4,7 +4,7 @@ import {
     Search, Filter, User as UserIcon, Car, Hash, Tag, Percent,
     DollarSign, CreditCard, Banknote, Smartphone, CheckCircle, Printer,
     AlertTriangle, ChevronDown, X, Plus, Minus, Receipt, Clock, Download,
-    TrendingUp, ShoppingBag, BarChart3, Activity, FileText, Monitor
+    TrendingUp, ShoppingBag, BarChart3, Activity, FileText, Monitor, History, Calendar, SplitSquareVertical, PauseCircle, PlayCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,7 +38,7 @@ interface CartItem {
     isAddon: boolean;
 }
 
-type PaymentMethodType = 'cash' | 'gcash' | 'card' | 'maya';
+type PaymentMethodType = 'cash' | 'gcash' | 'card' | 'maya' | 'split';
 type DiscountType = 'fixed' | 'percent';
 
 const paymentMethods: { id: PaymentMethodType; label: string; icon: any; color: string }[] = [
@@ -46,6 +46,7 @@ const paymentMethods: { id: PaymentMethodType; label: string; icon: any; color: 
     { id: 'gcash', label: 'GCash', icon: Smartphone, color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
     { id: 'card', label: 'Credit card', icon: CreditCard, color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' },
     { id: 'maya', label: 'Maya', icon: Smartphone, color: 'bg-green-500/20 text-green-400 border-green-500/30' },
+    { id: 'split', label: 'Split', icon: SplitSquareVertical, color: 'bg-orange-500/20 text-orange-400 border-orange-500/30' },
 ];
 
 export function POSSystem({ bookings, services, users, payments, settings, onTransactionComplete }: POSSystemProps) {
@@ -57,6 +58,23 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
     const [cart, setCart] = useState<CartItem[]>([]);
     const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethodType>('cash');
     const [cashReceived, setCashReceived] = useState('');
+    const [splitPayments, setSplitPayments] = useState<{ method: PaymentMethodType; amount: string }[]>([
+        { method: 'cash', amount: '' },
+        { method: 'gcash', amount: '' }
+    ]);
+    const [heldTransactions, setHeldTransactions] = useState<any[]>([]);
+
+    useEffect(() => {
+        const saved = localStorage.getItem('posHeldTransactions');
+        if (saved) {
+            try {
+                setHeldTransactions(JSON.parse(saved));
+            } catch (e) {
+                console.error(e);
+            }
+        }
+    }, []);
+
     const [staffId, setStaffId] = useState<string>('');
     const [discountType, setDiscountType] = useState<DiscountType>('fixed');
     const [discountValue, setDiscountValue] = useState('');
@@ -128,10 +146,17 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
         return Math.min(val, subtotal);
     }, [subtotal, discountType, discountValue]);
     const total = useMemo(() => Math.max(subtotal - discountAmount, 0), [subtotal, discountAmount]);
+    const totalSplitAmount = useMemo(() => {
+        return splitPayments.reduce((sum, sp) => sum + (Number(sp.amount) || 0), 0);
+    }, [splitPayments]);
+
     const change = useMemo(() => {
+        if (selectedPaymentMethod === 'split') {
+            return totalSplitAmount - total;
+        }
         const received = Number(cashReceived) || 0;
         return received - total;
-    }, [cashReceived, total]);
+    }, [cashReceived, total, selectedPaymentMethod, totalSplitAmount]);
 
     // Auto-load booking services into cart
     const handleSelectBooking = useCallback((booking: Booking) => {
@@ -227,7 +252,37 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
         setDiscountValue('');
         setDiscountReason('');
         setShowDiscountPanel(false);
+        setSplitPayments([{ method: 'cash', amount: '' }, { method: 'gcash', amount: '' }]);
     }, []);
+
+    const holdTransaction = useCallback(() => {
+        if (!selectedBooking && cart.length === 0) return;
+        
+        const newHeld = {
+            id: Date.now().toString(),
+            booking: selectedBooking,
+            cart,
+            timestamp: new Date().toISOString()
+        };
+        
+        const updated = [...heldTransactions, newHeld];
+        setHeldTransactions(updated);
+        localStorage.setItem('posHeldTransactions', JSON.stringify(updated));
+        toast.success('Transaction placed on hold');
+        resetPOS();
+    }, [selectedBooking, cart, heldTransactions, resetPOS]);
+
+    const resumeTransaction = useCallback((id: string) => {
+        const held = heldTransactions.find(h => h.id === id);
+        if (held) {
+            setSelectedBooking(held.booking);
+            setCart(held.cart);
+            const updated = heldTransactions.filter(h => h.id !== id);
+            setHeldTransactions(updated);
+            localStorage.setItem('posHeldTransactions', JSON.stringify(updated));
+            toast.success('Transaction resumed');
+        }
+    }, [heldTransactions]);
 
     // ─── Confirm Payment ───────────────────────────────────────────────────────────
     const handleConfirmPayment = async () => {
@@ -263,10 +318,12 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                 discount: Number(discountValue) > 0
                     ? { discountType, value: Number(discountValue), reason: discountReason }
                     : null,
-                cashReceived: selectedPaymentMethod === 'cash' ? Number(cashReceived) : null,
+                splitPayments: selectedPaymentMethod === 'split' ? splitPayments.map(sp => ({ method: sp.method, amount: Number(sp.amount) || 0 })) : undefined,
+                cashReceived: selectedPaymentMethod === 'cash' ? Number(cashReceived)
+                            : selectedPaymentMethod === 'split' && splitPayments.find(sp => sp.method === 'cash')?.amount ? Number(splitPayments.find(sp => sp.method === 'cash')?.amount) : null,
             };
 
-            const result = await PaymentService.createPOSTransaction(payload);
+            const result = await PaymentService.createPOSTransaction(payload as any);
 
             if (result.success) {
                 toast.success('Payment processed successfully!');
@@ -370,23 +427,30 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
     return (
         <div className="space-y-6">
             {/* ───── Sub-Tab Navigation ───── */}
-            <div className="flex items-center gap-1 bg-zinc-900/60 border border-zinc-800/60 rounded-xl p-1">
+            <div className="flex items-center gap-2 bg-black/40 backdrop-blur-xl border border-white/5 rounded-2xl p-1.5 w-max relative shadow-2xl">
                 {subTabs.map((tab) => (
                     <button
                         key={tab.id}
                         onClick={() => setPosSubTab(tab.id)}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                        className={`relative flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 z-10 ${
                             posSubTab === tab.id
-                                ? 'bg-zinc-800 text-white shadow-sm'
-                                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30'
+                                ? 'text-orange-400'
+                                : 'text-zinc-500 hover:text-zinc-300'
                         }`}
                     >
-                        <tab.icon className="w-4 h-4" />
-                        {tab.label}
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                        {posSubTab === tab.id && (
+                            <motion.div 
+                                layoutId="posSubTab" 
+                                className="absolute inset-0 bg-white/5 rounded-xl border border-white/10"
+                                transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+                            />
+                        )}
+                        <tab.icon className="w-4 h-4 relative z-10" />
+                        <span className="relative z-10 font-bold tracking-wide">{tab.label}</span>
+                        <span className={`relative z-10 text-[10px] font-bold px-2 py-0.5 rounded-full transition-all duration-300 ${
                             posSubTab === tab.id
-                                ? 'bg-orange-500/20 text-orange-400'
-                                : 'bg-zinc-700/50 text-zinc-500'
+                                ? 'bg-orange-500 text-black shadow-[0_0_10px_rgba(249,115,22,0.3)]'
+                                : 'bg-zinc-800/80 text-zinc-400'
                         }`}>
                             {tab.count}
                         </span>
@@ -439,7 +503,7 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
     function POSContent() {
     return (
         <div className="space-y-6">
-            {/* ───── Metrics Bar ───── */}
+                    {/* ───── Metrics Bar ───── */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                     { label: "TODAY'S REVENUE", value: formatCurrency(todayRevenue), sub: `${completedToday} transactions`, icon: TrendingUp, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
@@ -452,16 +516,18 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.08 }}
-                        className="relative overflow-hidden rounded-xl bg-zinc-900/80 border border-zinc-800/60 p-4"
+                        whileHover={{ y: -2, scale: 1.01 }}
+                        className="relative overflow-hidden rounded-2xl bg-black/40 backdrop-blur-md border border-white/5 p-5 group shadow-[0_0_20px_rgba(0,0,0,0.5)]"
                     >
-                        <div className={`absolute top-3 right-3 p-2 rounded-lg ${m.bg}`}>
+                        <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                        <div className={`absolute top-4 right-4 p-2.5 rounded-xl ${m.bg} group-hover:scale-110 transition-transform duration-500`}>
                             <m.icon className={`w-4 h-4 ${m.color}`} />
                         </div>
-                        <p className="text-[10px] font-semibold tracking-[1.5px] text-zinc-500 uppercase">{m.label}</p>
-                        <p className="text-2xl font-bold text-white mt-1">{m.value}</p>
-                        <p className="text-[11px] text-zinc-500 mt-0.5">{m.sub}</p>
+                        <p className="text-[10px] font-bold tracking-[2px] text-zinc-500 uppercase">{m.label}</p>
+                        <p className="text-3xl font-bold text-white mt-2 mb-1 tracking-tight">{m.value}</p>
+                        <p className="text-xs text-zinc-400">{m.sub}</p>
                         {/* Mini chart bars */}
-                        <div className="flex items-end gap-[2px] absolute bottom-3 right-3 opacity-30">
+                        <div className="flex items-end gap-[2px] absolute bottom-4 right-4 opacity-10 group-hover:opacity-30 transition-opacity duration-500">
                             {[40, 65, 45, 80, 55, 70, 90].map((h, j) => (
                                 <div key={j} className={`w-[3px] rounded-full ${m.bg}`} style={{ height: `${h * 0.25}px` }} />
                             ))}
@@ -546,6 +612,26 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                                 <X className="w-4 h-4" />
                             </button>
                         )}
+                        {heldTransactions.length > 0 && !selectedBooking && cart.length === 0 && (
+                            <div className="relative">
+                                <select 
+                                    className="appearance-none h-[42px] pl-4 pr-8 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-400 text-sm font-bold cursor-pointer hover:bg-blue-500/20 transition-colors outline-none"
+                                    onChange={(e) => {
+                                        if (e.target.value) resumeTransaction(e.target.value);
+                                        e.target.value = "";
+                                    }}
+                                    value=""
+                                >
+                                    <option value="" disabled>Resume ({heldTransactions.length})</option>
+                                    {heldTransactions.map(h => (
+                                        <option key={h.id} value={h.id} className="bg-zinc-900 text-white font-medium">
+                                            {h.booking?.customerName || 'Walk-in'} - {formatCurrency(h.cart.reduce((s: number, i: any) => s + (i.price * i.quantity), 0))}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="w-4 h-4 text-blue-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                            </div>
+                        )}
                     </div>
 
                     {/* Booking Info Bar */}
@@ -569,41 +655,53 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                     <div className="h-px w-full bg-gradient-to-r from-transparent via-zinc-800 to-transparent my-6" />
 
                     {/* Services List */}
-                    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/40 overflow-hidden">
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/60">
-                            <h3 className="text-sm font-semibold text-zinc-300">Add Extra Services</h3>
-                            <div className="relative w-48">
-                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                    <div className="rounded-2xl border border-white/5 bg-black/40 backdrop-blur-md overflow-hidden shadow-2xl">
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 bg-white/[0.02]">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-orange-500/10 rounded-lg border border-orange-500/20">
+                                    <Activity className="w-4 h-4 text-orange-400" />
+                                </div>
+                                <h3 className="text-sm font-bold text-white tracking-wide">Available Services</h3>
+                            </div>
+                            <div className="relative w-48 group">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 group-focus-within:text-orange-400 transition-colors" />
                                 <Input
-                                    placeholder="Filter..."
+                                    placeholder="Search catalog..."
                                     value={searchFilter}
                                     onChange={e => setSearchFilter(e.target.value)}
-                                    className="pl-8 h-8 text-xs bg-zinc-800 border-zinc-700 text-white"
+                                    className="pl-9 h-9 text-xs bg-zinc-900/50 border-white/10 text-white rounded-xl focus-visible:ring-1 focus-visible:ring-orange-500/50 focus-visible:border-orange-500/50 transition-all placeholder:text-zinc-600 shadow-inner"
                                 />
                             </div>
                         </div>
-                        <div className="max-h-[340px] overflow-y-auto divide-y divide-zinc-800/40">
+                        <div className="max-h-[400px] overflow-y-auto custom-scrollbar divide-y divide-white/5">
                             {displayMainServices.map(service => {
                                 const inCart = cart.some(i => i.id === (service.id || service._id));
                                 return (
                                     <button
                                         key={service.id || service._id}
                                         onClick={() => addToCart(service, false)}
-                                        className={`w-full flex items-center justify-between px-4 py-3 text-left transition-all ${inCart
-                                            ? 'bg-orange-500/8 border-l-2 border-l-orange-500'
-                                            : 'hover:bg-zinc-800/40 border-l-2 border-l-transparent'
+                                        className={`w-full flex items-center justify-between px-5 py-4 text-left transition-all group ${inCart
+                                            ? 'bg-orange-500/10 border-l-2 border-l-orange-500'
+                                            : 'hover:bg-white/[0.04] border-l-2 border-l-transparent'
                                             }`}
                                     >
-                                        <div className="flex items-center gap-3">
-                                            {inCart && <CheckCircle className="w-4 h-4 text-orange-400" />}
-                                            <span className={`text-sm font-medium ${inCart ? 'text-orange-300' : 'text-zinc-200'}`}>
-                                                {service.name}
-                                            </span>
-                                            {service.duration && (
-                                                <span className="text-[10px] text-zinc-600">{service.duration}</span>
-                                            )}
+                                        <div className="flex items-center gap-4">
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${inCart ? 'bg-orange-500' : 'bg-zinc-800 text-zinc-500 group-hover:bg-orange-500/20 group-hover:text-orange-400'}`}>
+                                                {inCart ? <CheckCircle className={`w-4 h-4 ${inCart ? 'text-black' : ''}`} /> : <Plus className="w-4 h-4" />}
+                                            </div>
+                                            <div>
+                                                <span className={`block text-sm font-semibold transition-colors ${inCart ? 'text-orange-400' : 'text-zinc-200 group-hover:text-white'}`}>
+                                                    {service.name}
+                                                </span>
+                                                {service.duration && (
+                                                    <span className="text-[11px] font-medium text-zinc-500 flex items-center gap-1 mt-0.5">
+                                                        <Clock className="w-3 h-3" />
+                                                        {service.duration}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
-                                        <span className={`text-sm font-semibold tabular-nums ${inCart ? 'text-orange-400' : 'text-orange-500/80'}`}>
+                                        <span className={`text-sm font-bold tabular-nums ${inCart ? 'text-orange-400' : 'text-zinc-300'}`}>
                                             {formatCurrency(service.basePrice)}
                                         </span>
                                     </button>
@@ -614,26 +712,28 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                         {/* Add-ons Section */}
                         {displayAddonServices.length > 0 && (
                             <>
-                                <div className="px-4 py-2 border-t border-zinc-800/60 bg-zinc-900/80">
-                                    <h4 className="text-[10px] font-bold tracking-[1.5px] text-zinc-500 uppercase">Add-ons</h4>
+                                <div className="px-5 py-3 border-t border-white/5 bg-zinc-950/80 flex items-center gap-2">
+                                    <h4 className="text-[10px] font-bold tracking-[2px] text-zinc-500 uppercase">Upsell Add-ons</h4>
                                 </div>
-                                <div className="divide-y divide-zinc-800/40">
+                                <div className="divide-y divide-white/5 bg-black/20">
                                     {displayAddonServices.map(service => {
                                         const inCart = cart.some(i => i.id === (service.id || service._id));
                                         return (
                                             <button
                                                 key={service.id || service._id}
                                                 onClick={() => addToCart(service, true)}
-                                                className={`w-full flex items-center justify-between px-4 py-2.5 text-left transition-all ${inCart
-                                                    ? 'bg-orange-500/8 border-l-2 border-l-orange-400'
-                                                    : 'hover:bg-zinc-800/40 border-l-2 border-l-transparent'
+                                                className={`w-full flex items-center justify-between px-5 py-3 text-left transition-all group ${inCart
+                                                    ? 'bg-orange-500/10 border-l-2 border-l-orange-500'
+                                                    : 'hover:bg-white/[0.04] border-l-2 border-l-transparent'
                                                     }`}
                                             >
-                                                <div className="flex items-center gap-2">
-                                                    <Plus className="w-3 h-3 text-zinc-600" />
-                                                    <span className={`text-sm ${inCart ? 'text-orange-300' : 'text-zinc-300'}`}>{service.name}</span>
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${inCart ? 'bg-orange-500' : 'bg-zinc-800 text-zinc-500 group-hover:bg-orange-500/20 group-hover:text-orange-400'}`}>
+                                                        {inCart ? <CheckCircle className={`w-3 h-3 ${inCart ? 'text-black' : ''}`} /> : <Plus className="w-3 h-3" />}
+                                                    </div>
+                                                    <span className={`text-sm font-medium ${inCart ? 'text-orange-400' : 'text-zinc-400 group-hover:text-zinc-200'}`}>{service.name}</span>
                                                 </div>
-                                                <span className={`text-sm font-medium ${inCart ? 'text-orange-400' : 'text-zinc-500'}`}>
+                                                <span className={`text-sm font-bold ${inCart ? 'text-orange-400' : 'text-zinc-500'}`}>
                                                     {formatCurrency(service.basePrice)}
                                                 </span>
                                             </button>
@@ -653,165 +753,184 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
 
                 {/* ─── RIGHT: Order Summary ─── */}
                 <div className="lg:col-span-2 space-y-4">
-                    <form onSubmit={(e) => e.preventDefault()} className="rounded-xl border border-zinc-800/60 bg-zinc-900/60 p-5">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-sm font-semibold text-zinc-300">Order summary</h3>
+                    <form onSubmit={(e) => e.preventDefault()} className="rounded-2xl border border-white/5 bg-black/40 backdrop-blur-xl p-6 shadow-2xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 blur-[50px] pointer-events-none rounded-full" />
+                        
+                        <div className="flex items-center justify-between mb-6 relative z-10">
+                            <h3 className="text-sm font-bold tracking-wide text-white flex items-center gap-2">
+                                <Receipt className="w-4 h-4 text-orange-400" />
+                                Digital Receipt
+                            </h3>
                             {selectedBooking && (
-                                <Badge className="text-[10px] bg-orange-500/15 text-orange-400 border-orange-500/30 font-mono">
+                                <Badge className="text-[10px] bg-orange-500/10 text-orange-400 border border-orange-500/30 font-mono font-bold px-2 py-0.5 shadow-[0_0_10px_rgba(249,115,22,0.1)]">
                                     #{selectedBooking.orderNumber || selectedBooking.id?.slice(-6)}
                                 </Badge>
                             )}
                         </div>
 
                         {/* Cart Items */}
-                        <div className="space-y-0 mb-4 max-h-[200px] overflow-y-auto">
+                        <div className="space-y-1 mb-6 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar relative z-10">
                             {cart.length === 0 ? (
-                                <div className="py-8 text-center text-sm text-zinc-600">
-                                    <Receipt className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                                    Select a booking & add services
+                                <div className="py-10 text-center flex flex-col items-center justify-center border border-dashed border-white/10 rounded-xl bg-white/[0.02]">
+                                    <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-3">
+                                        <Receipt className="w-5 h-5 text-zinc-600" />
+                                    </div>
+                                    <p className="text-sm font-medium text-zinc-400">Select a booking</p>
+                                    <p className="text-xs text-zinc-600 mt-1">Add services to start</p>
                                 </div>
                             ) : (
                                 <>
-                                    <p className="text-[9px] font-bold tracking-[1.5px] text-zinc-500 uppercase mb-2">Items</p>
+                                    <p className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-3 px-1">Items</p>
                                     {cart.map(item => (
-                                        <div key={item.id} className="flex items-center justify-between py-2 group">
+                                        <motion.div layout key={item.id} className="flex items-center justify-between p-2 hover:bg-white/[0.04] rounded-lg transition-colors group">
                                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                                                {item.isAddon && <Tag className="w-3 h-3 text-zinc-600 flex-shrink-0" />}
-                                                <span className="text-sm text-zinc-200 truncate">{item.name}</span>
+                                                {item.isAddon && (
+                                                    <div className="w-5 h-5 rounded bg-zinc-800 flex items-center justify-center flex-shrink-0">
+                                                        <Tag className="w-3 h-3 text-zinc-400" />
+                                                    </div>
+                                                )}
+                                                <span className={`text-sm font-medium truncate ${item.isAddon ? 'text-zinc-300' : 'text-white'}`}>{item.name}</span>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <div className="flex items-center gap-1 bg-zinc-800 rounded-lg px-1.5 py-0.5">
-                                                    <button onClick={() => updateQuantity(item.id, -1)} className="p-0.5 hover:text-white text-zinc-500 transition-colors">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-lg px-1 py-0.5">
+                                                    <button onClick={() => updateQuantity(item.id, -1)} className="p-1 hover:text-orange-400 text-zinc-500 transition-colors">
                                                         <Minus className="w-3 h-3" />
                                                     </button>
-                                                    <span className="text-xs font-medium text-zinc-300 w-5 text-center">{item.quantity}</span>
-                                                    <button onClick={() => updateQuantity(item.id, 1)} className="p-0.5 hover:text-white text-zinc-500 transition-colors">
+                                                    <span className="text-xs font-bold text-white w-5 text-center">{item.quantity}</span>
+                                                    <button onClick={() => updateQuantity(item.id, 1)} className="p-1 hover:text-orange-400 text-zinc-500 transition-colors">
                                                         <Plus className="w-3 h-3" />
                                                     </button>
                                                 </div>
-                                                <span className="text-sm font-semibold text-zinc-200 w-20 text-right">{formatCurrency(item.price * item.quantity)}</span>
-                                                <button onClick={() => removeFromCart(item.id)} className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 text-zinc-600 transition-all">
+                                                <span className="text-sm font-bold text-white w-20 text-right">{formatCurrency(item.price * item.quantity)}</span>
+                                                <button onClick={() => removeFromCart(item.id)} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 text-zinc-600 hover:bg-red-500/10 rounded transition-all">
                                                     <X className="w-3.5 h-3.5" />
                                                 </button>
                                             </div>
-                                        </div>
+                                        </motion.div>
                                     ))}
                                 </>
                             )}
                         </div>
 
-                        {/* Discount */}
+                        {/* Discount & Totals area */}
                         {cart.length > 0 && (
-                            <div className="border-t border-zinc-800/50 pt-3 mb-3">
-                                <button
-                                    onClick={() => setShowDiscountPanel(!showDiscountPanel)}
-                                    className="flex items-center gap-2 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors mb-2"
-                                >
-                                    <Percent className="w-3 h-3" />
-                                    {showDiscountPanel ? 'Hide discount' : 'Add discount'}
-                                    <ChevronDown className={`w-3 h-3 transition-transform ${showDiscountPanel ? 'rotate-180' : ''}`} />
-                                </button>
-                                <AnimatePresence>
-                                    {showDiscountPanel && (
-                                        <motion.div
-                                            initial={{ opacity: 0, height: 0 }}
-                                            animate={{ opacity: 1, height: 'auto' }}
-                                            exit={{ opacity: 0, height: 0 }}
-                                            className="space-y-2"
-                                        >
-                                            <div className="flex gap-2">
-                                                <button
-                                                    onClick={() => setDiscountType('fixed')}
-                                                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${discountType === 'fixed' ? 'bg-orange-500/15 border-orange-500/30 text-orange-400' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}
-                                                >
-                                                    ₱ Fixed
-                                                </button>
-                                                <button
-                                                    onClick={() => setDiscountType('percent')}
-                                                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${discountType === 'percent' ? 'bg-orange-500/15 border-orange-500/30 text-orange-400' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}
-                                                >
-                                                    % Percent
-                                                </button>
-                                            </div>
-                                            <Input
-                                                type="number"
-                                                placeholder={discountType === 'fixed' ? '₱ Amount' : '% Percentage'}
-                                                value={discountValue}
-                                                onChange={e => setDiscountValue(e.target.value)}
-                                                className="h-8 text-xs bg-zinc-800 border-zinc-700 text-white"
-                                            />
-                                            <Input
-                                                placeholder="Reason (optional)"
-                                                value={discountReason}
-                                                onChange={e => setDiscountReason(e.target.value)}
-                                                className="h-8 text-xs bg-zinc-800 border-zinc-700 text-white"
-                                            />
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-                        )}
+                            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-4 relative z-10">
+                                {/* Discount Selector */}
+                                <div>
+                                    <button
+                                        onClick={() => setShowDiscountPanel(!showDiscountPanel)}
+                                        className="flex items-center gap-2 text-xs font-medium text-orange-400 hover:text-orange-300 transition-colors mb-2"
+                                    >
+                                        <Percent className="w-3.5 h-3.5" />
+                                        {showDiscountPanel ? 'Hide discount' : 'Add discount'}
+                                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showDiscountPanel ? 'rotate-180' : ''}`} />
+                                    </button>
+                                    <AnimatePresence>
+                                        {showDiscountPanel && (
+                                            <motion.div
+                                                initial={{ opacity: 0, height: 0 }}
+                                                animate={{ opacity: 1, height: 'auto' }}
+                                                exit={{ opacity: 0, height: 0 }}
+                                                className="space-y-3 pt-1 overflow-hidden"
+                                            >
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => setDiscountType('fixed')}
+                                                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${discountType === 'fixed' ? 'bg-orange-500/15 border-orange-500/30 text-orange-400' : 'bg-black/30 border-white/10 text-zinc-400 hover:bg-white/5'}`}
+                                                    >
+                                                        ₱ Fixed
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setDiscountType('percent')}
+                                                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${discountType === 'percent' ? 'bg-orange-500/15 border-orange-500/30 text-orange-400' : 'bg-black/30 border-white/10 text-zinc-400 hover:bg-white/5'}`}
+                                                    >
+                                                        % Percent
+                                                    </button>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <Input
+                                                        type="number"
+                                                        placeholder={discountType === 'fixed' ? 'Amount (₱)' : 'Percentage (%)'}
+                                                        value={discountValue}
+                                                        onChange={e => setDiscountValue(e.target.value)}
+                                                        className="h-9 text-xs font-medium bg-black/40 border-white/10 text-white focus:border-orange-500/50 focus:ring-orange-500/20"
+                                                    />
+                                                    <Input
+                                                        placeholder="Reason (Optional)"
+                                                        value={discountReason}
+                                                        onChange={e => setDiscountReason(e.target.value)}
+                                                        className="h-9 text-xs font-medium bg-black/40 border-white/10 text-white focus:border-orange-500/50 focus:ring-orange-500/20"
+                                                    />
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
 
-                        {/* Totals */}
-                        {cart.length > 0 && (
-                            <div className="border-t border-zinc-800/50 pt-3 space-y-1.5 text-sm">
-                                {discountAmount > 0 && (
-                                    <>
-                                        <div className="flex justify-between text-zinc-400">
-                                            <span>Subtotal</span><span>{formatCurrency(subtotal)}</span>
-                                        </div>
-                                        <div className="flex justify-between text-red-400">
+                                {/* Totals */}
+                                <div className="border-t border-white/10 pt-3 space-y-2 text-sm">
+                                    <div className="flex justify-between text-zinc-400 font-medium">
+                                        <span>Subtotal</span><span>{formatCurrency(subtotal)}</span>
+                                    </div>
+                                    {discountAmount > 0 && (
+                                        <div className="flex justify-between text-orange-400 font-medium">
                                             <span>Discount{discountReason ? ` (${discountReason})` : ''}</span>
                                             <span>−{formatCurrency(discountAmount)}</span>
                                         </div>
-                                    </>
-                                )}
-                                <div className="flex justify-between text-lg font-bold text-white pt-1">
-                                    <span>Total</span>
-                                    <motion.span
-                                        key={total}
-                                        initial={{ scale: 1.15, color: '#f97316' }}
-                                        animate={{ scale: 1, color: '#fff' }}
-                                        transition={{ duration: 0.3 }}
-                                    >
-                                        {formatCurrency(total)}
-                                    </motion.span>
+                                    )}
+                                    <div className="flex justify-between text-xl font-black text-white pt-2 border-t border-white/10">
+                                        <span>Total</span>
+                                        <motion.span
+                                            key={total}
+                                            initial={{ scale: 1.15, textShadow: '0 0 20px rgba(249,115,22,0.5)' }}
+                                            animate={{ scale: 1, textShadow: '0 0 0px rgba(249,115,22,0)' }}
+                                            transition={{ duration: 0.3 }}
+                                            className="text-orange-400"
+                                        >
+                                            {formatCurrency(total)}
+                                        </motion.span>
+                                    </div>
                                 </div>
                             </div>
                         )}
 
                         {/* Staff Assignment */}
-                        <div className="border-t border-zinc-800/50 mt-4 pt-3">
-                            <p className="text-[9px] font-bold tracking-[1.5px] text-zinc-500 uppercase mb-2">Assign Technician</p>
-                            <select
-                                value={staffId}
-                                onChange={e => setStaffId(e.target.value)}
-                                className="w-full h-9 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 px-3 focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 outline-none transition-colors"
-                            >
-                                <option value="">— Select staff —</option>
-                                {detailers.map(d => (
-                                    <option key={d.id || d._id} value={d.id || d._id}>
-                                        {d.name} ({d.role})
-                                    </option>
-                                ))}
-                            </select>
+                        <div className="mt-4 pt-4 border-t border-white/5 relative z-10">
+                            <p className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase mb-3 px-1">Assign Technician</p>
+                            <div className="relative">
+                                <select
+                                    value={staffId}
+                                    onChange={e => setStaffId(e.target.value)}
+                                    className="w-full h-11 rounded-xl bg-black/30 border border-white/10 text-sm font-medium text-white px-4 appearance-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 outline-none transition-all cursor-pointer"
+                                >
+                                    <option value="" className="bg-zinc-900">— Select technician —</option>
+                                    {detailers.map(d => (
+                                        <option key={d.id || d._id} value={d.id || d._id} className="bg-zinc-900">
+                                            {d.name} • {d.role}
+                                        </option>
+                                    ))}
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
+                                    <ChevronDown className="w-4 h-4" />
+                                </div>
+                            </div>
                         </div>
 
                         {/* Payment Method */}
-                        <div className="border-t border-zinc-800/50 mt-4 pt-3">
-                            <p className="text-[9px] font-bold tracking-[1.5px] text-zinc-500 uppercase mb-2">Payment Method</p>
+                        <div className="mt-4 relative z-10">
+                            <p className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase mb-3 px-1">Payment Method</p>
                             <div className="grid grid-cols-2 gap-2">
                                 {paymentMethods.map(pm => (
                                     <button
                                         key={pm.id}
                                         onClick={() => setSelectedPaymentMethod(pm.id)}
-                                        className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold border transition-all ${selectedPaymentMethod === pm.id
-                                            ? pm.color
-                                            : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800'
+                                        className={`flex items-center justify-center gap-2 py-3 rounded-xl border transition-all duration-300 ${selectedPaymentMethod === pm.id
+                                            ? `${pm.color} shadow-lg scale-[1.02]`
+                                            : 'bg-black/30 border-white/5 text-zinc-400 hover:bg-white/5 hover:border-white/20'
                                             }`}
                                     >
                                         <pm.icon className="w-4 h-4" />
-                                        {pm.label}
+                                        <span className="text-xs font-bold tracking-wide">{pm.label}</span>
                                     </button>
                                 ))}
                             </div>
@@ -821,32 +940,32 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                         <AnimatePresence>
                             {selectedPaymentMethod === 'cash' && cart.length > 0 && (
                                 <motion.div
-                                    initial={{ opacity: 0, height: 0 }}
-                                    animate={{ opacity: 1, height: 'auto' }}
-                                    exit={{ opacity: 0, height: 0 }}
-                                    className="mt-3 space-y-2"
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                    className="mt-4 space-y-3 relative z-10"
                                 >
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-3">
                                         <div className="flex-1">
-                                            <label className="text-[10px] text-zinc-500 mb-1 block">Amount Received</label>
+                                            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Received</label>
                                             <Input
                                                 type="number"
                                                 placeholder="₱ 0.00"
                                                 value={cashReceived}
                                                 onChange={e => setCashReceived(e.target.value)}
-                                                className="h-10 text-lg font-bold bg-zinc-800 border-zinc-700 text-white"
+                                                className="h-12 text-xl font-bold bg-black/40 border-white/10 text-white rounded-xl focus:border-orange-500 focus:ring-orange-500/20"
                                             />
                                         </div>
                                         <div className="flex-1">
-                                            <label className="text-[10px] text-zinc-500 mb-1 block">Change</label>
-                                            <div className={`h-10 flex items-center justify-center rounded-lg border text-lg font-bold ${change >= 0 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
+                                            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Change</label>
+                                            <div className={`h-12 flex items-center justify-center rounded-xl border text-xl font-bold transition-colors ${change >= 0 ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
                                                 {change >= 0 ? formatCurrency(change) : `−${formatCurrency(Math.abs(change))}`}
                                             </div>
                                         </div>
                                     </div>
                                     {/* Quick cash buttons */}
                                     {total > 0 && (
-                                        <div className="flex gap-1.5 flex-wrap">
+                                        <div className="flex gap-2 flex-wrap pb-1">
                                             {[
                                                 total,
                                                 Math.ceil(total / 100) * 100,
@@ -857,7 +976,7 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                                                 <button
                                                     key={amount}
                                                     onClick={() => setCashReceived(String(amount))}
-                                                    className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-zinc-800 border border-zinc-700 text-zinc-400 hover:border-orange-500/50 hover:text-orange-400 transition-colors"
+                                                    className="px-3 py-1.5 rounded-full text-xs font-bold bg-white/5 border border-white/10 text-zinc-300 hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-400 transition-all hover:scale-105"
                                                 >
                                                     {formatCurrency(amount)}
                                                 </button>
@@ -868,35 +987,103 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                             )}
                         </AnimatePresence>
 
+                        {/* Split Payment Input */}
+                        <AnimatePresence>
+                            {selectedPaymentMethod === 'split' && cart.length > 0 && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                    className="mt-4 space-y-3 relative z-10"
+                                >
+                                    <div className="space-y-2">
+                                        {splitPayments.map((sp, idx) => (
+                                            <div key={idx} className="flex items-center gap-2">
+                                                <div className="relative w-1/3">
+                                                    <select
+                                                        value={sp.method}
+                                                        onChange={e => {
+                                                            const newSp = [...splitPayments];
+                                                            newSp[idx].method = e.target.value as PaymentMethodType;
+                                                            setSplitPayments(newSp);
+                                                        }}
+                                                        className="w-full h-10 rounded-xl bg-black/40 border border-white/10 text-xs font-medium text-white px-3 appearance-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 outline-none transition-all cursor-pointer"
+                                                    >
+                                                        <option value="cash" className="bg-zinc-900">Cash</option>
+                                                        <option value="gcash" className="bg-zinc-900">GCash</option>
+                                                        <option value="card" className="bg-zinc-900">Card</option>
+                                                        <option value="maya" className="bg-zinc-900">Maya</option>
+                                                    </select>
+                                                    <ChevronDown className="w-3 h-3 text-zinc-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                                </div>
+                                                <Input
+                                                    type="number"
+                                                    placeholder="₱ 0.00"
+                                                    value={sp.amount}
+                                                    onChange={e => {
+                                                        const newSp = [...splitPayments];
+                                                        newSp[idx].amount = e.target.value;
+                                                        setSplitPayments(newSp);
+                                                    }}
+                                                    className="flex-1 h-10 text-sm font-bold bg-black/40 border-white/10 text-white rounded-xl focus:border-orange-500 focus:ring-orange-500/20"
+                                                />
+                                                <button
+                                                    onClick={() => setSplitPayments(splitPayments.filter((_, i) => i !== idx))}
+                                                    disabled={splitPayments.length <= 2}
+                                                    className={`p-2 rounded-lg transition-colors flex-shrink-0 ${splitPayments.length > 2 ? 'hover:bg-red-500/20 text-zinc-500 hover:text-red-400' : 'opacity-30 cursor-not-allowed text-zinc-600'}`}
+                                                >
+                                                    <X className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="flex justify-between items-center pt-2">
+                                        <button
+                                            onClick={() => setSplitPayments([...splitPayments, { method: 'cash', amount: '' }])}
+                                            className="text-xs font-bold text-orange-400 hover:text-orange-300 flex items-center gap-1 bg-orange-500/10 px-3 py-1.5 rounded-lg border border-orange-500/20 transition-colors"
+                                        >
+                                            <Plus className="w-3 h-3" /> Add Method
+                                        </button>
+                                        <div className="text-right">
+                                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-0.5">Remaining Status</p>
+                                            <div className={`text-sm font-black ${change >= 0 ? 'text-emerald-400' : 'text-orange-400'}`}>
+                                                {change >= 0 ? `Change: ${formatCurrency(change)}` : `Remaining: ${formatCurrency(Math.abs(change))}`}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
                         {/* Action Buttons */}
-                        <div className="grid grid-cols-2 gap-2 mt-4">
+                        <div className="grid grid-cols-5 gap-3 mt-6 pt-4 border-t border-white/5 relative z-10">
                             <Button
                                 type="button"
                                 variant="outline"
-                                className="border-zinc-700 text-zinc-400 hover:bg-zinc-800 gap-2"
+                                className="h-12 rounded-xl text-[11px] font-bold border-white/10 text-zinc-300 hover:bg-white/5 hover:text-white gap-2 transition-all col-span-2 px-2"
                                 onClick={() => {
                                     if (receiptData) setShowReceipt(true);
-                                    else toast.info('Complete a transaction first');
+                                    else if (cart.length > 0) holdTransaction();
                                 }}
                             >
-                                <Printer className="w-4 h-4" />
-                                Print receipt
+                                {receiptData ? <Printer className="w-4 h-4 text-zinc-400" /> : <PauseCircle className="w-4 h-4 text-emerald-500/80" />}
+                                {receiptData ? 'Receipt' : 'Hold TRN'}
                             </Button>
                             <Button
                                 type="button"
                                 onClick={handleConfirmPayment}
                                 disabled={!canConfirm || isProcessing}
-                                className={`gap-2 font-semibold transition-all ${canConfirm
-                                    ? 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white shadow-lg shadow-orange-500/20'
-                                    : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+                                className={`h-12 rounded-xl text-xs font-extrabold uppercase tracking-widest gap-2 transition-all duration-300 col-span-3 ${canConfirm
+                                    ? 'bg-orange-500 hover:bg-orange-400 text-black border-none shadow-[0_4px_20px_rgba(249,115,22,0.4)] hover:shadow-[0_6px_25px_rgba(249,115,22,0.6)] hover:-translate-y-0.5'
+                                    : 'bg-black/30 text-zinc-600 border border-white/5 cursor-not-allowed'
                                     }`}
                             >
                                 {isProcessing ? (
-                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
                                 ) : (
                                     <CheckCircle className="w-4 h-4" />
                                 )}
-                                {isProcessing ? 'Processing...' : 'Confirm payment'}
+                                {isProcessing ? 'Processing' : 'Confirm'}
                             </Button>
                         </div>
                     </form>
@@ -904,78 +1091,89 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
             </div>
 
             {/* ───── Transaction History ───── */}
-            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/40 overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800/60">
-                    <h3 className="text-sm font-semibold text-zinc-300">Transaction history</h3>
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="date"
-                            value={historyDateFilter}
-                            onChange={e => setHistoryDateFilter(e.target.value)}
-                            className="h-8 px-3 rounded-lg text-xs bg-zinc-800 border border-zinc-700 text-zinc-300 outline-none focus:border-orange-500"
-                        />
+            <div className="rounded-2xl border border-white/5 bg-black/40 backdrop-blur-xl overflow-hidden shadow-2xl relative">
+                <div className="absolute -left-32 -top-32 w-64 h-64 bg-orange-500/5 blur-[80px] pointer-events-none rounded-full" />
+                
+                <div className="flex items-center justify-between px-6 py-5 border-b border-white/5 relative z-10">
+                    <h3 className="text-sm font-bold tracking-wide text-white flex items-center gap-2">
+                        <History className="w-4 h-4 text-orange-400" />
+                        Transaction History
+                    </h3>
+                    <div className="flex items-center gap-3">
+                        <div className="relative">
+                            <input
+                                type="date"
+                                value={historyDateFilter}
+                                onChange={e => setHistoryDateFilter(e.target.value)}
+                                className="h-9 pl-9 pr-3 rounded-xl text-xs font-medium bg-black/30 border border-white/10 text-zinc-300 outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20"
+                            />
+                            <Calendar className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                        </div>
                         <Button
                             size="sm"
                             variant="outline"
                             onClick={handleExportCSV}
-                            className="h-8 text-[11px] border-zinc-700 text-zinc-400 hover:bg-zinc-800 gap-1.5"
+                            className="h-9 rounded-xl text-xs font-bold border-white/10 text-zinc-400 hover:bg-white/5 hover:text-white gap-2"
                         >
-                            <Download className="w-3 h-3" />
-                            Export CSV
+                            <Download className="w-3.5 h-3.5" />
+                            Export
                         </Button>
                     </div>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto relative z-10">
                     <table className="w-full text-sm text-left">
                         <thead>
-                            <tr className="text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800/50">
-                                <th className="font-semibold py-3 pl-5">Customer / Vehicle</th>
-                                <th className="font-semibold py-3">Time</th>
-                                <th className="font-semibold py-3">Detailer</th>
-                                <th className="font-semibold py-3">Amount</th>
-                                <th className="font-semibold py-3">Status</th>
-                                <th className="font-semibold py-3 pr-5 text-right">Actions</th>
+                            <tr className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 border-b border-white/5 bg-white/[0.01]">
+                                <th className="py-4 pl-6">Customer / Vehicle</th>
+                                <th className="py-4">Time</th>
+                                <th className="py-4">Technician</th>
+                                <th className="py-4">Amount</th>
+                                <th className="py-4">Status</th>
+                                <th className="py-4 pr-6 text-right">Actions</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-zinc-800/40">
+                        <tbody className="divide-y divide-white/5">
                             {filteredPayments.map((p: any) => (
-                                <tr key={p._id || p.id} className="group hover:bg-zinc-800/30 transition-colors">
-                                    <td className="py-3 pl-5">
-                                        <div className="font-medium text-zinc-200 text-[13px]">
+                                <tr key={p._id || p.id} className="group hover:bg-white/[0.02] transition-colors">
+                                    <td className="py-4 pl-6">
+                                        <div className="font-bold text-white text-[13px]">
                                             {p.customer?.name || p.order?.customerName || 'Walk-in'}
                                         </div>
-                                        <div className="text-[11px] text-zinc-500 mt-0.5">
-                                            {p.order?.serviceType || p.invoiceId || '—'}
+                                        <div className="text-[11px] font-medium text-zinc-500 mt-1 flex items-center gap-1.5">
+                                            <Tag className="w-3 h-3" />
+                                            {p.order?.serviceType || p.invoiceId || 'Standard Service'}
                                         </div>
                                     </td>
-                                    <td className="py-3 text-[12px] text-zinc-400">
-                                        {p.createdAt ? new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                                    <td className="py-4">
+                                        <span className="text-[12px] font-medium text-zinc-400 bg-black/30 px-2 py-1 rounded-md border border-white/5">
+                                            {p.createdAt ? new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                                        </span>
                                     </td>
-                                    <td className="py-3 text-[12px] text-zinc-400">
+                                    <td className="py-4 text-[12px] font-medium text-zinc-300">
                                         {p.staffAssigned?.name || '—'}
                                     </td>
-                                    <td className="py-3">
-                                        <span className="font-semibold text-zinc-200">{formatCurrency(p.amount || 0)}</span>
-                                        <span className="text-[10px] uppercase ml-1.5 text-zinc-500 font-bold tracking-wider">{p.method}</span>
+                                    <td className="py-4">
+                                        <span className="font-bold text-white">{formatCurrency(p.amount || 0)}</span>
+                                        <span className="text-[9px] uppercase ml-2 text-zinc-500 font-extrabold tracking-widest">{p.method}</span>
                                     </td>
-                                    <td className="py-3">
-                                        <Badge className={`text-[10px] font-semibold ${p.status === 'succeeded'
-                                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                    <td className="py-4">
+                                        <Badge className={`text-[10px] font-bold px-2 py-0.5 ${p.status === 'succeeded'
+                                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]'
                                             : p.status === 'pending'
-                                                ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30'
-                                                : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                                ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 shadow-[0_0_10px_rgba(234,179,8,0.1)]'
+                                                : 'bg-white/5 text-zinc-400 border border-white/10'
                                             }`}>
                                             {p.status === 'succeeded' ? 'Paid' : p.status}
                                         </Badge>
                                     </td>
-                                    <td className="py-3 pr-5 text-right">
+                                    <td className="py-4 pr-6 text-right">
                                         <Button
                                             size="sm"
                                             variant="ghost"
                                             onClick={() => handleViewReceipt(p._id || p.id)}
-                                            className="h-7 px-2.5 text-[11px] text-zinc-400 hover:text-orange-400 hover:bg-orange-500/10"
+                                            className="h-8 rounded-lg text-xs font-bold text-zinc-400 hover:text-orange-400 hover:bg-orange-500/10 transition-colors"
                                         >
-                                            <Receipt className="w-3.5 h-3.5 mr-1" />
+                                            <Receipt className="w-3.5 h-3.5 mr-1.5" />
                                             Receipt
                                         </Button>
                                     </td>
@@ -983,8 +1181,12 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                             ))}
                             {filteredPayments.length === 0 && (
                                 <tr>
-                                    <td colSpan={6} className="py-8 text-center text-sm text-zinc-600">
-                                        No transactions for this date.
+                                    <td colSpan={6} className="py-12 text-center border-none">
+                                        <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-3">
+                                            <History className="w-5 h-5 text-zinc-600" />
+                                        </div>
+                                        <p className="text-sm font-bold text-zinc-400">No transactions found</p>
+                                        <p className="text-xs text-zinc-600 mt-1">Try selecting a different date</p>
                                     </td>
                                 </tr>
                             )}

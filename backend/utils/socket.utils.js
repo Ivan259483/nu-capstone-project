@@ -6,6 +6,36 @@ import { isAdminDashboardRole } from '../constants/roles.js';
 
 let io;
 
+// ── Collections the frontend actually watches ────────────────────────
+const WATCHED_COLLECTIONS = new Set(['orders', 'products', 'services']);
+
+// ── Debounce/batch rapid successive changes (200 ms window) ─────────
+const BATCH_INTERVAL_MS = 200;
+let batchBuffer = [];
+let batchTimer = null;
+
+const flushBatch = () => {
+  if (!io || batchBuffer.length === 0) return;
+  // Deduplicate by collection+docId — keep the latest change per doc
+  const deduped = new Map();
+  for (const item of batchBuffer) {
+    const key = `${item.collection}:${item.documentKey?._id || ''}`;
+    deduped.set(key, item);
+  }
+  for (const payload of deduped.values()) {
+    io.emit('db_change', payload);
+  }
+  batchBuffer = [];
+  batchTimer = null;
+};
+
+const enqueueChange = (payload) => {
+  batchBuffer.push(payload);
+  if (!batchTimer) {
+    batchTimer = setTimeout(flushBatch, BATCH_INTERVAL_MS);
+  }
+};
+
 export const initSocket = (httpServer) => {
   io = new SocketIOServer(httpServer, {
     cors: {
@@ -46,6 +76,11 @@ export const initSocket = (httpServer) => {
       socket.join('admin:chat');
     }
 
+    // Allow clients to join rooms dynamically
+    socket.on('join_room', (room) => {
+      socket.join(room);
+    });
+
     socket.on('chat:message', async (payload) => {
       await handleSocketMessage(io, socket, payload);
     });
@@ -64,15 +99,26 @@ export const getIO = () => {
 export const initChangeStreams = (mongooseConnection) => {
   if (!io) return;
   console.log('[SOCKET] Initializing MongoDB Change Streams...');
+  console.log('[SOCKET] Watching collections:', [...WATCHED_COLLECTIONS].join(', '));
   try {
     const changeStream = mongooseConnection.watch([], { fullDocument: 'updateLookup' });
     changeStream.on('change', (change) => {
-      // Emit the change to all connected admin and detailer clients
-      io.emit('db_change', {
-        collection: change.ns ? change.ns.coll : '',
+      const collectionName = change.ns ? change.ns.coll : '';
+
+      // Only emit changes for collections the frontends care about
+      if (!WATCHED_COLLECTIONS.has(collectionName)) return;
+
+      const payload = {
+        collection: collectionName,
         operationType: change.operationType,
         documentKey: change.documentKey,
-      });
+        // Include the full document so clients can update state
+        // without a follow-up HTTP fetch (only for insert/update)
+        fullDocument: change.fullDocument || null,
+      };
+
+      // Batch rapid successive changes (e.g. bulk import, migration)
+      enqueueChange(payload);
     });
     changeStream.on('error', (err) => {
       console.error('[SOCKET] MongoDB Change Stream Error:', err);

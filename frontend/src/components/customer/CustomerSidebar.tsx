@@ -40,14 +40,14 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
         <aside className={cn("hidden lg:flex flex-col w-64 glass border-r h-screen sticky top-0 rounded-none border-white/5", className)}>
             <div className="p-6 border-b border-white/5">
                 <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-gold flex items-center justify-center shadow-lg shadow-gold-500/20">
-                        <span className="text-black font-bold text-lg">A</span>
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center shadow-lg shadow-violet-500/20">
+                        <span className="text-white font-bold text-lg">A</span>
                     </div>
                     <span className="text-xl font-bold tracking-tight">
-                        <span className="text-white">Auto</span><span className="text-[var(--gold-primary)]">SPF</span><span className="text-white">+</span>
+                        <span className="text-white">Auto</span><span className="text-violet-400">SPF</span><span className="text-white">+</span>
                     </span>
                 </div>
-                <div className="mt-2 text-xs text-[var(--gold-primary)] opacity-80 uppercase tracking-wider font-medium">
+                <div className="mt-2 text-xs text-violet-400 opacity-80 uppercase tracking-wider font-medium">
                     Customer Panel
                 </div>
             </div>
@@ -62,17 +62,17 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
                             activeTab === item.id
                                 ? item.id === 'ai-estimator'
                                     ? 'bg-indigo-500/15 text-indigo-300 shadow-sm border border-indigo-500/30'
-                                    : 'font-medium bg-gold-500/10 text-[var(--gold-primary)] shadow-sm border border-gold-500/20 shadow-gold-500/5'
+                                    : 'font-medium bg-violet-500/10 text-violet-300 shadow-sm border border-violet-500/20 shadow-violet-500/5'
                                 : item.id === 'ai-estimator'
                                     ? 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 border border-transparent hover:border-indigo-500/20'
-                                    : 'text-[var(--text-secondary)] hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10'
+                                    : 'text-[var(--text-secondary)] hover:text-white hover:bg-white/5 border border-transparent hover:border-violet-500/10'
                         )}
                         onClick={() => onTabChange(item.id as TabType)}
                     >
                         <item.icon className={cn(
                             "w-5 h-5",
                             activeTab === item.id
-                                ? item.id === 'ai-estimator' ? 'text-indigo-400' : 'text-[var(--gold-primary)]'
+                                ? item.id === 'ai-estimator' ? 'text-indigo-400' : 'text-violet-400'
                                 : item.id === 'ai-estimator' ? 'text-indigo-500' : 'text-[var(--text-secondary)] group-hover:text-white'
                         )} />
                         {item.label}

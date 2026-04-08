@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import mongoose from 'mongoose';
 import Stripe from 'stripe';
 import Order from '../models/order.model.js';
 import Service from '../models/service.model.js';
@@ -780,6 +781,47 @@ export const getSalesToday = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/payments/my
+ * Returns payment history for the currently authenticated customer.
+ * Includes total spent and payment count for convenience.
+ */
+export const getMyPayments = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const { limit = 50 } = req.query || {};
+
+    const payments = await Payment.find({ customer: userId })
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .populate('order', 'orderNumber customerName serviceType status')
+      .lean();
+
+    // Calculate totals for this customer
+    const totals = await Payment.aggregate([
+      { $match: { customer: new mongoose.Types.ObjectId(userId), status: 'succeeded' } },
+      { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
+    ]);
+
+    const totalSpent = totals?.[0]?.total || 0;
+    const totalCount = totals?.[0]?.count || 0;
+
+    res.json({
+      success: true,
+      data: payments,
+      totalSpent,
+      totalCount,
+      currency: 'PHP',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getAllPayments = async (req, res, next) => {
   try {
     const { limit = 100 } = req.query || {};
@@ -818,6 +860,7 @@ export const createPOSTransaction = async (req, res, next) => {
       discount,
       cashReceived,
       addons = [],
+      splitPayments = [],
     } = req.body || {};
 
     if (!orderId) {
@@ -827,9 +870,15 @@ export const createPOSTransaction = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'At least one item is required' });
     }
 
-    const validMethods = ['cash', 'gcash', 'maya', 'card'];
+    const validMethods = ['cash', 'gcash', 'maya', 'card', 'split'];
     if (!validMethods.includes(paymentMethod)) {
       return res.status(400).json({ success: false, message: 'Invalid payment method' });
+    }
+
+    if (paymentMethod === 'split') {
+      if (!splitPayments || !splitPayments.length) {
+        return res.status(400).json({ success: false, message: 'Split payments array is required for split method' });
+      }
     }
 
     // 1. Load Order with related data
@@ -861,7 +910,7 @@ export const createPOSTransaction = async (req, res, next) => {
 
     const totalAmount = Math.max(subtotal - discountAmount, 0);
 
-    // 4. Cash validation
+    // 4. Validation for cash or split
     let changeGiven = null;
     if (paymentMethod === 'cash') {
       const received = Number(cashReceived);
@@ -872,6 +921,22 @@ export const createPOSTransaction = async (req, res, next) => {
         });
       }
       changeGiven = received - totalAmount;
+    } else if (paymentMethod === 'split') {
+      const totalSplit = splitPayments.reduce((sum, sp) => sum + Number(sp.amount || 0), 0);
+      if (totalSplit < totalAmount) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient split total. Total: ₱${totalSplit || 0}, Required: ₱${totalAmount}`,
+        });
+      }
+      
+      // Compute change if there's cash in the split
+      const cashSplit = splitPayments.find(sp => sp.method === 'cash');
+      if (cashSplit && Number(cashReceived) > cashSplit.amount) {
+        changeGiven = Number(cashReceived) - cashSplit.amount;
+      } else if (totalSplit > totalAmount) {
+        changeGiven = totalSplit - totalAmount;
+      }
     }
 
     // 5. Inventory pre-check (warn mode — collect warnings but don't block)
@@ -917,7 +982,8 @@ export const createPOSTransaction = async (req, res, next) => {
       providerReference: `POS-${invoiceId}`,
       staffAssigned: staffId || null,
       discount: discount && discount.value > 0 ? discount : null,
-      cashReceived: paymentMethod === 'cash' ? Number(cashReceived) : null,
+      splitPayments: paymentMethod === 'split' ? splitPayments : [],
+      cashReceived: ['cash', 'split'].includes(paymentMethod) ? Number(cashReceived) : null,
       changeGiven,
       items: allItems,
       metadata: { orderNumber: order.orderNumber, posTransaction: true },
@@ -1016,7 +1082,8 @@ export const createPOSTransaction = async (req, res, next) => {
         : null,
       total: totalAmount,
       paymentMethod,
-      cashReceived: paymentMethod === 'cash' ? Number(cashReceived) : null,
+      splitPayments: paymentMethod === 'split' ? splitPayments : [],
+      cashReceived: ['cash', 'split'].includes(paymentMethod) ? Number(cashReceived) : null,
       changeGiven,
       staff: staffUser ? { id: staffUser._id, name: staffUser.name } : null,
       bookingRef: order.orderNumber,
@@ -1103,6 +1170,7 @@ export const getReceiptData = async (req, res, next) => {
         : null,
       total: payment.amount,
       paymentMethod: payment.method,
+      splitPayments: payment.splitPayments || [],
       cashReceived: payment.cashReceived,
       changeGiven: payment.changeGiven,
       staff: payment.staffAssigned ? { id: payment.staffAssigned._id, name: payment.staffAssigned.name } : null,

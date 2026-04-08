@@ -6,7 +6,7 @@ import ServicesSection from "@/components/ServicesSection";
 import GallerySection from "@/components/GallerySection";
 import TransformationsSection from "@/components/TransformationsSection";
 import TestimonialsSection from "@/components/TestimonialsSection";
-import FAQSection from "@/components/FAQSection";
+
 import BookingCTA from "@/components/BookingCTA";
 import { SettingsService } from "@/lib/settings-service";
 import type { BusinessSettings } from "@/types";
@@ -47,7 +47,7 @@ export default function Home() {
             <GallerySection items={landingData.gallery} />
             <TransformationsSection />
             <TestimonialsSection />
-            <FAQSection />
+
             <BookingCTA />
         </PageLayout>
     );

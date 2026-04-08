@@ -1,4 +1,4 @@
-import { apiClient } from '@/services/api/client';
+import { apiClient, cachedGet, TTL } from '@/services/api/client';
 import type { ApiEnvelope, BookingRecord, ServiceOption } from '@/services/api/types';
 
 const normalizeBooking = (raw: any): BookingRecord => {
@@ -27,14 +27,14 @@ const isActiveBookingStatus = (status: string): boolean => {
 
 export const bookingService = {
   async getMyBookings(): Promise<BookingRecord[]> {
-    const response = await apiClient.get<ApiEnvelope<any[]>>('/bookings', {
+    const data = await cachedGet<ApiEnvelope<any[]>>('/bookings', {
       params: {
         limit: 1000,
         skip: 0,
       },
-    });
+    }, TTL.SHORT);
 
-    const rows = Array.isArray(response.data.data) ? response.data.data : [];
+    const rows = Array.isArray(data.data) ? data.data : [];
     return rows.map(normalizeBooking);
   },
 

@@ -416,18 +416,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return { success: true };
         } catch (error: any) {
             console.error('Login error:', error);
-            return { success: false, message: error.message || 'Invalid credentials' };
+            // Translate Firebase Auth error codes to user-friendly messages
+            const code = error?.code || '';
+            let message = error.message || 'Invalid credentials';
+            switch (code) {
+                case 'auth/too-many-requests':
+                    message = 'Too many login attempts. Please wait a few minutes and try again.';
+                    break;
+                case 'auth/user-not-found':
+                case 'auth/wrong-password':
+                case 'auth/invalid-credential':
+                    message = 'Invalid email or password. Please try again.';
+                    break;
+                case 'auth/invalid-email':
+                    message = 'Please enter a valid email address.';
+                    break;
+                case 'auth/user-disabled':
+                    message = 'This account has been disabled. Contact support.';
+                    break;
+                case 'auth/network-request-failed':
+                    message = 'Network error. Check your internet connection and try again.';
+                    break;
+            }
+            return { success: false, message };
         }
     }, [sanitizeUser]);
 
     const signup = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; message?: string }> => {
         try {
             // Step 1: Create user in Firebase
-            await createUserWithEmailAndPassword(auth, email, password);
+            const credential = await createUserWithEmailAndPassword(auth, email, password);
+            const firebaseUser = credential.user;
             
-            // Step 2: Create user in MongoDB Backend Context
-            // This ensures the backend API has a record of the user and can generate
-            // JWTs for them during future logins.
+            // Step 2: Create user in MongoDB Backend
+            // Try /register first. If OTP is required and it fails, fall back to
+            // /social-login which creates the user without OTP verification.
+            let backendSynced = false;
             try {
                 const resp = await fetch(`${BACKEND_URL}/auth/register`, {
                     method: 'POST',
@@ -435,24 +459,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     body: JSON.stringify({ email, password, name, role: 'customer' }),
                     signal: AbortSignal.timeout(8000)
                 });
-                if (!resp.ok) {
-                    console.warn(`⚠️ [AuthContext] Backend signup failed (${resp.status}), user exists only in Firebase.`);
+                if (resp.ok) {
+                    const json = await resp.json();
+                    if (json.data?.token) {
+                        localStorage.setItem('autospf_token', json.data.token);
+                    }
+                    if (json.data?.user) {
+                        localStorage.setItem('autospf_backend_user', JSON.stringify(json.data.user));
+                    }
+                    backendSynced = true;
+                    console.log('✅ [AuthContext] Backend register synced');
                 } else {
-                    console.log('✅ [AuthContext] Backend signup successful synchronized');
+                    console.warn(`⚠️ [AuthContext] /register returned ${resp.status}, trying /social-login fallback`);
                 }
-            } catch (backendErr) {
-                console.warn('⚠️ [AuthContext] Backend signup failed (backend down?):', backendErr);
+            } catch (regErr) {
+                console.warn('⚠️ [AuthContext] /register failed:', regErr);
             }
 
-            // Role is managed in MongoDB. The onAuthStateChanged handler
-            // will fetch the role from the backend API on first login.
+            // Fallback: use social-login to ensure the backend user record exists
+            if (!backendSynced) {
+                try {
+                    const resp = await fetch(`${BACKEND_URL}/auth/social-login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email,
+                            name,
+                            provider: 'email',
+                            providerId: firebaseUser.uid,
+                        }),
+                        signal: AbortSignal.timeout(8000)
+                    });
+                    if (resp.ok) {
+                        const json = await resp.json();
+                        if (json.data?.token) {
+                            localStorage.setItem('autospf_token', json.data.token);
+                        }
+                        if (json.data?.user) {
+                            localStorage.setItem('autospf_backend_user', JSON.stringify(json.data.user));
+                        }
+                        console.log('✅ [AuthContext] Backend social-login fallback synced');
+                    } else {
+                        console.warn('⚠️ [AuthContext] social-login fallback also failed');
+                    }
+                } catch (fallbackErr) {
+                    console.warn('⚠️ [AuthContext] social-login fallback error:', fallbackErr);
+                }
+            }
+
             return { success: true };
         } catch (error: any) {
             console.error('Signup error:', error);
-            return {
-                success: false,
-                message: error.message || 'An error occurred during signup'
-            };
+            const code = error?.code || '';
+            let message = error.message || 'An error occurred during signup';
+            switch (code) {
+                case 'auth/too-many-requests':
+                    message = 'Too many attempts. Please wait a few minutes and try again.';
+                    break;
+                case 'auth/email-already-in-use':
+                    message = 'An account with this email already exists. Try logging in.';
+                    break;
+                case 'auth/weak-password':
+                    message = 'Password is too weak. Use at least 6 characters.';
+                    break;
+                case 'auth/invalid-email':
+                    message = 'Please enter a valid email address.';
+                    break;
+                case 'auth/network-request-failed':
+                    message = 'Network error. Check your internet connection and try again.';
+                    break;
+            }
+            return { success: false, message };
         }
     }, []);
 

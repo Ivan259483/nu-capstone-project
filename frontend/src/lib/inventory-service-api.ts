@@ -1,4 +1,5 @@
 import api from './api';
+import { cachedGet, TTL } from './queryCache';
 
 /**
  * Service for managing shop inventory and product listings.
@@ -9,14 +10,14 @@ export const InventoryService = {
      * Uses limit=1000 to ensure all products are loaded (backend defaults to 10).
      */
     async getAllProducts() {
-        const response = await api.get('/products?limit=1000');
-        if (response.data.success && Array.isArray(response.data.data)) {
-            response.data.data = response.data.data.map((p: any) => ({
+        const data = await cachedGet('/products?limit=1000', undefined, TTL.MEDIUM);
+        if (data.success && Array.isArray(data.data)) {
+            data.data = data.data.map((p: any) => ({
                 ...p,
                 id: p._id || p.id
             }));
         }
-        return response.data;
+        return data;
     },
 
     /**
