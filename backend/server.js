@@ -48,6 +48,9 @@ import aiRoutes from './routes/ai.routes.js';
 
 const app = express();
 
+// Trust proxy for rate limiting (Vercel, Render, Heroku, etc.)
+app.set('trust proxy', 1);
+
 // Stripe webhook (must be raw body)
 app.post('/api/payments/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 
@@ -74,19 +77,19 @@ app.use(helmet({
 app.use(mongoSanitize());
 
 // ── Rate Limiting ─────────────────────────────────────────────────────
-// General API: 100 requests per 15-minute window per IP
+// General API: 3000 requests per 15-minute window per IP
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 3000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests, please try again later.' },
 });
 
-// Auth endpoints: stricter — 20 requests per 15 minutes per IP
+// Auth endpoints: stricter — 100 requests per 15 minutes per IP
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many login attempts, please try again later.' },
