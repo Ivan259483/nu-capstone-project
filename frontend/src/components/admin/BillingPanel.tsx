@@ -377,7 +377,7 @@ export function BillingPanel({ payments, onRefresh }: BillingPanelProps) {
                                 <AnimatePresence>
                                     {filteredInvoices.slice(0, 20).map((inv: any, i) => {
                                         const cfg = STATUS_CONFIG[inv.invoiceStatus as InvoiceStatus];
-                                        const isSelected = selectedPayment?._id === inv._id || selectedPayment?.id === inv.id;
+                                        const isSelected = selectedPayment && ((inv._id && selectedPayment._id === inv._id) || (inv.id && selectedPayment.id === inv.id));
                                         return (
                                             <motion.tr
                                                 key={inv._id || inv.id}
