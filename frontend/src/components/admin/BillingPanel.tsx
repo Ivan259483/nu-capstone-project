@@ -501,6 +501,11 @@ export function BillingPanel({ payments, onRefresh }: BillingPanelProps) {
                                                             AutoSPF+
                                                         </div>
                                                         <div className="text-[10px] text-zinc-600 mt-0.5">Official Receipt</div>
+                                                        <div className="text-[8px] text-zinc-500 mt-1.5 leading-relaxed">
+                                                            123 Auto Detailing Ave, Manila<br />
+                                                            contact@autospf.com | +63 917 123 4567<br />
+                                                            TIN: 123-456-789-000
+                                                        </div>
                                                     </div>
                                                     <div className="text-right">
                                                         <div className="text-[10px] font-mono text-orange-400/80 bg-orange-500/8 px-2 py-0.5 rounded">
@@ -578,10 +583,47 @@ export function BillingPanel({ payments, onRefresh }: BillingPanelProps) {
                                                     </span>
                                                 </div>
 
+                                                {/* Warranty & Payment Detail */}
+                                                <div className="flex justify-between items-center bg-zinc-900/40 rounded-lg p-2.5 border border-zinc-700/30">
+                                                    <div>
+                                                        <span className="text-[9px] text-zinc-500 block mb-0.5 mt-0">PAYMENT TYPE</span>
+                                                        <span className="text-[10px] font-medium text-zinc-300 uppercase">
+                                                            {selectedPayment.order?.paymentExtent ? `${selectedPayment.order.paymentExtent} Payment` : 'Full Payment'}
+                                                        </span>
+                                                    </div>
+                                                    {(selectedPayment.order?.warrantyAndReceipt?.certificateNumber || selectedPayment.order?.certificateNumber) && (
+                                                        <div className="text-right">
+                                                            <span className="text-[9px] text-orange-500 block mb-0.5 mt-0">WARRANTY CERT</span>
+                                                            <span className="text-[10px] font-mono font-bold text-orange-400">
+                                                                {selectedPayment.order?.warrantyAndReceipt?.certificateNumber || selectedPayment.order?.certificateNumber}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Authorization */}
+                                                <div className="pt-3 pb-1 flex justify-between items-end border-t border-dashed border-zinc-700/50">
+                                                    <div className="text-center w-24">
+                                                        <div className="border-b border-zinc-600 h-6 mb-1"></div>
+                                                        <div className="text-[8px] text-zinc-500 uppercase tracking-widest">Customer</div>
+                                                    </div>
+                                                    <div className="text-center w-24">
+                                                        <div className="border-b border-zinc-600 h-6 mb-1 px-1 flex items-end justify-center">
+                                                            <span className="text-[10px] font-medium text-zinc-300 truncate w-full">{selectedPayment.staffAssigned?.name || 'Cashier'}</span>
+                                                        </div>
+                                                        <div className="text-[8px] text-zinc-500 uppercase tracking-widest">Autospf+</div>
+                                                    </div>
+                                                </div>
+
                                                 {/* Footer meta */}
-                                                <div className="text-[9px] text-zinc-700 text-center space-y-0.5">
-                                                    <div>Ref: {selectedPayment.providerReference || (selectedPayment._id || '').slice(-16)}</div>
-                                                    <div>Thank you for choosing AutoSPF+ · VAT inclusive</div>
+                                                <div className="text-[9px] text-zinc-600 text-center space-y-1.5 mt-4">
+                                                    <div className="border-t border-solid border-zinc-700/30 pt-3">
+                                                        <span className="font-mono">Ref: {selectedPayment.providerReference || (selectedPayment._id || '').slice(-16).toUpperCase()}</span>
+                                                    </div>
+                                                    <div className="text-[8px] text-zinc-500/80 px-2 leading-relaxed">
+                                                        All sales are final. Warranty claims require presenting this official receipt and the warranty certificate. Vehicles left over 24 hours after completion may be subject to parking fees.
+                                                    </div>
+                                                    <div className="pt-1 font-bold text-zinc-400">Thank you for choosing AutoSPF+ · VAT inclusive</div>
                                                 </div>
 
                                                 {/* Status badge */}
