@@ -127,6 +127,16 @@ export const OrderService = {
         const data = await cachedGet('/bookings', requestConfig, TTL.SHORT);
         if (data.success && Array.isArray(data.data)) {
             data.data = data.data.map((o: any) => normalizeBooking(o));
+            // 🔍 DEBUG: Verify queue data has vehicle fields (remove after verification)
+            console.log('🔍 [QUEUE_DATA] Sample:', data.data.slice(0, 3).map((d: any) => ({
+                id: d.id,
+                customerName: d.customerName,
+                vehicleInfo: d.vehicleInfo,
+                vehicleYear: d.vehicleYear,
+                vehicleMake: d.vehicleMake,
+                vehicleModel: d.vehicleModel,
+                serviceName: d.serviceName,
+            })));
         }
         return data;
     },

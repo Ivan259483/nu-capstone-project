@@ -431,6 +431,7 @@ export const createOrder = async (req, res, next) => {
       vehicle: vehicleId,
       service: serviceId,
       customerName: customerNameInput,
+      customerPhone: customerPhoneInput,
       serviceType: serviceTypeInput,
       serviceName: serviceNameInput,
       totalPrice: totalPriceInput,
@@ -607,10 +608,13 @@ export const createOrder = async (req, res, next) => {
     }
     // ────────────────────────────────────────────────────────────────
 
+    const resolvedCustomerPhone = (typeof customerPhoneInput === 'string' && customerPhoneInput.trim()) || '';
+
     const order = new Order({
       orderNumber: `ORD-${Date.now()}`,
       customer: resolvedCustomerId,
       customerName: fallbackCustomerName,
+      customerPhone: resolvedCustomerPhone,
       serviceType: finalServiceType,
       items: finalItems,
       totalAmount: finalTotalAmount,
@@ -654,6 +658,21 @@ export const createOrder = async (req, res, next) => {
     }
 
     await order.save();
+
+    // 🔍 DEBUG: Verify saved document has vehicle fields (remove after verification)
+    console.log('🔍 [SAVED_ORDER] Vehicle Data:', {
+      id: order._id,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      vehicleYear: order.vehicleYear,
+      vehicleMake: order.vehicleMake,
+      vehicleModel: order.vehicleModel,
+      vehicleColor: order.vehicleColor,
+      vehiclePlate: order.vehiclePlate,
+      customerPhone: order.customerPhone,
+      serviceType: order.serviceType,
+      status: order.status,
+    });
 
     // Populate so the response DTO is consistent with list endpoints (My Bookings)
     try {

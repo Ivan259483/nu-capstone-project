@@ -14,6 +14,7 @@ const orderSchema = new mongoose.Schema(
       required: true,
     },
     customerName: String,
+    customerPhone: String,
     serviceType: String,
     items: [
       {

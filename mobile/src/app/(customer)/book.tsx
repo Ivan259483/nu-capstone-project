@@ -532,6 +532,19 @@ export default function BookScreen() {
     setIsSubmitting(true);
 
     try {
+      // 🔍 DEBUG: Verify outbound booking payload (remove after verification)
+      console.log('🔍 [BOOKING_PAYLOAD] Outbound:', {
+        customerName: profile?.full_name,
+        customerPhone: phone.trim() || undefined,
+        vehiclePlate: selectedVehicle?.plateNumber,
+        vehicleYear: selectedVehicle?.year?.toString(),
+        vehicleMake: selectedVehicle?.make,
+        vehicleModel: selectedVehicle?.model,
+        vehicleColor: selectedVehicle?.color,
+        serviceType: selectedService?.name,
+        date: selectedDate,
+        time: selectedTime,
+      });
       await bookingService.createBooking({
         service: selectedService,
         date: selectedDate,
