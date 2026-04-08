@@ -59,6 +59,10 @@ export const bookingService = {
     customerPhone?: string;
     notes?: string;
     vehiclePlate?: string;
+    vehicleYear?: string;
+    vehicleMake?: string;
+    vehicleModel?: string;
+    vehicleColor?: string;
   }): Promise<BookingRecord> {
     const bookingDate = params.date.includes(',')
       ? params.date
@@ -75,6 +79,10 @@ export const bookingService = {
       bookingTime: params.time,
       notes: params.notes,
       vehiclePlate: params.vehiclePlate,
+      vehicleYear: params.vehicleYear,
+      vehicleMake: params.vehicleMake,
+      vehicleModel: params.vehicleModel,
+      vehicleColor: params.vehicleColor,
       items: [],
     };
 

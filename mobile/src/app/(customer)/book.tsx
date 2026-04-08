@@ -540,6 +540,10 @@ export default function BookScreen() {
         customerPhone: phone.trim() || undefined,
         notes: notes.trim() || undefined,
         vehiclePlate: selectedVehicle?.plateNumber,
+        vehicleYear: selectedVehicle?.year?.toString(),
+        vehicleMake: selectedVehicle?.make,
+        vehicleModel: selectedVehicle?.model,
+        vehicleColor: selectedVehicle?.color,
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
