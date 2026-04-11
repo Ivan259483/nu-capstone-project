@@ -5,8 +5,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Always load backend/.env regardless of process cwd
-dotenv.config({ path: path.join(__dirname, '..', '.env') });
+// Load .env file — but do NOT override env vars already set by the platform (Railway, etc.)
+dotenv.config({ path: path.join(__dirname, '..', '.env'), override: false });
 
 // Determine email provider based on available credentials
 const determineEmailProvider = () => {
@@ -35,9 +35,14 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   mongodbUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/autospf',
   jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
-  corsOrigin: process.env.CORS_ORIGIN 
-    ? process.env.CORS_ORIGIN.split(',') 
-    : ['http://localhost:5173', 'http://192.168.18.94:5173', 'http://192.168.18.94:3000', 'http://192.168.18.165:5173', 'http://192.168.18.165:3001', 'http://192.168.18.165:8081'],
+  corsOrigin: (() => {
+    const raw = process.env.CORS_ORIGIN;
+    if (!raw) return ['http://localhost:5173', 'http://localhost:3001'];
+    // Wildcard: allow any origin dynamically (required when credentials: true)
+    if (raw.trim() === '*') return true;
+    // Comma-separated list of specific origins
+    return raw.split(',').map(s => s.trim());
+  })(),
 
   // Email Configuration
   emailProvider: determineEmailProvider(),
