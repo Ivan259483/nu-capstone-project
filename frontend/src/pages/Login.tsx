@@ -119,7 +119,13 @@ export default function Login() {
 
     /* ── Redirect on auth state ── */
     useEffect(() => {
+        console.log('🔄 [Login] Auth state changed =>', {
+            hasUser: !!user,
+            role: user?.role,
+            isAuthLoading
+        });
         if (user && !isAuthLoading) {
+            console.log('🚀 [Login] Redirecting user with role:', user.role);
             performRedirect(user.role);
         }
     }, [user, isAuthLoading, performRedirect]);

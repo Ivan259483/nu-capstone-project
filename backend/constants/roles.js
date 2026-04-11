@@ -125,40 +125,44 @@ const SERVICE_OPERATION_ROLE_SET = new Set(SERVICE_OPERATION_ROLES);
 const SERVICE_STAFF_ROLE_SET = new Set(SERVICE_STAFF_ROLES);
 const NOTIFICATION_RECIPIENT_ROLE_SET = new Set(NOTIFICATION_RECIPIENT_ROLES);
 
-export const isValidUserRole = (role) => typeof role === 'string' && USER_ROLE_SET.has(role);
+export const isValidUserRole = (role) => typeof role === 'string' && USER_ROLE_SET.has(role.toLowerCase());
 
-export const isAdminDashboardRole = (role) => typeof role === 'string' && ADMIN_DASHBOARD_ROLE_SET.has(role);
+export const isAdminDashboardRole = (role) => typeof role === 'string' && ADMIN_DASHBOARD_ROLE_SET.has(role.toLowerCase());
 
-export const isFullAdminRole = (role) => typeof role === 'string' && FULL_ADMIN_ROLE_SET.has(role);
+export const isFullAdminRole = (role) => typeof role === 'string' && FULL_ADMIN_ROLE_SET.has(role.toLowerCase());
 
-export const isSettingsManagerRole = (role) => typeof role === 'string' && SETTINGS_MANAGER_ROLE_SET.has(role);
+export const isSettingsManagerRole = (role) => typeof role === 'string' && SETTINGS_MANAGER_ROLE_SET.has(role.toLowerCase());
 
-export const isStaffManagerRole = (role) => typeof role === 'string' && STAFF_MANAGER_ROLE_SET.has(role);
+export const isStaffManagerRole = (role) => typeof role === 'string' && STAFF_MANAGER_ROLE_SET.has(role.toLowerCase());
 
-export const isReportingRole = (role) => typeof role === 'string' && REPORTING_ROLE_SET.has(role);
+export const isReportingRole = (role) => typeof role === 'string' && REPORTING_ROLE_SET.has(role.toLowerCase());
 
-export const isUserManagementRole = (role) => typeof role === 'string' && USER_MANAGEMENT_ROLE_SET.has(role);
+export const isUserManagementRole = (role) => typeof role === 'string' && USER_MANAGEMENT_ROLE_SET.has(role.toLowerCase());
 
-export const isInventoryManagerRole = (role) => typeof role === 'string' && INVENTORY_MANAGER_ROLE_SET.has(role);
+export const isInventoryManagerRole = (role) => typeof role === 'string' && INVENTORY_MANAGER_ROLE_SET.has(role.toLowerCase());
 
-export const isSupplierViewRole = (role) => typeof role === 'string' && SUPPLIER_VIEW_ROLE_SET.has(role);
+export const isSupplierViewRole = (role) => typeof role === 'string' && SUPPLIER_VIEW_ROLE_SET.has(role.toLowerCase());
 
-export const isBookingManagerRole = (role) => typeof role === 'string' && BOOKING_MANAGER_ROLE_SET.has(role);
+export const isBookingManagerRole = (role) => typeof role === 'string' && BOOKING_MANAGER_ROLE_SET.has(role.toLowerCase());
 
-export const isPosManagerRole = (role) => typeof role === 'string' && POS_MANAGER_ROLE_SET.has(role);
+export const isPosManagerRole = (role) => typeof role === 'string' && POS_MANAGER_ROLE_SET.has(role.toLowerCase());
 
-export const isServiceCatalogRole = (role) => typeof role === 'string' && SERVICE_CATALOG_ROLE_SET.has(role);
+export const isServiceCatalogRole = (role) => typeof role === 'string' && SERVICE_CATALOG_ROLE_SET.has(role.toLowerCase());
 
-export const isServiceOperationRole = (role) => typeof role === 'string' && SERVICE_OPERATION_ROLE_SET.has(role);
+export const isServiceOperationRole = (role) => typeof role === 'string' && SERVICE_OPERATION_ROLE_SET.has(role.toLowerCase());
 
-export const isServiceStaffRole = (role) => typeof role === 'string' && SERVICE_STAFF_ROLE_SET.has(role);
+export const isServiceStaffRole = (role) => typeof role === 'string' && SERVICE_STAFF_ROLE_SET.has(role.toLowerCase());
 
-export const isCustomerRole = (role) => role === 'customer';
+export const isCustomerRole = (role) => typeof role === 'string' && role.toLowerCase() === 'customer';
 
 export const isValidNotificationRecipientRole = (role) =>
-  typeof role === 'string' && NOTIFICATION_RECIPIENT_ROLE_SET.has(role);
+  typeof role === 'string' && NOTIFICATION_RECIPIENT_ROLE_SET.has(role.toLowerCase());
 
-export const migrateLegacyUserRole = (role) => LEGACY_USER_ROLE_MAP[role] || role;
+export const migrateLegacyUserRole = (role) => {
+  if (typeof role !== 'string') return role;
+  const canonical = role.toLowerCase();
+  return LEGACY_USER_ROLE_MAP[canonical] || canonical;
+};
 
 export const getManageableUserRoles = (role) => USER_MANAGEMENT_SCOPE[role] || [];
 

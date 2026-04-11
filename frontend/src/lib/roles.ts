@@ -147,9 +147,10 @@ export const isUserRole = (role: string | null | undefined): role is UserRole =>
 
 export const migrateLegacyUserRole = (role: string | null | undefined): UserRole | null => {
   if (!role) return null;
-  if (isUserRole(role)) return role;
+  const normalizedRole = role.toLowerCase();
+  if (isUserRole(normalizedRole)) return normalizedRole as UserRole;
 
-  const mappedRole = LEGACY_ROLE_MAP[role as keyof typeof LEGACY_ROLE_MAP];
+  const mappedRole = LEGACY_ROLE_MAP[normalizedRole as keyof typeof LEGACY_ROLE_MAP];
   return mappedRole || null;
 };
 

@@ -368,12 +368,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password }),
-                    signal: AbortSignal.timeout(6000)
+                    signal: AbortSignal.timeout(15000)
                 }).then(async (resp) => {
                     if (resp.ok) {
                         return resp.json();
                     }
-                    throw new Error(`Backend login: ${resp.status}`);
+                    throw new Error(`Backend login failed with status: ${resp.status}`);
                 })
             ]);
 
@@ -384,12 +384,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             const firebaseUser = firebaseCred.value.user;
 
-            // ── Process backend result (non-blocking if it failed) ──
+            // ── Process backend result ──
             let backendToken = '';
             let backendUser: any = null;
 
             if (backendResult.status === 'fulfilled') {
                 const json = backendResult.value;
+                console.log('📥 [AuthContext] Backend login payload:', json);
+                
                 if (json.data?.token) {
                     backendToken = json.data.token;
                     localStorage.setItem('autospf_token', backendToken);
@@ -397,12 +399,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 }
                 if (json.data?.user) {
                     backendUser = json.data.user;
+                    console.log('🏷️ [AuthContext] Parsed backend user role:', backendUser.role);
                 }
             } else {
-                console.warn('⚠️ [AuthContext] Backend login failed — API calls may 401:', backendResult.reason);
+                console.warn('⚠️ [AuthContext] Backend login failed:', backendResult.reason);
+                // If backend API fails, they won't be able to use the app at all.
+                // Revert Firebase auth and fail the login to avoid broken state.
+                await signOut(auth);
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                return { success: false, message: 'Server is taking too long to respond or backend is unreachable. Please try again.' };
             }
 
-            // ── Build user immediately from backend response — no second API call needed ──
+            // ── Build user immediately from backend response ──
             if (backendUser) {
                 const migratedRole = migrateLegacyUserRole(backendUser.role);
                 const finalRole = migratedRole || CUSTOMER_ROLE;
@@ -430,10 +439,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 console.log(`✅ [AuthContext] Login resolved with role: ${finalRole}`);
                 setUser(userData);
                 setIsLoading(false);
-            } else {
-                // Backend failed — release the lock so onAuthStateChanged can resolve role
-                loginInProgressRef.current = false;
-                localStorage.setItem('autospf_backend_user', JSON.stringify({ email }));
             }
 
             return { success: true };
