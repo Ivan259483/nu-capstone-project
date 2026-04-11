@@ -255,8 +255,9 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
             };
 
             const fbLoader = toast.loading('Registering credentials securely...');
+            let fbUser;
             try {
-                await createSecondaryUser(trimmedEmail, finalPassword!, sendInvite);
+                fbUser = await createSecondaryUser(trimmedEmail, finalPassword!, sendInvite);
                 if (sendInvite) toast.success('Invitation sent to user', { id: fbLoader });
                 else toast.success('Auth credentials created', { id: fbLoader });
             } catch (fbError: any) {
@@ -270,6 +271,10 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
                     toast.error(`Auth Error: ${fbError.message}`, { id: fbLoader });
                     return;
                 }
+            }
+
+            if (fbUser?.uid) {
+                (payload as any).firebaseUid = fbUser.uid;
             }
 
             const response = await UserService.createUser(payload);

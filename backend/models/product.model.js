@@ -23,6 +23,11 @@ const productSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    reserved: {
+      type: Number,
+      default: 0,
+      description: 'Units currently held for confirmed bookings (available = inventory - reserved)',
+    },
     minLevel: {
       type: Number,
       default: 5,

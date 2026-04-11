@@ -60,6 +60,13 @@ const userSchema = new mongoose.Schema(
       enum: ['Bronze', 'Silver', 'Gold', 'Platinum'],
       default: 'Bronze',
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+    },
     referralCode: {
       type: String,
       unique: true,
@@ -69,6 +76,11 @@ const userSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
     },
+    expoPushTokens: [
+      {
+        type: String,
+      }
+    ],
   },
   { timestamps: true }
 );

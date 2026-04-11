@@ -67,7 +67,7 @@ export function DashboardTab({
     userName
 }: DashboardTabProps) {
     const getJobId = (job: Booking) => (job.id || (job as any)._id) as string;
-    const activeCount = safeJobs.filter(j => j.status === 'in-progress' || j.status === 'processing').length;
+    const activeCount = safeJobs.filter(j => j.status === 'in_progress').length;
     const lowStockItems = inventory.filter(i => i.stock <= (inventoryThreshold ?? i.minLevel));
     const nonCompletedJobs = safeJobs.filter(j => j.status !== 'completed' && j.status !== 'cancelled');
 
@@ -187,7 +187,7 @@ export function DashboardTab({
                         ) : (
                             <div className="job-cards-grid">
                                 {nonCompletedJobs.slice(0, 6).map((job, idx) => {
-                                    const isActive = job.status === 'in-progress' || job.status === 'processing';
+                                    const isActive = job.status === 'in_progress';
                                     const initials = (job.customerName || 'C')
                                         .split(' ')
                                         .map((w: string) => w[0])
@@ -214,7 +214,7 @@ export function DashboardTab({
                                                 <span className={`status-badge ${isActive ? 'active' : 'pending'}`}>
                                                     {job.status}
                                                 </span>
-                                                {(job.status === 'pending' || job.status === 'assigned') && (
+                                                {job.status === 'received' && (
                                                     <motion.button
                                                         whileHover={btnHover}
                                                         whileTap={btnTap}
@@ -224,6 +224,11 @@ export function DashboardTab({
                                                     >
                                                         <Play style={{ width: 11, height: 11 }} /> Start
                                                     </motion.button>
+                                                )}
+                                                {(job.status === 'assigned') && (
+                                                    <span className="status-badge pending" style={{ fontSize: 10, padding: '2px 8px' }}>
+                                                        Awaiting Check-in
+                                                    </span>
                                                 )}
                                             </div>
                                         </motion.div>

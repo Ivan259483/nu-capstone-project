@@ -20,6 +20,7 @@ export const initialScanWorkflowState: ScanWorkflowState = {
 
   modelTaskId: null,
   modelUrl: null,
+  repairedModelUrl: null,
   modelStatus: 'idle',
   modelProgress: 0,
 
@@ -57,6 +58,7 @@ type ScanWorkflowAction =
         modelStatus: ScanWorkflowState['modelStatus'];
         modelTaskId?: string | null;
         modelUrl?: string | null;
+        repairedModelUrl?: string | null;
         modelProgress?: number;
       };
     }
@@ -171,6 +173,10 @@ export const scanWorkflowReducer = (
           action.payload.modelUrl !== undefined
             ? action.payload.modelUrl
             : state.modelUrl,
+        repairedModelUrl:
+          action.payload.repairedModelUrl !== undefined
+            ? action.payload.repairedModelUrl
+            : state.repairedModelUrl,
         modelProgress:
           action.payload.modelProgress !== undefined
             ? action.payload.modelProgress

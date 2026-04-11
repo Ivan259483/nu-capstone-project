@@ -54,7 +54,7 @@ export default function Step1_BookingInbox() {
         <Text style={styles.sectionTitle}>Vehicle & Service</Text>
         <View style={styles.row}>
           <Car size={16} color="#3b82f6" />
-          <Text style={[styles.dataBlock, { color: colors.text, marginLeft: 8 }]}>{job.vehicleInfo || job.vehiclePlate || 'Vehicle details pending'}</Text>
+          <Text style={[styles.dataBlock, { color: colors.text, marginLeft: 8 }]}>{String(job.vehicleInfo || job.vehiclePlate || 'Vehicle details pending')}</Text>
         </View>
         <View style={[styles.row, { marginTop: 8 }]}>
           <Wrench size={16} color="#3b82f6" />

@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/hooks/useThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { Palette } from '@/constants/theme';
 
 interface AnimatedHeaderProps {
@@ -17,6 +18,7 @@ interface AnimatedHeaderProps {
 
 export default function AnimatedHeader({ notifCount = 0 }: AnimatedHeaderProps) {
   const { colors, isDark, toggleTheme } = useTheme();
+  const { profile } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -76,7 +78,9 @@ export default function AnimatedHeader({ notifCount = 0 }: AnimatedHeaderProps) 
           </TouchableOpacity>
 
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>IT</Text>
+            <Text style={styles.avatarText}>
+              {profile?.full_name ? profile.full_name.substring(0, 2).toUpperCase() : 'U'}
+            </Text>
           </View>
         </View>
       </View>

@@ -55,6 +55,9 @@ export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBookin
             case 'queued': return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
             case 'paid': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
             case 'confirmed': return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+            case 'assigned': return 'text-purple-400 bg-purple-500/10 border-purple-500/20';
+            case 'received': return 'text-blue-400 bg-blue-500/10 border-blue-500/20';
+            case 'in_progress':
             case 'in-progress': return 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20';
             case 'processing': return 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20';
             case 'completed': return 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20';
@@ -75,7 +78,12 @@ export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBookin
                             <div className="flex flex-wrap items-center gap-2 mb-2">
                                 <h3 className="text-lg font-semibold text-white">{booking.serviceName}</h3>
                                 <Badge variant="outline" className={`${getStatusColor(booking.status)} capitalize backdrop-blur-sm`}>
-                                    {booking.status === 'pending' ? 'Awaiting Admin Approval' : booking.status}
+                                    {booking.status === 'pending' ? 'Awaiting Admin Approval'
+                                     : booking.status === 'confirmed' ? 'Confirmed — Awaiting Technician'
+                                     : booking.status === 'assigned' ? 'Technician Assigned'
+                                     : booking.status === 'received' ? 'Vehicle Checked In'
+                                     : booking.status === 'in_progress' ? 'In Progress'
+                                     : booking.status}
                                 </Badge>
                             </div>
                             <div className="space-y-1.5 text-sm text-[var(--text-secondary)]">

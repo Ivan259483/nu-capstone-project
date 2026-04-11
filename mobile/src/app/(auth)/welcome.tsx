@@ -7,81 +7,51 @@ import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Platform } from '
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown, FadeInUp, ZoomIn, useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
+import Animated, { FadeInDown, FadeInUp, ZoomIn, useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence, Easing } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Palette, Shadows } from '@/constants/theme';
-import PremiumButton from '@/components/ui/PremiumButton';
+import { Palette } from '@/constants/theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
-const services = [
-  { name: "CERAMIC COATING", icon: "sparkles", delay: 200, style: { top: '15%', left: '8%' } },
-  { name: "PAINT CORRECTION", icon: "color-wand", delay: 600, style: { top: '30%', right: '5%' } },
-  { name: "PPF INSTALLATION", icon: "shield-checkmark", delay: 1000, style: { top: '55%', left: '5%' } },
-  { name: "INTERIOR DETAIL", icon: "car-sport", delay: 1400, style: { top: '45%', right: '8%' } },
-];
-
-function FloatingBadge({ name, icon, delay, style }: { name: string, icon: any, delay: number, style: any }) {
-    const translateY = useSharedValue(0);
-
-    useEffect(() => {
-        // Start from a random position in the cycle to make them look organic
-        const randomStart = Math.random() * 10;
-        translateY.value = withRepeat(
-            withSequence(
-                withTiming(15, { duration: 3000 + randomStart * 100, easing: Easing.inOut(Easing.ease) }),
-                withTiming(-15, { duration: 3000 + randomStart * 100, easing: Easing.inOut(Easing.ease) })
-            ),
-            -1,
-            true
-        );
-    }, []);
-
-    const animatedStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: translateY.value }]
-    }));
-
-    return (
-        <Animated.View 
-            entering={FadeInUp.delay(delay).duration(1500).springify().damping(14)} 
-            style={[styles.floatingBadge, style, animatedStyle]}
-        >
-            <Ionicons name={icon} size={14} color={Palette.accent} style={{ marginRight: 6 }} />
-            <Text style={styles.floatingBadgeText}>{name}</Text>
-        </Animated.View>
-    );
-}
+// We use the brand amber instead of lime green, per default instruction
+const BRAND_AMBER = Palette.accent || '#FF6B35';
 
 export default function WelcomeScreen() {
-  
-  const orb1Scale = useSharedValue(1);
-  const orb2Scale = useSharedValue(1);
+  const insets = useSafeAreaInsets();
+
+  // Animations
+  const bgScale = useSharedValue(1.15); // Start slightly zoomed in
+  const ctaScale = useSharedValue(1);
 
   useEffect(() => {
-    orb1Scale.value = withRepeat(
+    // 1. Ken Burns Slow Zoom Effect on Background
+    bgScale.value = withTiming(1, { duration: 12000, easing: Easing.out(Easing.cubic) });
+
+    // 2. Subtle breathing pulse on the CTA button
+    ctaScale.value = withRepeat(
       withSequence(
-        withTiming(1.8, { duration: 4000, easing: Easing.inOut(Easing.ease) }),
-        withTiming(1, { duration: 4000, easing: Easing.inOut(Easing.ease) })
+        withTiming(1.02, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) })
       ),
       -1,
       true
     );
-    orb2Scale.value = withRepeat(
-      withSequence(
-        withTiming(1.6, { duration: 6000, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0.8, { duration: 6000, easing: Easing.inOut(Easing.ease) })
-      ),
-      -1,
-      true
-    );
+
+    // 3. Welcome Mount Haptic (feels like a premium app finished loading)
+    if (Platform.OS !== 'web') {
+      setTimeout(() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      }, 600); // Trigger haptic exactly when the text slams in
+    }
   }, []);
 
-  const orb1Style = useAnimatedStyle(() => ({
-    transform: [{ scale: orb1Scale.value }]
+  const bgAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: bgScale.value }]
   }));
-  const orb2Style = useAnimatedStyle(() => ({
-    transform: [{ scale: orb2Scale.value }]
+
+  const ctaAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: ctaScale.value }]
   }));
 
   const triggerHapticImpact = () => {
@@ -94,77 +64,79 @@ export default function WelcomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Immersive Dark Studio Canvas */}
-      <View style={styles.ambientBackground}>
-        {/* Living Ambient Orbs */}
-        <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
-          <Animated.View style={[styles.orb, styles.orb1, orb1Style]} />
-          <Animated.View style={[styles.orb, styles.orb2, orb2Style]} />
-          {/* Glass-melt blur gradient overlay */}
-          <LinearGradient
-            colors={['rgba(5,5,5,0.6)', '#050505', '#050505']}
+      {/* ── Background Cinematic Image with Slow Zoom ── */}
+      <View style={StyleSheet.absoluteFillObject}>
+        <Animated.View style={[StyleSheet.absoluteFillObject, bgAnimatedStyle]}>
+          <Image 
+            source={{ uri: 'file:///Users/ivan/.gemini/antigravity/brain/5b01b4a1-0e1b-416a-9e4c-b5f5c5235ae0/ultra_premium_sports_car_bg_1775840444238.png' }} 
             style={StyleSheet.absoluteFillObject}
+            contentFit="cover"
+            transition={1000} // Smooth image load fade
           />
-        </View>
-
-        {/* Floating Detailing Services */}
-        <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
-           {services.map((service, index) => (
-               <FloatingBadge key={index} {...service} />
-           ))}
-        </View>
-
+        </Animated.View>
+        
+        {/* Dark Gradient Overlay starting halfway down */}
         <LinearGradient
-          colors={['transparent', 'rgba(249, 115, 22, 0.08)']}
-          style={styles.ambientBottomFade}
+          colors={['transparent', 'rgba(0,0,0,0.4)', '#000000', '#000000']}
+          locations={[0, 0.45, 0.8, 1]}
+          style={StyleSheet.absoluteFillObject}
         />
       </View>
 
-      <View style={styles.contentContainer}>
-        {/* Cinematic Logo Intro */}
-        <Animated.View entering={ZoomIn.duration(1200).springify().damping(18).stiffness(90)} style={styles.logoContainer}>
-            <Image 
-                source={require('../../../assets/images/logo-glow.png')} 
-                style={styles.logo}
-                contentFit="contain"
-            />
-        </Animated.View>
-
-        {/* Majestic Typography Entrance */}
-        <Animated.View entering={FadeInUp.delay(300).duration(800).springify()} style={styles.textContainer}>
-            <Text style={styles.title}>
-              AutoSPF<Text style={{ color: Palette.accent }}>+</Text>
-            </Text>
-            <Text style={styles.tagline}>
-              ELITE AUTO DETAILING STUDIO
-            </Text>
-            
-            <Text style={styles.description}>
-              Paint correction, ceramic coating, and PPF installation straight from your device.
-            </Text>
-        </Animated.View>
-      </View>
-
-      {/* Footer Call to Actions */}
-      <Animated.View entering={FadeInUp.delay(600).springify().damping(16).stiffness(100)} style={styles.footerContainer}>
-         <PremiumButton
-            title="SIGN IN"
-            onPress={() => {
-                triggerHapticImpact();
-                router.push('/(auth)/login');
-            }}
-            style={{ marginBottom: 16 }}
-         />
-         <TouchableOpacity 
-            style={styles.secondaryButton}
-            onPress={() => {
-                triggerHapticLight();
-                router.push('/(auth)/signup');
-            }}
-         >
-           <Text style={styles.secondaryButtonText}>CREATE ACCOUNT</Text>
-         </TouchableOpacity>
+      {/* ── Top Left Logo ── */}
+      <Animated.View 
+        entering={ZoomIn.duration(1000).springify().delay(200)} 
+        style={[styles.logoWrap, { top: Math.max(insets.top, 20) + 10 }]}
+      >
+        <Image 
+          source={require('../../../assets/images/logo-glow.png')}
+          style={styles.logo}
+          contentFit="contain"
+        />
       </Animated.View>
+
+      {/* ── Content Container (Bottom Aligned) ── */}
+      <View style={[styles.contentContainer, { paddingBottom: Math.max(insets.bottom, 20) + 20 }]}>
+        
+        {/* Typography */}
+        <Animated.View entering={FadeInUp.delay(500).duration(1000).springify().damping(14)} style={styles.textWrap}>
+          <Text style={styles.title}>
+            Redefining{'\n'}Auto Perfection
+          </Text>
+          <Text style={styles.subtitle}>
+            Experience AI-driven damage analysis, elite paint protection, and premium detailing—crafted for those who demand the best.
+          </Text>
+        </Animated.View>
+
+        {/* Action Buttons */}
+        <Animated.View entering={FadeInUp.delay(800).springify().damping(16).stiffness(100)} style={styles.actionWrap}>
+          
+          <Animated.View style={[styles.ctaWrapper, ctaAnimatedStyle]}>
+            <TouchableOpacity 
+              style={styles.primaryButton}
+              activeOpacity={0.85}
+              onPress={() => {
+                triggerHapticImpact();
+                router.push('/(auth)/signup');
+              }}
+            >
+              <Text style={styles.primaryButtonText}>Get Started</Text>
+            </TouchableOpacity>
+          </Animated.View>
+
+          <View style={styles.loginRow}>
+            <Text style={styles.loginTextSub}>Already have an account? </Text>
+            <TouchableOpacity hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }} onPress={() => {
+              triggerHapticLight();
+              router.push('/(auth)/login');
+            }}>
+              <Text style={styles.loginTextLink}>Login</Text>
+            </TouchableOpacity>
+          </View>
+          
+        </Animated.View>
+
+      </View>
     </View>
   );
 }
@@ -172,118 +144,86 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#050505',
-    justifyContent: 'space-between',
+    backgroundColor: '#000',
   },
-  ambientBackground: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: -1,
-  },
-  orb: {
+  logoWrap: {
     position: 'absolute',
-    borderRadius: 9999,
-    backgroundColor: Palette.accent,
+    left: 24,
+    zIndex: 10,
   },
-  orb1: {
-    width: 400,
-    height: 400,
-    top: -150,
-    right: -150,
-    opacity: 0.12,
-  },
-  orb2: {
-    width: 300,
-    height: 300,
-    top: height * 0.4,
-    left: -150,
-    opacity: 0.08,
-  },
-  ambientBottomFade: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
+  logo: {
+    width: 60,
+    height: 60,
+    opacity: 0.9,
   },
   contentContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-    paddingTop: height * 0.1,
+    justifyContent: 'flex-end',
+    paddingHorizontal: 24,
   },
-  logoContainer: {
-    marginBottom: 40,
-    ...Shadows.glow,
-  },
-  logo: {
-    width: 140,
-    height: 140,
-    opacity: 0.95,
-  },
-  textContainer: {
+  textWrap: {
+    marginBottom: 44,
     alignItems: 'center',
   },
   title: {
-    fontSize: 48,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: -1,
-    marginBottom: 12,
-  },
-  tagline: {
-    fontSize: 12,
+    color: '#FFF',
+    fontSize: 42,
     fontWeight: '800',
-    color: Palette.accent,
-    letterSpacing: 4,
+    lineHeight: 48,
     textAlign: 'center',
-    marginBottom: 24,
-    textTransform: 'uppercase',
+    marginBottom: 16,
+    letterSpacing: -0.8,
   },
-  description: {
+  subtitle: {
+    color: '#A0A0A0',
     fontSize: 15,
-    fontWeight: '500',
-    color: '#8A8A9A',
+    fontWeight: '400',
+    lineHeight: 24,
     textAlign: 'center',
-    letterSpacing: 0.5,
-    lineHeight: 22,
-    maxWidth: '85%',
+    paddingHorizontal: 12,
+    letterSpacing: 0.2,
   },
-  footerContainer: {
-    paddingHorizontal: 32,
-    paddingBottom: Platform.OS === 'ios' ? 50 : 40,
+  actionWrap: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 24,
+  },
+  ctaWrapper: {
     width: '100%',
   },
-  secondaryButton: {
-    height: 56,
-    borderRadius: 999,
+  primaryButton: {
+    width: '100%',
+    height: 60,
+    backgroundColor: BRAND_AMBER,
+    borderRadius: 12, // slightly rounder for a modern native feel
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    shadowColor: BRAND_AMBER,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
   },
-  secondaryButtonText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 1.5,
+  primaryButtonText: {
+    color: '#000',
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
-  floatingBadge: {
-    position: 'absolute',
+  loginRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    justifyContent: 'center',
+    marginTop: -4, // pull closer
   },
-  floatingBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 1.5,
+  loginTextSub: {
+    color: '#A0A0A0',
+    fontSize: 15,
+    fontWeight: '400',
+  },
+  loginTextLink: {
+    color: BRAND_AMBER,
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

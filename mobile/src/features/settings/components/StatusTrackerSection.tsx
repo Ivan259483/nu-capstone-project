@@ -12,26 +12,36 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { bookingService } from '@/services/api/bookingService';
 import SectionHeader from './SectionHeader';
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/context/AuthContext';
 
 const ACCENT = '#FF6B35';
 
 const STEPS = [
-  { key: 'pending', label: 'Pending', icon: 'time-outline' as const },
-  { key: 'diagnosing', label: 'Diagnose', icon: 'search-outline' as const },
-  { key: 'in-progress', label: 'Repair', icon: 'construct-outline' as const },
-  { key: 'quality-check', label: 'QC', icon: 'shield-checkmark-outline' as const },
-  { key: 'ready', label: 'Ready', icon: 'car-outline' as const },
-  { key: 'completed', label: 'Done', icon: 'checkmark-done-outline' as const },
+  { key: 'pending',     label: 'Booked',      icon: 'receipt-outline'          as const },
+  { key: 'confirmed',   label: 'Confirmed',   icon: 'checkmark-circle-outline' as const },
+  { key: 'assigned',    label: 'Assigned',    icon: 'person-outline'           as const },
+  { key: 'received',    label: 'Checked-In',  icon: 'car-outline'              as const },
+  { key: 'in_progress', label: 'In Service',  icon: 'construct-outline'        as const },
+  { key: 'completed',   label: 'QC',          icon: 'shield-checkmark-outline' as const },
+  { key: 'paid',        label: 'Payment',     icon: 'card-outline'             as const },
+  { key: 'released',    label: 'Released',    icon: 'checkmark-done-outline'   as const },
 ];
 
 const STATUS_TO_STEP: Record<string, number> = {
-  pending: 0,
-  confirmed: 0,
-  diagnosing: 1,
-  'in-progress': 2,
-  'quality-check': 3,
-  ready: 4,
-  completed: 5,
+  pending:        0,
+  confirmed:      1,
+  assigned:       2,
+  received:       3,
+  queued:         1,
+  'in-progress':  4,
+  in_progress:    4,
+  'quality-check':5,
+  quality_check:  5,
+  completed:      5,
+  paid:           6,
+  ready:          6,
+  released:       7,
 };
 
 function PulsingDot({ active }: { active: boolean }) {
@@ -58,23 +68,16 @@ function PulsingDot({ active }: { active: boolean }) {
 }
 
 export default function StatusTrackerSection() {
-  const [currentStep, setCurrentStep] = useState(-1);
-  const [serviceName, setServiceName] = useState<string | null>(null);
+  const { profile } = useAuth();
+  
+  const { data: latest } = useQuery({
+    queryKey: ['bookings', 'latest'],
+    queryFn: () => bookingService.getLatestActiveBooking(),
+    enabled: !!profile?.id,
+  });
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const latest = await bookingService.getLatestActiveBooking();
-        if (latest) {
-          const step = STATUS_TO_STEP[latest.status.toLowerCase()] ?? -1;
-          setCurrentStep(step);
-          setServiceName(latest.serviceName);
-        }
-      } catch {
-        // Silent fail — show empty state
-      }
-    })();
-  }, []);
+  const currentStep = latest ? STATUS_TO_STEP[latest.status.toLowerCase()] ?? -1 : -1;
+  const serviceName = latest ? latest.serviceName : null;
 
   return (
     <Animated.View entering={FadeInUp.delay(350).springify().damping(18)}>
@@ -193,13 +196,13 @@ const s = StyleSheet.create({
     position: 'relative',
   },
   stepDot: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    marginBottom: 6,
+    marginBottom: 5,
     zIndex: 2,
   },
   stepDotInner: {
@@ -209,15 +212,15 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.15)',
   },
   stepLabel: {
-    fontSize: 9,
+    fontSize: 7,
     fontWeight: '600',
     color: '#6B6B78',
     textAlign: 'center',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   lineLeft: {
     position: 'absolute',
-    top: 11,
+    top: 9,
     right: '50%',
     left: 0,
     height: 2,
@@ -225,16 +228,16 @@ const s = StyleSheet.create({
   },
   lineRight: {
     position: 'absolute',
-    top: 11,
+    top: 9,
     left: '50%',
     right: 0,
     height: 2,
     zIndex: 1,
   },
   pulseOuter: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: 'rgba(255,107,53,0.4)',
   },
   pulseActive: {

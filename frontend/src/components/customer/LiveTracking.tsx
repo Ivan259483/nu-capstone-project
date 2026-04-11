@@ -6,8 +6,7 @@ import {
     Sparkles,
     Flag,
     MapPin,
-    Clock,
-    AlertCircle
+    Clock
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -49,7 +48,7 @@ export const LiveTracking: React.FC<LiveTrackingProps> = ({ activeBooking: initi
                     const q = query(
                         bookingsRef,
                         where('customerId', '==', user.id),
-                        where('status', 'in', ['paid', 'queued', 'confirmed', 'assigned', 'processing', 'in-progress', 'finishing', 'ready', 'quality-check']),
+                        where('status', 'in', ['pending', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress', 'completed', 'paid']),
                         orderBy('createdAt', 'desc'),
                         limit(1)
                     );
@@ -136,60 +135,39 @@ export const LiveTracking: React.FC<LiveTrackingProps> = ({ activeBooking: initi
         );
     }
 
-    const baseSteps = [
-        { id: 'received',  label: 'Vehicle Received', icon: CheckCircle, description: 'Your vehicle has been checked in.' },
-        { id: 'washing',   label: 'Washing Phase',    icon: Sparkles,    description: 'Exterior prep and deep cleaning.' },
-        { id: 'detailing', label: 'Detailing',        icon: Wrench,      description: 'Polishing, coating, and interior care.' },
-        { id: 'ready',     label: 'Ready for Pickup', icon: Flag,        description: 'Your vehicle is ready! Come collect it.' },
+    // ─── 8-Stage Customer Status Pipeline (order.status only) ─────
+    // This is the customer-facing tracker. It NEVER uses serviceSteps
+    // or internal detailer checklist data.
+    const CUSTOMER_PIPELINE = [
+        { id: 'pending',     label: 'Booked',        icon: CheckCircle, description: 'Your booking has been submitted.' },
+        { id: 'confirmed',   label: 'Confirmed',     icon: CheckCircle, description: 'Booking confirmed by admin.' },
+        { id: 'assigned',    label: 'Assigned',      icon: Wrench,      description: 'A specialist has been assigned.' },
+        { id: 'received',    label: 'Checked-In',    icon: MapPin,      description: 'Your vehicle has been checked in.' },
+        { id: 'in_progress', label: 'In Service',    icon: Wrench,      description: 'Detailing work is in progress.' },
+        { id: 'completed',   label: 'Quality Check', icon: Sparkles,    description: 'Final quality inspection underway.' },
+        { id: 'paid',        label: 'Payment',       icon: Flag,        description: 'Payment has been settled.' },
+        { id: 'released',    label: 'Released',      icon: Flag,        description: 'Your vehicle is ready for pickup!' },
     ];
 
+    // Centralized status → step index (single source of truth)
+    const STATUS_TO_STEP: Record<string, number> = {
+        pending: 0, confirmed: 1, assigned: 2, received: 3,
+        queued: 1, 'in-progress': 4, in_progress: 4,
+        quality_check: 5, 'quality-check': 5, completed: 5,
+        paid: 6, ready: 6, released: 7,
+    };
+
     const { currentStepIndex, displaySteps, progressValue } = useMemo(() => {
-        let steps = [...baseSteps];
-        const status = activeBooking.status;
-        const customerStatus = activeBooking.customerStatus || 'received';
+        const status = activeBooking.status || 'pending';
+        const stepIdx = STATUS_TO_STEP[status] ?? 0;
+        const progress = Math.round(((stepIdx + 1) / CUSTOMER_PIPELINE.length) * 100);
 
-        let progress = 0;
-        let currentIndex = 0;
-
-        // Force to completed if order is actually completed
-        if (status === 'completed' || customerStatus === 'ready') {
-            progress = 100; currentIndex = 3;
-        } else if (customerStatus === 'detailing') {
-            progress = 75;  currentIndex = 2;
-        } else if (customerStatus === 'washing') {
-            progress = 50;  currentIndex = 1;
-        } else {
-            // received or other raw states default to the start of the chain
-            progress = 25;  currentIndex = 0;
-        }
-
-        if (activeBooking.serviceSteps && activeBooking.serviceSteps.length > 0) {
-            const detailedSteps = activeBooking.serviceSteps.map((step, idx) => ({
-                id: `step-${idx}`,
-                label: step.name,
-                icon: Wrench,
-                description: step.status === 'completed' ? 'Completed ✓' : 'In Progress…',
-                isServiceStep: true,
-                originalStatus: step.status,
-            }));
-
-            steps = [baseSteps[0], baseSteps[1], ...detailedSteps, baseSteps[3]];
-
-            if (currentIndex === 2) { // If detailing, jump into checklist array
-                const firstIncompleteIdx = detailedSteps.findIndex(s => s.originalStatus !== 'completed');
-                currentIndex = firstIncompleteIdx !== -1 ? firstIncompleteIdx + 2 : detailedSteps.length + 1;
-                // Scale progress smoothly inside detailing checklist
-                if(detailedSteps.length > 0) {
-                   const completedCt = detailedSteps.filter(s => s.originalStatus === 'completed').length;
-                   progress = 50 + (25 * (completedCt / detailedSteps.length));
-                }
-            } else if (currentIndex === 3) {
-                currentIndex = steps.length - 1;
-            }
-        }
-
-        return { currentStepIndex: currentIndex, displaySteps: steps, progressValue: progress };
-    }, [activeBooking]);
+        return {
+            currentStepIndex: stepIdx,
+            displaySteps: CUSTOMER_PIPELINE,
+            progressValue: progress,
+        };
+    }, [activeBooking.status]);
 
     const CurrentIcon = displaySteps[currentStepIndex]?.icon || Wrench;
 

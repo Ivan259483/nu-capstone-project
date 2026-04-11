@@ -4,6 +4,7 @@ import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
 import { CheckCircle, Clock, Lock, Car, Shield, FileText } from '@/components/ui/Icons';
 import { useRouter } from 'expo-router';
+import { bookingService } from '@/services/api/bookingService';
 
 export default function Step9_FinalRelease() {
   const { colors, isDark } = useTheme();
@@ -22,13 +23,22 @@ export default function Step9_FinalRelease() {
         {
           text: 'Release Now',
           style: 'default',
-          onPress: () => {
-            saveStep(9, {
-              releaseTimestamp: new Date().toISOString(),
-              releasedBy: 'staff',
-            }, false);
-            // Navigate back to the staff dashboard
-            setTimeout(() => router.replace('/(staff)'), 500);
+          onPress: async () => {
+            try {
+              await saveStep(9, {
+                releaseTimestamp: new Date().toISOString(),
+                releasedBy: 'staff',
+              }, false);
+              
+              if (job?.id) {
+                 await bookingService.operateRelease(job.id, { releaseSignature: 'mock_signature' });
+              }
+              
+              setTimeout(() => router.replace('/(staff)'), 500);
+            } catch (err) {
+              console.error('[Final Release] error:', err);
+              Alert.alert("Error", "Could not release vehicle. Status may not be paid.");
+            }
           },
         },
       ]

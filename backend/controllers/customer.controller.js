@@ -24,6 +24,36 @@ export const getAllCustomers = async (req, res, next) => {
 };
 
 /**
+ * Get current user's customer profile
+ */
+export const getMe = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.id) {
+       return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    
+    let customer = await Customer.findOne({ user: req.user.id })
+      .populate('user')
+      .populate('vehicles')
+      .populate('bookings')
+      .populate('preferredStore');
+
+    if (!customer) {
+      // Auto-create if missing
+      customer = new Customer({ user: req.user.id });
+      await customer.save();
+    }
+
+    res.json({
+      success: true,
+      data: customer,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get customer by ID
  */
 export const getCustomerById = async (req, res, next) => {
@@ -67,6 +97,33 @@ export const createCustomer = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Customer created successfully',
+      data: customer,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Update current user's customer profile (e.g. preferences)
+ */
+export const updateMe = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.id) {
+       return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    
+    let customer = await Customer.findOne({ user: req.user.id });
+    if (!customer) {
+      customer = new Customer({ user: req.user.id });
+    }
+
+    Object.assign(customer, req.body);
+    await customer.save();
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
       data: customer,
     });
   } catch (error) {
@@ -159,7 +216,7 @@ export const addVehicle = async (req, res, next) => {
     const normalizedPlate = typeof plateNumber === 'string'
       ? plateNumber.toUpperCase().replace(/[^A-Z0-9]/g, '')
       : '';
-    const platePattern = /^[A-Z]{3}\d{4}$/;
+    const platePattern = /^[A-Z0-9]{4,8}$/;
 
     if (!platePattern.test(normalizedPlate)) {
       return res.status(400).json({

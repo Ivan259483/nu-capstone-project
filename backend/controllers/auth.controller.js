@@ -32,6 +32,14 @@ export const sendOtp = async (req, res, next) => {
       });
     }
 
+    const existingUser = await User.findOne({ email });
+    if (existingUser && existingUser.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deleted by an administrator.',
+      });
+    }
+
     // Generate 6-digit OTP code
     const otp = generateOTP(config.otpLength);
     console.log(`\n📨 [OTP REQUEST] Email: ${email}`);
@@ -128,6 +136,13 @@ export const forgotPassword = async (req, res, next) => {
       return res.status(404).json({
         success: false,
         message: 'User not found',
+      });
+    }
+
+    if (user.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deleted.'
       });
     }
 
@@ -408,6 +423,12 @@ export const register = async (req, res, next) => {
     // Check if user exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
+      if (existingUser.isDeleted) {
+        return res.status(403).json({
+          success: false,
+          message: 'An account with this email was deleted. Please contact support.',
+        });
+      }
       return res.status(409).json({
         success: false,
         message: 'An account with this email already exists. If you recently deleted this account, please contact support.',
@@ -509,6 +530,13 @@ export const login = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials',
+      });
+    }
+
+    if (user.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deleted by an administrator.',
       });
     }
 
@@ -633,6 +661,14 @@ export const getCurrentUser = async (req, res, next) => {
       });
     }
 
+    if (user.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deleted by an administrator.',
+        code: 'USER_DELETED'
+      });
+    }
+
     const userObject = user.toObject({ virtuals: true });
     delete userObject.password;
     delete userObject._id;
@@ -695,8 +731,22 @@ export const socialLogin = async (req, res, next) => {
     // Check if user exists
     let user = await User.findOne({ email });
 
+    if (user && user.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deleted by an administrator.',
+      });
+    }
+
     if (!user) {
-      // Create new user
+      if (provider === 'password' || provider === 'firebase') {
+        return res.status(404).json({
+          success: false,
+          message: 'Account not found. Please create an account.',
+        });
+      }
+
+      // Create new user (Social Logins only - e.g. provider === 'google')
       // Generate random password
       const randomPassword = crypto.randomBytes(16).toString('hex');
       

@@ -21,16 +21,28 @@ function resolveStatus(booking?: Booking | null): { label: string; tone: Tone } 
         return { label: 'Paid', tone: 'emerald' };
     }
 
-    if (booking.status === 'completed' || booking.customerStatus === 'ready') {
+    if (booking.status === 'released') {
+        return { label: 'Released', tone: 'emerald' };
+    }
+
+    if (booking.status === 'completed') {
         return { label: 'Completed', tone: 'emerald' };
     }
 
-    if (booking.status === 'in-progress' || booking.status === 'processing' || booking.customerStatus === 'washing' || booking.customerStatus === 'detailing') {
+    if (booking.status === 'paid') {
+        return { label: 'Paid', tone: 'emerald' };
+    }
+
+    if (booking.status === 'in_progress') {
         return { label: 'In Progress', tone: 'amber' };
     }
 
-    if (booking.paymentStatus === 'paid') {
-        return { label: 'Paid', tone: 'emerald' };
+    if (booking.status === 'received') {
+        return { label: 'Checked In', tone: 'violet' };
+    }
+
+    if (booking.status === 'confirmed') {
+        return { label: 'Confirmed', tone: 'blue' };
     }
 
     if (booking.paymentStatus === 'unpaid' || booking.paymentStatus === 'failed') {

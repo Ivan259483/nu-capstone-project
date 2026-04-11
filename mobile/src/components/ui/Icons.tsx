@@ -41,3 +41,4 @@ export const Download = (p: Omit<IconProps, 'name'>) => <Icon name="download" {.
 export const LayoutDashboard = (p: Omit<IconProps, 'name'>) => <Icon name="grid" {...p} />;
 export const Inbox = (p: Omit<IconProps, 'name'>) => <Icon name="inbox" {...p} />;
 export const ListChecks = (p: Omit<IconProps, 'name'>) => <Icon name="list" {...p} />;
+export const DollarSign = (p: Omit<IconProps, 'name'>) => <Icon name="dollar-sign" {...p} />;

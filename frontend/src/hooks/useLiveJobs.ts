@@ -64,7 +64,7 @@ export function useLiveJobs(user?: User | null) {
             fetchJobs();
         }, SYNC_INTERVAL_MS);
 
-        socket = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000', {
+        socket = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001', {
             transports: ['websocket'],
             reconnection: true,
             reconnectionDelay: 1000,

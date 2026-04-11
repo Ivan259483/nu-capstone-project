@@ -22,7 +22,7 @@ const normalizeBooking = (raw: any): BookingRecord => {
 };
 
 const isActiveBookingStatus = (status: string): boolean => {
-  return !['completed', 'cancelled', 'failed'].includes(status);
+  return !['cancelled', 'failed'].includes(status);
 };
 
 export const bookingService = {
@@ -63,6 +63,7 @@ export const bookingService = {
     vehicleMake?: string;
     vehicleModel?: string;
     vehicleColor?: string;
+    downpaymentProof?: string;
   }): Promise<BookingRecord> {
     const bookingDate = params.date.includes(',')
       ? params.date
@@ -83,6 +84,7 @@ export const bookingService = {
       vehicleMake: params.vehicleMake,
       vehicleModel: params.vehicleModel,
       vehicleColor: params.vehicleColor,
+      downpaymentProof: params.downpaymentProof,
       items: [],
     };
 
@@ -144,5 +146,43 @@ export const bookingService = {
     );
     return normalizeBooking(response.data.data);
   },
-};
 
+  /**
+   * Cancel a booking. Only allowed for pending/confirmed bookings.
+   * Uses PUT /bookings/:id to update the status field.
+   */
+  async cancelBooking(bookingId: string, reason?: string): Promise<BookingRecord> {
+    const response = await apiClient.put<ApiEnvelope<any>>(
+      `/bookings/${bookingId}`,
+      { status: 'cancelled', cancellationReason: reason }
+    );
+    return normalizeBooking(response.data.data);
+  },
+  /**
+   * Operational endpoints mapped directly to the Backend
+   */
+  async operateCheckIn(bookingId: string, payload: { downPaymentAmount: number; releaseSignature: string }): Promise<BookingRecord> {
+    const response = await apiClient.post<ApiEnvelope<any>>(`/orders/${bookingId}/checkin`, payload);
+    return normalizeBooking(response.data.data);
+  },
+
+  async operateStartService(bookingId: string): Promise<BookingRecord> {
+    const response = await apiClient.post<ApiEnvelope<any>>(`/orders/${bookingId}/start`);
+    return normalizeBooking(response.data.data);
+  },
+
+  async operateQCComplete(bookingId: string): Promise<BookingRecord> {
+    const response = await apiClient.post<ApiEnvelope<any>>(`/orders/${bookingId}/qc`);
+    return normalizeBooking(response.data.data);
+  },
+
+  async operateFinalPayment(bookingId: string, payload: { finalPaymentAmount: number; paymentMethod: string }): Promise<BookingRecord> {
+    const response = await apiClient.post<ApiEnvelope<any>>(`/orders/${bookingId}/pay`, payload);
+    return normalizeBooking(response.data.data);
+  },
+
+  async operateRelease(bookingId: string, payload: { releaseSignature: string }): Promise<BookingRecord> {
+    const response = await apiClient.post<ApiEnvelope<any>>(`/orders/${bookingId}/release`, payload);
+    return normalizeBooking(response.data.data);
+  },
+};

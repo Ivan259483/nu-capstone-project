@@ -16,6 +16,7 @@ export interface BackendUser {
   email: string;
   role: UserRole;
   avatar?: string;
+  phone?: string;
   createdAt?: string;
   updatedAt?: string;
   isActive?: boolean;
@@ -27,6 +28,7 @@ export interface MobileProfile {
   email: string;
   role: UserRole;
   avatar_url?: string | null;
+  phone?: string;
   backend_id?: string;
   firebase_uid?: string;
 }
@@ -66,6 +68,17 @@ export interface BookingRecord {
   time?: string;
   totalAmount?: number;
   totalPrice?: number;
+  downPaymentAmount?: number;
+  finalPaymentAmount?: number;
+  legalCompliance?: {
+    waiverSignature?: string;
+    waiverSignedAt?: string;
+    waiverPdf?: string;
+    preServicePhotos?: string[];
+    damageNotes?: string;
+    releaseSignature?: string;
+    releaseSignedAt?: string;
+  };
   notes?: string;
   vehiclePlate?: string;
   createdAt?: string;

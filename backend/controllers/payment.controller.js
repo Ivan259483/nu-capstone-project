@@ -11,6 +11,8 @@ import ActivityLog from '../models/activityLog.model.js';
 import { getIO } from '../utils/socket.utils.js';
 import { isCustomerRole } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
+import { onOrderStatusChange } from '../utils/workflow.utils.js';
+import emailService from '../utils/emailService.utils.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
@@ -242,12 +244,20 @@ const finalizePayment = async (payment, order, payload = {}) => {
   order.paymentMethod = payment.method;
   order.paymentProvider = payment.provider;
   order.paidAt = new Date();
+  const prevStatus = order.status;
   if (order.status === 'pending') {
     order.status = 'confirmed';
   }
   await order.save();
 
   await applyInventoryDeductions(order);
+
+  // Trigger workflow orchestrator if status changed
+  if (prevStatus !== order.status) {
+    onOrderStatusChange(order, prevStatus).catch(err =>
+      console.error('[WORKFLOW] Orchestrator error in finalizePayment:', err.message)
+    );
+  }
 
   logActivity({
     type: 'payment_success', module: 'POS', action: 'Payment Completed',
@@ -997,6 +1007,7 @@ export const createPOSTransaction = async (req, res, next) => {
     order.paidAt = new Date();
     order.totalPrice = totalAmount;
     order.totalAmount = totalAmount;
+    const prevPosStatus = order.status;
     if (['pending', 'confirmed', 'assigned', 'processing', 'in-progress'].includes(order.status)) {
       order.status = 'completed';
     }
@@ -1006,6 +1017,13 @@ export const createPOSTransaction = async (req, res, next) => {
 
     // 9. Apply inventory deductions
     await applyInventoryDeductions(order);
+
+    // 9b. Trigger workflow orchestrator for status transition
+    if (prevPosStatus !== order.status) {
+      onOrderStatusChange(order, prevPosStatus, req.user).catch(err =>
+        console.error('[WORKFLOW] Orchestrator error in createPOSTransaction:', err.message)
+      );
+    }
 
     // 10. Activity logs (fire-and-forget)
     logActivity({
@@ -1103,6 +1121,21 @@ export const createPOSTransaction = async (req, res, next) => {
       });
     } catch (ne) {
       console.error('Failed to create POS notification:', ne.message);
+    }
+
+    // 13b. Auto-send digital receipt email to customer
+    const customerEmail = order.customer?.email;
+    if (customerEmail) {
+      emailService.sendDigitalReceiptEmail(customerEmail, {
+        bookingReference: order.bookingReference || order.orderNumber,
+        orderNumber: order.orderNumber,
+        customerName: order.customer?.name || order.customerName || 'Valued Customer',
+        serviceName: order.serviceType || allItems?.[0]?.name || 'Premium Detailing',
+        vehicleInfo: `${order.vehicleYear || ''} ${order.vehicleMake || ''} ${order.vehicleModel || ''}`.trim() || 'N/A',
+        plateNumber: order.vehiclePlate || 'N/A',
+        totalAmount,
+        paymentMethod,
+      }).catch(err => console.error('[POS] Receipt email failed:', err.message));
     }
 
     res.json({

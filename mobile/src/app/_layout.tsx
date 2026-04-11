@@ -25,7 +25,7 @@ import { AuthProvider, useAuth } from '@/context/AuthContext';
 import GlobalErrorBoundary from '@/components/GlobalErrorBoundary';
 import PremiumToast from '@/components/ui/PremiumToast';
 import AppLockGuard from '@/components/AppLockGuard';
-import { getSafeUserRole } from '@/services/api/roles';
+import { getSafeUserRole, isAdminDashboardRole, isServiceStaffRole } from '@/services/api/roles';
 
 // Prevent the native splash from auto-hiding until our custom one is ready.
 SplashScreen.preventAutoHideAsync();
@@ -42,7 +42,7 @@ type RouteTarget = '/(customer)' | '/(staff)' | '/(auth)/welcome';
 
 function resolveRouteForRole(role: string | undefined): RouteTarget {
   const safeRole = getSafeUserRole(role);
-  if (safeRole === 'service_staff' || safeRole === 'admin' || safeRole === 'super_admin' || safeRole === 'booking_manager' || safeRole === 'pos_manager') {
+  if (isAdminDashboardRole(safeRole) || isServiceStaffRole(safeRole)) {
     return '/(staff)';
   }
   return '/(customer)';
@@ -119,23 +119,77 @@ function InnerLayout() {
           name="(screens)/edit-profile"
           options={{ animation: 'ios_from_right' }}
         />
+        <Stack.Screen
+          name="(screens)/vehicles"
+          options={{ animation: 'ios_from_right' }}
+        />
+        <Stack.Screen
+          name="(screens)/address"
+          options={{ animation: 'ios_from_right' }}
+        />
+        <Stack.Screen
+          name="(screens)/preferred-branch"
+          options={{ animation: 'ios_from_right' }}
+        />
+        <Stack.Screen
+          name="(screens)/notification-preferences"
+          options={{ animation: 'ios_from_right' }}
+        />
       </Stack>
     </>
   );
+}
+
+import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
+import NetInfo from '@react-native-community/netinfo';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
+import { processQueue } from '@/services/offlineQueue';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 2,
+      refetchOnWindowFocus: true,
+      staleTime: 1000 * 30, // 30 seconds
+    },
+  },
+});
+
+// React Query Network offline polling configurations
+NetInfo.addEventListener((state: any) => {
+  focusManager.setFocused(!!state.isConnected);
+  if (state.isConnected) {
+    // Attempt to drain queue immediately when network connects!
+    processQueue();
+  }
+});
+
+function GlobalWatchers({ children }: { children: React.ReactNode }) {
+  // Initiates socket connection natively based on user role
+  useRealtimeSync();
+  // Initializes expo push tokens and device registration 
+  usePushNotifications();
+
+  return <>{children}</>;
 }
 
 // ── Root Layout (wraps everything in providers) ────────────────────────
 export default function RootLayout() {
   return (
     <GlobalErrorBoundary>
-      <ThemeProvider>
-        <AuthProvider>
-          <AppLockGuard>
-            <PremiumToast />
-            <InnerLayout />
-          </AppLockGuard>
-        </AuthProvider>
-      </ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <AuthProvider>
+            <AppLockGuard>
+              <PremiumToast />
+              <GlobalWatchers>
+                <InnerLayout />
+              </GlobalWatchers>
+            </AppLockGuard>
+          </AuthProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
     </GlobalErrorBoundary>
   );
 }

@@ -200,7 +200,12 @@ const mapAnalysisPayload = (payload: Record<string, unknown>): AnalysisResult =>
     issues,
     recommendations,
     totalEstimatedCost: String(payload.total_estimated_cost || '₱0 - ₱0'),
-    source: String(payload.analysis_source || payload.source) === 'rule_based' ? 'rule_based' : 'fallback',
+    source: (() => {
+      const raw = String(payload.analysis_source || payload.source || '');
+      if (raw === 'gemini_vision') return 'rule_based' as const; // Treat AI results as primary source
+      if (raw === 'rule_based') return 'rule_based' as const;
+      return 'fallback' as const;
+    })(),
     fallbackReason:
       typeof payload.fallback_reason === 'string'
         ? payload.fallback_reason
@@ -308,25 +313,56 @@ export const analyzeVehicleDamage = async (
   const startedAt = Date.now();
 
   const requestPromise = (async () => {
-    console.log(`[aiService][${requestId}] Running offline damage analysis (images=${images.length})`);
+    console.log(`[aiService][${requestId}] Starting damage analysis (images=${images.length})`);
 
     try {
-      onUploadProgress?.(18);
-      await new Promise((resolve) => setTimeout(resolve, 45));
-      onUploadProgress?.(62);
-      await new Promise((resolve) => setTimeout(resolve, 55));
-      const analysis = buildOfflineDamageAnalysis(images);
+      // ── Try backend API (Gemini Vision AI) first ──
+      const formData = createMultipartPayload(images);
+
+      const response = await apiClient.post('/ai/analyze', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000,
+        onUploadProgress: (event) => {
+          if (!onUploadProgress || !event.total) return;
+          // Map upload progress to 0-60% range (analysis phase takes 60-100%)
+          onUploadProgress(Math.round((event.loaded / event.total) * 60));
+        },
+      });
+
+      onUploadProgress?.(85);
+
+      const payload = response.data?.data || response.data || {};
+      const analysis = mapAnalysisPayload(payload);
+
       onUploadProgress?.(100);
       console.log(
-        `[aiService][${requestId}] Analyze success (source=${analysis.source}, issues=${analysis.issues.length}, elapsed=${Date.now() - startedAt}ms)`
+        `[aiService][${requestId}] API analyze success (source=${analysis.source}, issues=${analysis.issues.length}, elapsed=${Date.now() - startedAt}ms)`
       );
       return analysis;
-    } catch (error) {
-      const reason = getApiErrorMessage(error, 'AI damage analysis failed.');
+    } catch (apiError) {
+      // ── Fallback to offline engine if API fails ──
+      const reason = apiError instanceof Error ? apiError.message : 'API unreachable';
       console.warn(
-        `[aiService][${requestId}] Analyze failed, using fallback: ${reason} (elapsed=${Date.now() - startedAt}ms)`
+        `[aiService][${requestId}] API analyze failed (${reason}), using offline engine (elapsed=${Date.now() - startedAt}ms)`
       );
-      return createFallbackAnalysis(images, reason);
+
+      try {
+        onUploadProgress?.(40);
+        const analysis = buildOfflineDamageAnalysis(images);
+        onUploadProgress?.(100);
+        console.log(
+          `[aiService][${requestId}] Offline analyze success (issues=${analysis.issues.length}, elapsed=${Date.now() - startedAt}ms)`
+        );
+        return {
+          ...analysis,
+          source: 'fallback' as const,
+          fallbackReason: reason,
+        };
+      } catch (offlineError) {
+        const offlineReason = getApiErrorMessage(offlineError, 'Offline analysis also failed.');
+        console.error(`[aiService][${requestId}] Both API and offline failed: ${offlineReason}`);
+        return createFallbackAnalysis(images, offlineReason);
+      }
     } finally {
       inFlightAnalyzeRequests.delete(requestKey);
       console.log(`[aiService][${requestId}] Analyze request released lock`);
@@ -370,6 +406,7 @@ export const start3DModelGeneration = async (
       return {
         status: 'ar_ready',
         modelUrl,
+        repairedModelUrl: validateModelUrl(response.data?.repaired_model_url),
         progress: 100,
         message: String(response.data?.message || '3D model ready.'),
       };
@@ -440,6 +477,7 @@ export const poll3DModelStatus = async (
         status: 'ar_ready',
         taskId,
         modelUrl: polledModelUrl,
+        repairedModelUrl: validateModelUrl(response.data?.repaired_model_url),
         progress: 100,
       };
     }

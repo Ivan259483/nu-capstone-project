@@ -87,7 +87,7 @@ export interface Booking {
     serviceType?: string;
     date: string;
     time: string;
-    status: 'pending' | 'confirmed' | 'assigned' | 'processing' | 'in-progress' | 'completed' | 'cancelled' | 'finishing' | 'ready' | 'queued' | 'paid' | 'quality-check' | 'ready_for_payment';
+    status: 'pending' | 'confirmed' | 'assigned' | 'received' | 'in_progress' | 'completed' | 'paid' | 'released' | 'cancelled' | 'failed';
     totalPrice?: number;
     totalAmount?: number;
     invoiceId?: string;
@@ -251,7 +251,7 @@ export interface Job {
     vehicleInfo: string;
     serviceName: string;
     serviceChecklist: ServiceChecklistItem[];
-    status: 'pending' | 'in-progress' | 'completed';
+    status: 'pending' | 'in_progress' | 'completed';
     priority: 'high' | 'normal' | 'low';
     scheduledTime: string;
     estimatedDuration: string;

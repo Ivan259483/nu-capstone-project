@@ -120,3 +120,8 @@ export function useWorkflow() {
   if (!context) throw new Error('useWorkflow must be used within WorkflowProvider');
   return context;
 }
+
+// Satisfy Expo Router's requirement for a default export in the app directory
+export default function WorkflowContextRoute() {
+  return null;
+}

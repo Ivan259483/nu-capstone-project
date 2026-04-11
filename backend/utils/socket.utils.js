@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/environment.js';
 import { handleSocketMessage } from '../controllers/chatbot.controller.js';
 import { isAdminDashboardRole } from '../constants/roles.js';
+import User from '../models/user.model.js';
+import { sendExpoPushNotification } from './push.utils.js';
 
 let io;
 
@@ -119,9 +121,50 @@ export const initChangeStreams = (mongooseConnection) => {
 
       // Batch rapid successive changes (e.g. bulk import, migration)
       enqueueChange(payload);
+
+      // Expo Push Notification Logic for Orders
+      if (collectionName === 'orders' && change.operationType === 'update' && change.updateDescription?.updatedFields?.status) {
+        // Run asynchronously so we don't block the change stream
+        (async () => {
+          try {
+            const newStatus = change.updateDescription.updatedFields.status;
+            // Fetch the document to know who owns it
+            const fullDoc = payload.fullDocument;
+            if (!fullDoc || !fullDoc.customer) return;
+
+            const customer = await User.findById(fullDoc.customer);
+            if (customer && customer.expoPushTokens && customer.expoPushTokens.length > 0) {
+              let title = 'Booking Update';
+              let body = `Your booking status is now: ${newStatus}`;
+
+              if (newStatus === 'completed' || newStatus === 'ready_for_payment') {
+                title = 'Service Completed!';
+                body = 'Your vehicle is ready. Please view your invoice to proceed with payment.';
+              } else if (newStatus === 'in_progress') {
+                title = 'Service Started';
+                body = 'We have started working on your vehicle!';
+              } else if (newStatus === 'confirmed') {
+                title = 'Booking Confirmed';
+                body = 'Your AutoSPF+ appointment has been confirmed.';
+              }
+
+              await sendExpoPushNotification(customer.expoPushTokens, title, body, { orderId: fullDoc._id });
+            }
+          } catch (e) {
+            console.error('[SOCKET] Error dispatching push notification:', e);
+          }
+        })();
+      }
     });
     changeStream.on('error', (err) => {
-      console.error('[SOCKET] MongoDB Change Stream Error:', err);
+      // Code 40573 = "$changeStream is only supported on replica sets"
+      // This happens when using a standalone in-memory MongoDB (non-replica-set).
+      if (err.code === 40573) {
+        console.warn('[SOCKET] ⚠️  Change Streams not supported (standalone MongoDB — not a replica set). Real-time db_change events disabled.');
+        console.warn('[SOCKET]    Tip: The in-memory fallback should use MongoMemoryReplSet for Change Stream support.');
+      } else {
+        console.error('[SOCKET] MongoDB Change Stream Error:', err);
+      }
     });
   } catch (error) {
     console.error('[SOCKET] Failed to initialize Mongoose Change Streams:', error);

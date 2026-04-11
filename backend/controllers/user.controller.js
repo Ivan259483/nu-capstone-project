@@ -35,7 +35,7 @@ const canViewUser = (req, user) => {
  */
 export const getAllUsers = async (req, res, next) => {
   try {
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
     if (req.query.email) {
       filter.email = { $regex: new RegExp(`^${req.query.email.trim()}$`, 'i') };
     }
@@ -64,7 +64,7 @@ export const getAllUsers = async (req, res, next) => {
 export const getUserById = async (req, res, next) => {
   try {
     const query = getQueryByIdOrFirebaseUid(req.params.id);
-    const user = await User.findOne(query).select('-password');
+    const user = await User.findOne({ ...query, isDeleted: { $ne: true } }).select('-password');
 
     if (!user) {
       return res.status(404).json({
@@ -94,7 +94,7 @@ export const getUserById = async (req, res, next) => {
  */
 export const updateUser = async (req, res, next) => {
   try {
-    const { name, email, role, avatar } = req.body;
+    const { name, email, role, avatar, phone, address } = req.body;
     const requestedId = req.params.id;
     const actorRole = req.user?.role;
 
@@ -117,6 +117,8 @@ export const updateUser = async (req, res, next) => {
     if (typeof email !== 'undefined') updatePayload.email = email;
     if (typeof role !== 'undefined') updatePayload.role = role;
     if (typeof avatar !== 'undefined') updatePayload.avatar = avatar;
+    if (typeof phone !== 'undefined') updatePayload.phone = phone;
+    if (typeof address !== 'undefined') updatePayload.address = address;
 
     let user = null;
 
@@ -286,7 +288,11 @@ export const deleteUser = async (req, res, next) => {
       });
     }
 
-    await User.deleteOne({ _id: user._id });
+    user.isDeleted = true;
+    user.deletedAt = new Date();
+    user.isActive = false;
+    user.expoPushTokens = [];
+    await user.save();
 
     // Cascade-clean all related documents
     const userId = user._id;
@@ -343,7 +349,7 @@ export const deleteUser = async (req, res, next) => {
  */
 export const createUser = async (req, res, next) => {
   try {
-    const { name, email, password, role, avatar } = req.body;
+    const { name, email, password, role, avatar, firebaseUid } = req.body;
     const requestedRole = role || 'customer';
 
     if (typeof role !== 'undefined' && !isValidUserRole(role)) {
@@ -369,14 +375,20 @@ export const createUser = async (req, res, next) => {
       });
     }
 
-    const user = await User.create({
+    const payload = {
       name,
       email,
       password,
       role: requestedRole,
       avatar,
       isVerified: true, // Admin created users are verified by default
-    });
+    };
+
+    if (firebaseUid) {
+      payload.firebaseUid = firebaseUid;
+    }
+
+    const user = await User.create(payload);
 
     logActivity({
       req, type: 'user_created', module: 'User', action: 'User Created',
@@ -448,5 +460,37 @@ export const changePassword = async (req, res, next) => {
       message: 'Internal server error',
       error: error.message,
     });
+  }
+};
+
+/**
+ * Register an Expo Push Token for the logged-in user
+ */
+export const registerPushToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Push token is required' });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (!user.expoPushTokens) {
+      user.expoPushTokens = [];
+    }
+
+    if (!user.expoPushTokens.includes(token)) {
+      user.expoPushTokens.push(token);
+      await user.save();
+    }
+
+    res.json({ success: true, message: 'Push token registered successfully' });
+  } catch (error) {
+    console.error('❌ Register Push Token Error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
   }
 };

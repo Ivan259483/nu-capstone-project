@@ -11,7 +11,9 @@
  *
  * Data Sources:
  *   - GET /api/orders (customer filtered)
- *   - Fields: serviceSteps[], currentStepIndex, assignedDetailer, customerStatus
+ *   - Fields: assignedDetailer, customerStatus
+ *   - Customer tracker uses ONLY order.status (8-step pipeline)
+ *   - Detailer checklist (serviceSteps) is shown separately as activity feed
  *   - Polling: 12-second interval for near real-time
  */
 
@@ -26,7 +28,7 @@ import {
   RefreshControl,
   Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   FadeInDown,
@@ -45,6 +47,9 @@ import { TabBarHeight } from '@/constants/theme';
 import AnimatedHeader from '@/components/ui/AnimatedHeader';
 import type { BookingRecord } from '@/services/api/types';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useQuery } from '@tanstack/react-query';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { invalidateCache } from '@/services/api/client';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Design System
@@ -74,37 +79,37 @@ const C = {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5-Stage Pipeline
+// 8-Stage Workflow Pipeline (centralized source of truth)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STAGES = [
-  { key: 'check_in',       label: 'Check-In',    icon: 'checkmark'             },
-  { key: 'pre_inspection', label: 'Inspect',     icon: 'checkmark'             },
-  { key: 'service',        label: 'Service',     icon: 'build'                 },
-  { key: 'quality',        label: 'QC',          icon: 'search'                },
-  { key: 'ready',          label: 'Ready',       icon: 'checkmark'             },
+const WORKFLOW_PIPELINE = [
+  { key: 'pending',        label: 'Booked',         icon: 'receipt-outline'          },
+  { key: 'confirmed',      label: 'Confirmed',      icon: 'checkmark-circle-outline' },
+  { key: 'assigned',       label: 'Assigned',       icon: 'person-outline'           },
+  { key: 'received',       label: 'Checked-In',     icon: 'car-outline'              },
+  { key: 'in_progress',    label: 'In Service',     icon: 'construct-outline'        },
+  { key: 'completed',      label: 'Quality Check',  icon: 'shield-checkmark-outline' },
+  { key: 'paid',           label: 'Payment',        icon: 'card-outline'             },
+  { key: 'released',       label: 'Released',       icon: 'checkmark-done-outline'   },
 ] as const;
 
-// Map backend status → stage index
+// Centralized status → step index map (single source, never skips)
+const STATUS_TO_STEP: Record<string, number> = {};
+WORKFLOW_PIPELINE.forEach((stage, i) => { STATUS_TO_STEP[stage.key] = i; });
+// Aliases for legacy/alternative status keys
+STATUS_TO_STEP['in-progress'] = STATUS_TO_STEP['in_progress'];
+STATUS_TO_STEP['queued']      = STATUS_TO_STEP['confirmed'];
+STATUS_TO_STEP['ready']       = STATUS_TO_STEP['completed'];
+
 function resolveStageIndex(booking: any): number {
-  // 1. If backend provides currentStepIndex directly, use it
-  if (typeof booking.currentStepIndex === 'number' && booking.currentStepIndex >= 0) {
-    return Math.min(booking.currentStepIndex, STAGES.length - 1);
-  }
-  // 2. Infer from status/customerStatus
-  const s = booking.customerStatus || booking.status || '';
-  const MAP: Record<string, number> = {
-    pending: 0, confirmed: 0, received: 0, queued: 0,
-    'in-progress': 2, in_progress: 2, scanning: 1, washing: 1,
-    detailing: 2, processing: 2, assigned: 0,
-    quality_check: 3, finishing: 3,
-    ready: 4, completed: 4,
-  };
-  return MAP[s] ?? 0;
+  const s = booking.status || '';
+  if (['cancelled', 'failed'].includes(s)) return -1;
+  return STATUS_TO_STEP[s] ?? 0;
 }
 
 function getStageProgress(stageIdx: number): number {
-  return Math.round(((stageIdx + 1) / STAGES.length) * 100);
+  if (stageIdx < 0) return 0;
+  return Math.round(((stageIdx + 1) / WORKFLOW_PIPELINE.length) * 100);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,10 +264,10 @@ const lb = StyleSheet.create({
 function HorizontalStepper({ current }: { current: number }) {
   return (
     <View style={hs.container}>
-      {STAGES.map((stage, i) => {
-        const done   = i < current;
+      {WORKFLOW_PIPELINE.map((stage, i) => {
+        const done   = current >= 0 && i < current;
         const active = i === current;
-        const last   = i === STAGES.length - 1;
+        const last   = i === WORKFLOW_PIPELINE.length - 1;
 
         return (
           <View key={stage.key} style={hs.stageGroup}>
@@ -271,6 +276,7 @@ function HorizontalStepper({ current }: { current: number }) {
               <View style={[
                 hs.connector, 
                 done && hs.connectorDone,
+                active && hs.connectorActive,
                 i === 0 && { backgroundColor: 'transparent' }
               ]} />
 
@@ -282,11 +288,11 @@ function HorizontalStepper({ current }: { current: number }) {
               ]}>
                 {active && <ActiveGlow color={C.accent} />}
                 {done ? (
-                  <Ionicons name={stage.icon as any} size={18} color={C.surface} />
+                  <Ionicons name="checkmark" size={14} color="#FFF" />
                 ) : active ? (
-                  <Ionicons name={stage.icon as any} size={18} color={C.accent} />
+                  <Ionicons name={stage.icon as any} size={14} color={C.accent} />
                 ) : (
-                  <Ionicons name={stage.icon as any} size={18} color={C.textDim} />
+                  <Ionicons name={stage.icon as any} size={14} color={C.textDim} />
                 )}
               </View>
 
@@ -317,14 +323,15 @@ const hs = StyleSheet.create({
   dotRow: { flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'center' },
   connector: { flex: 1, height: 2, backgroundColor: C.border },
   connectorDone: { backgroundColor: C.accent },
+  connectorActive: { backgroundColor: 'rgba(255,107,53,0.4)' },
   dot: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 28, height: 28, borderRadius: 14,
     backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.border,
     alignItems: 'center', justifyContent: 'center', zIndex: 1,
   },
   dotDone: { backgroundColor: C.accent, borderColor: C.accent },
-  dotActive: { borderColor: C.accent, borderWidth: 2 },
-  label: { fontSize: 10, fontWeight: '600', color: C.textDim, textAlign: 'center', marginTop: 8, lineHeight: 12 },
+  dotActive: { borderColor: C.accent, borderWidth: 2, backgroundColor: 'rgba(255,107,53,0.12)' },
+  label: { fontSize: 8, fontWeight: '600', color: C.textDim, textAlign: 'center', marginTop: 6, lineHeight: 10 },
   labelDone: { color: C.accent },
   labelActive: { color: C.accent, fontWeight: '700' },
 });
@@ -439,19 +446,14 @@ function SearchingTechnicianCard() {
 // Stage Checklist
 // ─────────────────────────────────────────────────────────────────────────────
 
-function StageChecklist({ steps, currentStep }: { steps: any[]; currentStep: number }) {
-  // Default steps if backend doesn't provide them
-  const displaySteps = steps.length > 0 ? steps : [
-    { name: 'Snow foam wash applied',      status: 'completed' },
-    { name: 'Iron decontamination done',   status: 'completed' },
-    { name: 'Paint prep ongoing...',       status: 'in-progress' },
-  ];
+function DetailerActivityFeed({ steps }: { steps: any[] }) {
+  if (!steps || steps.length === 0) return null;
 
   return (
     <Animated.View entering={FadeInDown.delay(400).springify().damping(20)}>
-      <Text style={cl.sectionLabel}>CURRENT STAGE — SURFACE DETAILING</Text>
+      <Text style={cl.sectionLabel}>SERVICE ACTIVITY</Text>
       <View style={cl.card}>
-        {displaySteps.map((step: any, i: number) => {
+        {steps.map((step: any, i: number) => {
           const isDone = step.status === 'completed';
           const isInProgress = step.status === 'in-progress';
 
@@ -575,51 +577,105 @@ const hc = StyleSheet.create({
 export default function TrackScreen() {
   const { profile } = useAuth();
   const router = useRouter();
+  const { id: routeBookingId } = useLocalSearchParams<{ id?: string }>();
 
   const [booking, setBooking] = useState<any>(null);
   const [allBookings, setAllBookings] = useState<BookingRecord[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchData = useCallback(async () => {
-    try {
-      const bookings = await bookingService.getMyBookings();
-      setAllBookings(bookings);
+  const {
+    data: defaultBookings = [],
+    isLoading: isLoadingAll,
+    refetch,
+  } = useQuery({
+    queryKey: ['bookings'],
+    queryFn: () => {
+      invalidateCache('/bookings');
+      return bookingService.getMyBookings();
+    },
+    enabled: !!profile,
+    refetchInterval: 8_000,
+  });
 
-      const active = bookings
-        .filter((b) => !['completed', 'cancelled', 'failed'].includes(b.status))
-        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  const {
+    data: specificBooking = null
+  } = useQuery({
+    queryKey: ['booking', routeBookingId],
+    queryFn: () => {
+      invalidateCache('/bookings');
+      return bookingService.getBookingById(routeBookingId!);
+    },
+    enabled: !!routeBookingId && !!profile,
+    refetchInterval: 8_000,
+  });
 
-      setBooking(active[0] || null);
-    } catch (error) {
-      console.warn('Tracker fetch failed:', getApiErrorMessage(error));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+  // ── Real-time socket sync: invalidates React Query caches on db_change ──
+  useRealtimeSync(['orders']);
 
   useEffect(() => {
-    if (!profile) return;
-    fetchData();
-    pollRef.current = setInterval(fetchData, 12000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [profile, fetchData]);
+    if (defaultBookings) {
+      setAllBookings(defaultBookings);
+      if (!routeBookingId) {
+        const active = defaultBookings
+          .filter((b: any) => !['cancelled', 'failed'].includes(b.status))
+          .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        setBooking(active[0] || null);
+      }
+    }
+  }, [defaultBookings, routeBookingId]);
 
-  const onRefresh = () => {
+  useEffect(() => {
+    if (specificBooking) {
+      setBooking(specificBooking);
+    }
+  }, [specificBooking]);
+
+  const onRefresh = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setRefreshing(true);
-    fetchData();
+    await refetch();
   };
 
   // Derived
   const stageIdx = booking ? resolveStageIndex(booking) : 0;
   const pct      = booking ? getStageProgress(stageIdx) : 0;
-  const hasActive = !!booking;
-  const steps: any[] = booking?.serviceSteps || [];
+  const stageLabel = booking ? WORKFLOW_PIPELINE[stageIdx]?.label || 'Pending' : 'Pending';
+  // Treat released services generally as active until they are totally archived, but for UI sake, we display them up to 'released'.
+  const hasActive = !!booking && !['cancelled', 'failed'].includes(booking.status);
+  // Customer tracker: ONLY depends on order.status (via resolveStageIndex)
+  // Detailer activity feed: independent internal checklist (cosmetic only)
+  const detailerSteps: any[] = booking?.serviceSteps || [];
   const detailer = booking?.assignedDetailer;
-  const pastBookings = allBookings.filter((b) => ['completed', 'cancelled'].includes(b.status));
+  const pastBookings = allBookings.filter((b) => 
+    (!booking || b.id !== booking.id) && ['completed', 'paid', 'released', 'cancelled'].includes(b.status)
+  );
+
+  // Calculate elapsed time from booking creation
+  const getElapsedTime = () => {
+    if (!booking?.createdAt) return '--';
+    const created = new Date(booking.createdAt).getTime();
+    const now = Date.now();
+    const diffMs = now - created;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 60) return `${diffMins}m`;
+    const hours = Math.floor(diffMins / 60);
+    const mins = diffMins % 60;
+    return `${hours}h ${mins}m`;
+  };
+
+  // Estimate remaining time based on stage progress
+  const getEstRemaining = () => {
+    if (!booking?.createdAt || pct >= 100) return 'Done';
+    if (pct === 0) return 'Waiting';
+    const created = new Date(booking.createdAt).getTime();
+    const elapsed = Date.now() - created;
+    const totalEstimate = (elapsed / pct) * 100;
+    const remaining = totalEstimate - elapsed;
+    const remainingMins = Math.max(0, Math.round(remaining / 60000));
+    if (remainingMins < 60) return `~${remainingMins} min`;
+    const hours = Math.floor(remainingMins / 60);
+    const mins = remainingMins % 60;
+    return `~${hours}h ${mins}m`;
+  };
 
   const trackTitle = (booking?.vehicleType && booking?.vehicleColor)
     ? `${booking.vehicleType} • ${booking.vehicleColor}`
@@ -658,7 +714,7 @@ export default function TrackScreen() {
           {hasActive && <LiveBadge />}
         </Animated.View>
 
-        {loading ? (
+        {isLoadingAll ? (
           <PageSkeleton />
         ) : !hasActive ? (
           /* ─────── Empty State ─────── */
@@ -729,7 +785,7 @@ export default function TrackScreen() {
                       <View style={s.pcStatusDot}>
                         <ActiveGlow color={C.accent} />
                       </View>
-                      <Text style={s.pcStatusText}>In Service</Text>
+                      <Text style={s.pcStatusText}>{stageLabel}</Text>
                     </View>
                   </View>
 
@@ -750,7 +806,7 @@ export default function TrackScreen() {
                     <Ionicons name="time-outline" size={14} color={C.textMut} />
                     <Text style={s.timeLabel}>ELAPSED</Text>
                   </View>
-                  <Text style={s.timeValueOrange}>2h 15m</Text>
+                  <Text style={s.timeValueOrange}>{getElapsedTime()}</Text>
                 </View>
                 <View style={[s.timeCard, { flex: 1, borderColor: 'rgba(255, 107, 53, 0.25)', backgroundColor: 'rgba(255, 107, 53, 0.05)' }]}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
@@ -759,7 +815,7 @@ export default function TrackScreen() {
                     </View>
                     <Text style={[s.timeLabel, { color: C.accent }]}>EST. REMAINING</Text>
                   </View>
-                  <Text style={s.timeValueWhite}>~45 min</Text>
+                  <Text style={s.timeValueWhite}>{getEstRemaining()}</Text>
                 </View>
               </View>
             </Animated.View>
@@ -774,8 +830,8 @@ export default function TrackScreen() {
               )}
             </Animated.View>
 
-            {/* Checklist */}
-            <StageChecklist steps={steps} currentStep={stageIdx} />
+            {/* Detailer Activity Feed (independent from status tracker) */}
+            <DetailerActivityFeed steps={detailerSteps} />
 
             {/* Location */}
             <Animated.View entering={FadeInDown.delay(500).springify()}>

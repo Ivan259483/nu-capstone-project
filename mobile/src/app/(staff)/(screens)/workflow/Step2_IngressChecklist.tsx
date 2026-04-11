@@ -7,7 +7,8 @@ import { CheckCircle, Clock, CheckSquare, Square } from '@/components/ui/Icons';
 const CHECKLIST_TEMPLATES: Record<string, string[]> = {
   general: ['Verify Keys Received', 'Check Odometer Reading', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables', 'Verify Gas Level'],
   ppf: ['Verify Keys Received', 'Check Odometer Reading', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables', 'Measure Paint Thickness', 'Note Existing Paint Chips', 'Wash & Decontaminate Prep'],
-  detailing: ['Verify Keys Received', 'Check Odometer Reading', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables', 'Empty Trash/Loose Items', 'Assess Interior Stains']
+  detailing: ['Verify Keys Received', 'Check Odometer Reading', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables', 'Empty Trash/Loose Items', 'Assess Interior Stains'],
+  tint: ['Fill/Explain Tint form', 'Dashcams, accessories removed', 'Ask client about RFID removal', 'Verify Keys Received', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables']
 };
 
 export default function Step2_IngressChecklist() {
@@ -27,6 +28,7 @@ export default function Step2_IngressChecklist() {
         let templateKey = 'general';
         if (serviceCategory.includes('ppf') || serviceCategory.includes('film')) templateKey = 'ppf';
         else if (serviceCategory.includes('detail')) templateKey = 'detailing';
+        else if (serviceCategory.includes('tint') || serviceCategory.includes('window')) templateKey = 'tint';
 
         setChecklist(CHECKLIST_TEMPLATES[templateKey].map(name => ({ name, checked: false })));
       }

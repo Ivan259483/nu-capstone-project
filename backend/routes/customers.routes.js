@@ -8,6 +8,20 @@ const router = express.Router();
 router.use(authenticate);
 
 /**
+ * @route GET /api/customers/me
+ * @desc Get current customer's profile
+ * @access Private
+ */
+router.get('/me', customerController.getMe);
+
+/**
+ * @route PUT /api/customers/me
+ * @desc Update current customer's profile
+ * @access Private
+ */
+router.put('/me', customerController.updateMe);
+
+/**
  * @route GET /api/customers/vehicles
  * @desc Get customer vehicles
  * @access Private

@@ -21,8 +21,10 @@ import {
   Platform,
   Alert,
   Modal,
+  Image,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   FadeInDown,
@@ -65,7 +67,7 @@ const TIME_SLOTS = [
   '4:00 PM', '5:00 PM',
 ];
 
-const STEP_LABELS = ['Vehicle', 'Schedule', 'Review', 'Confirm'];
+const STEP_LABELS = ['Info', 'Schedule', 'Review', 'Confirm'];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -106,8 +108,8 @@ function StepIndicator({ current }: { current: number }) {
         const done = i < current;
         const active = i === current;
         return (
-          <View key={i} style={ind.item}>
-            <View style={ind.dotRow}>
+          <React.Fragment key={i}>
+            <View style={ind.item}>
               <View
                 style={[
                   ind.dot,
@@ -123,20 +125,20 @@ function StepIndicator({ current }: { current: number }) {
                   </Text>
                 )}
               </View>
-              {i < STEP_LABELS.length - 1 && (
-                <View style={[ind.line, (done || active) && i < current && ind.lineDone]} />
-              )}
+              <Text
+                style={[
+                  ind.label,
+                  active && ind.labelActive,
+                  done && ind.labelDone,
+                ]}
+              >
+                {label}
+              </Text>
             </View>
-            <Text
-              style={[
-                ind.label,
-                active && ind.labelActive,
-                done && ind.labelDone,
-              ]}
-            >
-              {label}
-            </Text>
-          </View>
+            {i < STEP_LABELS.length - 1 && (
+              <View style={[ind.line, (done || active) && i < current && ind.lineDone]} />
+            )}
+          </React.Fragment>
         );
       })}
     </View>
@@ -147,15 +149,14 @@ const ind = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: BORDER,
     backgroundColor: BLACK,
   },
-  item: { alignItems: 'center', flex: 1 },
-  dotRow: { flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'center' },
+  item: { alignItems: 'center', width: 50 },
   dot: {
     width: 26,
     height: 26,
@@ -173,11 +174,11 @@ const ind = StyleSheet.create({
     flex: 1,
     height: 1.5,
     backgroundColor: BORDER,
-    marginHorizontal: 3,
-    maxWidth: 40,
+    marginTop: 13, // align visually with the center of the 26px dot
+    marginHorizontal: 4,
   },
   lineDone: { backgroundColor: ACCENT_DARK },
-  label: { fontSize: 9, fontWeight: '600', color: '#555', marginTop: 5, letterSpacing: 0.5 },
+  label: { fontSize: 9, fontWeight: '600', color: '#555', marginTop: 5, letterSpacing: 0.5, textAlign: 'center' },
   labelActive: { color: ACCENT },
   labelDone: { color: ACCENT_DARK },
 });
@@ -239,7 +240,9 @@ function VehicleCard({
           </Text>
           <View style={vc.meta}>
             <View style={[vc.swatch, { backgroundColor: swatchColor }]} />
-            <Text style={vc.metaText}>{vehicle.color || 'Unknown color'}</Text>
+            <Text style={vc.metaText}>
+              {vehicle.color ? vehicle.color.charAt(0).toUpperCase() + vehicle.color.slice(1).toLowerCase() : 'Unknown color'}
+            </Text>
             <View style={vc.dot} />
             <Text style={vc.plate}>{vehicle.plateNumber}</Text>
           </View>
@@ -375,6 +378,12 @@ export default function BookScreen() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [phone, setPhone] = useState('' );
+
+  // Step 0 — Customer info
+  const [customerName, setCustomerName] = useState('');
+  const [contactNumber, setContactNumber] = useState('');
+  const [customerNameError, setCustomerNameError] = useState('');
+  const [contactNumberError, setContactNumberError] = useState('');
   const [notes, setNotes] = useState('');
 
   // Add Vehicle form
@@ -394,41 +403,82 @@ export default function BookScreen() {
   const [vPlateError, setVPlateError] = useState('');
   const [phoneError, setPhoneError] = useState('');
 
+  // Step 2 — Payment proof
+  const [downpaymentProof, setDownpaymentProof] = useState<string | null>(null);
+
   // General
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
   const dateScrollRef = useRef<ScrollView>(null);
 
-  // ── Data Loading ──
-  useEffect(() => {
-    let mounted = true;
-
-    const load = async () => {
-      try {
-        const [v, s] = await Promise.all([
-          vehicleService.getMyVehicles(),
-          serviceService.getPublishedServices(),
-        ]);
-        if (mounted) {
-          setVehicles(v);
-          setServices(s);
-        }
-      } catch (err) {
-        if (mounted) {
-          console.warn('Failed to load booking data:', getApiErrorMessage(err));
-        }
-      } finally {
-        if (mounted) setVehiclesLoading(false);
-      }
-    };
-
-    load();
-    return () => { mounted = false; };
+  // Preview booking reference (generated client-side for display only)
+  const previewBookingRef = React.useMemo(() => {
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const hex = Math.random().toString(16).substring(2, 6).toUpperCase();
+    return `ASPF-${yy}${mm}${dd}-${hex}`;
   }, []);
+
+  // ── Data Loading ──
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+
+      const load = async () => {
+        try {
+          const [v, s] = await Promise.all([
+            vehicleService.getMyVehicles(),
+            serviceService.getPublishedServices(),
+          ]);
+          if (mounted) {
+            setVehicles(v);
+            setServices(s);
+          }
+        } catch (err) {
+          if (mounted) {
+            console.warn('Failed to load booking data:', getApiErrorMessage(err));
+          }
+        } finally {
+          if (mounted) setVehiclesLoading(false);
+        }
+      };
+
+      load();
+      return () => { mounted = false; };
+    }, [])
+  );
+
+  // Sync customer info from profile instantly
+  useEffect(() => {
+    if (profile?.full_name) setCustomerName(profile.full_name);
+    if (profile?.phone) {
+      setContactNumber(profile.phone);
+      setPhone(profile.phone);
+    }
+  }, [profile]);
 
   // ── Navigation ──
   const goNext = () => {
+    if (step === 0) {
+      let hasErr = false;
+      setCustomerNameError('');
+      setContactNumberError('');
+      if (!customerName.trim() || customerName.trim().length < 2) {
+        setCustomerNameError('Full name is required');
+        hasErr = true;
+      }
+      if (!contactNumber.trim()) {
+        setContactNumberError('Contact number is required');
+        hasErr = true;
+      } else if (!Validation.isValidPhone(contactNumber)) {
+        setContactNumberError('Enter a valid PH mobile number');
+        hasErr = true;
+      }
+      if (hasErr) return;
+    }
     if (step === 1) {
       setPhoneError('');
       if (phone.trim() && !Validation.isValidPhone(phone)) {
@@ -451,7 +501,12 @@ export default function BookScreen() {
     setSelectedDate(null);
     setSelectedTime(null);
     setPhone('');
+    setCustomerName('');
+    setContactNumber('');
+    setCustomerNameError('');
+    setContactNumberError('');
     setNotes('');
+    setDownpaymentProof(null);
     setIsSuccess(false);
     setShowAddVehicle(false);
     setPhoneError('');
@@ -498,8 +553,8 @@ export default function BookScreen() {
     }
 
     const normalizedPlate = vPlate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (!/^[A-Z]{3}\d{4}$/.test(normalizedPlate)) {
-      setVPlateError('Must be ABC1234');
+    if (!/^[A-Z0-9]{4,8}$/.test(normalizedPlate)) {
+      setVPlateError('Must be 4-8 letters/numbers');
       hasError = true;
     }
 
@@ -549,14 +604,15 @@ export default function BookScreen() {
         service: selectedService,
         date: selectedDate,
         time: selectedTime,
-        customerName: profile?.full_name,
-        customerPhone: phone.trim() || undefined,
+        customerName: customerName.trim(),
+        customerPhone: contactNumber.trim(),
         notes: notes.trim() || undefined,
         vehiclePlate: selectedVehicle?.plateNumber,
         vehicleYear: selectedVehicle?.year?.toString(),
         vehicleMake: selectedVehicle?.make,
         vehicleModel: selectedVehicle?.model,
         vehicleColor: selectedVehicle?.color,
+        downpaymentProof: downpaymentProof || undefined,
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -569,26 +625,142 @@ export default function BookScreen() {
   };
 
   // ── Computed ──
-  const canProceedStep0 = !!selectedVehicle;
+  const canProceedStep0 = !!selectedVehicle && customerName.trim().length >= 2 && contactNumber.trim().length > 0;
   const canProceedStep1 = !!selectedService && !!selectedDate && !!selectedTime;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Success screen
   // ─────────────────────────────────────────────────────────────────────────
   if (isSuccess) {
+    const WORKFLOW_STEPS = [
+      { key: 'booking', label: 'Booking Submitted', icon: 'document-text', active: true, ts: 'Just now' },
+      { key: 'confirmed', label: 'Confirmed', icon: 'checkmark-circle', active: false, ts: '—' },
+      { key: 'ingress', label: 'Ingress Checklist', icon: 'clipboard', active: false, ts: '—' },
+      { key: 'job', label: 'Job Order Created', icon: 'construct', active: false, ts: '—' },
+      { key: 'service', label: 'Service In Progress', icon: 'build', active: false, ts: '—' },
+      { key: 'qc', label: 'QC Checklist', icon: 'shield-checkmark', active: false, ts: '—' },
+      { key: 'egress', label: 'Egress Release', icon: 'log-out', active: false, ts: '—' },
+      { key: 'completed', label: 'Completed', icon: 'trophy', active: false, ts: '—' },
+    ];
+
     return (
       <View style={[ss.screen, { backgroundColor: BLACK }]}>
         <AnimatedHeader />
-        <View style={ss.successCenter}>
-          <Animated.View entering={FadeInDown.springify()} style={ss.successContent}>
-            <LinearGradient colors={[ACCENT, ACCENT_DARK]} style={ss.successIcon}>
-              <Ionicons name="checkmark" size={40} color="#fff" />
-            </LinearGradient>
-            <Text style={ss.successTitle}>Booking Confirmed!</Text>
-            <Text style={ss.successSub}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: TabBarHeight + 40 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* ── Success Hero ── */}
+          <Animated.View entering={FadeInDown.springify().damping(16)} style={s4.heroWrap}>
+            <LinearGradient
+              colors={['rgba(255,107,53,0.15)', 'rgba(255,107,53,0.02)', 'transparent']}
+              style={s4.heroBg}
+            />
+            <View style={s4.heroIconWrap}>
+              <LinearGradient colors={[ACCENT, ACCENT_DARK]} style={s4.heroIcon}>
+                <Ionicons name="checkmark" size={44} color="#fff" />
+              </LinearGradient>
+            </View>
+            <Text style={s4.heroTitle}>Booking Confirmed!</Text>
+            <Text style={s4.heroSub}>
               Your appointment has been submitted.{'\n'}We'll confirm it shortly.
             </Text>
-            <View style={{ gap: 12, width: '100%', marginTop: 10 }}>
+
+            {/* Booking reference badge */}
+            <View style={s4.heroRefBadge}>
+              <Ionicons name="bookmark" size={14} color={ACCENT} />
+              <Text style={s4.heroRefText}>{previewBookingRef}</Text>
+            </View>
+          </Animated.View>
+
+          {/* ── Quick Summary Card ── */}
+          <Animated.View entering={FadeInDown.delay(150).springify().damping(16)} style={s4.sectionPad}>
+            <View style={s4.quickCard}>
+              <View style={s4.quickRow}>
+                <Ionicons name="car-outline" size={16} color="#666" />
+                <Text style={s4.quickLabel}>Vehicle</Text>
+                <Text style={s4.quickVal} numberOfLines={1}>
+                  {selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : '—'}
+                </Text>
+              </View>
+              <View style={s4.quickDivider} />
+              <View style={s4.quickRow}>
+                <Ionicons name="sparkles-outline" size={16} color="#666" />
+                <Text style={s4.quickLabel}>Service</Text>
+                <Text style={s4.quickVal} numberOfLines={1}>{selectedService?.name || '—'}</Text>
+              </View>
+              <View style={s4.quickDivider} />
+              <View style={s4.quickRow}>
+                <Ionicons name="calendar-outline" size={16} color="#666" />
+                <Text style={s4.quickLabel}>Schedule</Text>
+                <Text style={s4.quickVal}>{selectedDate} • {selectedTime}</Text>
+              </View>
+            </View>
+          </Animated.View>
+
+          {/* ── Workflow Tracker ── */}
+          <Animated.View entering={FadeInDown.delay(300).springify().damping(16)} style={s4.sectionPad}>
+            <View style={s4.trackerHeader}>
+              <View style={s4.trackerIconWrap}>
+                <Ionicons name="git-branch" size={14} color={ACCENT} />
+              </View>
+              <Text style={s4.trackerTitle}>SERVICE WORKFLOW</Text>
+            </View>
+
+            <View style={s4.trackerCard}>
+              {WORKFLOW_STEPS.map((ws, idx) => {
+                const isFirst = idx === 0;
+                const isLast = idx === WORKFLOW_STEPS.length - 1;
+                return (
+                  <Animated.View
+                    key={ws.key}
+                    entering={FadeInDown.delay(350 + idx * 60).springify().damping(18)}
+                    style={s4.timelineRow}
+                  >
+                    {/* Connector line */}
+                    <View style={s4.timelineLeft}>
+                      {!isFirst && (
+                        <View style={[s4.timelineLine, ws.active && s4.timelineLineActive]} />
+                      )}
+                      <View style={[
+                        s4.timelineDot,
+                        ws.active ? s4.timelineDotActive : s4.timelineDotInactive,
+                      ]}>
+                        <Ionicons
+                          name={ws.icon as any}
+                          size={14}
+                          color={ws.active ? '#fff' : '#555'}
+                        />
+                      </View>
+                      {!isLast && (
+                        <View style={[s4.timelineLine, WORKFLOW_STEPS[idx + 1]?.active && s4.timelineLineActive]} />
+                      )}
+                    </View>
+
+                    {/* Content */}
+                    <View style={s4.timelineContent}>
+                      <Text style={[s4.timelineLabel, ws.active && s4.timelineLabelActive]}>
+                        {ws.label}
+                      </Text>
+                      <Text style={s4.timelineTs}>{ws.ts}</Text>
+                    </View>
+
+                    {/* Status badge */}
+                    {ws.active && (
+                      <View style={s4.timelineBadge}>
+                        <Text style={s4.timelineBadgeText}>CURRENT</Text>
+                      </View>
+                    )}
+                  </Animated.View>
+                );
+              })}
+            </View>
+          </Animated.View>
+
+          {/* ── Action Buttons ── */}
+          <Animated.View entering={FadeInDown.delay(700).springify().damping(16)} style={s4.sectionPad}>
+            <View style={{ gap: 10 }}>
               <PremiumButton
                 title="Track My Booking"
                 icon="navigate-outline"
@@ -598,13 +770,25 @@ export default function BookScreen() {
                 }}
               />
               <PremiumButton
-                title="Book Another"
+                title="Book Another Service"
                 variant="outline"
+                icon="add-circle-outline"
                 onPress={reset}
               />
+              <TouchableOpacity
+                style={s4.dashboardBtn}
+                activeOpacity={0.85}
+                onPress={() => {
+                  reset();
+                  router.push('/(customer)');
+                }}
+              >
+                <Ionicons name="grid-outline" size={16} color="#888" />
+                <Text style={s4.dashboardBtnText}>Go to Dashboard</Text>
+              </TouchableOpacity>
             </View>
           </Animated.View>
-        </View>
+        </ScrollView>
       </View>
     );
   }
@@ -628,7 +812,7 @@ export default function BookScreen() {
           keyboardShouldPersistTaps="handled"
         >
           {/* ═══════════════════════════════════════════════════
-              STEP 0 — VEHICLE SELECTION
+              STEP 0 — CUSTOMER & VEHICLE INFO
           ═══════════════════════════════════════════════════ */}
           {step === 0 && (
             <Animated.View
@@ -647,157 +831,84 @@ export default function BookScreen() {
                    </View>
                 </View>
               </Animated.View>
-              
-              <Text style={ss.sectionTitle}>Select a Vehicle</Text>
 
-              {/* Vehicle List */}
-              {vehiclesLoading ? (
-                <View style={ss.loadingBox}>
-                  <ActivityIndicator size="large" color={ACCENT} />
-                  <Text style={ss.loadingText}>Loading vehicles…</Text>
+              {/* ── Section 1: Customer Information ── */}
+              <Animated.View entering={FadeInDown.delay(150).springify().damping(16).stiffness(120)}>
+                <View style={s1.sectionHeader}>
+                  <View style={s1.sectionIconWrap}>
+                    <Ionicons name="person" size={14} color={ACCENT} />
+                  </View>
+                  <Text style={ss.sectionLabel}>CUSTOMER INFORMATION</Text>
                 </View>
-              ) : vehicles.length === 0 ? (
-                <View style={ss.emptyBox}>
-                  <Ionicons name="car-outline" size={48} color="#333" />
-                  <Text style={ss.emptyTitle}>No vehicles registered</Text>
-                  <Text style={ss.emptySub}>
-                    Add your vehicle below to get started.
+                <View style={s1.glassCard}>
+                  <PremiumInput
+                    label="FULL NAME"
+                    iconName="person-outline"
+                    placeholder="Juan Dela Cruz"
+                    value={customerName}
+                    editable={false}
+                  />
+                  <PremiumInput
+                    label="CONTACT NUMBER"
+                    iconName="call-outline"
+                    placeholder="+63 9xx xxx xxxx"
+                    value={contactNumber}
+                    editable={false}
+                  />
+                  <Text style={{ fontSize: 11, color: '#666', marginTop: 4, textAlign: 'center' }}>
+                    Information is pulled from your profile. You can update this in the Settings tab.
                   </Text>
                 </View>
-              ) : (
-                <View style={{ gap: 10 }}>
-                  {vehicles.map((v, i) => (
-                    <Animated.View
-                      key={v.id}
-                      entering={FadeInDown.delay(i * 60).springify()}
-                    >
-                      <VehicleCard
-                        vehicle={v}
-                        selected={selectedVehicle?.id === v.id}
-                        onPress={() => setSelectedVehicle(v)}
-                      />
-                    </Animated.View>
-                  ))}
+              </Animated.View>
+
+              {/* ── Section 2: Vehicle Selection ── */}
+              <Animated.View entering={FadeInDown.delay(250).springify().damping(16).stiffness(120)}>
+                <View style={s1.sectionHeader}>
+                  <View style={s1.sectionIconWrap}>
+                    <Ionicons name="car-sport" size={14} color={ACCENT} />
+                  </View>
+                  <Text style={ss.sectionLabel}>SELECT VEHICLE</Text>
                 </View>
-              )}
 
-              {/* Add Vehicle CTA */}
-              {!showAddVehicle ? (
-                <TouchableOpacity
-                  style={ss.addVehicleBtn}
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setShowAddVehicle(true);
-                  }}
-                >
-                  <Ionicons name="add-circle-outline" size={20} color={ACCENT} />
-                  <Text style={ss.addVehicleText}>Add Vehicle</Text>
-                  <Ionicons name="chevron-forward" size={16} color={ACCENT} />
-                </TouchableOpacity>
-              ) : (
-                <Animated.View entering={FadeInDown.springify().damping(18)} style={avf.container}>
-                  {/* Form Header */}
-                  <View style={avf.header}>
-                    <View style={avf.headerLeft}>
-                      <LinearGradient colors={[ACCENT, ACCENT_DARK]} style={avf.headerIcon}>
-                        <Ionicons name="car-sport" size={16} color="#fff" />
-                      </LinearGradient>
-                      <Text style={avf.headerTitle}>Add Vehicle</Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => { setShowAddVehicle(false); resetVehicleForm(); }}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <Ionicons name="close-circle" size={22} color="#555" />
-                    </TouchableOpacity>
+                {/* Vehicle List */}
+                {vehiclesLoading ? (
+                  <View style={ss.loadingBox}>
+                    <ActivityIndicator size="large" color={ACCENT} />
+                    <Text style={ss.loadingText}>Loading vehicles…</Text>
                   </View>
-
-                  {/* Year + Make Row */}
-                  <View style={avf.row}>
-                    <View style={avf.fieldHalf}>
-                      <PremiumInput
-                        label="YEAR"
-                        iconName="calendar-outline"
-                        placeholder="2024"
-                        value={vYear}
-                        onChangeText={(t) => { setVYear(t); setVYearError(''); }}
-                        keyboardType="number-pad"
-                        maxLength={4}
-                        error={vYearError}
-                      />
-                    </View>
-                    <View style={avf.fieldHalf}>
-                      <PremiumInput
-                        label="MAKE"
-                        iconName="car-outline"
-                        placeholder="Toyota"
-                        value={vMake}
-                        onChangeText={(t) => { setVMake(t); setVMakeError(''); }}
-                        autoCapitalize="words"
-                        error={vMakeError}
-                      />
-                    </View>
-                  </View>
-
-                  {/* Model + Color Row */}
-                  <View style={avf.row}>
-                    <View style={avf.fieldHalf}>
-                      <PremiumInput
-                        label="MODEL"
-                        iconName="car-sport-outline"
-                        placeholder="Camry"
-                        value={vModel}
-                        onChangeText={(t) => { setVModel(t); setVModelError(''); }}
-                        autoCapitalize="words"
-                        error={vModelError}
-                      />
-                    </View>
-                    <View style={avf.fieldHalf}>
-                      <PremiumInput
-                        label="COLOR"
-                        iconName="color-palette-outline"
-                        placeholder="Black"
-                        value={vColor}
-                        onChangeText={(t) => { setVColor(t); setVColorError(''); }}
-                        autoCapitalize="words"
-                        error={vColorError}
-                      />
-                    </View>
-                  </View>
-
-                  {/* Plate Number */}
-                  <View>
-                    <PremiumInput
-                      label="PLATE NUMBER"
-                      iconName="barcode-outline"
-                      placeholder="ABC1234"
-                      value={vPlate}
-                      onChangeText={(t) => { setVPlate(t.toUpperCase()); setVPlateError(''); }}
-                      autoCapitalize="characters"
-                      maxLength={7}
-                      error={vPlateError}
+                ) : vehicles.length === 0 ? (
+                  <View style={ss.emptyBox}>
+                    <Ionicons name="car-outline" size={48} color="#333" />
+                    <Text style={ss.emptyTitle}>No vehicles registered</Text>
+                    <Text style={ss.emptySub}>
+                      No vehicles found. Go to Settings and add yours.
+                    </Text>
+                    <PremiumButton 
+                      title="Go to Settings" 
+                      variant="outline" 
+                      style={{ marginTop: 20 }}
+                      onPress={() => router.push('/(screens)/vehicles')} 
                     />
                   </View>
+                ) : (
+                  <View style={{ gap: 10 }}>
+                    {vehicles.map((v, i) => (
+                      <Animated.View
+                        key={v.id}
+                        entering={FadeInDown.delay(300 + i * 60).springify()}
+                      >
+                        <VehicleCard
+                          vehicle={v}
+                          selected={selectedVehicle?.id === v.id}
+                          onPress={() => setSelectedVehicle(v)}
+                        />
+                      </Animated.View>
+                    ))}
+                  </View>
+                )}
 
-                  {/* Submit */}
-                  <TouchableOpacity
-                    style={[avf.submitBtn, addingVehicle && { opacity: 0.6 }]}
-                    disabled={addingVehicle}
-                    activeOpacity={0.88}
-                    onPress={handleAddVehicle}
-                  >
-                    {addingVehicle ? (
-                      <ActivityIndicator size="small" color={BLACK} />
-                    ) : (
-                      <>
-                        <Ionicons name="add-circle" size={18} color={BLACK} />
-                        <Text style={avf.submitText}>Save Vehicle</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </Animated.View>
-              )}
+
+              </Animated.View>
 
               {/* Next */}
               <PremiumButton
@@ -810,7 +921,7 @@ export default function BookScreen() {
           )}
 
           {/* ═══════════════════════════════════════════════════
-              STEP 1 — SCHEDULING & DETAILS
+              STEP 1 — SERVICE & SCHEDULE
           ═══════════════════════════════════════════════════ */}
           {step === 1 && (
             <Animated.View
@@ -819,136 +930,175 @@ export default function BookScreen() {
             >
               {/* Header */}
               <View style={ss.stepHeader}>
-                <Text style={ss.stepTitle}>Schedule & Details</Text>
+                <Text style={ss.stepTitle}>Service & Schedule</Text>
                 <Text style={ss.stepSub}>
-                  Choose your preferred date, time, and service.
+                  Choose your service, preferred date, and time slot.
                 </Text>
               </View>
 
-              {/* Service Selection */}
-              <View>
-                <Text style={ss.sectionLabel}>SELECT SERVICE</Text>
-                <View style={{ gap: 10 }}>
-                  {services.map((s) => (
-                    <TouchableOpacity
-                      key={s.id}
-                      activeOpacity={0.85}
-                      onPress={() => {
-                        setSelectedService(s);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                      style={[
-                        sc.card,
-                        selectedService?.id === s.id && sc.cardSelected,
-                      ]}
-                    >
-                      <View style={[sc.iconBox, selectedService?.id === s.id && sc.iconBoxSelected]}>
-                        <Ionicons
-                          name={(s.icon as any) || 'pricetag-outline'}
-                          size={22}
-                          color={selectedService?.id === s.id ? '#fff' : '#666'}
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <View style={sc.nameRow}>
-                          <Text style={sc.name}>{s.name}</Text>
-                          <Text style={sc.tag}>{s.tag}</Text>
-                        </View>
-                        <Text style={sc.desc} numberOfLines={1}>{s.description}</Text>
-                        <View style={sc.meta}>
-                          <Text style={sc.price}>₱{Number(s.price).toLocaleString()}</Text>
-                          <View style={sc.timeRow}>
-                            <Ionicons name="time-outline" size={11} color="#666" />
-                            <Text style={sc.dur}>{s.duration}</Text>
-                          </View>
-                        </View>
-                      </View>
-                      {selectedService?.id === s.id && (
-                        <Ionicons name="checkmark-circle" size={20} color={ACCENT} />
-                      )}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* Date Strip */}
-              <View>
-                <Text style={ss.sectionLabel}>SELECT DATE</Text>
-                <ScrollView
-                  ref={dateScrollRef}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 8, paddingVertical: 4, paddingHorizontal: 2 }}
-                >
-                  {DAYS.map((d) => (
-                    <DayPill
-                      key={d.dateKey}
-                      day={d}
-                      selected={selectedDate === d.dateKey}
-                      onPress={() => {
-                        setSelectedDate(d.dateKey);
-                        Haptics.selectionAsync();
-                      }}
-                    />
-                  ))}
-                </ScrollView>
-                {selectedDate && (
-                  <View style={ss.selectedDateBadge}>
-                    <Ionicons name="calendar-outline" size={13} color={ACCENT} />
-                    <Text style={ss.selectedDateText}>{selectedDate}</Text>
+              {/* ── Section 1: Service Selection — 2-col grid ── */}
+              <Animated.View entering={FadeInDown.delay(100).springify().damping(16).stiffness(120)}>
+                <View style={s1.sectionHeader}>
+                  <View style={s1.sectionIconWrap}>
+                    <Ionicons name="sparkles" size={14} color={ACCENT} />
                   </View>
-                )}
-              </View>
+                  <Text style={ss.sectionLabel}>SELECT SERVICE</Text>
+                </View>
 
-              {/* Time Grid */}
-              {selectedDate && (
-                <Animated.View entering={FadeInDown.springify()}>
-                  <Text style={ss.sectionLabel}>SELECT TIME</Text>
-                  <View style={tg.grid}>
-                    {TIME_SLOTS.map((t) => (
-                      <TouchableOpacity
-                        key={t}
+                <View style={s2.serviceGrid}>
+                  {services.map((s, idx) => {
+                    const isSelected = selectedService?.id === s.id;
+                    return (
+                      <Animated.View
+                        key={s.id}
+                        entering={FadeInDown.delay(120 + idx * 50).springify().damping(16)}
+                        style={s2.serviceGridItem}
+                      >
+                        <TouchableOpacity
+                          activeOpacity={0.85}
+                          onPress={() => {
+                            setSelectedService(s);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          }}
+                          style={[
+                            s2.serviceCard,
+                            isSelected && s2.serviceCardSelected,
+                          ]}
+                        >
+                          {/* Icon */}
+                          <View style={[s2.serviceIconBox, isSelected && s2.serviceIconBoxSelected]}>
+                            <Ionicons
+                              name={(s.icon as any) || 'pricetag-outline'}
+                              size={24}
+                              color={isSelected ? '#fff' : '#8E8E93'}
+                            />
+                          </View>
+
+                          {/* Title + Subtitle */}
+                          <Text style={[s2.serviceName, isSelected && s2.serviceNameSelected]} numberOfLines={1}>
+                            {s.name}
+                          </Text>
+                          <Text style={s2.serviceDesc} numberOfLines={1}>
+                            {s.description || s.duration}
+                          </Text>
+
+                          {/* Price tag */}
+                          <View style={s2.servicePriceRow}>
+                            <Text style={[s2.servicePrice, isSelected && s2.servicePriceSelected]}>
+                              ₱{Number(s.price).toLocaleString()}
+                            </Text>
+                          </View>
+
+                          {/* Selected checkmark */}
+                          {isSelected && (
+                            <View style={s2.serviceCheck}>
+                              <Ionicons name="checkmark-circle" size={20} color={ACCENT} />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      </Animated.View>
+                    );
+                  })}
+                </View>
+              </Animated.View>
+
+              {/* ── Section 2: Smart Calendar ── */}
+              <Animated.View entering={FadeInDown.delay(300).springify().damping(16).stiffness(120)}>
+                <View style={s1.sectionHeader}>
+                  <View style={s1.sectionIconWrap}>
+                    <Ionicons name="calendar" size={14} color={ACCENT} />
+                  </View>
+                  <Text style={ss.sectionLabel}>PREFERRED DATE</Text>
+                </View>
+
+                {/* Horizontal date strip */}
+                <View style={s2.calendarCard}>
+                  <ScrollView
+                    ref={dateScrollRef}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 8, paddingVertical: 4, paddingHorizontal: 4 }}
+                  >
+                    {DAYS.map((d) => (
+                      <DayPill
+                        key={d.dateKey}
+                        day={d}
+                        selected={selectedDate === d.dateKey}
                         onPress={() => {
-                          setSelectedTime(t);
+                          setSelectedDate(d.dateKey);
                           Haptics.selectionAsync();
                         }}
-                        style={[
-                          tg.pill,
-                          selectedTime === t && tg.pillSelected,
-                        ]}
-                      >
-                        <Text style={[tg.text, selectedTime === t && tg.textSelected]}>
-                          {t}
-                        </Text>
-                      </TouchableOpacity>
+                      />
                     ))}
-                  </View>
-                </Animated.View>
-              )}
+                  </ScrollView>
 
-              {/* Contact & Notes */}
-              <View style={{ gap: 12 }}>
-                <Text style={ss.sectionLabel}>CONTACT & NOTES</Text>
-                <PremiumInput
-                  label="PHONE NUMBER (OPTIONAL)"
-                  iconName="call-outline"
-                  placeholder="+63 9xx xxx xxxx"
-                  value={phone}
-                  onChangeText={(t) => { setPhone(t); setPhoneError(''); }}
-                  keyboardType="phone-pad"
-                  error={phoneError}
-                />
-                
-                <PremiumInput
-                  label="SPECIAL INSTRUCTIONS (OPTIONAL)"
-                  iconName="document-text-outline"
-                  placeholder="e.g. Focus on the custom rims..."
-                  value={notes}
-                  onChangeText={setNotes}
-                  multiline
-                  numberOfLines={3}
-                />
-              </View>
+                  {/* Selected date badge */}
+                  {selectedDate && (
+                    <View style={s2.dateBadge}>
+                      <Ionicons name="calendar-outline" size={13} color={ACCENT} />
+                      <Text style={s2.dateBadgeText}>{selectedDate}</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Time slots */}
+                {selectedDate && (
+                  <Animated.View entering={FadeInDown.delay(80).springify().damping(18)}>
+                    <View style={[s1.sectionHeader, { marginTop: 18 }]}>
+                      <View style={s1.sectionIconWrap}>
+                        <Ionicons name="time" size={14} color={ACCENT} />
+                      </View>
+                      <Text style={ss.sectionLabel}>PREFERRED TIME</Text>
+                    </View>
+
+                    <View style={s2.timeGrid}>
+                      {TIME_SLOTS.map((t) => {
+                        const isActive = selectedTime === t;
+                        return (
+                          <TouchableOpacity
+                            key={t}
+                            onPress={() => {
+                              setSelectedTime(t);
+                              Haptics.selectionAsync();
+                            }}
+                            activeOpacity={0.85}
+                            style={[
+                              s2.timePill,
+                              isActive && s2.timePillSelected,
+                            ]}
+                          >
+                            <Text style={[s2.timeText, isActive && s2.timeTextSelected]}>
+                              {t}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </Animated.View>
+                )}
+              </Animated.View>
+
+              {/* ── Section 3: Notes ── */}
+              <Animated.View entering={FadeInDown.delay(400).springify().damping(16).stiffness(120)}>
+                <View style={s1.sectionHeader}>
+                  <View style={s1.sectionIconWrap}>
+                    <Ionicons name="document-text" size={14} color={ACCENT} />
+                  </View>
+                  <Text style={ss.sectionLabel}>NOTES & REQUESTS</Text>
+                </View>
+
+                <View style={s2.notesCard}>
+                  <PremiumInput
+                    label="SPECIAL INSTRUCTIONS (OPTIONAL)"
+                    iconName="document-text-outline"
+                    placeholder="e.g. Focus on the custom rims, tint darkness preference…"
+                    value={notes}
+                    onChangeText={setNotes}
+                    multiline
+                    numberOfLines={3}
+                  />
+                </View>
+              </Animated.View>
 
               {/* Navigation */}
               <View style={ss.btnRow}>
@@ -970,9 +1120,8 @@ export default function BookScreen() {
               </View>
             </Animated.View>
           )}
-
           {/* ═══════════════════════════════════════════════════
-              STEP 2 — PRE-CONFIRMATION WARNING
+              STEP 2 — REVIEW & PAYMENT PROOF
           ═══════════════════════════════════════════════════ */}
           {step === 2 && (
             <Animated.View
@@ -980,69 +1129,240 @@ export default function BookScreen() {
               style={ss.stepWrap}
             >
               <View style={ss.stepHeader}>
-                <Text style={ss.stepTitle}>Before You Confirm</Text>
-                <Text style={ss.stepSub}>Please review the following before proceeding.</Text>
+                <Text style={ss.stepTitle}>Review & Payment</Text>
+                <Text style={ss.stepSub}>Review your booking details and upload payment proof.</Text>
               </View>
 
-              {/* Notice Card */}
-              <View style={warn.card}>
-                <LinearGradient
-                  colors={['rgba(255,107,53,0.12)', 'rgba(255,107,53,0.04)']}
-                  style={warn.gradient}
-                >
-                  <View style={warn.iconWrap}>
-                    <Ionicons name="information-circle" size={32} color={ACCENT} />
+              {/* ── Section 1: Booking Summary ── */}
+              <Animated.View entering={FadeInDown.delay(100).springify().damping(16).stiffness(120)}>
+                <View style={s1.sectionHeader}>
+                  <View style={s1.sectionIconWrap}>
+                    <Ionicons name="receipt" size={14} color={ACCENT} />
                   </View>
-                  <Text style={warn.title}>Service Package Booking</Text>
-                  <Text style={warn.body}>
-                    Select a service package and schedule your appointment.
-                  </Text>
+                  <Text style={ss.sectionLabel}>BOOKING SUMMARY</Text>
+                </View>
 
-                  <View style={warn.divider} />
+                <View style={s3.summaryCard}>
+                  {/* Card header band */}
+                  <LinearGradient
+                    colors={[ACCENT, ACCENT_DARK]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={s3.summaryHeader}
+                  >
+                    <Ionicons name="car-sport" size={16} color="#fff" />
+                    <Text style={s3.summaryHeaderText}>APPOINTMENT DETAILS</Text>
+                  </LinearGradient>
 
-                  {[
-                    { icon: 'cash-outline', text: 'Payment is collected on-site. No upfront payment required.' },
-                    { icon: 'checkmark-circle-outline', text: 'Please review all booking details carefully before proceeding.' },
-                    { icon: 'time-outline', text: 'Arrive 15 minutes before your scheduled time to avoid cancellation.' },
-                    { icon: 'card-outline', text: 'We accept Cash and GCash payments on-site.' },
-                  ].map((item, i) => (
-                    <View key={i} style={warn.row}>
-                      <View style={warn.rowIcon}>
-                        <Ionicons name={item.icon as any} size={16} color={ACCENT} />
-                      </View>
-                      <Text style={warn.rowText}>{item.text}</Text>
+                  <View style={s3.summaryBody}>
+                    {[
+                      { icon: 'person-outline', label: 'Customer', value: customerName.trim() || '—' },
+                      { icon: 'call-outline', label: 'Contact', value: contactNumber.trim() || '—' },
+                      { icon: 'car-outline', label: 'Vehicle', value: selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : '—' },
+                      { icon: 'barcode-outline', label: 'Plate No.', value: selectedVehicle?.plateNumber?.toUpperCase() || '—' },
+                      { icon: 'sparkles-outline', label: 'Service', value: selectedService?.name || '—' },
+                      { icon: 'calendar-outline', label: 'Date', value: selectedDate || '—' },
+                      { icon: 'time-outline', label: 'Time', value: selectedTime || '—' },
+                    ].map((item, i) => (
+                      <React.Fragment key={i}>
+                        <View style={s3.summaryRow}>
+                          <View style={s3.summaryRowLeft}>
+                            <Ionicons name={item.icon as any} size={15} color="#666" />
+                            <Text style={s3.summaryLabel}>{item.label}</Text>
+                          </View>
+                          <Text style={s3.summaryValue} numberOfLines={1}>{item.value}</Text>
+                        </View>
+                        {i < 6 && <View style={s3.summaryDivider} />}
+                      </React.Fragment>
+                    ))}
+
+                    {/* Notes if present */}
+                    {notes.trim() !== '' && (
+                      <>
+                        <View style={s3.summaryDivider} />
+                        <View style={[s3.summaryRow, { alignItems: 'flex-start' }]}>
+                          <View style={[s3.summaryRowLeft, { marginTop: 2 }]}>
+                            <Ionicons name="document-text-outline" size={15} color="#666" />
+                            <Text style={s3.summaryLabel}>Notes</Text>
+                          </View>
+                          <Text style={[s3.summaryValue, { flex: 1, textAlign: 'right' }]} numberOfLines={3}>
+                            {notes}
+                          </Text>
+                        </View>
+                      </>
+                    )}
+
+                    {/* Total */}
+                    <View style={s3.totalRow}>
+                      <Text style={s3.totalLabel}>TOTAL AMOUNT</Text>
+                      <Text style={s3.totalValue}>
+                        ₱{Number(selectedService?.price || 0).toLocaleString()}
+                      </Text>
                     </View>
-                  ))}
-                </LinearGradient>
-              </View>
-
-              {/* Quick Summary Preview */}
-              <View style={warn.summaryPreview}>
-                <Text style={warn.previewTitle}>YOUR BOOKING SUMMARY</Text>
-                <View style={{ gap: 8 }}>
-                  <View style={warn.previewRow}>
-                    <Text style={warn.previewLabel}>Vehicle</Text>
-                    <Text style={warn.previewVal}>
-                      {selectedVehicle
-                        ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
-                        : '—'}
-                    </Text>
-                  </View>
-                  <View style={warn.previewRow}>
-                    <Text style={warn.previewLabel}>Service</Text>
-                    <Text style={warn.previewVal}>{selectedService?.name || '—'}</Text>
-                  </View>
-                  <View style={warn.previewRow}>
-                    <Text style={warn.previewLabel}>Date</Text>
-                    <Text style={warn.previewVal}>{selectedDate || '—'}</Text>
-                  </View>
-                  <View style={warn.previewRow}>
-                    <Text style={warn.previewLabel}>Time</Text>
-                    <Text style={warn.previewVal}>{selectedTime || '—'}</Text>
                   </View>
                 </View>
-              </View>
+              </Animated.View>
 
+              {/* ── Section 2: Booking Reference ── */}
+              <Animated.View entering={FadeInDown.delay(200).springify().damping(16).stiffness(120)}>
+                <View style={s1.sectionHeader}>
+                  <View style={s1.sectionIconWrap}>
+                    <Ionicons name="bookmark" size={14} color={ACCENT} />
+                  </View>
+                  <Text style={ss.sectionLabel}>BOOKING REFERENCE</Text>
+                </View>
+
+                <View style={s3.refCard}>
+                  <View style={s3.refIconWrap}>
+                    <Ionicons name="qr-code-outline" size={28} color={ACCENT} />
+                  </View>
+                  <Text style={s3.refCode}>{previewBookingRef}</Text>
+                  <Text style={s3.refHint}>
+                    Your official reference will be generated upon confirmation
+                  </Text>
+                </View>
+              </Animated.View>
+
+              {/* ── Section 3: GCash Downpayment Upload ── */}
+              <Animated.View entering={FadeInDown.delay(300).springify().damping(16).stiffness(120)}>
+                <View style={s1.sectionHeader}>
+                  <View style={s1.sectionIconWrap}>
+                    <Ionicons name="card" size={14} color={ACCENT} />
+                  </View>
+                  <Text style={ss.sectionLabel}>GCASH DOWNPAYMENT (OPTIONAL)</Text>
+                </View>
+
+                <View style={s3.uploadCard}>
+                  {downpaymentProof ? (
+                    /* Preview uploaded image */
+                    <Animated.View entering={FadeInDown.springify().damping(18)} style={s3.previewWrap}>
+                      <Image
+                        source={{ uri: downpaymentProof }}
+                        style={s3.previewImage}
+                        resizeMode="contain"
+                      />
+                      <View style={s3.previewActions}>
+                        <TouchableOpacity
+                          style={s3.previewActionBtn}
+                          activeOpacity={0.8}
+                          onPress={async () => {
+                            const result = await ImagePicker.launchImageLibraryAsync({
+                              mediaTypes: ['images'],
+                              allowsEditing: true,
+                              quality: 0.7,
+                              base64: true,
+                            });
+                            if (!result.canceled && result.assets[0]?.base64) {
+                              const mime = result.assets[0].mimeType || 'image/jpeg';
+                              setDownpaymentProof(`data:${mime};base64,${result.assets[0].base64}`);
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            }
+                          }}
+                        >
+                          <Ionicons name="swap-horizontal" size={16} color={ACCENT} />
+                          <Text style={s3.previewActionText}>Replace</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[s3.previewActionBtn, { borderColor: '#FF4444' }]}
+                          activeOpacity={0.8}
+                          onPress={() => {
+                            setDownpaymentProof(null);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }}
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#FF4444" />
+                          <Text style={[s3.previewActionText, { color: '#FF4444' }]}>Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </Animated.View>
+                  ) : (
+                    /* Upload buttons */
+                    <View style={s3.uploadContent}>
+                      <View style={s3.uploadIconWrap}>
+                        <Ionicons name="cloud-upload-outline" size={36} color="#555" />
+                      </View>
+                      <Text style={s3.uploadTitle}>Upload Payment Screenshot</Text>
+                      <Text style={s3.uploadSubtitle}>GCash receipt or payment confirmation</Text>
+                      <View style={s3.uploadBtnRow}>
+                        <TouchableOpacity
+                          style={s3.uploadBtn}
+                          activeOpacity={0.85}
+                          onPress={async () => {
+                            const result = await ImagePicker.launchImageLibraryAsync({
+                              mediaTypes: ['images'],
+                              allowsEditing: true,
+                              quality: 0.7,
+                              base64: true,
+                            });
+                            if (!result.canceled && result.assets[0]?.base64) {
+                              const mime = result.assets[0].mimeType || 'image/jpeg';
+                              setDownpaymentProof(`data:${mime};base64,${result.assets[0].base64}`);
+                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            }
+                          }}
+                        >
+                          <Ionicons name="images-outline" size={18} color={BLACK} />
+                          <Text style={s3.uploadBtnText}>Gallery</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[s3.uploadBtn, s3.uploadBtnOutline]}
+                          activeOpacity={0.85}
+                          onPress={async () => {
+                            const perms = await ImagePicker.requestCameraPermissionsAsync();
+                            if (!perms.granted) {
+                              Alert.alert('Permission Required', 'Camera access is needed to take a photo.');
+                              return;
+                            }
+                            const result = await ImagePicker.launchCameraAsync({
+                              allowsEditing: true,
+                              quality: 0.7,
+                              base64: true,
+                            });
+                            if (!result.canceled && result.assets[0]?.base64) {
+                              const mime = result.assets[0].mimeType || 'image/jpeg';
+                              setDownpaymentProof(`data:${mime};base64,${result.assets[0].base64}`);
+                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            }
+                          }}
+                        >
+                          <Ionicons name="camera-outline" size={18} color={ACCENT} />
+                          <Text style={[s3.uploadBtnText, { color: ACCENT }]}>Camera</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              </Animated.View>
+
+              {/* ── Section 4: Disclaimer ── */}
+              <Animated.View entering={FadeInDown.delay(400).springify().damping(16).stiffness(120)}>
+                <View style={s3.disclaimerCard}>
+                  <LinearGradient
+                    colors={['rgba(255,107,53,0.10)', 'rgba(255,107,53,0.03)']}
+                    style={s3.disclaimerGradient}
+                  >
+                    <View style={{ alignItems: 'center' }}>
+                      <Ionicons name="shield-checkmark" size={28} color={ACCENT} />
+                    </View>
+                    <View style={s3.disclaimerDivider} />
+                    {[
+                      { icon: 'calendar-outline', text: 'Your booking schedule may be adjusted based on shop availability.' },
+                      { icon: 'card-outline', text: 'GCash downpayment is recommended to secure your slot.' },
+                      { icon: 'ban-outline', text: 'Double bookings are not allowed. One slot per customer.' },
+                      { icon: 'checkmark-done-outline', text: 'Confirmation is subject to admin review and approval.' },
+                    ].map((item, i) => (
+                      <View key={i} style={s3.disclaimerRow}>
+                        <View style={s3.disclaimerRowIcon}>
+                          <Ionicons name={item.icon as any} size={15} color={ACCENT} />
+                        </View>
+                        <Text style={s3.disclaimerRowText}>{item.text}</Text>
+                      </View>
+                    ))}
+                  </LinearGradient>
+                </View>
+              </Animated.View>
+
+              {/* Navigation */}
               <View style={ss.btnRow}>
                 <PremiumButton
                   title="Back"
@@ -1061,9 +1381,8 @@ export default function BookScreen() {
               </View>
             </Animated.View>
           )}
-
           {/* ═══════════════════════════════════════════════════
-              STEP 3 — BOOKING CONFIRMATION
+              STEP 3 — FINAL CONFIRMATION
           ═══════════════════════════════════════════════════ */}
           {step === 3 && (
             <Animated.View
@@ -1072,119 +1391,84 @@ export default function BookScreen() {
             >
               {/* Header */}
               <View style={ss.stepHeader}>
-                <Text style={[ss.stepTitle, { fontSize: 26 }]}>Booking Confirmation</Text>
+                <Text style={[ss.stepTitle, { fontSize: 24 }]}>Confirm Booking</Text>
                 <Text style={ss.stepSub}>
-                  Your appointment is almost set. Please review and confirm.
+                  Your appointment is almost set. Tap confirm to submit.
                 </Text>
               </View>
 
-              {/* Premium Summary Card */}
-              <View style={conf.card}>
-                {/* Card header band */}
-                <LinearGradient
-                  colors={[ACCENT, ACCENT_DARK]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={conf.cardHeader}
-                >
-                  <Ionicons name="car-sport" size={18} color="#fff" />
-                  <Text style={conf.cardHeaderText}>APPOINTMENT DETAILS</Text>
-                </LinearGradient>
-
-                <View style={conf.cardBody}>
-                  {/* Vehicle row */}
-                  {selectedVehicle && (
-                    <>
-                      <View style={conf.row}>
-                        <View style={conf.rowLeft}>
-                          <Ionicons name="car-outline" size={15} color="#666" />
-                          <Text style={conf.rowLabel}>Vehicle</Text>
-                        </View>
-                        <Text style={conf.rowVal}>
-                          {selectedVehicle.year} {selectedVehicle.make} {selectedVehicle.model}
-                        </Text>
-                      </View>
-                      <View style={conf.divider} />
-                    </>
-                  )}
-
-                  {/* Service */}
-                  <View style={conf.row}>
-                    <View style={conf.rowLeft}>
-                      <Ionicons name="sparkles-outline" size={15} color="#666" />
-                      <Text style={conf.rowLabel}>Service</Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end', flex: 1 }}>
-                      <Text style={conf.rowVal}>{selectedService?.name}</Text>
-                      <Text style={conf.rowSub}>{selectedService?.duration}</Text>
-                    </View>
-                  </View>
-                  <View style={conf.divider} />
-
-                  {/* Date & Time */}
-                  <View style={conf.row}>
-                    <View style={conf.rowLeft}>
-                      <Ionicons name="calendar-outline" size={15} color="#666" />
-                      <Text style={conf.rowLabel}>Date & Time</Text>
-                    </View>
-                    <Text style={conf.rowVal}>
-                      {selectedDate} at {selectedTime}
-                    </Text>
-                  </View>
-                  <View style={conf.divider} />
-
-                  {/* Phone */}
-                  {phone.trim() !== '' && (
-                    <>
-                      <View style={conf.row}>
-                        <View style={conf.rowLeft}>
-                          <Ionicons name="call-outline" size={15} color="#666" />
-                          <Text style={conf.rowLabel}>Contact</Text>
-                        </View>
-                        <Text style={conf.rowVal}>{phone}</Text>
-                      </View>
-                      <View style={conf.divider} />
-                    </>
-                  )}
-
-                  {/* Notes */}
-                  {notes.trim() !== '' && (
-                    <>
-                      <View style={[conf.row, { alignItems: 'flex-start' }]}>
-                        <View style={[conf.rowLeft, { marginTop: 2 }]}>
-                          <Ionicons name="document-text-outline" size={15} color="#666" />
-                          <Text style={conf.rowLabel}>Notes</Text>
-                        </View>
-                        <Text style={[conf.rowVal, { flex: 1, textAlign: 'right' }]} numberOfLines={3}>
-                          {notes}
-                        </Text>
-                      </View>
-                      <View style={conf.divider} />
-                    </>
-                  )}
-
-                  {/* Total Amount */}
-                  <View style={conf.totalRow}>
-                    <Text style={conf.totalLabel}>TOTAL AMOUNT</Text>
-                    <Text style={conf.totalVal}>
-                      ₱{Number(selectedService?.price).toLocaleString()}
-                    </Text>
+              {/* Booking Reference */}
+              <Animated.View entering={FadeInDown.delay(100).springify().damping(16)}>
+                <View style={s4.confirmRefCard}>
+                  <Ionicons name="bookmark" size={18} color={ACCENT} />
+                  <View>
+                    <Text style={s4.confirmRefLabel}>BOOKING REFERENCE</Text>
+                    <Text style={s4.confirmRefCode}>{previewBookingRef}</Text>
                   </View>
                 </View>
-              </View>
+              </Animated.View>
 
-              {/* Important Notice */}
-              <View style={conf.notice}>
-                <Ionicons name="warning-outline" size={18} color={ACCENT} style={{ marginTop: 1 }} />
-                <Text style={conf.noticeText}>
-                  <Text style={{ fontWeight: '700', color: '#fff' }}>Note: </Text>
-                  To avoid cancellation, please arrive{' '}
-                  <Text style={{ color: ACCENT, fontWeight: '700' }}>15 minutes</Text>
-                  {' '}before your scheduled time.{'\n'}
-                  Payment will be collected strictly on-site via{' '}
-                  <Text style={{ color: ACCENT, fontWeight: '700' }}>Cash or GCash</Text>.
-                </Text>
-              </View>
+              {/* Compact Summary */}
+              <Animated.View entering={FadeInDown.delay(200).springify().damping(16)}>
+                <View style={s4.confirmCard}>
+                  <LinearGradient
+                    colors={[ACCENT, ACCENT_DARK]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={s4.confirmCardHeader}
+                  >
+                    <Ionicons name="car-sport" size={16} color="#fff" />
+                    <Text style={s4.confirmCardHeaderText}>APPOINTMENT DETAILS</Text>
+                  </LinearGradient>
+
+                  <View style={s4.confirmCardBody}>
+                    {[
+                      { icon: 'person-outline', label: 'Customer', value: customerName || '—' },
+                      { icon: 'car-outline', label: 'Vehicle', value: selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : '—' },
+                      { icon: 'sparkles-outline', label: 'Service', value: selectedService?.name || '—' },
+                      { icon: 'calendar-outline', label: 'Schedule', value: `${selectedDate} • ${selectedTime}` },
+                    ].map((item, i, arr) => (
+                      <React.Fragment key={i}>
+                        <View style={s4.confirmRow}>
+                          <Ionicons name={item.icon as any} size={14} color="#555" />
+                          <Text style={s4.confirmLabel}>{item.label}</Text>
+                          <Text style={s4.confirmVal} numberOfLines={1}>{item.value}</Text>
+                        </View>
+                        {i < arr.length - 1 && <View style={s4.confirmDivider} />}
+                      </React.Fragment>
+                    ))}
+
+                    {/* Total */}
+                    <View style={s4.confirmTotalRow}>
+                      <Text style={s4.confirmTotalLabel}>TOTAL</Text>
+                      <Text style={s4.confirmTotalVal}>
+                        ₱{Number(selectedService?.price || 0).toLocaleString()}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </Animated.View>
+
+              {/* Downpayment badge */}
+              {downpaymentProof && (
+                <Animated.View entering={FadeInDown.delay(250).springify().damping(16)}>
+                  <View style={s4.paymentBadge}>
+                    <Ionicons name="checkmark-circle" size={18} color="#34C759" />
+                    <Text style={s4.paymentBadgeText}>GCash proof attached</Text>
+                  </View>
+                </Animated.View>
+              )}
+
+              {/* Notice */}
+              <Animated.View entering={FadeInDown.delay(300).springify().damping(16)}>
+                <View style={s4.noticeBar}>
+                  <Ionicons name="information-circle" size={18} color={ACCENT} />
+                  <Text style={s4.noticeBarText}>
+                    By confirming, you agree to the booking terms. Arrive{' '}
+                    <Text style={{ color: ACCENT, fontWeight: '700' }}>15 min early</Text>.
+                  </Text>
+                </View>
+              </Animated.View>
 
               {/* Actions */}
               <View style={ss.btnRow}>
@@ -1196,19 +1480,18 @@ export default function BookScreen() {
                   fullWidth={false}
                   disabled={isSubmitting}
                 />
-                {/* Custom CTA — deep black text on orange */}
                 <TouchableOpacity
                   activeOpacity={0.88}
                   disabled={isSubmitting}
                   onPress={handleConfirm}
-                  style={[conf.confirmBtn, isSubmitting && { opacity: 0.6 }, { flex: 2 }]}
+                  style={[s4.confirmBtn, isSubmitting && { opacity: 0.6 }, { flex: 2 }]}
                 >
                   {isSubmitting ? (
                     <ActivityIndicator size="small" color={BLACK} />
                   ) : (
                     <>
-                      <Ionicons name="checkmark-circle-outline" size={18} color={BLACK} />
-                      <Text style={conf.confirmBtnText}>Confirm Payment</Text>
+                      <Ionicons name="checkmark-circle" size={18} color={BLACK} />
+                      <Text style={s4.confirmBtnText}>Confirm Booking</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -1272,9 +1555,11 @@ const ss = StyleSheet.create({
   greetingName: { fontSize: 20, fontWeight: '800', color: '#fff', marginTop: 2 },
   
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#8A8A9A',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
     marginBottom: 14,
     paddingLeft: 4,
   },
@@ -1350,11 +1635,11 @@ const ss = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: 'rgba(255,107,53,0.07)',
+    backgroundColor: 'rgba(255,107,53,0.1)',
     borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,107,53,0.25)',
-    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: 'rgba(255,107,53,0.3)',
+    borderStyle: 'solid',
     paddingVertical: 14,
     paddingHorizontal: 16,
   },
@@ -1364,208 +1649,761 @@ const ss = StyleSheet.create({
     fontWeight: '700',
     color: ACCENT,
   },
-
-  // Success
-  successCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
-  successContent: { alignItems: 'center', gap: 16, width: '100%' },
-  successIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  successTitle: { fontSize: 26, fontWeight: '800', color: '#fff', textAlign: 'center' },
-  successSub: { fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 21, marginBottom: 8 },
 });
 
-/** Service card */
-const sc = StyleSheet.create({
-  card: {
+/** Step 1 — Service & Schedule premium styles */
+const s2 = StyleSheet.create({
+  /* ── 2-Column Service Grid ── */
+  serviceGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: SURFACE,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: BORDER,
-    padding: 13,
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  cardSelected: {
-    borderColor: ACCENT,
-    backgroundColor: 'rgba(255,107,53,0.07)',
+  serviceGridItem: {
+    width: '48%',
   },
-  iconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1A1A22',
-  },
-  iconBoxSelected: { backgroundColor: ACCENT },
-  nameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  name: { fontSize: 14, fontWeight: '700', color: '#fff', flex: 1 },
-  tag: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: ACCENT,
-    backgroundColor: 'rgba(255,107,53,0.12)',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    letterSpacing: 0.8,
-    overflow: 'hidden',
-  },
-  desc: { fontSize: 11, color: '#666', marginTop: 2 },
-  meta: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
-  price: { fontSize: 16, fontWeight: '800', color: ACCENT },
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  dur: { fontSize: 11, color: '#666' },
-});
-
-/** Time grid */
-const tg = StyleSheet.create({
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  pill: {
-    width: '30.5%',
-    paddingVertical: 11,
-    alignItems: 'center',
-    borderRadius: 11,
-    backgroundColor: SURFACE,
-    borderWidth: 1.5,
-    borderColor: BORDER,
-  },
-  pillSelected: {
-    backgroundColor: ACCENT,
-    borderColor: ACCENT,
-  },
-  text: { fontSize: 13, fontWeight: '600', color: '#aaa' },
-  textSelected: { color: BLACK, fontWeight: '800' },
-});
-
-/** Warning / pre-confirm screen */
-const warn = StyleSheet.create({
-  card: {
+  serviceCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderRadius: 18,
-    overflow: 'hidden',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,107,53,0.25)',
-  },
-  gradient: { padding: 20, gap: 14 },
-  iconWrap: { alignItems: 'center' },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#fff',
-    textAlign: 'center',
-  },
-  body: {
-    fontSize: 13,
-    color: '#aaa',
-    textAlign: 'center',
-    lineHeight: 19,
-  },
-  divider: { height: 1, backgroundColor: 'rgba(255,107,53,0.15)' },
-  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  rowIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
-    backgroundColor: 'rgba(255,107,53,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  rowText: { flex: 1, fontSize: 13, color: '#ccc', lineHeight: 19 },
-  summaryPreview: {
-    backgroundColor: SURFACE,
-    borderRadius: 14,
-    borderWidth: 1,
     borderColor: BORDER,
     padding: 16,
-    gap: 12,
+    alignItems: 'center',
+    gap: 8,
+    position: 'relative',
+    minHeight: 150,
+    justifyContent: 'center',
   },
-  previewTitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-    color: '#555',
-    marginBottom: 2,
-  },
-  previewRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  previewLabel: { fontSize: 13, color: '#666' },
-  previewVal: { fontSize: 13, fontWeight: '600', color: '#ccc', textAlign: 'right', flex: 1, marginLeft: 12 },
-});
-
-/** Confirmation step */
-const conf = StyleSheet.create({
-  card: {
-    borderRadius: 18,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: SURFACE,
+  serviceCardSelected: {
+    borderColor: ACCENT,
+    backgroundColor: 'rgba(255, 107, 53, 0.08)',
     ...Platform.select({
       ios: {
         shadowColor: ACCENT,
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.18,
-        shadowRadius: 20,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.35,
+        shadowRadius: 12,
       },
-      android: { elevation: 8 },
+      android: { elevation: 6 },
     }),
   },
-  cardHeader: {
+  serviceIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1A1A22',
+    borderWidth: 1,
+    borderColor: '#2A2A32',
+    marginBottom: 4,
+  },
+  serviceIconBoxSelected: {
+    backgroundColor: ACCENT,
+    borderColor: ACCENT,
+  },
+  serviceName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    letterSpacing: 0.2,
+  },
+  serviceNameSelected: {
+    color: '#FFFFFF',
+  },
+  serviceDesc: {
+    fontSize: 10,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  servicePriceRow: {
+    marginTop: 2,
+  },
+  servicePrice: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#8E8E93',
+    textAlign: 'center',
+  },
+  servicePriceSelected: {
+    color: ACCENT,
+  },
+  serviceCheck: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: BLACK,
+    borderRadius: 10,
+    padding: 1,
+  },
+
+  /* ── Calendar Card ── */
+  calendarCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 12,
+  },
+  dateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    backgroundColor: 'rgba(255, 107, 53, 0.1)',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.3)',
+  },
+  dateBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: ACCENT,
+  },
+
+  /* ── Time Grid ── */
+  timeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  timePill: {
+    width: '30.5%',
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1.5,
+    borderColor: BORDER,
+  },
+  timePillSelected: {
+    backgroundColor: ACCENT,
+    borderColor: ACCENT,
+    ...Platform.select({
+      ios: {
+        shadowColor: ACCENT,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.4,
+        shadowRadius: 10,
+      },
+      android: { elevation: 4 },
+    }),
+  },
+  timeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#8E8E93',
+  },
+  timeTextSelected: {
+    color: BLACK,
+    fontWeight: '800',
+  },
+
+  /* ── Notes Card ── */
+  notesCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
+  },
+});
+
+/** Step 2 — Review & Payment premium styles */
+const s3 = StyleSheet.create({
+  /* ── Summary Card ── */
+  summaryCard: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  summaryHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 13,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
-  cardHeaderText: {
+  summaryHeaderText: {
     fontSize: 11,
     fontWeight: '800',
     color: '#fff',
     letterSpacing: 1.5,
   },
-  cardBody: { padding: 18, gap: 0 },
-  row: {
+  summaryBody: {
+    padding: 16,
+    gap: 0,
+  },
+  summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
-  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  rowLabel: { fontSize: 13, color: '#777' },
-  rowVal: { fontSize: 13, fontWeight: '700', color: '#fff', textAlign: 'right' },
-  rowSub: { fontSize: 11, color: '#666', marginTop: 2, textAlign: 'right' },
-  divider: { height: 1, backgroundColor: '#1E1E26' },
+  summaryRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  summaryLabel: {
+    fontSize: 13,
+    color: '#666',
+  },
+  summaryValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#ddd',
+    maxWidth: '55%',
+    textAlign: 'right',
+  },
+  summaryDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#222',
+  },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 14,
-    marginTop: 2,
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#1E1E26',
+    borderTopColor: 'rgba(255, 107, 53, 0.2)',
   },
-  totalLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 1.4, color: '#666' },
-  totalVal: { fontSize: 24, fontWeight: '900', color: ACCENT },
+  totalLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: '#888',
+  },
+  totalValue: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: ACCENT,
+  },
 
-  notice: {
+  /* ── Booking Reference Card ── */
+  refCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 20,
+    alignItems: 'center',
+    gap: 8,
+  },
+  refIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 107, 53, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  refCode: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: ACCENT,
+    letterSpacing: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  refHint: {
+    fontSize: 11,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 16,
+    maxWidth: 220,
+  },
+
+  /* ── Upload Card ── */
+  uploadCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
+    overflow: 'hidden',
+  },
+  uploadContent: {
+    padding: 24,
+    alignItems: 'center',
+    gap: 8,
+  },
+  uploadIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1.5,
+    borderColor: '#2A2A32',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  uploadTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  uploadSubtitle: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 8,
+  },
+  uploadBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  uploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: ACCENT,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+  },
+  uploadBtnOutline: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: ACCENT,
+  },
+  uploadBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: BLACK,
+  },
+
+  /* ── Image Preview ── */
+  previewWrap: {
+    padding: 12,
+    gap: 10,
+  },
+  previewImage: {
+    width: '100%',
+    height: 220,
+    borderRadius: 14,
+    backgroundColor: '#111',
+  },
+  previewActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  previewActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: ACCENT,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  previewActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: ACCENT,
+  },
+
+  /* ── Disclaimer Card ── */
+  disclaimerCard: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.2)',
+  },
+  disclaimerGradient: {
+    padding: 20,
+    gap: 12,
+  },
+  disclaimerDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 107, 53, 0.12)',
+  },
+  disclaimerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  disclaimerRowIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 107, 53, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  disclaimerRowText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#aaa',
+    lineHeight: 18,
+  },
+});
+
+/** Step 3 / Success — Confirmation & Workflow Tracker styles */
+const s4 = StyleSheet.create({
+  /* ══════════════════════════════════════
+     SUCCESS HERO
+  ══════════════════════════════════════ */
+  heroWrap: {
+    alignItems: 'center',
+    paddingTop: 32,
+    paddingBottom: 20,
+    paddingHorizontal: 24,
+    position: 'relative',
+  },
+  heroBg: {
+    ...StyleSheet.absoluteFillObject,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+  },
+  heroIconWrap: {
+    marginBottom: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: ACCENT,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.5,
+        shadowRadius: 24,
+      },
+      android: { elevation: 12 },
+    }),
+  },
+  heroIcon: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroTitle: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#fff',
+    textAlign: 'center',
+    letterSpacing: 0.3,
+    marginBottom: 4,
+  },
+  heroSub: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 12,
+  },
+  heroRefBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 107, 53, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.35)',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  heroRefText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: ACCENT,
+    letterSpacing: 1.5,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+
+  /* ══════════════════════════════════════
+     QUICK SUMMARY
+  ══════════════════════════════════════ */
+  sectionPad: { paddingHorizontal: 18, marginTop: 16 },
+  quickCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
+  },
+  quickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  quickLabel: { fontSize: 13, color: '#666' },
+  quickVal: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#ddd',
+    textAlign: 'right',
+  },
+  quickDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#222',
+  },
+
+  /* ══════════════════════════════════════
+     WORKFLOW TIMELINE TRACKER
+  ══════════════════════════════════════ */
+  trackerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  trackerIconWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 107, 53, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trackerTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    color: '#666',
+  },
+  trackerCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
+    paddingLeft: 8,
+  },
+  timelineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 48,
+  },
+  timelineLeft: {
+    width: 40,
+    alignItems: 'center',
+  },
+  timelineLine: {
+    width: 2,
+    flex: 1,
+    backgroundColor: '#222',
+    minHeight: 10,
+  },
+  timelineLineActive: {
+    backgroundColor: ACCENT,
+  },
+  timelineDot: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 2,
+  },
+  timelineDotActive: {
+    backgroundColor: ACCENT,
+    ...Platform.select({
+      ios: {
+        shadowColor: ACCENT,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.5,
+        shadowRadius: 8,
+      },
+      android: { elevation: 4 },
+    }),
+  },
+  timelineDotInactive: {
+    backgroundColor: '#1A1A22',
+    borderWidth: 1.5,
+    borderColor: '#2A2A32',
+  },
+  timelineContent: {
+    flex: 1,
+    paddingLeft: 10,
+  },
+  timelineLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#555',
+  },
+  timelineLabelActive: {
+    color: '#fff',
+    fontWeight: '800',
+  },
+  timelineTs: {
+    fontSize: 11,
+    color: '#444',
+    marginTop: 1,
+  },
+  timelineBadge: {
+    backgroundColor: 'rgba(255, 107, 53, 0.15)',
+    borderRadius: 6,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.3)',
+  },
+  timelineBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: ACCENT,
+    letterSpacing: 1,
+  },
+
+  /* ══════════════════════════════════════
+     DASHBOARD BUTTON
+  ══════════════════════════════════════ */
+  dashboardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2A2A32',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  dashboardBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#888',
+  },
+
+  /* ══════════════════════════════════════
+     CONFIRM STEP (Step 3 wizard)
+  ══════════════════════════════════════ */
+  confirmRefCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(255, 107, 53, 0.08)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.25)',
+    padding: 14,
+  },
+  confirmRefLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: '#666',
+  },
+  confirmRefCode: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: ACCENT,
+    letterSpacing: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    marginTop: 1,
+  },
+  confirmCard: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  confirmCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  confirmCardHeaderText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: 1.5,
+  },
+  confirmCardBody: {
+    padding: 16,
+    gap: 0,
+  },
+  confirmRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+  },
+  confirmLabel: {
+    fontSize: 13,
+    color: '#666',
+  },
+  confirmVal: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#ddd',
+    textAlign: 'right',
+  },
+  confirmDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#222',
+  },
+  confirmTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 107, 53, 0.2)',
+  },
+  confirmTotalLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: '#888',
+  },
+  confirmTotalVal: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: ACCENT,
+  },
+  paymentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(52, 199, 89, 0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 199, 89, 0.25)',
+    padding: 12,
+  },
+  paymentBadgeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#34C759',
+  },
+  noticeBar: {
     flexDirection: 'row',
     gap: 10,
     alignItems: 'flex-start',
-    backgroundColor: 'rgba(255,107,53,0.08)',
+    backgroundColor: 'rgba(255, 107, 53, 0.06)',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.2)',
+    borderColor: 'rgba(255, 107, 53, 0.18)',
     padding: 14,
   },
-  noticeText: { flex: 1, fontSize: 12.5, color: '#bbb', lineHeight: 20 },
-
+  noticeBarText: {
+    flex: 1,
+    fontSize: 12.5,
+    color: '#aaa',
+    lineHeight: 19,
+  },
   confirmBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1667,5 +2505,42 @@ const avf = StyleSheet.create({
     fontWeight: '800',
     color: BLACK,
     letterSpacing: 0.3,
+  },
+});
+
+/** Step 0 — Customer & Vehicle Info glassmorphism styles */
+const s1 = StyleSheet.create({
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  sectionIconWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 107, 53, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glassCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.2)',
+    padding: 18,
+    gap: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: ACCENT,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 16,
+      },
+      android: { elevation: 2 },
+    }),
   },
 });

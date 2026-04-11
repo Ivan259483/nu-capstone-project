@@ -29,4 +29,8 @@ export const vehicleService = {
     const response = await apiClient.post<ApiEnvelope<any>>('/customers/vehicles', params);
     return toVehicle(response.data.data);
   },
+
+  async deleteVehicle(vehicleId: string): Promise<void> {
+    await apiClient.delete(`/customers/vehicles/${vehicleId}`);
+  },
 };

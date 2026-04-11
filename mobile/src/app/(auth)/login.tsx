@@ -92,11 +92,11 @@ export default function LoginScreen() {
       }
       router.replace('/');
     } else {
-      // If rate-limited, enforce a 30-second cooldown to prevent further abuse
-      if (result.message?.toLowerCase().includes('too many')) {
+      // If rate-limited or locked, enforce a 30-second cooldown locally
+      if (result.message?.toLowerCase().includes('too many') || result.message?.toLowerCase().includes('locked')) {
         setCooldown(30);
       }
-      Toast.show(result.message || 'Invalid credentials.', 'error');
+      Alert.alert('Login Failed', result.message || 'Invalid credentials. Please try again.', [{ text: 'OK' }]);
     }
     setLoading(false);
   }
@@ -195,7 +195,13 @@ export default function LoginScreen() {
 
             {/* Forgot Password */}
             <Animated.View entering={FadeInUp.delay(500).springify().damping(16).stiffness(120)}>
-              <TouchableOpacity style={{ alignSelf: 'flex-end', marginTop: 16 }} onPress={triggerHapticSelection}>
+              <TouchableOpacity
+                style={{ alignSelf: 'flex-end', marginTop: 16 }}
+                onPress={() => {
+                  triggerHapticSelection();
+                  router.push('/(auth)/forgot-password');
+                }}
+              >
                 <Text style={{ fontSize: 13, fontWeight: '700', color: Palette.accent, letterSpacing: 0.5 }}>
                   Forgot Password?
                 </Text>

@@ -4,6 +4,7 @@ import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
 import SignatureScreen from 'react-native-signature-canvas';
 import { CheckCircle, Clock } from '@/components/ui/Icons';
+import { bookingService } from '@/services/api/bookingService';
 
 export default function Step5_JobOrder() {
   const { colors, isDark } = useTheme();
@@ -20,8 +21,8 @@ export default function Step5_JobOrder() {
 
   useEffect(() => {
     if (job) {
-      setCustomerName(job.customerName || job.customer?.name || '');
-      setVehicle(job.vehicleInfo || job.vehiclePlate || '');
+      setCustomerName(String(job.customerName || (job.customer as any)?.name || ''));
+      setVehicle(String(job.vehicleInfo || job.vehiclePlate || ''));
       setService(job.serviceName || job.serviceType || '');
       const defaultRelease = new Date();
       defaultRelease.setDate(defaultRelease.getDate() + 3);
@@ -31,7 +32,7 @@ export default function Step5_JobOrder() {
     }
   }, [job]);
 
-  const handleSignatureOK = (signature: string) => {
+  const handleSignatureOK = async (signature: string) => {
     const stepData = {
       customerName,
       vehicleModel: vehicle,
@@ -41,7 +42,15 @@ export default function Step5_JobOrder() {
       customerSignature: signature,
       ingressDateTime: new Date().toISOString()
     };
-    saveStep(5, stepData, true); // Save and auto-advance to step 6
+    try {
+      await saveStep(5, stepData, false);
+      if (job?.id && job.status === 'received') {
+        await bookingService.operateStartService(job.id);
+      }
+      saveStep(5, {}, true); // Advance
+    } catch (err) {
+      console.error('[StartService] error:', err);
+    }
   };
 
   const handleComplete = () => {

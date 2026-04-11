@@ -7,6 +7,8 @@ import * as Haptics from 'expo-haptics';
 import { bookingService } from '@/services/api/bookingService';
 import type { BookingRecord } from '@/services/api/types';
 import SectionHeader from './SectionHeader';
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/context/AuthContext';
 
 const ACCENT = '#FF6B35';
 
@@ -27,26 +29,23 @@ interface AppointmentsSectionProps {
 }
 
 export default function AppointmentsSection({ onViewCalendar, onReschedule }: AppointmentsSectionProps) {
-  const [bookings, setBookings] = useState<BookingRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const data = await bookingService.getMyBookings();
-        setBookings(data.slice(0, 4)); // Show last 4
-      } catch {
-        // Silent fail
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  const { profile } = useAuth();
+  const {
+    data: bookings = [],
+    isLoading: loading,
+  } = useQuery({
+    queryKey: ['bookings'],
+    queryFn: async () => {
+      const data = await bookingService.getMyBookings();
+      return data.slice(0, 4); // Show last 4
+    },
+    enabled: !!profile?.id,
+  });
 
   const upcoming = bookings.filter(
-    (b) => !['completed', 'cancelled'].includes(b.status.toLowerCase())
+    (b: any) => !['completed', 'cancelled'].includes(b.status.toLowerCase())
   );
-  const history = bookings.filter((b) =>
+  const history = bookings.filter((b: any) =>
     ['completed', 'cancelled'].includes(b.status.toLowerCase())
   );
 
@@ -68,7 +67,7 @@ export default function AppointmentsSection({ onViewCalendar, onReschedule }: Ap
 
       {/* Upcoming booking preview */}
       {upcoming.length > 0 ? (
-        upcoming.slice(0, 2).map((booking) => {
+        upcoming.slice(0, 2).map((booking: any) => {
           const statusInfo = getStatusInfo(booking.status);
           return (
             <TouchableOpacity
@@ -119,7 +118,7 @@ export default function AppointmentsSection({ onViewCalendar, onReschedule }: Ap
       {history.length > 0 && (
         <View style={s.historyContainer}>
           <Text style={s.historyLabel}>Recent History</Text>
-          {history.slice(0, 2).map((b) => {
+          {history.slice(0, 2).map((b: any) => {
             const info = getStatusInfo(b.status);
             return (
               <View key={b.id} style={s.historyRow}>

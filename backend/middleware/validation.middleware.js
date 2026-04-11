@@ -167,7 +167,7 @@ export const validateSocialLogin = [
   body('provider')
     .optional()
     .trim()
-    .isIn(['google', 'facebook', 'apple', 'email', 'firebase']).withMessage('Invalid authentication provider'),
+    .isIn(['google', 'facebook', 'apple', 'email', 'firebase', 'password']).withMessage('Invalid authentication provider'),
 
   handleValidationErrors,
 ];

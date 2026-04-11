@@ -39,11 +39,13 @@ export default function EditProfileScreen() {
   const { user, profile, refreshProfile } = useAuth();
 
   const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
   // Validation
   const [nameError, setNameError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
 
   // Track if anything changed
   const [hasChanges, setHasChanges] = useState(false);
@@ -51,13 +53,18 @@ export default function EditProfileScreen() {
   useEffect(() => {
     if (profile) {
       setFullName(profile.full_name || '');
+      setPhone(profile.phone || '');
     }
   }, [profile]);
 
   useEffect(() => {
     const originalName = profile?.full_name || '';
-    setHasChanges(fullName.trim() !== originalName.trim());
-  }, [fullName, profile]);
+    const originalPhone = profile?.phone || '';
+    setHasChanges(
+      fullName.trim() !== originalName.trim() ||
+      phone.trim() !== originalPhone.trim()
+    );
+  }, [fullName, phone, profile]);
 
   const validateForm = (): boolean => {
     setNameError('');
@@ -74,6 +81,11 @@ export default function EditProfileScreen() {
 
     if (!/^[a-zA-ZÀ-ÿ\s\-'.]+$/.test(fullName.trim())) {
       setNameError('Name contains invalid characters');
+      return false;
+    }
+
+    if (phone.trim() && !/^[0-9+\-\s]+$/.test(phone.trim())) {
+      setPhoneError('Invalid phone number format');
       return false;
     }
 
@@ -95,6 +107,7 @@ export default function EditProfileScreen() {
     try {
       await authService.updateUserBackendProfile(user, {
         name: fullName.trim(),
+        phone: phone.trim(),
       });
 
       // Refresh the AuthContext profile
@@ -223,6 +236,21 @@ export default function EditProfileScreen() {
                 }}
                 autoCapitalize="words"
                 error={nameError}
+              />
+            </Animated.View>
+
+            <Animated.View entering={FadeInUp.delay(250).springify().damping(16).stiffness(120)}>
+              <PremiumInput
+                label="MOBILE NUMBER"
+                iconName="call-outline"
+                placeholder="e.g., +63 912 345 6789"
+                value={phone}
+                onChangeText={(t) => {
+                  setPhone(t);
+                  setPhoneError('');
+                }}
+                keyboardType="phone-pad"
+                error={phoneError}
               />
             </Animated.View>
 

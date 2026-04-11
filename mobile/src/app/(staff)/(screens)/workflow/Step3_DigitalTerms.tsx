@@ -10,8 +10,9 @@ import {
 } from 'react-native';
 import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
-import { CheckCircle, Clock, CheckSquare, Square, Lock, FileText, User, Shield } from '@/components/ui/Icons';
+import { CheckCircle, Clock, CheckSquare, Square, Lock, FileText, User, Shield, DollarSign } from '@/components/ui/Icons';
 import SignatureScreen from 'react-native-signature-canvas';
+import { bookingService } from '@/services/api/bookingService';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const ACCENT = '#f97316';
@@ -69,6 +70,7 @@ export default function Step3_DigitalTerms() {
   const [contactNumber, setContactNumber] = useState('');
   const [signature, setSignature] = useState('');
   const [sigMode, setSigMode] = useState(false);
+  const [downPayment, setDownPayment] = useState('');
 
   const currentDate = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -111,25 +113,42 @@ export default function Step3_DigitalTerms() {
   };
 
   // ── Validation ──
+  const minDownPayment = (job?.totalPrice || 0) * 0.3;
+  const isDownPaymentValid = job?.totalPrice ? (parseFloat(downPayment || '0') >= minDownPayment) : true;
+  
   const allAccepted = accepted.every(Boolean);
   const hasName = customerName.trim().length > 0;
   const hasSig = signature.length > 0;
-  const canAdvance = allAccepted && hasName && hasSig;
+  const canAdvance = allAccepted && hasName && hasSig && isDownPaymentValid;
   const acceptedCount = accepted.filter(Boolean).length;
   const progress = Math.round((acceptedCount / SERVICE_TERMS.length) * 100);
 
   // ── Submit ──
-  const handleAdvance = () => {
-    if (!canAdvance) return;
-    saveStep(3, {
-      acceptedTerms: true,
-      termsAccepted: SERVICE_TERMS.map((t, i) => ({ label: t.text, accepted: accepted[i] })),
-      customerFullName: customerName.trim(),
-      contactNumber: contactNumber.trim(),
-      digitalSignature: signature,
-      signedAt: new Date().toISOString(),
-      dateSigned: new Date().toISOString(),
-    }, true);
+  const handleAdvance = async () => {
+    if (!canAdvance || !job?.id) return;
+    
+    try {
+      await saveStep(3, {
+        acceptedTerms: true,
+        termsAccepted: SERVICE_TERMS.map((t, i) => ({ label: t.text, accepted: accepted[i] })),
+        customerFullName: customerName.trim(),
+        contactNumber: contactNumber.trim(),
+        digitalSignature: signature,
+        downPaymentCollected: parseFloat(downPayment || '0'),
+        signedAt: new Date().toISOString(),
+        dateSigned: new Date().toISOString(),
+      }, false); // don't auto-advance yet
+
+      // Trigger backend Check-in Endpoint!
+      await bookingService.operateCheckIn(job.id, {
+        downPaymentAmount: parseFloat(downPayment || '0'),
+        releaseSignature: signature
+      });
+      
+      saveStep(3, {}, true); // trigger context to advance to next route
+    } catch (err) {
+      console.error('[Check-in] Failed to record:', err);
+    }
   };
 
   // ── Signature Canvas Styles (injected as HTML) ──
@@ -252,6 +271,40 @@ export default function Step3_DigitalTerms() {
         </View>
       </View>
 
+      {/* ══════ DOWN PAYMENT ══════ */}
+      {job?.totalPrice ? (
+        <View style={s.section}>
+          <View style={s.sectionHeaderRow}>
+            <DollarSign size={16} color={ACCENT} />
+            <Text style={s.sectionTitle}>DOWN PAYMENT DESK</Text>
+          </View>
+          
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ color: TEXT_SEC, fontSize: 13, marginBottom: 8 }}>
+              Total Service Price: <Text style={{ color: '#fff', fontWeight: 'bold' }}>${job.totalPrice}</Text>
+            </Text>
+            <Text style={{ color: TEXT_SEC, fontSize: 13 }}>
+              Minimum 30% Down Payment: <Text style={{ color: ACCENT, fontWeight: 'bold' }}>${minDownPayment.toFixed(2)}</Text>
+            </Text>
+          </View>
+
+          <Text style={s.fieldLabel}>COLLECTED AMOUNT <Text style={s.required}>*</Text></Text>
+          <TextInput
+            style={[s.input, isDownPaymentValid && downPayment.length > 0 && s.inputFilled, !isDownPaymentValid && downPayment.length > 0 && { borderColor: '#ef4444' }]}
+            value={downPayment}
+            onChangeText={setDownPayment}
+            placeholder={`Min. $${minDownPayment.toFixed(2)}`}
+            placeholderTextColor={TEXT_DIM}
+            keyboardType="decimal-pad"
+          />
+          {!isDownPaymentValid && downPayment.length > 0 && (
+             <Text style={{ color: '#ef4444', fontSize: 11, marginTop: 6 }}>
+               Amount must be at least ${minDownPayment.toFixed(2)}
+             </Text>
+          )}
+        </View>
+      ) : null}
+
       {/* ══════ DIGITAL SIGNATURE ══════ */}
       <View style={s.section}>
         <View style={s.sectionHeaderRow}>
@@ -350,6 +403,14 @@ export default function Step3_DigitalTerms() {
             : <Lock size={16} color={TEXT_DIM} />}
           <Text style={[s.valText, hasSig && s.valTextDone]}>Digital signature captured</Text>
         </View>
+        {job?.totalPrice ? (
+          <View style={s.valRow}>
+            {isDownPaymentValid && downPayment.trim() !== ''
+              ? <CheckCircle size={16} color={SUCCESS} />
+              : <Lock size={16} color={TEXT_DIM} />}
+            <Text style={[s.valText, isDownPaymentValid && downPayment.trim() !== '' && s.valTextDone]}>Min 30% Down Payment (${minDownPayment.toFixed(2)})</Text>
+          </View>
+        ) : null}
       </View>
 
       {/* ══════ SUBMIT BUTTON ══════ */}

@@ -30,6 +30,13 @@ router.get('/', orderController.getAllOrders);
 router.get('/available-slots', orderController.getAvailableSlots);
 
 /**
+ * @route GET /api/orders/queue/staff
+ * @desc Get prioritized staff queue of actionable jobs
+ * @access Private - Detailer/Admin
+ */
+router.get('/queue/staff', authorize(...SERVICE_OPERATION_ROLES), orderController.getStaffQueue);
+
+/**
  * @route GET /api/jobs/active
  * @desc Get active/in-progress jobs
  * @access Private
@@ -91,6 +98,13 @@ router.get('/:id', orderController.getOrderById);
  * @access Private
  */
 router.post('/', orderController.createOrder);
+
+/**
+ * @route POST /api/orders/:id/confirm
+ * @desc Admin confirms a pending booking (triggers full workflow chain)
+ * @access Private - Admin
+ */
+router.post('/:id/confirm', authorize(...BOOKING_MANAGER_ROLES), orderController.confirmBooking);
 
 /**
  * @route PUT /api/orders/:id
@@ -200,5 +214,35 @@ router.post('/:id/rating', authorize(...CUSTOMER_ROLES, ...FULL_ADMIN_ROLES), or
  * @access Private - Admin
  */
 router.post('/suppliers', authorize(...SUPPLIER_MANAGER_ROLES), supplierController.placeOrder);
+
+/**
+ * @route POST /api/orders/:id/checkin
+ * @desc POS/Admin check-in step (down payment, signature, Terms PDF)
+ */
+router.post('/:id/checkin', authorize(...BOOKING_MANAGER_ROLES), orderController.operateCheckIn);
+
+/**
+ * @route POST /api/orders/:id/start
+ * @desc Detailer starts service
+ */
+router.post('/:id/start', authorize(...SERVICE_OPERATION_ROLES), orderController.operateStartService);
+
+/**
+ * @route POST /api/orders/:id/qc
+ * @desc Detailer/QC completes service
+ */
+router.post('/:id/qc', authorize(...SERVICE_OPERATION_ROLES), orderController.operateQCComplete);
+
+/**
+ * @route POST /api/orders/:id/pay
+ * @desc Cashier receives final payment
+ */
+router.post('/:id/pay', authorize(...BOOKING_MANAGER_ROLES), orderController.operateFinalPayment);
+
+/**
+ * @route POST /api/orders/:id/release
+ * @desc Admin releases vehicle
+ */
+router.post('/:id/release', authorize(...BOOKING_MANAGER_ROLES), orderController.operateRelease);
 
 export default router;

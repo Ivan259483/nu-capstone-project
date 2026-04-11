@@ -108,6 +108,7 @@ export interface ModelGenerationResult {
   status: 'processing' | 'ar_ready' | 'failed' | 'unavailable';
   taskId?: string;
   modelUrl?: string;
+  repairedModelUrl?: string;
   progress?: number;
   message?: string;
 }
@@ -144,6 +145,7 @@ export interface ScanWorkflowState {
 
   modelTaskId: string | null;
   modelUrl: string | null;
+  repairedModelUrl: string | null;
   modelStatus: 'idle' | 'processing' | 'ready' | 'failed' | 'unavailable';
   modelProgress: number;
 

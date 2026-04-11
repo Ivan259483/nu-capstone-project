@@ -516,5 +516,79 @@ export const OrderService = {
             console.error("Failed to subscribe to all bookings:", e);
             return () => { };
         }
+    },
+
+    // -------------------------------------------------------------
+    // NEW OPERATIONAL WORKFLOW ENDPOINTS (7-STEP)
+    // -------------------------------------------------------------
+    
+    /**
+     * @route POST /api/orders/:id/checkin
+     * Performs check-in with a down payment and Terms and Conditions signature.
+     */
+    async operateCheckIn(orderId: string, payload: { paymentMethod: string, downPaymentAmount: number, signature: string }) {
+        const response = await api.post(`/orders/${orderId}/checkin`, payload);
+        if (response.data.success && response.data.data) {
+            const booking = { ...response.data.data };
+            booking.id = booking._id || booking.id;
+            this.syncBookingToFirestore(booking).catch(console.error);
+        }
+        return response.data;
+    },
+
+    /**
+     * @route POST /api/orders/:id/start
+     * Marks the service as physically started by the detailer.
+     */
+    async operateStartService(orderId: string) {
+        const response = await api.post(`/orders/${orderId}/start`);
+        if (response.data.success && response.data.data) {
+            const booking = { ...response.data.data };
+            booking.id = booking._id || booking.id;
+            this.syncBookingToFirestore(booking).catch(console.error);
+        }
+        return response.data;
+    },
+
+    /**
+     * @route POST /api/orders/:id/qc
+     * Marks the service as completed and passes Quality Control.
+     */
+    async operateQCComplete(orderId: string, payload: { qcNotes?: string } = {}) {
+        const response = await api.post(`/orders/${orderId}/qc`, payload);
+        if (response.data.success && response.data.data) {
+            const booking = { ...response.data.data };
+            booking.id = booking._id || booking.id;
+            this.syncBookingToFirestore(booking).catch(console.error);
+        }
+        return response.data;
+    },
+
+    /**
+     * @route POST /api/orders/:id/pay
+     * Receives final payment for the service.
+     */
+    async operateFinalPayment(orderId: string, payload: { paymentMethod: string, finalPaymentAmount: number }) {
+        const response = await api.post(`/orders/${orderId}/pay`, payload);
+        if (response.data.success && response.data.data) {
+            const booking = { ...response.data.data };
+            booking.id = booking._id || booking.id;
+            this.syncBookingToFirestore(booking).catch(console.error);
+        }
+        return response.data;
+    },
+
+    /**
+     * @route POST /api/orders/:id/release
+     * Releases the vehicle to the customer.
+     */
+    async operateRelease(orderId: string, payload?: { releaseSignature?: string }) {
+        const response = await api.post(`/orders/${orderId}/release`, payload || {});
+        if (response.data.success && response.data.data) {
+            const booking = { ...response.data.data };
+            booking.id = booking._id || booking.id;
+            this.syncBookingToFirestore(booking).catch(console.error);
+        }
+        return response.data;
     }
 };

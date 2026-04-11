@@ -16,6 +16,7 @@ import errorHandler from './middleware/errorHandler.middleware.js';
 import { initializeMailer } from './utils/mail.utils.js'; // Import mailer
 import { migrateLegacyUserRoles } from './utils/migrateLegacyUserRoles.utils.js';
 import { initSocket, initChangeStreams } from './utils/socket.utils.js';
+import { cleanupExpiredReservations } from './utils/inventory.utils.js';
 
 // ============================================
 // BREVO CONFIGURATION VERIFICATION
@@ -200,6 +201,22 @@ const startServer = async () => {
       console.log(`📧 Email Provider: ${config.emailProvider}`);
       console.log(`📨 Using MongoDB for OTP storage`);
       console.log(`✅ Ready for connectivity testing!`);
+
+      // ── Inventory Reservation Expiry Scheduler ──────────────────────
+      // Runs every hour to release inventory held for bookings still
+      // in 'pending' status after 24 hours.
+      const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+      setInterval(async () => {
+        try {
+          const result = await cleanupExpiredReservations();
+          if (result.released > 0) {
+            console.log(`[SCHEDULER] 🧹 Released ${result.released} expired inventory reservation(s)`);
+          }
+        } catch (err) {
+          console.error('[SCHEDULER] Reservation cleanup failed:', err.message);
+        }
+      }, CLEANUP_INTERVAL_MS);
+      console.log(`⏰ Inventory reservation expiry scheduler started (every 60 min, 24h TTL)`);
     });
 
     server.on('error', (err) => {

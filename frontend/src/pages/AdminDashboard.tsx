@@ -17,7 +17,8 @@ import {
     Calendar, User as UserIcon,
     ChevronLeft, ChevronRight, List,
     LayoutTemplate, ArrowUp, ArrowDown, Download, LayoutGrid,
-    RefreshCw, MapPin, Truck, Mail, Phone, Monitor, Menu, BadgeCheck
+    RefreshCw, MapPin, Truck, Mail, Phone, Monitor, Menu, BadgeCheck, Play, Car, Zap,
+    ExternalLink, Sparkles, MoreHorizontal
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { formatDistanceToNow } from 'date-fns';
@@ -57,6 +58,7 @@ import { ServicesPricing } from '@/components/admin/ServicesPricing';
 import { SupplierManagement } from '@/components/admin/SupplierManagement';
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
 import { WaiversDocs } from '@/components/admin/WaiversDocs';
+import { CheckInDialog } from '@/components/admin/CheckInDialog';
 import { ActivityService } from '@/lib/activity-service-api';
 import { formatCurrency } from '@/lib/utils';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
@@ -161,7 +163,7 @@ type TabType =
 const getBackendSocketUrl = () => {
     const backendUrl = import.meta.env.VITE_BACKEND_URL
         || (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') : '')
-        || 'http://localhost:3000';
+        || 'http://localhost:3001';
     return backendUrl;
 };
 
@@ -185,13 +187,18 @@ export default function AdminDashboard() {
     const needsAnalyticsData = canAccessBookings || canAccessPOS;
 
     // Realtime Database Sync
-    // Ref refencing the loadData function so we don't have to put it in deps directly and cause cycles.
+    // Refs to avoid putting functions directly in deps and causing cycles.
     const loadDataRef = useRef<(() => void) | null>(null);
+    const fetchBookingsRef = useRef<(() => void) | null>(null);
     useRealtimeSync(
-        ['users', 'suppliers', 'categories', 'services', 'settings', 'notifications', 'products', 'activitylogs'],
-        useCallback(() => {
+        ['orders', 'users', 'suppliers', 'categories', 'services', 'settings', 'notifications', 'products', 'activitylogs'],
+        useCallback((collection: string) => {
+            // Short debounce to prevent a spike of fetches if 10 rows update at once
+            if (collection === 'orders') {
+                // Bookings live in a separate state — refresh them immediately
+                setTimeout(() => fetchBookingsRef.current && fetchBookingsRef.current(), 300);
+            }
             if (loadDataRef.current) {
-                // Short debounce to prevent a spike of fetches if 10 rows update at once
                 setTimeout(() => loadDataRef.current && loadDataRef.current(), 500);
             }
         }, [])
@@ -260,6 +267,7 @@ export default function AdminDashboard() {
 
     // Booking Assignment
     const [showAssignModal, setShowAssignModal] = useState(false);
+    const [showCheckInModal, setShowCheckInModal] = useState(false);
     const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
     const [isBookingDetailOpen, setIsBookingDetailOpen] = useState(false);
     const [detailBooking, setDetailBooking] = useState<Booking | null>(null);
@@ -352,6 +360,21 @@ export default function AdminDashboard() {
     const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
     const [showSignoutModal, setShowSignoutModal] = useState(false);
     const [signoutStep, setSignoutStep] = useState<'confirm' | 'signing_out' | 'success'>('confirm');
+    const [showUserMenu, setShowUserMenu] = useState(false);
+    const userMenuRef = useRef<HTMLDivElement>(null);
+
+    // Close user menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+                setShowUserMenu(false);
+            }
+        };
+        if (showUserMenu) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showUserMenu]);
 
     // Form States
     const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
@@ -585,6 +608,7 @@ export default function AdminDashboard() {
         loadDataRef.current = loadData;
     }, [loadData]);
 
+
     useEffect(() => {
         if (!user || !isAdminDashboardRole(user.role)) {
             navigate('/');
@@ -610,6 +634,10 @@ export default function AdminDashboard() {
             console.error('❌ [AdminDashboard] Failed to fetch bookings from MongoDB:', error);
         }
     }, [needsBookingsData, user]);
+
+    useEffect(() => {
+        fetchBookingsRef.current = fetchBookingsFromMongo;
+    }, [fetchBookingsFromMongo]);
 
     // Initial Fetch & Fallback Polling
     useEffect(() => {
@@ -990,8 +1018,8 @@ export default function AdminDashboard() {
         return {
             total: safeBookings.length,
             pending: safeBookings.filter(b => b.status === 'pending').length,
-            active: safeBookings.filter(b => ['in_progress', 'washing', 'polishing', 'assigned'].includes(b.status || '')).length,
-            completed: safeBookings.filter(b => b.status === 'completed').length
+            active: safeBookings.filter(b => ['in_progress', 'received', 'confirmed'].includes(b.status || '')).length,
+            completed: safeBookings.filter(b => ['completed', 'paid', 'released'].includes(b.status || '')).length
         };
     }, [safeBookings]);
 
@@ -999,7 +1027,7 @@ export default function AdminDashboard() {
         const threshold = settings?.inventoryThreshold ?? item.minLevel;
         return item.stock < threshold;
     });
-    const activeBookingsCount = safeBookings.filter(b => !['completed', 'cancelled'].includes(b.status)).length;
+    const activeBookingsCount = safeBookings.filter(b => !['completed', 'paid', 'released', 'cancelled'].includes(b.status)).length;
 
     const addonPriceMap: Record<string, number> = {
         'Engine Bay Shield': 1400,
@@ -1030,19 +1058,27 @@ export default function AdminDashboard() {
     const [salesWhole, salesDecimal] = Number(computedTotalSales || 0).toFixed(2).split('.');
 
     const getBookingColor = (booking: Booking) => {
-        // Completed / paid = green
-        if (booking.status === 'completed' || booking.paymentStatus === 'paid') {
+        // Released / paid = green
+        if (['released', 'paid'].includes(booking.status) || booking.paymentStatus === 'paid') {
             return '#16a34a';
         }
+        // Completed (QC done) = emerald
+        if (booking.status === 'completed') {
+            return '#10b981';
+        }
         // In-progress work = blue
-        if (booking.status === 'in-progress' || booking.status === 'processing') {
+        if (booking.status === 'in_progress') {
             return '#2563eb';
         }
+        // Checked in / received = purple
+        if (booking.status === 'received') {
+            return '#8b5cf6';
+        }
         // Confirmed & awaiting service = amber
-        if (booking.status === 'confirmed' || booking.status === 'assigned') {
+        if (booking.status === 'confirmed') {
             return '#f59e0b';
         }
-        // Pay-on-site / new pending bookings = indigo (most new bookings land here)
+        // Pending bookings = indigo
         if (booking.status === 'pending' || booking.paymentStatus === 'unpaid') {
             return '#6366f1';
         }
@@ -1551,86 +1587,103 @@ export default function AdminDashboard() {
     };
 
     // Booking Handlers
+    const handleCheckInSubmit = async (amount: number, method: string, signature: string) => {
+        if (!selectedBooking) return;
+        const toastId = toast.loading('Processing check-in...');
+        try {
+            const res = await OrderService.operateCheckIn(selectedBooking.id, {
+                paymentMethod: method,
+                downPaymentAmount: amount,
+                signature
+            });
+            if (res.success) {
+                toast.success('Vehicle successfully checked in!');
+                setShowCheckInModal(false);
+                setShowAssignModal(false);
+                loadData();
+            } else {
+                toast.error(res.message || 'Check-in failed');
+            }
+        } catch (e) {
+            toast.error('Error during check-in');
+        } finally {
+            toast.dismiss(toastId);
+        }
+    };
+
     const handleAssignDetailer = async () => {
         if (user && !canAccessBookings) {
             toast.error('Insufficient permissions to manage bookings.');
             return;
         }
-        if (!selectedBooking || !selectedDetailerId) return;
+        if (!selectedBooking) return;
 
-        const toastId = toast.loading('Assigning detailer...');
-
-        try {
-            let response = await OrderService.assignDetailer(selectedBooking.id, selectedDetailerId);
-
-            if (response.success && operationalAction !== 'assigned') {
-                response = await OrderService.updateOrder(selectedBooking.id, {
-                    status: operationalAction
-                });
+        // Ensure we load users dynamically from context/state
+        if (operationalAction === 'pending' || operationalAction === 'assigned' || operationalAction === 'confirmed') {
+            // If the user clicks "POS Check-in" when operationalAction === 'confirmed'
+            if (operationalAction === 'confirmed') {
+                setShowCheckInModal(true);
+                return;
             }
 
-            if (response.success && response.data) {
-                const updated = response.data;
-
-                // Local state update so Smart Calendar & detail drawer react instantly
-                setBookings((prev) =>
-                    prev.map((b) =>
-                        b.id === selectedBooking.id
-                            ? {
-                                ...b,
-                                assignedDetailer: updated.assignedDetailer,
-                                status: updated.status,
-                                paymentStatus: updated.paymentStatus
-                            }
-                            : b
-                    )
-                );
-                setDetailBooking((prev) =>
-                    prev && prev.id === selectedBooking.id
-                        ? {
-                            ...prev,
-                            assignedDetailer: updated.assignedDetailer,
-                            status: updated.status,
-                            paymentStatus: updated.paymentStatus
-                        }
-                        : prev
-                );
-
-                // Firestore sync for Smart Calendar & customer dashboards
-                const detailer = users.find(u => u.id === selectedDetailerId);
-                await setDoc(doc(db, 'bookings', selectedBooking.id), {
-                    status: updated.status,
-                    paymentStatus: updated.paymentStatus,
-                    assignedDetailer: {
-                        id: detailer?.id || selectedDetailerId,
-                        name: detailer?.name || updated.assignedDetailer?.name || 'Assigned Detailer',
-                        email: detailer?.email || updated.assignedDetailer?.email
-                    },
-                    updatedAt: new Date().toISOString()
-                }, { merge: true });
-
-                // Hard refetch so any other derived widgets remain in sync
-                loadData();
-
-                setShowAssignModal(false);
-                setSelectedBooking(null);
-                setSelectedDetailerId('');
-                setOperationalAction('assigned');
-            } else {
-                toast.error(response.message || 'Failed to assign detailer');
+            if (!selectedDetailerId) {
+                toast.error('Please select a detailer.');
+                return;
             }
-        } catch (error: any) {
-            console.error('Assign error:', error);
-            toast.error('Error assigning detailer');
-        } finally {
-            // Always clear the loading toast, regardless of outcome
-            toast.dismiss(toastId);
-            if (operationalAction !== 'assigned') {
-                toast.success(`Detailer assigned and status updated to ${operationalAction.replace('_', ' ')}.`);
-            } else if (selectedDetailerId && selectedBooking) {
-                // Only show success if we had a target booking + detailer; errors already surfaced above
-                toast.success('Detailer assignment processed.');
+            const toastId = toast.loading('Assigning detailer...');
+            try {
+                let response = await OrderService.assignDetailer(selectedBooking.id, selectedDetailerId);
+                const currentStatus = selectedBooking.status || 'pending';
+                if (response.success && operationalAction !== currentStatus && operationalAction !== 'assigned') {
+                    response = await OrderService.updateOrder(selectedBooking.id, {
+                        status: 'confirmed'
+                    });
+                }
+                if (response.success) {
+                    toast.success('Detailer assigned.');
+                    setShowAssignModal(false);
+                    setSelectedBooking(null);
+                    setSelectedDetailerId('');
+                    loadData();
+                } else {
+                    toast.error(response.message || 'Failed to assign detailer');
+                }
+            } catch (error: any) {
+                 toast.error('Error assigning detailer');
+            } finally {
+                toast.dismiss(toastId);
             }
+            return;
+        }
+
+        const runOp = async (opName: string, opFn: (id: string) => Promise<any>, successMsg: string) => {
+             const toastId = toast.loading(`${opName}...`);
+             try {
+                  const res = await opFn(selectedBooking.id);
+                  if (res.success) {
+                       toast.success(successMsg);
+                       setShowAssignModal(false);
+                       loadData();
+                  } else {
+                       toast.error(res.message || `${opName} failed`);
+                  }
+             } catch (e) {
+                  toast.error(`Error during ${opName}`);
+             } finally {
+                  toast.dismiss(toastId);
+             }
+        };
+
+        if (operationalAction === 'received') {
+             runOp('Starting Service', OrderService.operateStartService, 'Service started successfully.');
+        } else if (operationalAction === 'in_progress') {
+             runOp('QC Completion', OrderService.operateQCComplete, 'QC Completed successfully.');
+        } else if (operationalAction === 'completed') {
+             setShowAssignModal(false);
+             setActiveTab('pos');
+             toast.info('Switched to POS for final payment.');
+        } else if (operationalAction === 'paid') {
+             runOp('Releasing Vehicle', OrderService.operateRelease, 'Vehicle Released successfully!');
         }
     };
 
@@ -1644,13 +1697,14 @@ export default function AdminDashboard() {
         try {
             const response = await OrderService.updateOrder(booking.id, { status: 'confirmed' });
             if (response.success) {
-                // ATOMIC UPDATE for Real-Time Sync
+                // ATOMIC UPDATE for Real-Time Sync — use 'confirmed' to match backend
                 await setDoc(doc(db, 'bookings', booking.id), {
-                    status: 'queued', // Sync to 'queued' so it shows up in dashboards
+                    status: 'confirmed',
+                    customerStatus: 'Confirmed',
                     updatedAt: new Date().toISOString()
                 }, { merge: true });
 
-                toast.success('Booking confirmed', { id: toastId });
+                toast.success('Booking confirmed ✓', { id: toastId });
                 setBookings((prev) => prev.map((b) => (b.id === booking.id ? { ...b, status: 'confirmed' } : b)));
             } else {
                 toast.error(response.message || 'Failed to confirm booking', { id: toastId });
@@ -1942,8 +1996,6 @@ export default function AdminDashboard() {
             { id: 'suppliers' as TabType, label: 'Suppliers', icon: ShoppingCart },
             { id: 'pricing' as TabType, label: 'Pricing', icon: PhilippinePeso },
             { id: 'activity' as TabType, label: 'Activity Logs', icon: Activity },
-            { id: 'settings' as TabType, label: 'Settings', icon: Settings },
-            { id: 'profile' as TabType, label: 'My Profile', icon: UserIcon },
         ];
 
         switch (safeRole) {
@@ -1967,7 +2019,8 @@ export default function AdminDashboard() {
     const tabs = getTabsForRole(user?.role);
 
     useEffect(() => {
-        if (tabs.length > 0 && !tabs.some(t => t.id === activeTab)) {
+        const isSystemTab = activeTab === 'settings' || activeTab === 'profile';
+        if (tabs.length > 0 && !isSystemTab && !tabs.some(t => t.id === activeTab)) {
             setActiveTab(tabs[0].id);
         }
     }, [tabs, activeTab]);
@@ -2051,26 +2104,53 @@ export default function AdminDashboard() {
                             </button>
                         )
                     })}
-
-                    <div className="nav-section mt-2">System</div>
-                    {tabs.filter(t => ['landing', 'settings', 'profile'].includes(t.id)).map(tab => {
-                        const isActive = activeTab === tab.id;
-                        return (
-                            <button key={tab.id} title={sidebarCollapsed ? tab.label : undefined} className={`nav-item ${isActive ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
-                                <tab.icon className="ni w-[15px] h-[15px]" />
-                                <span className="nav-label">{tab.label}</span>
-                            </button>
-                        )
-                    })}
                 </nav>
 
-                <div className="sidebar-footer">
-                    <button onClick={() => { setShowSignoutModal(true); setSignoutStep('confirm'); }} className="signout-btn">
-                        <span className="flex items-center gap-2">
-                            <LogOut className="w-4 h-4" />
-                            <span className="signout-text">Sign out</span>
-                        </span>
-                        <span className="shortcut">⌘Q</span>
+                <div className="sidebar-footer" ref={userMenuRef}>
+                    <AnimatePresence>
+                        {showUserMenu && (
+                            <motion.div
+                                className="user-popover-menu"
+                                initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                            >
+                                {[
+                                    { icon: <UserIcon className="w-4 h-4" />, label: 'My profile', onClick: () => { setActiveTab('profile'); setShowUserMenu(false); setSidebarCollapsed(true); } },
+                                    { icon: <Settings className="w-4 h-4" />, label: 'Settings', onClick: () => { setActiveTab('settings'); setShowUserMenu(false); setSidebarCollapsed(true); } },
+                                    { icon: <Sparkles className="w-4 h-4" />, label: 'Toggle theme', badge: isDarkMode ? 'D' : 'L', onClick: () => { toggleTheme(); } },
+                                    { icon: <ExternalLink className="w-4 h-4" />, label: 'Homepage', onClick: () => { navigate('/'); setShowUserMenu(false); }, highlight: true },
+                                    { icon: <LogOut className="w-4 h-4" />, label: 'Log out', onClick: () => { setShowUserMenu(false); setShowSignoutModal(true); setSignoutStep('confirm'); }, isDanger: true },
+                                ].map((item, i) => (
+                                    <motion.button
+                                        key={item.label}
+                                        className={`user-popover-item ${item.highlight ? 'highlight' : ''} ${item.isDanger ? 'danger' : ''}`}
+                                        onClick={item.onClick}
+                                        initial={{ opacity: 0, x: -16 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        transition={{ delay: i * 0.05, duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                                        whileHover={{ x: 4 }}
+                                    >
+                                        <span className="user-popover-icon">{item.icon}</span>
+                                        <span className="user-popover-label">{item.label}</span>
+                                        {item.badge && <span className="user-popover-badge">{item.badge}</span>}
+                                    </motion.button>
+                                ))}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                    <button
+                        className="user-email-trigger"
+                        onClick={() => setShowUserMenu(prev => !prev)}
+                    >
+                        <div className="user-email-avatar">
+                            {profilePhoto
+                                ? <img src={profilePhoto} alt="" />
+                                : (user?.name?.charAt(0).toUpperCase() || 'A')}
+                        </div>
+                        <span className="user-email-text">{user?.email || 'user@autospf.com'}</span>
+                        <MoreHorizontal className="w-4 h-4 user-email-dots" />
                     </button>
                 </div>
             </div>
@@ -2976,119 +3056,235 @@ export default function AdminDashboard() {
             <Dialog open={showAssignModal} onOpenChange={(open) => {
                 setShowAssignModal(open);
                 if (open) {
-                    setOperationalAction(selectedDetailerId ? 'assigned' : 'pending');
+                    const currentStatus = selectedBooking?.status || 'pending';
+                    const validStatuses = ['pending', 'confirmed', 'received', 'in_progress', 'completed', 'paid', 'released'];
+                    setOperationalAction(validStatuses.includes(currentStatus) ? currentStatus : 'pending');
                 }
             }}>
-                <DialogContent className={`${theme === 'light' ? 'bg-white' : 'bg-[#0a0a0c]/95 border-zinc-800/60 backdrop-blur-xl shadow-2xl'} max-w-md duration-300 ease-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95`}>
-                    <DialogHeader className="space-y-1 pb-4 border-b border-zinc-800/50">
-                        <DialogTitle className={`text-xl font-semibold tracking-tight ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>
-                            Assign Detailer
-                        </DialogTitle>
-                        <p className="text-sm text-zinc-400">Manage booking workflow & technician</p>
-                    </DialogHeader>
-                    <div className="space-y-6 pt-2">
-                        {/* Technician Selection grouped in a card */}
-                        <div className={`p-4 rounded-xl border ${theme === 'light' ? 'bg-gray-50 border-gray-100' : 'bg-white/[0.02] border-white/[0.05]'}`}>
-                            <Label className={`text-xs font-semibold uppercase tracking-wider mb-2 block ${theme === 'light' ? 'text-gray-500' : 'text-zinc-500'}`}>
-                                Primary Technician
-                            </Label>
-                            <Select value={selectedDetailerId} onValueChange={(val) => {
-                                setSelectedDetailerId(val);
-                                if (operationalAction === 'pending' || !operationalAction) {
-                                    setOperationalAction('assigned');
-                                }
-                            }}>
-                                <SelectTrigger className={`h-11 ${theme === 'light' ? 'bg-white border-gray-300' : 'bg-[#09090b]/80 border-zinc-700/50 shadow-inner'}`}>
-                                    <SelectValue placeholder="Select a detailer..." />
-                                </SelectTrigger>
-                                <SelectContent className={theme === 'light' ? 'bg-white' : 'bg-[#121214] border-zinc-800'}>
-                                    {detailers.map((d) => (
-                                        <SelectItem key={d.id} value={d.id} className="cursor-pointer">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center text-[10px] text-orange-400 font-bold">
-                                                    {d.name.charAt(0)}
-                                                </div>
-                                                <span>{d.name}</span>
+                <DialogContent className={`${theme === 'light' ? 'bg-white' : 'bg-[#08080a] border-zinc-800/60 backdrop-blur-xl'} max-w-xl p-0 overflow-hidden duration-300 ease-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 shadow-[0_25px_60px_rgba(0,0,0,0.5)]`}>
+
+                    {/* ═══ ORANGE TOP GLOW LINE ═══ */}
+                    <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-orange-500 to-transparent opacity-80" />
+
+                    {selectedBooking && (() => {
+                        const stepOrder = ['pending', 'confirmed', 'received', 'in_progress', 'completed', 'paid', 'released'];
+                        const currentIdx = stepOrder.indexOf(operationalAction);
+                        const plateVal = selectedBooking.vehiclePlate || '';
+                        const isEncrypted = plateVal.includes(':') && plateVal.length > 20;
+
+                        return (
+                            <>
+                                {/* ═══ HEADER: Vehicle Hero ═══ */}
+                                <div className={`px-6 pt-5 pb-5 ${theme === 'light' ? 'bg-gradient-to-b from-orange-50/60 to-white' : 'bg-gradient-to-b from-orange-950/15 via-[#0c0c0e] to-[#08080a]'}`}>
+                                    <div className="flex items-start gap-4">
+                                        <div className="relative flex-shrink-0">
+                                            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-500 via-orange-500 to-amber-500 flex items-center justify-center shadow-[0_8px_24px_rgba(249,115,22,0.35)]">
+                                                <Car className="w-7 h-7 text-white" />
                                             </div>
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
+                                            <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${theme === 'light' ? 'border-white' : 'border-[#08080a]'} ${currentIdx <= 1 ? 'bg-amber-400' : currentIdx <= 3 ? 'bg-emerald-400' : 'bg-blue-400'}`}>
+                                                <div className={`w-1.5 h-1.5 rounded-full bg-white ${currentIdx <= 3 ? 'animate-pulse' : ''}`} />
+                                            </div>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <h3 className={`text-lg font-bold tracking-tight truncate ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>
+                                                {selectedBooking.vehicleYear} {selectedBooking.vehicleMake} {selectedBooking.vehicleModel}
+                                            </h3>
+                                            <p className={`text-sm mt-0.5 ${theme === 'light' ? 'text-gray-500' : 'text-zinc-400'}`}>
+                                                {selectedBooking.serviceType || 'Premium Detailing Service'}
+                                            </p>
+                                        </div>
+                                        {!isEncrypted && plateVal && (
+                                            <div className={`px-3 py-1.5 rounded-lg font-mono text-xs font-bold tracking-wider ${theme === 'light' ? 'bg-gray-100 text-gray-800 border border-gray-200' : 'bg-zinc-800/80 text-zinc-200 border border-zinc-700/50'}`}>
+                                                {plateVal}
+                                            </div>
+                                        )}
+                                    </div>
 
-                        {/* Workflow Progress Stepper grouped in a card */}
-                        <div className={`p-4 rounded-xl border ${theme === 'light' ? 'bg-gray-50 border-gray-100' : 'bg-white/[0.02] border-white/[0.05]'}`}>
-                            <Label className={`text-xs font-semibold uppercase tracking-wider mb-3 block ${theme === 'light' ? 'text-gray-500' : 'text-zinc-500'}`}>
-                                Workflow Status
-                            </Label>
-                            
-                            <div className="relative pt-2 pb-8">
-                                {/* Connecting lines container */}
-                                <div className={`absolute top-[15px] left-8 right-8 h-[2px] rounded-full ${theme === 'light' ? 'bg-gray-200' : 'bg-zinc-800/60'}`}></div>
-                                {/* Active Line Fill */}
-                                <div className="absolute top-[15px] left-8 h-[2px] bg-gradient-to-r from-orange-600 via-orange-400 to-orange-500 bg-[length:200%_auto] animate-[pulse_2s_linear_infinite] transition-all duration-700 ease-out shadow-[0_0_12px_rgba(249,115,22,0.8)] rounded-full" 
-                                     style={{ width: `calc((100% - 4rem) * ${Math.max(0, ['pending', 'assigned', 'in-progress', 'completed', 'ready_for_payment'].indexOf(operationalAction)) / 4})` }}>
+                                    {/* Info Grid */}
+                                    <div className={`grid grid-cols-3 gap-3 mt-4 p-3 rounded-xl border ${theme === 'light' ? 'bg-white border-gray-100 shadow-sm' : 'bg-white/[0.02] border-white/[0.04]'}`}>
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/10'}`}>
+                                                <UserIcon className="w-4 h-4 text-blue-400" />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className={`text-[10px] uppercase tracking-wider ${theme === 'light' ? 'text-gray-400' : 'text-zinc-500'}`}>Customer</p>
+                                                <p className={`text-xs font-semibold truncate ${theme === 'light' ? 'text-gray-800' : 'text-white'}`}>{selectedBooking.customerName || 'N/A'}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${theme === 'light' ? 'bg-violet-50' : 'bg-violet-500/10'}`}>
+                                                <Calendar className="w-4 h-4 text-violet-400" />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className={`text-[10px] uppercase tracking-wider ${theme === 'light' ? 'text-gray-400' : 'text-zinc-500'}`}>Schedule</p>
+                                                <p className={`text-xs font-semibold truncate ${theme === 'light' ? 'text-gray-800' : 'text-white'}`}>{selectedBooking.bookingDate || 'TBD'}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${theme === 'light' ? 'bg-orange-50' : 'bg-orange-500/10'}`}>
+                                                <Clock className="w-4 h-4 text-orange-400" />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className={`text-[10px] uppercase tracking-wider ${theme === 'light' ? 'text-gray-400' : 'text-zinc-500'}`}>Time</p>
+                                                <p className={`text-xs font-semibold truncate ${theme === 'light' ? 'text-gray-800' : 'text-white'}`}>{selectedBooking.bookingTime || 'TBD'}</p>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                <div className="flex justify-between items-start relative z-10 w-full px-6">
-                                    {[
-                                        { id: 'pending', label: 'Pending' },
-                                        { id: 'assigned', label: 'Assigned' },
-                                        { id: 'in-progress', label: 'In Progress' },
-                                        { id: 'completed', label: 'Completed' },
-                                        { id: 'ready_for_payment', label: 'POS' }
-                                    ].map((step, idx) => {
-                                        const currentIdx = ['pending', 'assigned', 'in-progress', 'completed', 'ready_for_payment'].indexOf(operationalAction);
-                                        const isActive = currentIdx === idx;
-                                        const isPast = currentIdx > idx;
-                                        
+                                {/* ═══ WORKFLOW TRACK ═══ */}
+                                <div className={`px-6 py-5 border-t border-b ${theme === 'light' ? 'border-gray-100' : 'border-zinc-800/40'}`}>
+                                    <p className={`text-[10px] font-bold uppercase tracking-[0.15em] mb-4 ${theme === 'light' ? 'text-gray-400' : 'text-zinc-500'}`}>
+                                        Service Pipeline
+                                    </p>
+
+                                    <div className="relative">
+                                        {/* Background Track */}
+                                        <div className={`absolute top-[18px] left-[18px] right-[18px] h-[3px] rounded-full ${theme === 'light' ? 'bg-gray-100' : 'bg-zinc-800/50'}`} />
+                                        {/* Active Fill */}
+                                        <div
+                                            className="absolute top-[18px] left-[18px] h-[3px] rounded-full bg-gradient-to-r from-orange-500 to-orange-400 transition-all duration-700 ease-out"
+                                            style={{
+                                                width: `calc((100% - 36px) * ${Math.max(0, currentIdx) / (stepOrder.length - 1)})`,
+                                                boxShadow: '0 0 12px rgba(249,115,22,0.5)'
+                                            }}
+                                        />
+
+                                        <div className="flex justify-between items-start relative z-10">
+                                            {[
+                                                { id: 'pending',       label: 'Booked',      icon: Clock },
+                                                { id: 'confirmed',     label: 'Confirmed',   icon: CheckCircle },
+                                                { id: 'received',      label: 'Received',    icon: Car },
+                                                { id: 'in_progress',   label: 'In Service',  icon: Zap },
+                                                { id: 'completed',     label: 'Done',        icon: BadgeCheck },
+                                                { id: 'paid',          label: 'POS',         icon: ShoppingCart },
+                                                { id: 'released',      label: 'Released',    icon: CheckCircle }
+                                            ].map((step, idx) => {
+                                                const isActive = currentIdx === idx;
+                                                const isPast = currentIdx > idx;
+                                                const StepIcon = step.icon;
+
+                                                return (
+                                                    <div key={step.id} className="flex flex-col items-center w-[52px] group">
+                                                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-500 cursor-default relative
+                                                            ${isActive
+                                                                ? 'bg-gradient-to-br from-orange-500 to-orange-600 shadow-[0_0_20px_rgba(249,115,22,0.5)] scale-110'
+                                                                : isPast
+                                                                    ? theme === 'light' ? 'bg-orange-100' : 'bg-orange-500/15'
+                                                                    : theme === 'light' ? 'bg-gray-100 group-hover:bg-gray-200' : 'bg-zinc-800/50 group-hover:bg-zinc-700/50'
+                                                            }
+                                                        `}>
+                                                            {isPast ? (
+                                                                <CheckCircle className={`w-4 h-4 ${theme === 'light' ? 'text-orange-600' : 'text-orange-400'}`} />
+                                                            ) : (
+                                                                <StepIcon className={`w-4 h-4 ${isActive ? 'text-white' : theme === 'light' ? 'text-gray-400 group-hover:text-gray-500' : 'text-zinc-500 group-hover:text-zinc-400'}`} />
+                                                            )}
+                                                            {isActive && <div className="absolute inset-0 rounded-xl bg-orange-500/20 animate-ping" style={{ animationDuration: '2s' }} />}
+                                                        </div>
+                                                        <span className={`mt-2 text-[10px] font-semibold leading-tight text-center transition-colors duration-300
+                                                            ${isActive ? 'text-orange-500' : isPast ? (theme === 'light' ? 'text-gray-700' : 'text-zinc-300') : theme === 'light' ? 'text-gray-400 group-hover:text-gray-500' : 'text-zinc-600 group-hover:text-zinc-400'}
+                                                        `}>
+                                                            {step.label}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* ═══ BODY ═══ */}
+                                <div className="px-6 py-5 space-y-4">
+                                    <div>
+                                        <Label className={`text-[10px] font-bold uppercase tracking-[0.15em] mb-2.5 block ${theme === 'light' ? 'text-gray-400' : 'text-zinc-500'}`}>
+                                            Assigned Technician
+                                        </Label>
+                                        <Select value={selectedDetailerId} onValueChange={(val) => {
+                                            setSelectedDetailerId(val);
+                                            if (operationalAction === 'pending' || !operationalAction) setOperationalAction('confirmed');
+                                        }}>
+                                            <SelectTrigger className={`h-12 rounded-xl ${theme === 'light' ? 'bg-white border-gray-200 shadow-sm hover:border-gray-300' : 'bg-zinc-900/60 border-zinc-700/40 hover:border-zinc-600/60 shadow-inner'} transition-colors`}>
+                                                <SelectValue placeholder="Select a technician..." />
+                                            </SelectTrigger>
+                                            <SelectContent className={theme === 'light' ? 'bg-white' : 'bg-[#121214] border-zinc-800'}>
+                                                {detailers.map((d) => (
+                                                    <SelectItem key={d.id} value={d.id} className="cursor-pointer py-2.5">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center text-[11px] text-white font-bold shadow-sm">
+                                                                {d.name.charAt(0)}
+                                                            </div>
+                                                            <span className="font-semibold text-sm">{d.name}</span>
+                                                        </div>
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    {/* Status Info */}
+                                    {(() => {
+                                        const sc: Record<string, { icon: any; title: string; msg: string; c: string; bg: string; bd: string }> = {
+                                            'pending':            { icon: Clock,        title: 'Awaiting Review',     msg: 'This booking needs admin review. Select a technician and confirm to proceed.',       c: theme === 'light' ? 'text-amber-700' : 'text-amber-300',   bg: theme === 'light' ? 'bg-amber-50' : 'bg-amber-500/[0.06]',   bd: theme === 'light' ? 'border-amber-200' : 'border-amber-500/15' },
+                                            'confirmed':          { icon: CheckCircle,  title: 'Booking Confirmed',   msg: 'Customer notified. Waiting for arrival at the shop for POS check-in.',               c: theme === 'light' ? 'text-blue-700' : 'text-blue-300',     bg: theme === 'light' ? 'bg-blue-50' : 'bg-blue-500/[0.06]',     bd: theme === 'light' ? 'border-blue-200' : 'border-blue-500/15' },
+                                            'received':           { icon: Car,          title: 'Vehicle Received',    msg: 'Vehicle checked in via POS. Ready to begin detailing service.',                       c: theme === 'light' ? 'text-emerald-700' : 'text-emerald-300', bg: theme === 'light' ? 'bg-emerald-50' : 'bg-emerald-500/[0.06]', bd: theme === 'light' ? 'border-emerald-200' : 'border-emerald-500/15' },
+                                            'in_progress':        { icon: Zap,          title: 'Service In Progress', msg: 'Technician is actively working on the vehicle. Live tracking is enabled.',            c: theme === 'light' ? 'text-orange-700' : 'text-orange-300', bg: theme === 'light' ? 'bg-orange-50' : 'bg-orange-500/[0.06]', bd: theme === 'light' ? 'border-orange-200' : 'border-orange-500/15' },
+                                            'completed':          { icon: BadgeCheck,   title: 'Service Complete',    msg: 'Quality check passed! Send to POS for final payment and vehicle release.',            c: theme === 'light' ? 'text-green-700' : 'text-green-300',   bg: theme === 'light' ? 'bg-green-50' : 'bg-green-500/[0.06]',   bd: theme === 'light' ? 'border-green-200' : 'border-green-500/15' },
+                                            'paid':               { icon: ShoppingCart, title: 'Ready for Release',   msg: 'Final payment received. Vehicle is ready to be released to the customer.',                c: theme === 'light' ? 'text-purple-700' : 'text-purple-300', bg: theme === 'light' ? 'bg-purple-50' : 'bg-purple-500/[0.06]', bd: theme === 'light' ? 'border-purple-200' : 'border-purple-500/15' },
+                                        };
+                                        const cfg = sc[operationalAction] || sc['pending'];
+                                        const SIcon = cfg.icon;
                                         return (
-                                            <button
-                                                key={step.id}
-                                                onClick={() => setOperationalAction(step.id)}
-                                                className="flex flex-col items-center relative group"
-                                            >
-                                                {/* Node */}
-                                                <div className={`relative z-10 w-4 h-4 rounded-full transition-all duration-500 flex items-center justify-center cursor-pointer mt-[3px]
-                                                    ${isActive ? (theme === 'light' ? 'bg-white border-[2px] border-orange-500 shadow-[0_0_12px_rgba(249,115,22,0.6)] scale-125' : 'bg-[#0a0a0c] border-[2px] border-orange-500 shadow-[0_0_12px_rgba(249,115,22,0.8)] scale-125') : 
-                                                      isPast ? 'bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)] border-0' : 
-                                                      theme === 'light' ? 'bg-white border-2 border-gray-300 hover:border-gray-400' : 'bg-[#0a0a0c] border-2 border-zinc-700 hover:border-zinc-500'}
-                                                `}>
-                                                    {isActive && <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(249,115,22,1)]"></div>}
+                                            <div className={`p-4 rounded-xl border ${cfg.bg} ${cfg.bd}`}>
+                                                <div className="flex items-start gap-3">
+                                                    <SIcon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${cfg.c}`} />
+                                                    <div>
+                                                        <p className={`text-sm font-bold ${cfg.c}`}>{cfg.title}</p>
+                                                        <p className={`text-xs mt-1 leading-relaxed opacity-80 ${cfg.c}`}>{cfg.msg}</p>
+                                                    </div>
                                                 </div>
-                                                {/* Label */}
-                                                <span className={`absolute top-full mt-3 text-[10px] font-medium transition-colors duration-300 whitespace-nowrap
-                                                    ${isActive ? 'text-orange-400 font-bold' :
-                                                      isPast ? (theme === 'light' ? 'text-gray-900' : 'text-white') :
-                                                      theme === 'light' ? 'text-gray-400 group-hover:text-gray-600' : 'text-zinc-500 group-hover:text-zinc-400'}
-                                                `}>
-                                                    {step.label}
-                                                </span>
-                                            </button>
-                                        )
-                                    })}
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    {/* Dual Actions */}
-                    <div className="flex items-center gap-3 mt-6 pt-4 border-t border-zinc-800/50">
-                        <Button
-                            variant="ghost"
-                            onClick={() => setShowAssignModal(false)}
-                            className={`flex-1 ${theme === 'light' ? 'hover:bg-gray-100' : 'hover:bg-white/5 text-zinc-300 hover:text-white'}`}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={handleAssignDetailer}
-                            disabled={!selectedDetailerId}
-                            className="flex-1 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white shadow-[0_0_20px_rgba(249,115,22,0.3)] hover:shadow-[0_8px_25px_rgba(249,115,22,0.4)] border-0"
-                        >
-                            Save & Continue
-                        </Button>
-                    </div>
+
+                                {/* ═══ FOOTER ═══ */}
+                                <div className={`px-6 py-4 border-t ${theme === 'light' ? 'border-gray-100 bg-gray-50/40' : 'border-zinc-800/40 bg-zinc-900/20'}`}>
+                                    <div className="flex items-center gap-3">
+                                        <Button variant="ghost" onClick={() => setShowAssignModal(false)} className={`flex-1 h-11 rounded-xl font-medium ${theme === 'light' ? 'hover:bg-gray-100 text-gray-500' : 'hover:bg-white/5 text-zinc-400 hover:text-white'}`}>
+                                            Cancel
+                                        </Button>
+                                        {(() => {
+                                            const bc: Record<string, { label: string; icon: any, needDetailer?: boolean }> = {
+                                                'pending':            { label: 'Confirm & Assign',     icon: CheckCircle, needDetailer: true },
+                                                'confirmed':          { label: 'POS Check-In', icon: Send, needDetailer: false },
+                                                'received':           { label: 'Start Service',        icon: Play, needDetailer: false },
+                                                'in_progress':        { label: 'Mark QC Complete',         icon: BadgeCheck, needDetailer: false },
+                                                'completed':          { label: 'Process Final Payment',           icon: ShoppingCart, needDetailer: false },
+                                                'paid':               { label: 'Release Vehicle',       icon: Send, needDetailer: false },
+                                                'released':           { label: 'Released',              icon: CheckCircle, needDetailer: false },
+                                            };
+                                            const cfg = bc[operationalAction] || bc['pending'];
+                                            const isTerminal = operationalAction === 'released';
+                                            const BIcon = cfg.icon;
+                                            return (
+                                                <Button onClick={handleAssignDetailer} disabled={(cfg.needDetailer && !selectedDetailerId) || isTerminal}
+                                                    className={`flex-[1.4] h-11 gap-2 rounded-xl font-bold text-sm tracking-tight transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 border-0
+                                                        ${isTerminal
+                                                            ? `${theme === 'light' ? 'bg-gray-200 text-gray-400' : 'bg-zinc-800 text-zinc-500'} cursor-not-allowed shadow-none`
+                                                            : 'bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 hover:from-orange-500 hover:via-orange-400 hover:to-amber-400 text-white shadow-[0_4px_24px_rgba(249,115,22,0.35)] hover:shadow-[0_8px_32px_rgba(249,115,22,0.5)]'
+                                                        }
+                                                    `}
+                                                >
+                                                    <BIcon className="w-4 h-4" />
+                                                    {cfg.label}
+                                                </Button>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+                            </>
+                        );
+                    })()}
                 </DialogContent>
             </Dialog>
 
@@ -3492,17 +3688,18 @@ export default function AdminDashboard() {
                                 <p>Closing active sessions and clearing tokens from this device.</p>
                             </>
                         )}
-                        {signoutStep === 'success' && (
-                            <>
-                                <div className="signout-icon success-icon">
-                                    <CheckCircle className="w-6 h-6" />
-                                </div>
-                                <h2>Signed out successfully</h2>
-                                <p>You have been safely disconnected from AutoSPF+.</p>
-                            </>
-                        )}
                     </div>
                 </div>
+            )}
+            
+            {showCheckInModal && selectedBooking && (
+                <CheckInDialog
+                    booking={selectedBooking}
+                    isOpen={showCheckInModal}
+                    onClose={() => setShowCheckInModal(false)}
+                    onSubmit={handleCheckInSubmit}
+                    theme={theme}
+                />
             )}
         </div>
     );

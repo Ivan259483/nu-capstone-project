@@ -23,9 +23,9 @@ export default function Step6_LiveProgress() {
 
   useEffect(() => {
     if (job) {
-      setAssignedStaff(job.assignedDetailer?.name || job.assignedDetailer || 'Pending Assignment');
+      setAssignedStaff(String((job.assignedDetailer as any)?.name || job.assignedDetailer || 'Pending Assignment'));
       setBayNumber(job.serviceProper?.bayNumber || 'Bay 1');
-      setCurrentStatus(job.customerStatus || 'in_bay');
+      setCurrentStatus(String(job.customerStatus || 'in_bay'));
     }
   }, [job]);
 

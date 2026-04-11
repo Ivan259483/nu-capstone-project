@@ -22,15 +22,20 @@ const getJobId = (job: Booking) => (job.id || (job as any)._id) as string;
 // Helper to determine status styling
 const getStatusConfig = (status: string) => {
     switch(status) {
-        case 'in-progress':
-        case 'processing':
+        case 'assigned':
+            return { color: '#a855f7', bg: 'rgba(168, 85, 247, 0.15)', shadow: '0 0 10px rgba(168, 85, 247, 0.4)', label: 'Assigned', icon: <Wrench size={12} /> };
+        case 'in_progress':
             return { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.15)', shadow: '0 0 10px rgba(59, 130, 246, 0.4)', label: 'In Progress', icon: <Activity size={12} /> };
-        case 'ready':
-        case 'finishing':
-            return { color: '#22c55e', bg: 'rgba(34, 197, 94, 0.15)', shadow: '0 0 10px rgba(34, 197, 94, 0.4)', label: 'Finishing / Ready', icon: <CheckCircle size={12} /> };
+        case 'received':
+            return { color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.15)', shadow: '0 0 10px rgba(139, 92, 246, 0.4)', label: 'Checked In', icon: <Car size={12} /> };
+        case 'completed':
+            return { color: '#22c55e', bg: 'rgba(34, 197, 94, 0.15)', shadow: '0 0 10px rgba(34, 197, 94, 0.4)', label: 'QC Complete', icon: <ShieldCheck size={12} /> };
+        case 'paid':
+            return { color: '#eab308', bg: 'rgba(234, 179, 8, 0.15)', shadow: '0 0 10px rgba(234, 179, 8, 0.4)', label: 'Paid', icon: <CheckCircle size={12} /> };
+        case 'released':
+            return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)', shadow: '0 0 10px rgba(16, 185, 129, 0.4)', label: 'Released', icon: <CheckCircle size={12} /> };
         case 'pending':
         case 'confirmed':
-        case 'assigned':
         default:
             return { color: '#f97316', bg: 'rgba(249, 115, 22, 0.15)', shadow: 'none', label: 'Pending / Queued', icon: <Clock size={12} /> };
     }
@@ -50,9 +55,9 @@ export function QueueTab({
 }: QueueTabProps) {
 
     // Derived Metrics
-    const pendingCount = finalPendingJobs.filter(j => ['pending', 'confirmed', 'assigned'].includes(j.status)).length;
-    const progressCount = finalPendingJobs.filter(j => ['in-progress', 'processing'].includes(j.status)).length;
-    const readyCount = finalPendingJobs.filter(j => ['ready', 'finishing'].includes(j.status)).length;
+    const pendingCount = finalPendingJobs.filter(j => ['assigned', 'received'].includes(j.status)).length;
+    const progressCount = finalPendingJobs.filter(j => ['in_progress'].includes(j.status)).length;
+    const readyCount = finalPendingJobs.filter(j => ['completed', 'paid', 'released'].includes(j.status)).length;
 
     return (
         <motion.div key="queue" variants={pageVariants} initial="initial" animate="animate" exit="exit" style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 40 }}>
@@ -111,7 +116,7 @@ export function QueueTab({
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                         {finalPendingJobs.map((job, idx) => {
                             const conf = getStatusConfig(job.status);
-                            const isActive = ['in-progress', 'processing'].includes(job.status);
+                            const isActive = job.status === 'in_progress';
 
                             return (
                                 <motion.div 
@@ -180,16 +185,26 @@ export function QueueTab({
                                     {/* 4. Action */}
                                     <div style={{ display: 'flex', justifySelf: 'end' }}>
                                         {!isActive ? (
-                                            <motion.button 
-                                                whileHover={btnHover} whileTap={btnTap} 
-                                                onClick={() => handleStartJob(job)}
-                                                style={{ 
-                                                    background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)',
+                                            job.status === 'received' ? (
+                                                <motion.button 
+                                                    whileHover={btnHover} whileTap={btnTap} 
+                                                    onClick={() => handleStartJob(job)}
+                                                    style={{ 
+                                                        background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)',
+                                                        padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                                                        display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer'
+                                                    }}>
+                                                    <Play size={14} /> Start Workflow
+                                                </motion.button>
+                                            ) : (
+                                                <div style={{
+                                                    background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', color: 'var(--text-muted)',
                                                     padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                                                    display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer'
+                                                    display: 'flex', alignItems: 'center', gap: 8, cursor: 'not-allowed'
                                                 }}>
-                                                <Play size={14} /> Start Workflow
-                                            </motion.button>
+                                                    {job.status === 'assigned' ? 'Awaiting Check-in' : 'Not Ready'}
+                                                </div>
+                                            )
                                         ) : (
                                             <motion.button 
                                                 whileHover={btnHover} whileTap={btnTap} 

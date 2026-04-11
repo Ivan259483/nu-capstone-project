@@ -4,16 +4,17 @@ import { useWorkflow } from './WorkflowContext';
 import { useTheme } from '@/hooks/useThemeContext';
 import { CheckCircle, Clock, XCircle, ShieldCheck, Lock } from '@/components/ui/Icons';
 import SignatureScreen from 'react-native-signature-canvas';
+import { bookingService } from '@/services/api/bookingService';
 
 const QC_ITEMS = [
-  'No bubbles detected',
-  'No lifting on film edges',
-  'Trim panels secured',
-  'RFID / dashcam restored',
-  'Windows cleaned',
-  'Accessories returned',
-  'Interior checked & cleaned',
-  'Final wash completed',
+  'Windows cleaned after installation',
+  'No large bubbles',
+  'No peeling or film lifting',
+  'Film edges properly trimmed',
+  'Tint shade matches client request',
+  'Dashcam returned',
+  'Vehicle interior inspected',
+  'Remind NO roll down for 7 days',
 ];
 
 type SigKey = 'installer' | 'qcChecker' | 'client';
@@ -60,14 +61,22 @@ export default function Step7_EgressChecklist() {
     setActiveSig(null);
   };
 
-  const handleAdvance = () => {
+  const handleAdvance = async () => {
     if (!canAdvance) return;
-    saveStep(7, {
-      items: items.map(i => ({ item: i.item, passed: i.passed, note: i.note })),
-      installerSignature: signatures.installer,
-      qcCheckerSignature: signatures.qcChecker,
-      customerSignature: signatures.client,
-    }, true);
+    try {
+      await saveStep(7, {
+        items: items.map(i => ({ item: i.item, passed: i.passed, note: i.note })),
+        installerSignature: signatures.installer,
+        qcCheckerSignature: signatures.qcChecker,
+        customerSignature: signatures.client,
+      }, false);
+      if (job?.id && job.status === 'in_progress') {
+        await bookingService.operateQCComplete(job.id);
+      }
+      saveStep(7, {}, true); // Advance securely
+    } catch (err) {
+      console.error('[QC Complete] error:', err);
+    }
   };
 
   const SIG_LABELS: Record<SigKey, string> = { installer: 'Installer', qcChecker: 'QC Checker', client: 'Client' };

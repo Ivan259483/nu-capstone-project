@@ -21,7 +21,7 @@ export const getSharedSocket = (): Socket => {
     if (sharedSocket) {
       sharedSocket.disconnect();
     }
-    sharedSocket = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000', {
+    sharedSocket = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001', {
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,

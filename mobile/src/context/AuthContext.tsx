@@ -56,6 +56,7 @@ const toProfile = (
     id: backendUser?._id || backendUser?.id || firebaseUser?.uid || '',
     full_name: fullName,
     email,
+    phone: backendUser?.phone || '',
     role: getSafeUserRole(backendUser?.role, CUSTOMER_ROLE),
     avatar_url: backendUser?.avatar || firebaseUser?.photoURL || null,
     backend_id: backendUser?._id || backendUser?.id,
@@ -98,7 +99,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         applyState(firebaseUser, bootstrapped.token, bootstrapped.backendUser);
       } catch (error) {
         console.warn('Failed to bootstrap Firebase session:', getApiErrorMessage(error));
-        applyState(firebaseUser, null, null);
+        applyState(null, null, null);
+        authService.signOut().catch(() => {});
       } finally {
         setInitialized(true);
       }
@@ -111,13 +113,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string): Promise<AuthResult> => {
     try {
+      // Perform the exact localized Firebase Auth login
+      // Firebase manages password attempts and brute force locking securely (auth/too-many-requests).
       const result = await authService.loginWithEmail(email.trim(), password);
       applyState(result.firebaseUser, result.token, result.backendUser);
       return { success: true };
-    } catch (error) {
+    } catch (error: any) {
+      // Pass the exact backend error exactly backwards to the frontend (e.g. "Account locked")
       return {
         success: false,
-        message: getApiErrorMessage(error, 'Sign-in failed.'),
+        message: error.message || getApiErrorMessage(error, 'Sign-in failed.'),
       };
     }
   };

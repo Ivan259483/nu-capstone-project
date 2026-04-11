@@ -10,6 +10,7 @@ import InventoryTransaction from '../models/inventoryTransaction.model.js';
 import emailService from '../utils/emailService.utils.js';
 import { getIO } from '../utils/socket.utils.js';
 import { jsPDF } from 'jspdf';
+import { generateTermsAndConditionsPDF, generateWarrantyPDF, generateQCPDF } from '../utils/pdf.utils.js';
 import { generateOperationsChecklist } from '../utils/checklist.utils.js';
 import {
   FULL_ADMIN_ROLES,
@@ -20,6 +21,7 @@ import {
   isServiceStaffRole,
 } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
+import { onOrderStatusChange } from '../utils/workflow.utils.js';
 
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
@@ -136,6 +138,19 @@ const normalizeCurrency = (value) => {
   return NaN;
 };
 
+/**
+ * Generate a human-readable booking reference in format: ASPF-YYMMDD-XXXX
+ * Example: ASPF-260411-A7F3
+ */
+const generateBookingReference = () => {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const hex = Math.random().toString(16).substring(2, 6).toUpperCase();
+  return `ASPF-${yy}${mm}${dd}-${hex}`;
+};
+
 const formatBookingDto = (orderDoc) => {
   if (!orderDoc) return null;
   const order = typeof orderDoc.toObject === 'function'
@@ -172,6 +187,7 @@ const formatBookingDto = (orderDoc) => {
     id,
     customerId,
     serviceName,
+    bookingReference: order.bookingReference || order.orderNumber,
     date: order.date || order.bookingDate || '',
     time: order.time || order.bookingTime || '',
     vehicleInfo: vehicleInfo || '',
@@ -286,7 +302,6 @@ export const cleanupStaleBookings = async (req, res, next) => {
   try {
     const staleQuery = {
       $or: [
-        { status: 'processing' },
         { customerName: { $in: [null, ''] } },
         { serviceType: { $in: [null, ''] } }
       ]
@@ -316,14 +331,14 @@ export const cleanupStaleBookings = async (req, res, next) => {
 export const getActiveJobs = async (req, res, next) => {
   try {
     let query = {
-      status: { $in: ['pending', 'confirmed', 'assigned', 'processing', 'in-progress'] }
+      status: { $in: ['pending', 'confirmed', 'received', 'in_progress'] }
     };
 
     if (isServiceStaffRole(req.user.role)) {
       // Service staff sees their assigned jobs PLUS unassigned pending jobs
       query = {
         $or: [
-          { assignedDetailer: req.user.id, status: { $in: ['assigned', 'processing', 'in-progress'] } },
+          { assignedDetailer: req.user.id, status: { $in: ['confirmed', 'received', 'in_progress'] } },
           {
             $and: [
               { $or: [{ assignedDetailer: null }, { assignedDetailer: { $exists: false } }] },
@@ -435,7 +450,8 @@ export const createOrder = async (req, res, next) => {
       serviceType: serviceTypeInput,
       serviceName: serviceNameInput,
       totalPrice: totalPriceInput,
-      price: priceInput
+      price: priceInput,
+      downpaymentProof: downpaymentProofInput
     } = req.body;
 
     // Always trust the authenticated user for customer bookings.
@@ -612,6 +628,7 @@ export const createOrder = async (req, res, next) => {
 
     const order = new Order({
       orderNumber: `ORD-${Date.now()}`,
+      bookingReference: generateBookingReference(),
       customer: resolvedCustomerId,
       customerName: fallbackCustomerName,
       customerPhone: resolvedCustomerPhone,
@@ -624,7 +641,8 @@ export const createOrder = async (req, res, next) => {
       notes,
       ...finalVehicleData, // Spread vehicle details
       bookingDate,
-      bookingTime
+      bookingTime,
+      downpaymentProof: typeof downpaymentProofInput === 'string' ? downpaymentProofInput : undefined,
     });
 
     const checklist = generateOperationsChecklist(finalServiceType);
@@ -638,7 +656,7 @@ export const createOrder = async (req, res, next) => {
       for (const detailer of detailers) {
         const activeBooking = await Order.findOne({
           assignedDetailer: detailer._id,
-          status: { $in: ['assigned', 'processing', 'in-progress'] }
+          status: { $in: ['confirmed', 'received', 'in_progress'] }
         });
         if (!activeBooking) {
           availableDetailer = detailer;
@@ -648,12 +666,10 @@ export const createOrder = async (req, res, next) => {
 
       if (availableDetailer) {
         order.assignedDetailer = availableDetailer._id;
-        order.status = 'assigned';
+        order.status = 'confirmed';
         if (!order.serviceSteps || order.serviceSteps.length === 0) {
           order.serviceSteps = DEFAULT_SERVICE_STEPS.map(step => ({ ...step }));
         }
-      } else if (order.status === 'processing') {
-        order.status = 'pending';
       }
     }
 
@@ -918,7 +934,7 @@ export const updateOrder = async (req, res, next) => {
       ? (typeof order.assignedDetailer === 'object' ? order.assignedDetailer._id?.toString() : order.assignedDetailer.toString())
       : null;
     const isAssignedDetailer = isServiceStaffRole(req.user.role) && assignedDetailerId === req.user.id;
-    const isClaimingUnassigned = isServiceStaffRole(req.user.role) && !assignedDetailerId && ['pending', 'confirmed'].includes(order.status);
+    const isClaimingUnassigned = isServiceStaffRole(req.user.role) && !assignedDetailerId && ['pending', 'confirmed', 'received'].includes(order.status);
 
     if (!isOwner && !isAdmin && !isAssignedDetailer && !isClaimingUnassigned) {
       return res.status(403).json({
@@ -1117,18 +1133,7 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
       });
     }
 
-    // Check if detailer is already assigned to an active booking
-    const activeBooking = await Order.findOne({
-      assignedDetailer: detailerId,
-      status: { $in: ['assigned', 'processing', 'in-progress'] }
-    });
-
-    if (activeBooking) {
-      return res.status(400).json({
-        success: false,
-        message: 'Detailer is currently handling another active job. Simultaneous assignments are prohibited.'
-      });
-    }
+    // (Restriction removed: Detailers can have multiple scheduled active bookings)
 
     const order = await Order.findById(req.params.id).populate('customer', 'name email');
 
@@ -1141,7 +1146,7 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
 
     // Perform assignment
     order.assignedDetailer = detailerId;
-    if (order.status === 'pending') {
+    if (['pending', 'confirmed'].includes(order.status)) {
       order.status = 'assigned';
     }
 
@@ -1159,8 +1164,8 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
       if (!order.invoiceId) {
         order.invoiceId = `INV-${Date.now()}`;
       }
-      if (order.status === 'pending') {
-        order.status = 'confirmed';
+      if (['pending', 'confirmed'].includes(order.status)) {
+        order.status = 'assigned';
       }
     }
 
@@ -1169,6 +1174,13 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
 
     // Push live status update to the customer
     emitCustomerStatusUpdate(order);
+
+    // Trigger workflow orchestrator for status transition
+    if (previousStatus !== order.status) {
+      onOrderStatusChange(order, previousStatus, req.user).catch(err =>
+        console.error('[WORKFLOW] Orchestrator error in assignDetailerAndMarkPaid:', err.message)
+      );
+    }
 
     // Create unified customer notification that a detailer is assigned
     try {
@@ -1246,18 +1258,7 @@ export const assignDetailer = async (req, res, next) => {
   try {
     const { detailerId } = req.body;
     
-    // 1. Check if detailer is already assigned to an active booking
-    const activeBooking = await Order.findOne({
-      assignedDetailer: detailerId,
-      status: { $in: ['assigned', 'processing', 'in-progress'] }
-    });
-
-    if (activeBooking) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Detailer is currently handling another active job. Simultaneous assignments are prohibited.' 
-      });
-    }
+    // (Restriction removed: Detailers can have multiple scheduled active bookings)
 
     const order = await Order.findById(req.params.id);
 
@@ -1266,8 +1267,9 @@ export const assignDetailer = async (req, res, next) => {
     }
 
     // 2. Perform assignment
+    const previousStatus = order.status;
     order.assignedDetailer = detailerId;
-    if (order.status === 'pending') {
+    if (['pending', 'confirmed'].includes(order.status)) {
       order.status = 'assigned';
     }
 
@@ -1281,16 +1283,23 @@ export const assignDetailer = async (req, res, next) => {
     // Populate for return
     await order.populate('assignedDetailer', 'name email');
 
+    // Fire workflow orchestrator for status transition (handles inventory, notifications)
+    if (previousStatus !== order.status) {
+      onOrderStatusChange(order, previousStatus, req.user).catch(err =>
+        console.error('[WORKFLOW] Orchestrator error in assignDetailer:', err.message)
+      );
+    }
+
     logActivity({
       req, type: 'booking_assigned', module: 'Booking', action: 'Detailer Assigned',
-      description: `${req.user?.name || 'Admin'} assigned detailer to booking ${order.orderNumber || order._id}.`,
+      description: `${req.user?.name || 'Admin'} assigned detailer to booking ${order.orderNumber || order._id}. Status: ${previousStatus} → ${order.status}`,
       status: 'success', referenceId: order.orderNumber,
-      metadata: { orderId: order._id, detailerId },
+      metadata: { orderId: order._id, detailerId, previousStatus, newStatus: order.status },
     });
 
     res.json({
       success: true,
-      message: 'Detailer assigned successfully and locked to this job.',
+      message: 'Detailer assigned successfully. Booking is now ready for check-in.',
       data: order,
     });
   } catch (error) {
@@ -1561,7 +1570,7 @@ export const updateOrderProgress = async (req, res, next) => {
         metadata: { orderId: order._id, previousStatus, newStatus: order.status },
       });
     }
-    if (previousStatus === 'assigned' && order.status === 'in-progress') {
+    if (['confirmed', 'received'].includes(previousStatus) && order.status === 'in_progress') {
       logActivity({
         req, type: 'service_started', module: 'Service', action: 'Job Started',
         description: `${req.user?.name || 'Detailer'} started job ${order.orderNumber || order._id}.`,
@@ -1662,21 +1671,12 @@ export const getDetailerOrders = async (req, res, next) => {
   try {
     console.log('📋 [DETAILER_ORDERS] Fetching for detailer:', req.user.id, req.user.name || req.user.email);
 
-    // Single query: assigned to me OR unassigned pending/confirmed
+    // Only return jobs explicitly assigned to this detailer
+    // Jobs must be in actionable states: assigned, received, in_progress, completed
     const orders = await Order.find({
       archived: { $ne: true },
-      $or: [
-        { assignedDetailer: req.user.id },
-        {
-          $and: [
-            { $or: [
-              { assignedDetailer: null },
-              { assignedDetailer: { $exists: false } }
-            ]},
-            { status: { $in: ['pending', 'confirmed'] } }
-          ]
-        }
-      ]
+      assignedDetailer: req.user.id,
+      status: { $in: ['assigned', 'received', 'in_progress', 'completed'] },
     })
       .populate('customer', 'name email phone')
       .populate('assignedDetailer', 'name email')
@@ -1684,9 +1684,10 @@ export const getDetailerOrders = async (req, res, next) => {
 
     console.log('📋 [DETAILER_ORDERS] Total orders returned:', orders.length);
     console.log('📋 [DETAILER_ORDERS] Breakdown:', {
-      assigned: orders.filter(o => o.assignedDetailer && o.assignedDetailer._id?.toString() === req.user.id).length,
-      unassigned_pending: orders.filter(o => !o.assignedDetailer && o.status === 'pending').length,
-      unassigned_confirmed: orders.filter(o => !o.assignedDetailer && o.status === 'confirmed').length,
+      assigned: orders.filter(o => o.status === 'assigned').length,
+      received: orders.filter(o => o.status === 'received').length,
+      in_progress: orders.filter(o => o.status === 'in_progress').length,
+      completed: orders.filter(o => o.status === 'completed').length,
       statuses: [...new Set(orders.map(o => o.status))],
     });
 
@@ -2075,7 +2076,7 @@ export const updateWorkflowStep = async (req, res, next) => {
       case 7:
         order.egressData = { ...(order.egressData || {}), ...data, completedAt: now, completedBy: userId };
         if (data.releaseTimestamp) {
-          order.status = 'completed';
+          order.status = 'released'; // Step 7 final releases vehicle to Customer
           order.customerStatus = 'ready';
           order.customerStatusUpdatedAt = now;
         }
@@ -2089,7 +2090,22 @@ export const updateWorkflowStep = async (req, res, next) => {
     }
     order.workflowStep = Math.max(order.workflowStep || 0, step);
 
+    // Declarative Status Sync (Fallback to ensure Web POS accuracy)
+    const maxStep = Math.max(...order.workflowCompletedSteps, step);
+    if (maxStep >= 1 && maxStep < 7 && !['cancelled', 'failed'].includes(order.status)) {
+       order.status = 'in_progress';
+    } else if (maxStep >= 7 && !['cancelled', 'failed'].includes(order.status)) {
+       order.status = 'completed'; // Trigger POS System to record it as ready for invoice / release
+    }
+
+    const currentStatus = order.status;
     await order.save();
+
+    // Fire exact real-time payload socket for customers and admins immediately to reduce syncing delay
+    import('../socket.js').then((socketModule) => {
+      const io = socketModule.getIO();
+      if (io) io.emit('orderUpdated', { orderId: order._id, status: order.status, workflowStep: order.workflowStep });
+    }).catch(err => console.error("Error retrieving socket io module inside updateWorkflowStep", err));
 
     // Log activity
     const STEP_LABELS = ['', 'Job Order', 'Ingress Checklist', 'Damage Annotation', 'Customer Waiver', 'Service Proper', 'QC Checklist', 'Egress Release'];
@@ -2175,6 +2191,439 @@ export const updateMobileWorkflow = async (req, res, next) => {
 
     await order.save();
     res.json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 1) POS Check-In (Pending -> Received)
+ * Enforces 30% down payment
+ * Requires legal signature
+ */
+export const operateCheckIn = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    // Accept both frontend field names (signature, paymentMethod) and legacy (signatureBase64)
+    const { downPaymentAmount, signature, signatureBase64, paymentMethod } = req.body;
+    const sigData = signature || signatureBase64 || null;
+
+    const order = await Order.findById(id).populate('customer');
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (!['pending', 'confirmed', 'assigned'].includes(order.status)) {
+      return res.status(400).json({ success: false, message: `Cannot check-in order in '${order.status}' status. Order must be confirmed or assigned first.` });
+    }
+
+    const previousStatusForWorkflow = order.status;
+
+    const totalPrice = order.totalPrice || 0;
+    const minDownPayment = totalPrice * 0.3;
+    if (totalPrice > 0 && downPaymentAmount < minDownPayment) {
+      return res.status(400).json({ success: false, message: `Down payment must be at least 30% (₱${minDownPayment.toFixed(2)})` });
+    }
+
+    order.downPaymentAmount = downPaymentAmount;
+    if (paymentMethod) {
+      order.paymentMethod = paymentMethod;
+    }
+
+    if (sigData) {
+      try {
+        const waiverUrl = await generateTermsAndConditionsPDF(order, sigData);
+        order.legalCompliance = {
+          ...order.legalCompliance,
+          waiverSignature: sigData,
+          waiverSignedAt: new Date(),
+          waiverPdf: waiverUrl,
+        };
+      } catch (pdfErr) {
+        console.error('⚠️ PDF generation failed (non-fatal):', pdfErr.message);
+        // Still proceed with check-in even if PDF fails
+        order.legalCompliance = {
+          ...order.legalCompliance,
+          waiverSignature: sigData,
+          waiverSignedAt: new Date(),
+        };
+      }
+    }
+
+    order.status = 'received';
+    await order.save();
+
+    const io = getIO();
+    io.emit('orderUpdated', { orderId: order._id, status: order.status });
+
+    // Trigger workflow orchestrator
+    onOrderStatusChange(order, previousStatusForWorkflow, req.user).catch(err =>
+      console.error('[WORKFLOW] Orchestrator error in operateCheckIn:', err.message)
+    );
+    
+    logActivity({
+      req,
+      type: 'status_change',
+      module: 'Booking',
+      action: 'ORDER_CHECKIN',
+      description: `Order checked in. Down payment: ₱${downPaymentAmount}. Method: ${paymentMethod || 'N/A'}.`,
+      referenceId: order._id,
+    });
+
+    res.json({ success: true, data: order });
+  } catch (error) {
+    console.error('❌ operateCheckIn error:', error);
+    next(error);
+  }
+};
+
+/**
+ * 2) Start Service (Received -> In_Progress)
+ */
+export const operateStartService = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const order = await Order.findById(id);
+
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (order.status !== 'received') {
+       return res.status(400).json({ message: `Cannot start service — vehicle must be checked in first. Current status: '${order.status}'.` });
+    }
+
+    const prevStatus = order.status;
+    order.status = 'in_progress';
+    await order.save();
+
+    getIO().emit('orderUpdated', { orderId: order._id, status: order.status });
+
+    // Trigger workflow orchestrator
+    onOrderStatusChange(order, prevStatus, req.user).catch(err =>
+      console.error('[WORKFLOW] Orchestrator error in operateStartService:', err.message)
+    );
+
+    logActivity({
+      req,
+      type: 'service_started',
+      module: 'Service',
+      action: 'ORDER_STARTED',
+      description: 'Service started.',
+      referenceId: order._id,
+    });
+
+    res.json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 3) QC Complete (In_Progress -> Completed)
+ */
+export const operateQCComplete = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const order = await Order.findById(id).populate('customer').populate('items.product');
+
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (order.status !== 'in_progress') {
+       return res.status(400).json({ message: `Cannot complete service for order in ${order.status} status` });
+    }
+
+    try {
+      const qcUrl = await generateQCPDF(order);
+      if (qcUrl) {
+        order.legalCompliance = {
+          ...order.legalCompliance,
+          qcPdf: qcUrl,
+        };
+      }
+    } catch (err) {
+      console.error('Quietly continuing despite QC PDF failure', err);
+    }
+
+    const prevQCStatus = order.status;
+    order.status = 'completed';
+    await order.save();
+
+    getIO().emit('orderUpdated', { orderId: order._id, status: order.status });
+
+    // Trigger workflow orchestrator
+    onOrderStatusChange(order, prevQCStatus, req.user).catch(err =>
+      console.error('[WORKFLOW] Orchestrator error in operateQCComplete:', err.message)
+    );
+
+    logActivity({
+      req,
+      type: 'service_completed',
+      module: 'Service',
+      action: 'ORDER_COMPLETED',
+      description: 'QC Completed and QC Report generated.',
+      referenceId: order._id,
+    });
+
+    res.json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 4) Final Payment (Completed -> Paid)
+ */
+export const operateFinalPayment = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { finalPaymentAmount } = req.body;
+    const order = await Order.findById(id);
+
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    // Allow 'received', 'in_progress', 'completed' to move to 'paid' early if they want, but typically 'completed'
+    if (['pending', 'confirmed', 'released', 'cancelled'].includes(order.status)) {
+       return res.status(400).json({ message: `Cannot pay order in ${order.status} status` });
+    }
+
+    const prevPayStatus = order.status;
+
+    // Usually remaining balance = total - downpayment
+    order.finalPaymentAmount = finalPaymentAmount;
+    order.paymentStatus = 'paid';
+    order.paidAt = new Date();
+    order.status = 'paid';
+    
+    // Auto-generate Warranty + Receipt PDF right at Payment Stage
+    try {
+      const warrantyUrl = await generateWarrantyPDF(order);
+      if (warrantyUrl) {
+        if (!order.warrantyAndReceipt) order.warrantyAndReceipt = {};
+        order.warrantyAndReceipt.warrantyPdf = warrantyUrl;
+      }
+    } catch(err) {
+      console.error('Quietly continuing despite warranty PDF failure', err);
+    }
+
+    await order.save();
+
+    getIO().emit('orderUpdated', { orderId: order._id, status: order.status, paymentStatus: 'paid' });
+
+    // Trigger workflow orchestrator
+    onOrderStatusChange(order, prevPayStatus, req.user).catch(err =>
+      console.error('[WORKFLOW] Orchestrator error in operateFinalPayment:', err.message)
+    );
+
+    logActivity({
+      req,
+      type: 'payment_completed',
+      module: 'POS',
+      action: 'ORDER_PAID',
+      description: 'Final payment received.',
+      referenceId: order._id,
+    });
+
+    res.json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 5) Release Vehicle (Paid -> Released)
+ */
+export const operateRelease = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { signatureBase64 } = req.body;
+    const order = await Order.findById(id);
+
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (order.status !== 'paid') {
+       return res.status(400).json({ message: `Cannot release order in ${order.status} status. Ensure it is paid.` });
+    }
+
+    if (signatureBase64) {
+      order.legalCompliance = {
+        ...order.legalCompliance,
+        releaseSignature: signatureBase64,
+        releaseSignedAt: new Date(),
+      };
+    }
+
+    order.status = 'released';
+    await order.save();
+
+    getIO().emit('orderUpdated', { orderId: order._id, status: order.status });
+
+    // Trigger workflow orchestrator
+    onOrderStatusChange(order, 'paid', req.user).catch(err =>
+      console.error('[WORKFLOW] Orchestrator error in operateRelease:', err.message)
+    );
+
+    logActivity({
+      req,
+      type: 'status_change',
+      module: 'Booking',
+      action: 'ORDER_RELEASED',
+      description: 'Vehicle released to customer.',
+      referenceId: order._id,
+    });
+
+    res.json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONFIRM BOOKING — Admin confirms pending → confirmed (triggers workflow)
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /api/orders/:id/confirm
+ * Admin confirms a pending booking. This triggers the full workflow chain:
+ *   → Job order auto-created
+ *   → Inventory materials reserved
+ *   → Staff queue notification emitted
+ *   → Customer push notification sent
+ */
+export const confirmBooking = async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.id).populate('customer', 'name email');
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (order.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot confirm booking in '${order.status}' status. Only pending bookings can be confirmed.`,
+      });
+    }
+
+    const previousStatus = order.status;
+
+    // If admin assigns a technician during confirmation, go straight to 'assigned'
+    const { assignedDetailer } = req.body || {};
+    if (assignedDetailer) {
+      order.assignedDetailer = assignedDetailer;
+      order.status = 'assigned';
+    } else {
+      order.status = 'confirmed';
+    }
+
+    // Initialize default service steps if empty
+    if (!order.serviceSteps || order.serviceSteps.length === 0) {
+      order.serviceSteps = DEFAULT_SERVICE_STEPS.map(step => ({ ...step }));
+    }
+
+    await order.save();
+
+    // Push live status update
+    emitCustomerStatusUpdate(order);
+
+    // Fire workflow orchestrator (handles job order, inventory, notifications)
+    onOrderStatusChange(order, previousStatus, req.user).catch(err =>
+      console.error('[WORKFLOW] Orchestrator error in confirmBooking:', err.message)
+    );
+
+    // Activity log
+    logActivity({
+      req,
+      type: 'status_change',
+      module: 'Booking',
+      action: 'BOOKING_CONFIRMED',
+      description: `${req.user?.name || 'Admin'} confirmed booking ${order.orderNumber || order._id}${assignedDetailer ? ' and assigned technician' : ''}.`,
+      status: 'success',
+      referenceId: order.orderNumber,
+      metadata: { orderId: order._id, previousStatus, newStatus: order.status },
+    });
+
+    return res.json({
+      success: true,
+      message: assignedDetailer
+        ? 'Booking confirmed and technician assigned. Ready for check-in.'
+        : 'Booking confirmed. Awaiting technician assignment.',
+      data: order,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STAFF QUEUE — Prioritized list of actionable jobs
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/orders/queue/staff
+ * Returns a prioritized queue of jobs in staff-actionable states.
+ *
+ * Priority order:
+ *   1. Unassigned confirmed bookings (soonest date first)
+ *   2. Assigned but not started (received)
+ *   3. In-progress jobs (active work)
+ *
+ * Optionally filters by ?detailerId= for a specific staff member's queue.
+ */
+export const getStaffQueue = async (req, res, next) => {
+  try {
+    const { detailerId } = req.query;
+
+    const filter = {
+      status: { $in: ['confirmed', 'assigned', 'received', 'in_progress'] },
+      archived: { $ne: true },
+    };
+
+    // If specific detailer is requested, show their assignments + unassigned
+    if (detailerId) {
+      filter.$or = [
+        { assignedDetailer: detailerId },
+        { assignedDetailer: null },
+        { assignedDetailer: { $exists: false } },
+      ];
+    }
+
+    const orders = await Order.find(filter)
+      .populate('customer', 'name email phone loyaltyTier')
+      .populate('assignedDetailer', 'name email')
+      .select(
+        'orderNumber bookingReference status customerStatus customerName serviceType ' +
+        'bookingDate bookingTime vehicleYear vehicleMake vehicleModel vehicleColor vehiclePlate ' +
+        'assignedDetailer totalPrice notes createdAt'
+      )
+      .sort({
+        // Soonest booking date first, then by creation date
+        bookingDate: 1,
+        bookingTime: 1,
+        createdAt: 1,
+      })
+      .lean();
+
+    // Post-sort: prioritize unassigned, then by loyalty tier
+    const tierPriority = { Platinum: 0, Gold: 1, Silver: 2, Bronze: 3 };
+    const statusPriority = { confirmed: 0, assigned: 1, received: 2, in_progress: 3 };
+
+    orders.sort((a, b) => {
+      // Unassigned first
+      const aAssigned = a.assignedDetailer ? 1 : 0;
+      const bAssigned = b.assignedDetailer ? 1 : 0;
+      if (aAssigned !== bAssigned) return aAssigned - bAssigned;
+
+      // Status priority
+      const aStat = statusPriority[a.status] ?? 9;
+      const bStat = statusPriority[b.status] ?? 9;
+      if (aStat !== bStat) return aStat - bStat;
+
+      // Loyalty tier (higher tier = higher priority)
+      const aTier = tierPriority[a.customer?.loyaltyTier] ?? 9;
+      const bTier = tierPriority[b.customer?.loyaltyTier] ?? 9;
+      return aTier - bTier;
+    });
+
+    return res.json({
+      success: true,
+      count: orders.length,
+      data: orders,
+    });
   } catch (error) {
     next(error);
   }

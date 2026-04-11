@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,6 +26,8 @@ import { useAuth } from '@/context/AuthContext';
 import { bookingService } from '@/services/api/bookingService';
 import { getApiErrorMessage } from '@/services/api/client';
 import type { BookingRecord } from '@/services/api/types';
+import { Toast } from '@/components/ui/PremiumToast';
+import { useQuery } from '@tanstack/react-query';
 
 // ─── Design Tokens ───────────────────────────────────────────────────────────
 const ACCENT = '#FF6B35';
@@ -51,10 +54,14 @@ function getStatusConfig(status: string) {
   return STATUS_CONFIG[status] || { label: status, color: '#888', bg: 'rgba(136,136,136,0.12)', icon: 'ellipse-outline' };
 }
 
+// ─── Cancellable Statuses ────────────────────────────────────────────────────
+const CANCELLABLE_STATUSES = ['pending', 'confirmed'];
+const REBOOKABLE_STATUSES = ['completed', 'cancelled'];
+
 // ─── Booking Card ────────────────────────────────────────────────────────────
 
 const BookingCard = React.memo(
-  function BookingCard({ booking, index, onPress }: { booking: BookingRecord; index: number; onPress: (id: string) => void }) {
+  function BookingCard({ booking, index, onPress, onCancel, onRebook }: { booking: BookingRecord; index: number; onPress: (id: string) => void; onCancel?: (id: string) => void; onRebook?: (booking: BookingRecord) => void }) {
     const sc = getStatusConfig(booking.status);
 
     const displayDate = booking.bookingDate || booking.date || 'No date';
@@ -104,9 +111,37 @@ const BookingCard = React.memo(
           {/* Bottom row */}
           <View style={c.bottomRow}>
             <Text style={c.price}>₱{Number(displayPrice).toLocaleString()}</Text>
-            <View style={c.viewBtn}>
-              <Text style={c.viewBtnText}>View</Text>
-              <Ionicons name="chevron-forward" size={12} color={ACCENT} />
+            <View style={c.actionRow}>
+              {onCancel && CANCELLABLE_STATUSES.includes(booking.status) && (
+                <TouchableOpacity
+                  style={c.cancelBtn}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    onCancel(booking.id);
+                  }}
+                >
+                  <Ionicons name="close-circle-outline" size={14} color="#EF4444" />
+                  <Text style={c.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+              )}
+              {onRebook && REBOOKABLE_STATUSES.includes(booking.status) && (
+                <TouchableOpacity
+                  style={c.rebookBtn}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    onRebook(booking);
+                  }}
+                >
+                  <Ionicons name="refresh-outline" size={14} color={ACCENT} />
+                  <Text style={c.rebookBtnText}>Re-Book</Text>
+                </TouchableOpacity>
+              )}
+              <View style={c.viewBtn}>
+                <Text style={c.viewBtnText}>View</Text>
+                <Ionicons name="chevron-forward" size={12} color={ACCENT} />
+              </View>
             </View>
           </View>
         </TouchableOpacity>
@@ -115,6 +150,7 @@ const BookingCard = React.memo(
   },
   (prev, next) => prev.booking.id === next.booking.id && prev.booking.status === next.booking.status
 );
+
 
 const c = StyleSheet.create({
   card: {
@@ -152,6 +188,31 @@ const c = StyleSheet.create({
   detailsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   detailItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   detailText: { fontSize: 12, color: '#999' },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cancelBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.3)',
+    backgroundColor: 'rgba(239,68,68,0.08)',
+  },
+  cancelBtnText: { fontSize: 11, fontWeight: '700', color: '#EF4444' },
+  rebookBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,107,53,0.3)',
+    backgroundColor: 'rgba(255,107,53,0.08)',
+  },
+  rebookBtnText: { fontSize: 11, fontWeight: '700', color: ACCENT },
   bottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -173,36 +234,64 @@ export default function AppointmentsScreen() {
   const { profile } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>('upcoming');
-  const [bookings, setBookings] = useState<BookingRecord[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const ACTIVE_STATUSES = ['pending', 'confirmed', 'received', 'scanning', 'in_progress', 'quality_check', 'ready'];
   const HISTORY_STATUSES = ['completed', 'cancelled', 'failed'];
+  const {
+    data: bookings = [],
+    isLoading,
+    refetch,
+  } = useQuery({
+    queryKey: ['bookings'],
+    queryFn: () => bookingService.getMyBookings(),
+    enabled: !!profile,
+  });
 
-  const loadBookings = useCallback(async () => {
-    try {
-      const data = await bookingService.getMyBookings();
-      setBookings(data);
-    } catch (error) {
-      console.warn('Failed to load bookings:', getApiErrorMessage(error));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (profile) loadBookings();
-  }, [profile, loadBookings]);
-
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    loadBookings();
+    await refetch();
+    setRefreshing(false);
   };
 
-  const upcoming = bookings.filter((b) => ACTIVE_STATUSES.includes(b.status));
-  const history = bookings.filter((b) => HISTORY_STATUSES.includes(b.status));
+  // ── Cancel Booking Handler ──
+  const handleCancelBooking = useCallback((bookingId: string) => {
+    Alert.alert(
+      'Cancel Booking',
+      'Are you sure you want to cancel this booking? This action cannot be undone.',
+      [
+        { text: 'Keep Booking', style: 'cancel' },
+        {
+          text: 'Yes, Cancel',
+          style: 'destructive',
+          onPress: async () => {
+            setCancellingId(bookingId);
+            try {
+              await bookingService.cancelBooking(bookingId);
+              Toast.show('Booking cancelled successfully.', 'success');
+              // Update local state immediately
+              await refetch();
+            } catch (error) {
+              Toast.show(getApiErrorMessage(error, 'Failed to cancel booking.'), 'error');
+            } finally {
+              setCancellingId(null);
+            }
+          },
+        },
+      ]
+    );
+  }, [refetch]);
+
+  // ── Re-Book Handler ──
+  const handleRebook = useCallback((booking: BookingRecord) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    // Navigate to booking screen — the customer will pick date/time fresh
+    router.push('/(customer)/book');
+  }, [router]);
+
+  const upcoming = bookings.filter((b: any) => ACTIVE_STATUSES.includes(b.status));
+  const history = bookings.filter((b: any) => HISTORY_STATUSES.includes(b.status));
   const displayed = activeTab === 'upcoming' ? upcoming : history;
 
   return (
@@ -233,12 +322,12 @@ export default function AppointmentsScreen() {
         </View>
         <View style={s.statDivider} />
         <View style={s.statItem}>
-          <Text style={[s.statVal, { color: '#10B981' }]}>{history.filter((b) => b.status === 'completed').length}</Text>
+          <Text style={[s.statVal, { color: '#10B981' }]}>{history.filter((b: any) => b.status === 'completed').length}</Text>
           <Text style={s.statLabel}>Completed</Text>
         </View>
         <View style={s.statDivider} />
         <View style={s.statItem}>
-          <Text style={[s.statVal, { color: '#EF4444' }]}>{history.filter((b) => b.status === 'cancelled').length}</Text>
+          <Text style={[s.statVal, { color: '#EF4444' }]}>{history.filter((b: any) => b.status === 'cancelled').length}</Text>
           <Text style={s.statLabel}>Cancelled</Text>
         </View>
       </Animated.View>
@@ -292,7 +381,7 @@ export default function AppointmentsScreen() {
           />
         }
         ListEmptyComponent={() => {
-          if (loading) {
+          if (isLoading) {
             return (
               <View style={s.emptyCenter}>
                 <ActivityIndicator size="large" color={ACCENT} />
@@ -334,9 +423,11 @@ export default function AppointmentsScreen() {
           <BookingCard
             booking={item}
             index={index}
+            onCancel={handleCancelBooking}
+            onRebook={handleRebook}
             onPress={(id) => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push('/(customer)/track');
+              router.push({ pathname: '/(customer)/track', params: { id } });
             }}
           />
         )}

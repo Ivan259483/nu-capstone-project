@@ -150,7 +150,7 @@ export default function DetailerDashboard() {
     const normalizePendingBooking = useCallback((booking: any) => {
         const id = booking.id || booking._id;
         const paymentStatus = booking.paymentStatus || booking.payment_status;
-        const inferredStatus = paymentStatus === 'paid' ? 'in-progress' : undefined;
+        const inferredStatus = paymentStatus === 'paid' ? 'in_progress' : undefined;
         const inferredCustomerStatus = paymentStatus === 'paid' ? 'queued' : undefined;
         return {
             ...booking,
@@ -244,7 +244,7 @@ export default function DetailerDashboard() {
                 setJobs(response.data.map(ensureWaiverSigned));
 
                 // Check for active job start time (derived from status)
-                const activeJob = response.data.find((j: Booking) => j.status === 'in-progress' || j.status === 'processing');
+                const activeJob = response.data.find((j: Booking) => j.status === 'in_progress' || j.status === 'processing');
                 if (activeJob) {
                     setActiveJobStartTime(prev => prev || Date.now());
                 }
@@ -356,7 +356,7 @@ export default function DetailerDashboard() {
             });
 
             // Check for active job
-            const activeDoc = Array.from(firestoreDocs.values()).find((j: any) => j.status === 'in-progress' || j.status === 'processing');
+            const activeDoc = Array.from(firestoreDocs.values()).find((j: any) => j.status === 'in_progress' || j.status === 'processing');
             if (activeDoc) {
                 setActiveJobStartTime(prev => prev || Date.now());
             }
@@ -541,7 +541,7 @@ export default function DetailerDashboard() {
             if (normalizedJobId && db) {
                 try {
                     await setDoc(doc(db, 'bookings', normalizedJobId), {
-                        status: 'in-progress',
+                        status: 'in_progress',
                         updatedAt: new Date().toISOString()
                     }, { merge: true });
                     console.log('✅ Atomic Firestore Update: in-progress');
@@ -553,10 +553,9 @@ export default function DetailerDashboard() {
 
             try {
                 // If this is an unassigned booking, claim it for this detailer
-                const updatePayload: Record<string, any> = { status: 'in-progress' };
-                if (!job.assignedDetailer && (job.status === 'pending' || job.status === 'confirmed')) {
+                const updatePayload: Record<string, any> = { status: 'in_progress' };
+                if (!job.assignedDetailer && (job.status === 'pending' || job.status === 'confirmed' || job.status === 'received')) {
                     updatePayload.assignedDetailer = user?.id;
-                    updatePayload.status = 'assigned'; // Will be set to in-progress by workflow step
                 }
                 // Backend Sync
                 const response = await OrderService.updateOrder(jobId, updatePayload);
@@ -829,7 +828,7 @@ export default function DetailerDashboard() {
             return;
         }
 
-        const activeJob = safeJobs.find(j => j.status === 'in-progress' || j.status === 'processing');
+        const activeJob = safeJobs.find(j => j.status === 'in_progress' || j.status === 'processing');
 
         toast.loading('Logging usage...');
         const result = await consumeInventory(item, usageAmount, activeJob?.id || 'general', { voiceAlert: false });
@@ -861,7 +860,7 @@ export default function DetailerDashboard() {
             return;
         }
 
-        const activeJob = safeJobs.find(j => j.status === 'in-progress' || j.status === 'processing');
+        const activeJob = safeJobs.find(j => j.status === 'in_progress' || j.status === 'processing');
         if (!activeJob) {
             toast.error('No active job found to add a note to.');
             return;
@@ -903,7 +902,7 @@ export default function DetailerDashboard() {
 
     const safeJobs = Array.isArray(jobs) ? jobs : [];
     console.log('📋 [DASHBOARD] STATE JOBS exactly as set in state:', safeJobs.length, safeJobs.map(j => ({ id: j.id, status: j.status })));
-    const activeJobRaw = safeJobs.find(j => j.status === 'in-progress') || safeJobs.find(j => j.status === 'processing');
+    const activeJobRaw = safeJobs.find(j => j.status === 'in_progress') || safeJobs.find(j => j.status === 'processing');
 
     const activeJob = activeJobRaw;
     const isChecklistComplete = (() => {
@@ -927,8 +926,8 @@ export default function DetailerDashboard() {
         || j.status === 'confirmed'
         || j.status === 'assigned'
         || j.status === 'processing'
-        || j.status === 'in-progress'
-        || j.customerStatus === 'received'
+        || j.status === 'in_progress'
+        || j.status === 'received'
         || j.customerStatus === 'washing'
         || j.customerStatus === 'detailing'
     );

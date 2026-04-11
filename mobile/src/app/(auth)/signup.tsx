@@ -22,6 +22,8 @@ import PremiumButton from '@/components/ui/PremiumButton';
 import PremiumInput from '@/components/ui/PremiumInput';
 import { Toast } from '@/components/ui/PremiumToast';
 import { Validation } from '@/utils/validation';
+import { authService } from '@/services/api/authService';
+import { getApiErrorMessage } from '@/services/api/client';
 
 const { height } = Dimensions.get('window');
 
@@ -39,7 +41,20 @@ export default function SignUpScreen() {
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
-  async function handleSignUp() {
+  // OTP State
+  const [otpStep, setOtpStep] = useState<'form' | 'verify'>('form');
+  const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
+  const [otpCountdown, setOtpCountdown] = useState(0);
+  const otpInputRefs = React.useRef<Array<TextInput | null>>([]);
+
+  React.useEffect(() => {
+    if (otpCountdown > 0) {
+      const timer = setTimeout(() => setOtpCountdown(otpCountdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [otpCountdown]);
+
+  const handleSendOtp = async () => {
     setNameError('');
     setEmailError('');
     setPasswordError('');
@@ -70,22 +85,74 @@ export default function SignUpScreen() {
       hasError = true;
     }
 
-    if (hasError) {
+    if (hasError) return;
+
+    setLoading(true);
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    try {
+      await authService.sendOtp(email.trim());
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setOtpStep('verify');
+      setOtpCountdown(60);
+    } catch (error: any) {
+      Alert.alert('Error', getApiErrorMessage(error, 'Failed to send verification code.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    const otp = otpDigits.join('');
+    if (otp.length < 6) {
+      Alert.alert('Invalid', 'Please enter the fully 6-digit code.');
       return;
     }
 
     setLoading(true);
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
-    const result = await signUp(fullName.trim(), email.trim(), password);
-    if (result.success) {
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace('/');
-    } else {
-      Toast.show(result.message || 'Unable to create account.', 'error');
+
+    try {
+      await authService.verifyOtp(email.trim(), otp);
+      
+      // OTP matched. Proceed to register the account!
+      const result = await signUp(fullName.trim(), email.trim(), password);
+      if (result.success) {
+        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        router.replace('/');
+      } else {
+        Alert.alert('Sign Up Failed', result.message || 'Unable to create account. Please check your details and try again.', [{ text: 'OK' }]);
+      }
+    } catch (error: any) {
+      Alert.alert('Verification Failed', getApiErrorMessage(error, 'Invalid code.'));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }
+  };
+
+  const handleOtpChange = (text: string, index: number) => {
+    // Only accept numbers
+    const cleanText = text.replace(/[^0-9]/g, '');
+    
+    const newDigits = [...otpDigits];
+    newDigits[index] = cleanText.substring(0, 1);
+    setOtpDigits(newDigits);
+
+    // Auto-advance
+    if (cleanText && index < 5) {
+      otpInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleOtpKeyPress = (e: any, index: number) => {
+    if (e.nativeEvent.key === 'Backspace' && !otpDigits[index] && index > 0) {
+      // Auto-retreat
+      otpInputRefs.current[index - 1]?.focus();
+      const newDigits = [...otpDigits];
+      newDigits[index - 1] = '';
+      setOtpDigits(newDigits);
+    }
+  };
 
   const triggerHapticSelection = () => {
     if (Platform.OS !== 'web') Haptics.selectionAsync();
@@ -135,57 +202,106 @@ export default function SignUpScreen() {
               <Text style={styles.welcomeSubtext}>Join AutoSPF+ for premium vehicle service.</Text>
             </Animated.View>
 
-            {/* Floating Inputs Form */}
+            {/* Floating Inputs Form & OTP */}
             <View style={styles.formContainer}>
-                {/* Full Name */}
-                <Animated.View entering={FadeInUp.delay(200).springify().damping(16).stiffness(120)}>
-                  <PremiumInput
-                    label="FULL NAME"
-                    iconName="person-outline"
-                    placeholder="Juan Dela Cruz"
-                    value={fullName}
-                    onChangeText={(t) => { setFullName(t); setNameError(''); }}
-                    autoCapitalize="words"
-                    error={nameError}
-                  />
-                </Animated.View>
+              {otpStep === 'form' ? (
+                <>
+                  {/* Full Name */}
+                  <Animated.View entering={FadeInUp.delay(200).springify().damping(16).stiffness(120)}>
+                    <PremiumInput
+                      label="FULL NAME"
+                      iconName="person-outline"
+                      placeholder="Juan Dela Cruz"
+                      value={fullName}
+                      onChangeText={(t) => { setFullName(t); setNameError(''); }}
+                      autoCapitalize="words"
+                      error={nameError}
+                    />
+                  </Animated.View>
 
-                {/* Email */}
-                <Animated.View entering={FadeInUp.delay(300).springify().damping(16).stiffness(120)}>
-                  <PremiumInput
-                    label="EMAIL ADDRESS"
-                    iconName="mail-outline"
-                    placeholder="name@example.com"
-                    value={email}
-                    onChangeText={(t) => { setEmail(t); setEmailError(''); }}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    error={emailError}
-                  />
-                </Animated.View>
+                  {/* Email */}
+                  <Animated.View entering={FadeInUp.delay(300).springify().damping(16).stiffness(120)}>
+                    <PremiumInput
+                      label="EMAIL ADDRESS"
+                      iconName="mail-outline"
+                      placeholder="name@example.com"
+                      value={email}
+                      onChangeText={(t) => { setEmail(t); setEmailError(''); }}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      error={emailError}
+                    />
+                  </Animated.View>
 
-                {/* Password */}
-                <Animated.View entering={FadeInUp.delay(400).springify().damping(16).stiffness(120)}>
-                  <PremiumInput
-                    label="PASSWORD"
-                    iconName="lock-closed-outline"
-                    placeholder="Min. 8 chars, 1 upper, 1 lower, 1 number"
-                    value={password}
-                    onChangeText={(t) => { setPassword(t); setPasswordError(''); }}
-                    isPassword
-                    error={passwordError}
-                  />
-                </Animated.View>
+                  {/* Password */}
+                  <Animated.View entering={FadeInUp.delay(400).springify().damping(16).stiffness(120)}>
+                    <PremiumInput
+                      label="PASSWORD"
+                      iconName="lock-closed-outline"
+                      placeholder="Min. 8 chars, 1 upper, 1 lower, 1 number"
+                      value={password}
+                      onChangeText={(t) => { setPassword(t); setPasswordError(''); }}
+                      isPassword
+                      error={passwordError}
+                    />
+                  </Animated.View>
 
-                {/* Sign Up Button */}
-                <Animated.View entering={FadeInUp.delay(600).springify().damping(15).stiffness(100)} style={{ marginTop: 40 }}>
-                  <PremiumButton
-                    title={loading ? 'CREATING...' : 'SIGN UP'}
-                    icon={loading ? undefined : 'person-add-outline'}
-                    onPress={handleSignUp}
-                    disabled={loading}
-                  />
+                  {/* Send OTP Button */}
+                  <Animated.View entering={FadeInUp.delay(600).springify().damping(15).stiffness(100)} style={{ marginTop: 40 }}>
+                    <PremiumButton
+                      title={loading ? 'SENDING CODE...' : 'CONTINUE'}
+                      icon={loading ? undefined : 'arrow-forward-outline'}
+                      onPress={handleSendOtp}
+                      disabled={loading}
+                    />
+                  </Animated.View>
+                </>
+              ) : (
+                <Animated.View entering={FadeInUp.delay(100).springify().damping(16).stiffness(120)}>
+                  <Text style={styles.otpInstructions}>
+                    Enter the 6-digit verification code sent to {email}
+                  </Text>
+                  
+                  <View style={styles.otpContainer}>
+                    {otpDigits.map((digit, index) => (
+                      <TextInput
+                        key={index}
+                        ref={(ref: any) => (otpInputRefs.current[index] = ref)}
+                        style={[styles.otpInput, digit && styles.otpInputFilled]}
+                        maxLength={1}
+                        keyboardType="number-pad"
+                        value={digit}
+                        onChangeText={(text) => handleOtpChange(text, index)}
+                        onKeyPress={(e) => handleOtpKeyPress(e, index)}
+                        selectTextOnFocus
+                      />
+                    ))}
+                  </View>
+
+                  <Animated.View entering={FadeInUp.delay(300).springify().damping(15).stiffness(100)} style={{ marginTop: 40 }}>
+                    <PremiumButton
+                      title={loading ? 'VERIFYING...' : 'VERIFY & REGISTER'}
+                      icon={loading ? undefined : 'checkmark-circle-outline'}
+                      onPress={handleVerifyOtp}
+                      disabled={loading || otpDigits.join('').length < 6}
+                    />
+                  </Animated.View>
+
+                  <View style={styles.otpFooter}>
+                    <TouchableOpacity
+                      disabled={otpCountdown > 0 || loading}
+                      onPress={handleSendOtp}
+                    >
+                      <Text style={[styles.resendText, otpCountdown > 0 && styles.resendTextDisabled]}>
+                        {otpCountdown > 0 ? `Resend Code in ${otpCountdown}s` : 'Resend Code'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setOtpStep('form')}>
+                      <Text style={styles.changeEmailText}>Change Email</Text>
+                    </TouchableOpacity>
+                  </View>
                 </Animated.View>
+              )}
             </View>
 
             {/* Footer */}
@@ -266,5 +382,55 @@ const styles = StyleSheet.create({
   
   formContainer: {
     width: '100%',
+  },
+
+  otpInstructions: {
+    fontSize: 14,
+    color: '#8A8A9A',
+    marginBottom: 24,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    lineHeight: 20,
+  },
+  otpContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  otpInput: {
+    width: 48,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: '#111',
+    borderWidth: 1,
+    borderColor: '#333',
+    color: '#FFF',
+    fontSize: 24,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  otpInputFilled: {
+    borderColor: Palette.accent,
+    backgroundColor: 'rgba(249, 115, 22, 0.05)',
+  },
+  otpFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 24,
+    paddingHorizontal: 10,
+  },
+  resendText: {
+    color: Palette.accent,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  resendTextDisabled: {
+    color: '#555',
+  },
+  changeEmailText: {
+    color: '#8A8A9A',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

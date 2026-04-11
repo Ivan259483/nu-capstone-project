@@ -64,6 +64,7 @@ const normalizeBackendUser = (raw: any, firebaseUid?: string): BackendUser => {
     email: raw?.email || '',
     role: getSafeUserRole(raw?.role, DEFAULT_ROLE),
     avatar: raw?.avatar,
+    phone: raw?.phone,
     createdAt: raw?.createdAt,
     updatedAt: raw?.updatedAt,
     isActive: raw?.isActive,
@@ -98,10 +99,12 @@ const socialLogin = async (firebaseUser: FirebaseUser): Promise<{ token: string;
     throw new Error('Firebase user email is missing.');
   }
 
+  const isEmailPassword = firebaseUser.providerData?.some(p => p.providerId === 'password');
+
   const response = await apiClient.post('/auth/social-login', {
     email,
     name: firebaseUser.displayName || safeNameFromEmail(email),
-    provider: 'firebase',
+    provider: isEmailPassword ? 'password' : 'firebase',
     providerId: firebaseUser.uid,
     photoURL: firebaseUser.photoURL,
   });
@@ -137,16 +140,16 @@ const exchangeTokenForLogin = async (
   email: string,
   password: string
 ): Promise<{ token: string; user: BackendUser }> => {
-  try {
-    const response = await apiClient.post('/auth/login', {
-      email,
-      password,
-    });
+  const isEmailPassword = firebaseUser.providerData?.some(p => p.providerId === 'password');
+  const response = await apiClient.post('/auth/social-login', {
+    email,
+    name: firebaseUser.displayName || safeNameFromEmail(email),
+    provider: isEmailPassword ? 'password' : 'firebase',
+    providerId: firebaseUser.uid,
+    photoURL: firebaseUser.photoURL,
+  });
 
-    return getAuthPayload(response, firebaseUser.uid);
-  } catch {
-    return socialLogin(firebaseUser);
-  }
+  return getAuthPayload(response, firebaseUser.uid);
 };
 
 const exchangeTokenForRegistration = async (
@@ -155,21 +158,36 @@ const exchangeTokenForRegistration = async (
   email: string,
   password: string
 ): Promise<{ token: string; user: BackendUser }> => {
-  try {
-    const response = await apiClient.post('/auth/register', {
-      name,
-      email,
-      password,
-      role: DEFAULT_ROLE,
-    });
+  const response = await apiClient.post('/auth/register', {
+    name,
+    email,
+    password,
+    role: DEFAULT_ROLE,
+  });
 
-    return getAuthPayload(response, firebaseUser.uid);
-  } catch {
-    return socialLogin(firebaseUser);
-  }
+  return getAuthPayload(response, firebaseUser.uid);
 };
 
 export const authService = {
+  async sendOtp(email: string): Promise<{ success: boolean; message: string }> {
+    const response = await apiClient.post('/auth/send-otp', { email });
+    return response.data;
+  },
+
+  async verifyOtp(email: string, otp: string): Promise<{ success: boolean; message: string }> {
+    const response = await apiClient.post('/auth/verify-otp', { email, otp });
+    return response.data;
+  },
+
+  async preFlightLogin(email: string, password: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      const response = await apiClient.post('/auth/login', { email, password });
+      return { success: response.data.success };
+    } catch (error: any) {
+      throw new Error(getApiErrorMessage(error));
+    }
+  },
+
   async loginWithEmail(email: string, password: string): Promise<{
     firebaseUser: FirebaseUser;
     token: string;
@@ -284,7 +302,7 @@ export const authService = {
     await authStorage.clearAll();
   },
 
-  async updateUserBackendProfile(firebaseUser: FirebaseUser, data: { name?: string, avatar?: string }): Promise<BackendUser> {
+  async updateUserBackendProfile(firebaseUser: FirebaseUser, data: { name?: string, avatar?: string, phone?: string }): Promise<BackendUser> {
     const response = await apiClient.put<ApiEnvelope<any>>(`/users/${firebaseUser.uid}`, data);
     if (!response.data.success) {
       throw new Error(response.data.message || 'Failed to update user profile.');

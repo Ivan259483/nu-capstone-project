@@ -570,6 +570,110 @@ const generateServiceCompletedTemplate = (order) => {
   `;
 };
 
+/**
+ * Send digital receipt email to customer after POS settlement
+ */
+export const sendDigitalReceiptEmail = async (customerEmail, receiptData) => {
+  try {
+    if (!transporter) {
+      await initializeEmailService();
+    }
+
+    const senderEmail = config.emailFromAddress || config.emailUser;
+    const senderName = config.emailFromName || 'AutoSPF+';
+
+    const mailOptions = {
+      from: `"${senderName}" <${senderEmail}>`,
+      to: customerEmail,
+      subject: `🧾 Your AutoSPF+ Receipt — ${receiptData.bookingReference || receiptData.orderNumber}`,
+      html: generateReceiptTemplate(receiptData),
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    console.log('✅ Digital receipt email sent:', {
+      to: customerEmail,
+      orderNumber: receiptData.orderNumber,
+      messageId: result.messageId,
+    });
+    return { success: true, messageId: result.messageId };
+  } catch (error) {
+    console.error('❌ Failed to send receipt email:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * HTML Template for Digital Receipt
+ */
+const generateReceiptTemplate = (data) => {
+  const formatCurrency = (amount) => `₱${(amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  return `
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 20px auto; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.15);">
+      <!-- Header -->
+      <div style="background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); color: white; padding: 36px 32px; text-align: center;">
+        <h1 style="margin: 0 0 4px 0; font-size: 24px; font-weight: 700; letter-spacing: 1px;">AutoSPF+</h1>
+        <p style="margin: 0; color: #FF6B35; font-size: 14px; letter-spacing: 2px; text-transform: uppercase;">Digital Receipt</p>
+      </div>
+
+      <!-- Booking Reference -->
+      <div style="background: #FF6B35; padding: 16px 32px; text-align: center;">
+        <p style="margin: 0; color: white; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Booking Reference</p>
+        <p style="margin: 4px 0 0 0; color: white; font-size: 22px; font-weight: bold; letter-spacing: 3px; font-family: monospace;">${data.bookingReference || data.orderNumber || 'N/A'}</p>
+      </div>
+
+      <!-- Body -->
+      <div style="padding: 32px; background: #fff; color: #333;">
+        <p style="font-size: 16px; margin-bottom: 24px;">Hi <strong>${data.customerName || 'Valued Customer'}</strong>,</p>
+        <p style="font-size: 14px; line-height: 1.6; color: #555;">Thank you for choosing AutoSPF+. Here's your digital receipt for the service completed on <strong>${dateStr}</strong>.</p>
+
+        <!-- Service Details -->
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 12px; margin: 24px 0; border-left: 4px solid #FF6B35;">
+          <h3 style="margin: 0 0 16px 0; color: #1a1a1a; font-size: 15px; text-transform: uppercase; letter-spacing: 1px;">Service Details</h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+            <tr><td style="padding: 6px 0; color: #888;">Service</td><td style="padding: 6px 0; text-align: right; font-weight: 600;">${data.serviceName || 'Premium Detailing'}</td></tr>
+            <tr><td style="padding: 6px 0; color: #888;">Vehicle</td><td style="padding: 6px 0; text-align: right; font-weight: 600;">${data.vehicleInfo || 'N/A'}</td></tr>
+            <tr><td style="padding: 6px 0; color: #888;">Plate No.</td><td style="padding: 6px 0; text-align: right; font-weight: 600;">${data.plateNumber || 'N/A'}</td></tr>
+            ${data.detailerName ? `<tr><td style="padding: 6px 0; color: #888;">Detailer</td><td style="padding: 6px 0; text-align: right; font-weight: 600;">${data.detailerName}</td></tr>` : ''}
+          </table>
+        </div>
+
+        <!-- Payment Breakdown -->
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 12px; margin: 24px 0;">
+          <h3 style="margin: 0 0 16px 0; color: #1a1a1a; font-size: 15px; text-transform: uppercase; letter-spacing: 1px;">Payment Summary</h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+            ${data.downPayment ? `<tr><td style="padding: 6px 0; color: #888;">Down Payment</td><td style="padding: 6px 0; text-align: right;">${formatCurrency(data.downPayment)}</td></tr>` : ''}
+            ${data.finalPayment ? `<tr><td style="padding: 6px 0; color: #888;">Final Payment</td><td style="padding: 6px 0; text-align: right;">${formatCurrency(data.finalPayment)}</td></tr>` : ''}
+            <tr style="border-top: 2px solid #ddd;">
+              <td style="padding: 12px 0 6px 0; font-weight: bold; font-size: 16px;">Total Paid</td>
+              <td style="padding: 12px 0 6px 0; text-align: right; font-weight: bold; font-size: 16px; color: #FF6B35;">${formatCurrency(data.totalAmount)}</td>
+            </tr>
+            <tr><td style="padding: 4px 0; color: #888; font-size: 12px;">Payment Method</td><td style="padding: 4px 0; text-align: right; font-size: 12px; color: #888;">${(data.paymentMethod || 'N/A').toUpperCase()}</td></tr>
+          </table>
+        </div>
+
+        <!-- Loyalty Points -->
+        ${data.pointsEarned ? `
+        <div style="background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); padding: 20px; border-radius: 12px; margin: 24px 0; color: white; text-align: center;">
+          <p style="margin: 0 0 4px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #FF6B35;">Loyalty Points Earned</p>
+          <p style="margin: 0; font-size: 28px; font-weight: bold;">+${data.pointsEarned}</p>
+          <p style="margin: 4px 0 0 0; font-size: 12px; color: #aaa;">Total Points: ${data.totalPoints || 'N/A'} • Tier: ${data.loyaltyTier || 'Bronze'}</p>
+        </div>
+        ` : ''}
+
+        <p style="font-size: 13px; color: #888; text-align: center; margin-top: 24px;">Questions? Contact us at <a href="mailto:admin@autospf.com" style="color: #FF6B35;">admin@autospf.com</a></p>
+      </div>
+
+      <!-- Footer -->
+      <div style="background: #1a1a1a; color: #666; padding: 20px; text-align: center; font-size: 11px;">
+        <p style="margin: 0 0 4px 0;">&copy; 2026 AutoSPF+. Premium Auto Detailing.</p>
+        <p style="margin: 0;">This is an automated receipt. Please keep for your records.</p>
+      </div>
+    </div>
+  `;
+};
+
 export default {
   initializeEmailService,
   sendOtpEmail,
@@ -578,4 +682,5 @@ export default {
   sendBookingNotification,
   sendLowStockAlert,
   sendServiceCompletedEmail,
+  sendDigitalReceiptEmail,
 };

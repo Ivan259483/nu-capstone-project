@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import Reanimated, { FadeIn, FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Reanimated, { FadeIn, FadeInDown, FadeInUp, interpolate, useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useAnimatedScrollHandler } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
@@ -48,7 +48,6 @@ import {
   formatPhp,
   getDefaultDamageArea,
   isValidGlbUrl,
-  mapStatusLabel,
   normalizeAssetToImageInput,
   validateVehicleImage,
   validateVehicleImageSet,
@@ -56,7 +55,7 @@ import {
 import BeforeAfterSlider from '@/features/ai-scan/components/BeforeAfterSlider';
 import ConfirmBookingSheet from '@/features/ai-scan/components/ConfirmBookingSheet';
 import DamageOverlayImage from '@/features/ai-scan/components/DamageOverlayImage';
-import ModelViewerARCard from '@/features/ai-scan/components/ModelViewerARCard';
+import ARRepairViewer from '@/features/ai-scan/components/ARRepairViewer';
 import ScanAnalysisCard from '@/features/ai-scan/components/ScanAnalysisCard';
 import TimeoutCard from '@/features/ai-scan/components/TimeoutCard';
 import WorkflowStepper from '@/features/ai-scan/components/WorkflowStepper';
@@ -67,7 +66,126 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const { width } = Dimensions.get('window');
 const COMPARE_WIDTH = width - 40;
 const START_ANALYSIS_DEBOUNCE_MS = 1200;
-const ACCENT = '#FF6B35';
+
+const T = {
+  bg: '#06060A',
+  surface: '#0C0C14',
+  elevated: '#111119',
+  overlay: '#16161F',
+  amber: '#FF8036',
+  amberSoft: '#FFA366',
+  amberDeep: '#E86A1C',
+  amberGlow: 'rgba(255,128,54,0.30)',
+  amberMuted: 'rgba(255,128,54,0.15)',
+  gold: '#C9A84C',
+  goldSoft: '#DEC071',
+  goldGlow: 'rgba(201,168,76,0.25)',
+  emerald: '#2DD4A8',
+  emeraldGlow: 'rgba(45,212,168,0.25)',
+};
+
+const ACCENT = T.amber;
+
+function AmbientOrbs() {
+  const t1 = useSharedValue(0);
+  const t2 = useSharedValue(0);
+  const t3 = useSharedValue(0);
+
+  React.useEffect(() => {
+    t1.value = withRepeat(withTiming(1, { duration: 10000, easing: Easing.inOut(Easing.ease) }), -1, true);
+    t2.value = withRepeat(withTiming(1, { duration: 14000, easing: Easing.inOut(Easing.ease) }), -1, true);
+    t3.value = withRepeat(withTiming(1, { duration: 18000, easing: Easing.inOut(Easing.ease) }), -1, true);
+  }, []);
+
+  const orb1 = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: interpolate(t1.value, [0, 1], [-20, 40]) },
+      { translateY: interpolate(t1.value, [0, 1], [0, 25]) },
+      { scale: interpolate(t1.value, [0, 0.5, 1], [1, 1.2, 1]) },
+    ],
+    opacity: interpolate(t1.value, [0, 0.5, 1], [0.25, 0.45, 0.25]),
+  }));
+
+  const orb2 = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: interpolate(t2.value, [0, 1], [30, -30]) },
+      { translateY: interpolate(t2.value, [0, 1], [15, -15]) },
+      { scale: interpolate(t2.value, [0, 0.5, 1], [1, 1.15, 1]) },
+    ],
+    opacity: interpolate(t2.value, [0, 0.5, 1], [0.15, 0.30, 0.15]),
+  }));
+
+  const orb3 = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: interpolate(t3.value, [0, 1], [-15, 25]) },
+      { translateY: interpolate(t3.value, [0, 1], [-10, 20]) },
+      { scale: interpolate(t3.value, [0, 0.5, 1], [0.9, 1.1, 0.9]) },
+    ],
+    opacity: interpolate(t3.value, [0, 0.5, 1], [0.1, 0.22, 0.1]),
+  }));
+
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <Reanimated.View style={[s.orb, { top: -80, right: -50, width: 260, height: 260, backgroundColor: T.amberGlow }, orb1]} />
+      <Reanimated.View style={[s.orb, { top: 300, left: -90, width: 220, height: 220, backgroundColor: T.goldGlow }, orb2]} />
+      <Reanimated.View style={[s.orb, { top: 600, right: -60, width: 180, height: 180, backgroundColor: T.emeraldGlow }, orb3]} />
+    </View>
+  );
+}
+
+/* ── Scanner Overlay ─────────────────────────────────────────────────────── */
+function ScannerOverlay({ isScanning, progress }: { isScanning: boolean; progress: number }) {
+  const translateY = useSharedValue(0);
+
+  React.useEffect(() => {
+    if (isScanning) {
+      translateY.value = withRepeat(
+        withTiming(1, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
+        -1,
+        true
+      );
+    } else {
+      translateY.value = 0;
+    }
+  }, [isScanning]);
+
+  const scanLineStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: interpolate(translateY.value, [0, 1], [0, 300]) }],
+      opacity: isScanning ? 1 : 0,
+    };
+  });
+
+  const pulseStyle = useAnimatedStyle(() => {
+    return {
+      opacity: isScanning ? interpolate(translateY.value, [0, 0.5, 1], [0.3, 0.7, 0.3]) : 0,
+    };
+  });
+
+  if (!isScanning) return null;
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { overflow: 'hidden', borderRadius: 16 }]} pointerEvents="none">
+      <Reanimated.View style={[StyleSheet.absoluteFill, pulseStyle]}>
+        <LinearGradient
+          colors={['transparent', T.amberGlow, 'transparent']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Reanimated.View>
+      <Reanimated.View style={[{ width: '100%', height: 120, position: 'absolute', top: -120 }, scanLineStyle]}>
+        <LinearGradient
+          colors={['transparent', T.amber, 'transparent']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={{ width: '100%', height: '100%' }}
+        />
+        <View style={{ height: 2, backgroundColor: '#fff', width: '100%', position: 'absolute', bottom: '50%', opacity: 0.8 }} />
+      </Reanimated.View>
+    </View>
+  );
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * PREMIUM SCAN SCREEN — Tesla / Porsche Service Center Aesthetic
@@ -171,7 +289,7 @@ export default function ScanScreen() {
     upsertImageFromAsset(result.assets[0], angle);
   };
 
-  const pickBulkFromGallery = async () => {
+  const pickSingleImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Toast.show('Gallery access is required to upload vehicle images.', 'error');
@@ -181,22 +299,13 @@ export default function ScanScreen() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.9,
       allowsEditing: false,
-      allowsMultipleSelection: true,
-      selectionLimit: 5,
+      allowsMultipleSelection: false,
     });
     if (result.canceled || result.assets.length === 0) return;
 
-    const next: VehicleImageInput[] = [...state.images];
-    const slotOrder = [...VEHICLE_ANGLE_SLOTS];
-    result.assets.slice(0, 5).forEach((asset, index) => {
-      const targetAngle = slotOrder[index]?.angle;
-      if (!targetAngle) return;
-      const image = normalizeAssetToImageInput(asset, targetAngle);
-      const existingIndex = next.findIndex((x) => x.angle === targetAngle);
-      if (existingIndex >= 0) next[existingIndex] = image;
-      else next.push(image);
-    });
-    dispatch({ type: 'SET_IMAGES', payload: next });
+    // We replace the entire images array so we only hold one primary image
+    const image = normalizeAssetToImageInput(result.assets[0], 'front-driver-side');
+    dispatch({ type: 'SET_IMAGES', payload: [image] });
   };
 
   const showImageActions = (angle: VehicleAngle) => {
@@ -292,68 +401,72 @@ export default function ScanScreen() {
       dispatch({ type: 'SET_UPLOAD_PROGRESS', payload: 0 });
       setStatus('uploading', 'Preparing vehicle scan...');
 
-      // ── Phase 0: Analyzing body panel structure ──
+      // ── Phase 0: Image Preparation ──
       setScanPhase(0);
       setScanProgress(5);
-      setScanMessage('Analyzing body panel structure…');
-
+      setScanMessage('Enhancing image resolution...');
+      
       const analysisPromise = analyzeVehicleDamage(state.images, (progress) => {
         dispatch({ type: 'SET_UPLOAD_PROGRESS', payload: progress });
       });
 
-      // Phase 0 timing: 2.5 seconds
-      await sleep(800);
+      await sleep(1200);
       setScanProgress(12);
-      await sleep(900);
-      setScanProgress(22);
-      await sleep(800);
-      setScanProgress(25);
 
-      // ── Phase 1: Detecting scratches, dents, cracks ──
+      // ── Phase 1: AI Pre-Scan Research ──
       setScanPhase(1);
-      setScanProgress(28);
-      setScanMessage('Detecting scratches, dents, cracks…');
+      setScanProgress(20);
+      setScanMessage('Analyzing lighting conditions...');
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      await sleep(1000);
-      setScanProgress(38);
-      await sleep(1200);
-      setScanProgress(48);
-      await sleep(1300);
-      setScanProgress(50);
+      await sleep(1500);
+      setScanProgress(30);
 
-      // ── Phase 2: Mapping damage zones ──
+      // ── Phase 2: Deep Damage Analysis ──
       setScanPhase(2);
-      setScanProgress(52);
-      setScanMessage('Mapping damage zones…');
+      setScanProgress(35);
+      setScanMessage('Detecting vehicle body panels...');
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      await sleep(1100);
-      setScanProgress(62);
-      await sleep(1200);
-      setScanProgress(72);
-      await sleep(1200);
-      setScanProgress(75);
+      await sleep(1500);
+      setScanProgress(45);
 
-      // ── Phase 3: Generating confidence score ──
+      // ── Phase 3: Severity Validation ──
       setScanPhase(3);
-      setScanProgress(78);
-      setScanMessage('Generating confidence score…');
+      setScanProgress(50);
+      setScanMessage('Researching common damage patterns...');
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      await sleep(800);
+      await sleep(1600);
+      setScanProgress(60);
+
+      // ── Phase 4: Result Generation ──
+      setScanPhase(4);
+      setScanProgress(65);
+      setScanMessage('Cross-checking affected areas...');
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await sleep(1400);
+      setScanProgress(75);
+      
+      setScanMessage('Running defect validation...');
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await sleep(1200);
       setScanProgress(85);
-      await sleep(900);
-      setScanProgress(92);
-      await sleep(800);
-      setScanProgress(98);
+
+      // ── Phase 5: Finalizing ──
+      setScanPhase(5);
+      setScanProgress(90);
+      setScanMessage('Finalizing scan result...');
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await sleep(1200);
+      setScanProgress(96);
 
       // Wait for actual API analysis to complete
       const analysis = await analysisPromise;
 
       // Complete
-      setScanPhase(4);
+      setScanPhase(6);
       setScanProgress(100);
-      setScanMessage('Analysis complete');
+      setScanMessage('Research complete');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await sleep(600);
+      await sleep(800);
 
       const imgCount = state.images.filter(Boolean).length;
       analysis.issues = analysis.issues.map(issue => {
@@ -417,14 +530,14 @@ export default function ScanScreen() {
 
       // ── 3D Model Generation ──
       setStatus('generating_3d', 'Generating 3D vehicle model...');
-      dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'processing', modelProgress: 0, modelTaskId: null, modelUrl: null } });
+      dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'processing', modelProgress: 0, modelTaskId: null, modelUrl: null, repairedModelUrl: null } });
       try {
         const generationStart = await start3DModelGeneration(state.images, (progress) => {
           dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'processing', modelProgress: progress } });
         });
         if (generationStart.status === 'ar_ready' && generationStart.modelUrl) {
           if (isValidGlbUrl(generationStart.modelUrl)) {
-            dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'ready', modelUrl: generationStart.modelUrl, modelProgress: 100 } });
+            dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'ready', modelUrl: generationStart.modelUrl, repairedModelUrl: generationStart.repairedModelUrl, modelProgress: 100 } });
             setStatus('rendering_ar', '3D model ready. AR is now available.');
           } else {
             dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'failed', modelProgress: 0 } });
@@ -436,7 +549,7 @@ export default function ScanScreen() {
               onProgress: (progress) => dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'processing', modelProgress: progress } }),
             });
             if (polled.status === 'ar_ready' && polled.modelUrl && isValidGlbUrl(polled.modelUrl)) {
-              dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'ready', modelUrl: polled.modelUrl, modelProgress: 100 } });
+              dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'ready', modelUrl: polled.modelUrl, repairedModelUrl: polled.repairedModelUrl, modelProgress: 100 } });
               setStatus('rendering_ar', '3D model ready. AR is now available.');
             } else {
               dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'unavailable', modelProgress: 0 } });
@@ -557,7 +670,7 @@ export default function ScanScreen() {
           dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'processing', modelProgress: progress } });
         });
         if (result.status === 'ar_ready' && result.modelUrl) {
-          dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'ready', modelUrl: result.modelUrl, modelProgress: 100 } });
+          dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'ready', modelUrl: result.modelUrl, repairedModelUrl: result.repairedModelUrl, modelProgress: 100 } });
         } else {
           dispatch({ type: 'SET_MODEL_STATE', payload: { modelStatus: 'failed', modelProgress: 0 } });
         }
@@ -572,19 +685,21 @@ export default function ScanScreen() {
    * ═══════════════════════════════════════════════════════════════════════════ */
   return (
     <View style={s.screen}>
+      <AmbientOrbs />
       <AnimatedHeader />
 
       <ScrollView
         style={s.scroll}
         contentContainerStyle={{ paddingBottom: TabBarHeight + 140 }}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
       >
         <Reanimated.View entering={FadeInDown.springify().damping(18)} style={s.content}>
 
           {/* ── Hero ──────────────────────────────────────────── */}
           <Reanimated.View entering={FadeIn.duration(600)}>
             <LinearGradient
-              colors={['rgba(255,107,53,0.06)', 'rgba(255,107,53,0.015)', 'transparent']}
+              colors={['rgba(255,128,54,0.06)', 'rgba(255,128,54,0.015)', 'transparent']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={s.hero}
@@ -601,15 +716,7 @@ export default function ScanScreen() {
           </Reanimated.View>
 
           {/* ── Workflow Stepper ──────────────────────────────── */}
-          <View style={s.stepperCard}>
-            <View style={s.rowBetween}>
-              <Text style={s.sectionTitle}>Workflow</Text>
-              <View style={s.statusPill}>
-                <Text style={s.statusPillText}>{mapStatusLabel(state.status)}</Text>
-              </View>
-            </View>
-            <WorkflowStepper currentStatus={state.status} isUploadComplete={canAnalyze} />
-          </View>
+          <WorkflowStepper currentStatus={state.status} isUploadComplete={canAnalyze} />
 
           {/* ── Timeout Card ──────────────────────────────────── */}
           {state.status === 'timeout' && state.timeoutStep && (
@@ -646,7 +753,7 @@ export default function ScanScreen() {
               {uploadedCount === 0 ? (
                 <TouchableOpacity
                   style={s.uploadZone}
-                  onPress={() => void pickBulkFromGallery()}
+                  onPress={() => void pickSingleImage()}
                   activeOpacity={0.75}
                   disabled={isWorkflowRunning}
                 >
@@ -655,56 +762,31 @@ export default function ScanScreen() {
                     <Ionicons name="camera-outline" size={36} color={ACCENT} />
                   </View>
                   <Text style={s.uploadZoneTitle}>Tap to upload</Text>
-                  <Text style={s.uploadZoneSub}>Gallery or Camera · 1–5 images</Text>
+                  <Text style={s.uploadZoneSub}>Gallery or Camera · High resolution</Text>
                 </TouchableOpacity>
               ) : (
                 <Reanimated.View entering={FadeIn.duration(400)}>
                   {/* Primary image large preview */}
                   <TouchableOpacity
-                    style={s.primaryPreview}
-                    onPress={() => void pickBulkFromGallery()}
+                    style={[s.primaryPreview, isWorkflowRunning && { opacity: 0.9, borderColor: T.amberGlow, borderWidth: 1 }]}
+                    onPress={() => !isWorkflowRunning && showImageActions('front-driver-side')}
                     activeOpacity={0.85}
+                    disabled={isWorkflowRunning}
                   >
                     <Image source={primaryImage!} style={s.primaryImage} contentFit="cover" cachePolicy="memory-disk" transition={200} />
                     <LinearGradient
-                      colors={['transparent', 'rgba(0,0,0,0.6)']}
+                      colors={['transparent', 'rgba(0,0,0,0.8)']}
                       style={s.primaryOverlay}
                     >
-                      <View style={s.primaryBadge}>
-                        <Ionicons name="images-outline" size={10} color="#fff" />
-                        <Text style={s.primaryBadgeText}>{uploadedCount} photo{uploadedCount > 1 ? 's' : ''}</Text>
-                      </View>
+                      {!isWorkflowRunning && (
+                        <View style={s.primaryBadge}>
+                          <Ionicons name="camera-reverse-outline" size={14} color="#fff" />
+                          <Text style={s.primaryBadgeText}>Replace Image</Text>
+                        </View>
+                      )}
                     </LinearGradient>
+                    <ScannerOverlay isScanning={isWorkflowRunning} progress={scanProgress} />
                   </TouchableOpacity>
-
-                  {/* Horizontal thumbnail carousel */}
-                  {uploadedCount > 1 && (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={s.thumbRow}
-                      style={s.thumbScroll}
-                    >
-                      {state.images.map((img, idx) => (
-                        <Reanimated.View key={img.id} entering={FadeIn.delay(idx * 60)}>
-                          <TouchableOpacity
-                            style={[s.thumbCard, idx === 0 && s.thumbCardActive]}
-                            onPress={() => showImageActions(img.angle)}
-                            activeOpacity={0.8}
-                          >
-                            <Image source={img.uri} style={s.thumbImage} contentFit="cover" cachePolicy="memory-disk" transition={200} />
-                          </TouchableOpacity>
-                        </Reanimated.View>
-                      ))}
-                      <TouchableOpacity
-                        style={s.thumbAdd}
-                        onPress={() => void pickBulkFromGallery()}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="add" size={18} color={ACCENT} />
-                      </TouchableOpacity>
-                    </ScrollView>
-                  )}
                 </Reanimated.View>
               )}
 
@@ -712,7 +794,7 @@ export default function ScanScreen() {
               <View style={s.uploadButtons}>
                 <TouchableOpacity
                   style={[s.actionBtn, s.actionBtnOutline, isWorkflowRunning && { opacity: 0.4 }]}
-                  onPress={() => void pickBulkFromGallery()}
+                  onPress={() => void pickSingleImage()}
                   disabled={isWorkflowRunning}
                   activeOpacity={0.7}
                 >
@@ -985,18 +1067,6 @@ export default function ScanScreen() {
                   )}
                 </View>
 
-                {/* Before / After Labels */}
-                <View style={s.beforeAfterLabels}>
-                  <View style={s.baLabel}>
-                    <View style={[s.baDot, { backgroundColor: '#6a6a78' }]} />
-                    <Text style={s.baLabelText}>Before</Text>
-                  </View>
-                  <View style={s.baLabel}>
-                    <View style={[s.baDot, { backgroundColor: '#10B981' }]} />
-                    <Text style={s.baLabelText}>After Repair</Text>
-                  </View>
-                </View>
-
                 <BeforeAfterSlider
                   beforeUri={primaryImage}
                   afterUri={state.repairPreviewUrl}
@@ -1021,12 +1091,60 @@ export default function ScanScreen() {
                     <Text style={s.sectionTitle}>3D + AR Visualization</Text>
                   </View>
                 </View>
-                <ModelViewerARCard
+                <ARRepairViewer
                   modelStatus={state.modelStatus}
                   modelProgress={state.modelProgress}
                   modelUrl={state.modelUrl}
+                  repairedModelUrl={state.repairedModelUrl}
+                  issues={state.analysis?.issues ?? []}
                   onRetry={handleRetry3D}
                 />
+              </GlassCard>
+            </Reanimated.View>
+          )}
+
+          {/* ══════════════════════════════════════════════════════
+           * 5.5 ▸ AI CONFIDENCE SCORE
+           * ══════════════════════════════════════════════════════ */}
+          {state.analysis && state.analysis.issues.length > 0 && (
+            <Reanimated.View entering={FadeInDown.delay(275).springify().damping(18)}>
+              <GlassCard style={s.card}>
+                <View style={s.sectionHeader}>
+                  <View style={s.sectionBadge}><Text style={s.sectionBadgeText}>⚡</Text></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.sectionTitle}>AI Confidence Rating</Text>
+                    <Text style={s.sectionSub}>Validated against {state.analysis.issues.length} defect signatures.</Text>
+                  </View>
+                </View>
+                
+                <View style={s.confidencePanelWrap}>
+                  <View style={s.rowBetween}>
+                    <Text style={s.confidencePanelLabel}>Overall Analysis Confidence</Text>
+                    <Text style={s.confidencePanelValue}>
+                      {Math.round((state.analysis.issues.reduce((acc, i) => acc + i.confidence, 0) / state.analysis.issues.length) * 100)}%
+                    </Text>
+                  </View>
+                  <View style={s.confidencePanelTrack}>
+                    <LinearGradient
+                      colors={[T.amber, T.amberDeep]}
+                      start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                      style={[
+                        s.confidencePanelFill, 
+                        { width: `${Math.round((state.analysis.issues.reduce((acc, i) => acc + i.confidence, 0) / state.analysis.issues.length) * 100)}%` }
+                      ]}
+                    />
+                  </View>
+                  <View style={s.confidenceFactorsRow}>
+                    <View style={s.confidenceFactor}>
+                      <Ionicons name="scan-outline" size={12} color={T.amber} />
+                      <Text style={s.confidenceFactorText}>Structure Analysed</Text>
+                    </View>
+                    <View style={s.confidenceFactor}>
+                      <Ionicons name="hardware-chip-outline" size={12} color={T.amber} />
+                      <Text style={s.confidenceFactorText}>Deep-learning model</Text>
+                    </View>
+                  </View>
+                </View>
               </GlassCard>
             </Reanimated.View>
           )}
@@ -1057,12 +1175,12 @@ export default function ScanScreen() {
                   <View style={[s.estimateBand, s.estimateBandCenter]}>
                     <Text style={[s.estimateBandLabel, { color: ACCENT }]}>Recommended</Text>
                     <Text style={[s.estimateBandValue, s.estimateBandValuePrimary]}>{state.estimate.formattedRecommended}</Text>
-                    <LinearGradient colors={[ACCENT, '#D44200']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.estimateBandBar} />
+                    <LinearGradient colors={[T.amber, T.amberDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.estimateBandBar} />
                   </View>
                   <View style={s.estimateBand}>
                     <Text style={s.estimateBandLabel}>High</Text>
                     <Text style={s.estimateBandValue}>{formatPhp(state.estimate.max)}</Text>
-                    <View style={[s.estimateBandBar, { backgroundColor: 'rgba(255,107,53,0.2)' }]} />
+                    <View style={[s.estimateBandBar, { backgroundColor: 'rgba(255,128,54,0.2)' }]} />
                   </View>
                 </View>
 
@@ -1147,7 +1265,7 @@ export default function ScanScreen() {
       {(state.status === 'awaiting_confirmation' || state.status === 'confirmed') && state.estimate && (
         <View style={s.bottomPanelWrap}>
           <LinearGradient
-            colors={['rgba(255,107,53,0.06)', 'rgba(4,4,6,0.95)']}
+            colors={['rgba(255,128,54,0.06)', 'rgba(4,4,6,0.95)']}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={s.bottomGradientBorder}
@@ -1171,7 +1289,7 @@ export default function ScanScreen() {
                   colors={
                     state.status === 'confirmed'
                       ? [Palette.success, '#0fa97c']
-                      : [ACCENT, '#D44200']
+                      : [T.amber, T.amberDeep]
                   }
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
@@ -1214,7 +1332,16 @@ export default function ScanScreen() {
  * STYLES — Luxury dark, glassmorphism, orange glow, premium typography
  * ═══════════════════════════════════════════════════════════════════════════ */
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#020204' },
+  screen: { flex: 1, backgroundColor: T.bg },
+  orb: {
+    position: 'absolute',
+    borderRadius: 9999,
+    shadowColor: T.amber,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 60,
+    elevation: 20,
+  },
   scroll: { flex: 1 },
   content: { paddingHorizontal: 16, paddingTop: 8, gap: 14 },
 
@@ -1222,7 +1349,8 @@ const s = StyleSheet.create({
   hero: {
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.08)',
+    borderColor: T.amberMuted,
+    backgroundColor: 'rgba(255,128,54,0.02)',
     padding: 20,
   },
   heroTagRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
@@ -1230,14 +1358,14 @@ const s = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: ACCENT,
-    shadowColor: ACCENT,
+    backgroundColor: T.amber,
+    shadowColor: T.amber,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.6,
     shadowRadius: 4,
   },
   heroTag: {
-    color: ACCENT,
+    color: T.amber,
     fontSize: 9,
     fontWeight: '800',
     textTransform: 'uppercase',
@@ -1255,51 +1383,27 @@ const s = StyleSheet.create({
 
   /* ── Cards ── */
   card: {
-    backgroundColor: 'rgba(10,10,16,0.85)',
+    backgroundColor: T.surface,
     borderColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
     borderRadius: 20,
     padding: 18,
     gap: 12,
   },
-  stepperCard: {
-    backgroundColor: 'rgba(10,10,16,0.85)',
-    borderColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 6,
-  },
   sectionHeader: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   sectionBadge: {
     width: 24,
     height: 24,
     borderRadius: 8,
-    backgroundColor: 'rgba(255,107,53,0.08)',
+    backgroundColor: 'rgba(255,128,54,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.15)',
+    borderColor: 'rgba(255,128,54,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   sectionBadgeText: { color: ACCENT, fontSize: 10, fontWeight: '800' },
   sectionTitle: { color: '#f0f0f0', fontSize: 15, fontWeight: '700', letterSpacing: 0.15 },
   sectionSub: { color: '#5a5a68', fontSize: 11, lineHeight: 16, marginTop: 2 },
-  statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.2)',
-    backgroundColor: 'rgba(255,107,53,0.06)',
-  },
-  statusPillText: {
-    color: ACCENT,
-    fontSize: 8,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
 
   /* ── Upload Zone (empty state) ── */
   uploadZone: {
@@ -1308,9 +1412,9 @@ const s = StyleSheet.create({
     paddingVertical: 44,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.12)',
+    borderColor: T.amberMuted,
     borderStyle: 'dashed',
-    backgroundColor: 'rgba(255,107,53,0.02)',
+    backgroundColor: 'rgba(255,128,54,0.02)',
     gap: 10,
   },
   uploadZoneGlow: {
@@ -1325,9 +1429,9 @@ const s = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: 'rgba(255,107,53,0.08)',
+    backgroundColor: T.amberMuted,
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.18)',
+    borderColor: 'rgba(255,128,54,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1348,7 +1452,7 @@ const s = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.2)',
+    borderColor: 'rgba(255,128,54,0.2)',
   },
   primaryImage: {
     width: '100%',
@@ -1392,8 +1496,8 @@ const s = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
   },
   thumbCardActive: {
-    borderColor: 'rgba(255,107,53,0.35)',
-    shadowColor: ACCENT,
+    borderColor: 'rgba(255,128,54,0.35)',
+    shadowColor: T.amber,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 6,
@@ -1408,9 +1512,9 @@ const s = StyleSheet.create({
     height: 56,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.2)',
+    borderColor: 'rgba(255,128,54,0.2)',
     borderStyle: 'dashed',
-    backgroundColor: 'rgba(255,107,53,0.03)',
+    backgroundColor: 'rgba(255,128,54,0.03)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1424,8 +1528,8 @@ const s = StyleSheet.create({
   },
   actionBtnOutline: {
     borderWidth: 1.5,
-    borderColor: 'rgba(255,107,53,0.35)',
-    backgroundColor: 'rgba(255,107,53,0.04)',
+    borderColor: 'rgba(255,128,54,0.35)',
+    backgroundColor: 'rgba(255,128,54,0.04)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1492,9 +1596,9 @@ const s = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
-    backgroundColor: 'rgba(255,107,53,0.06)',
+    backgroundColor: 'rgba(255,128,54,0.06)',
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.12)',
+    borderColor: 'rgba(255,128,54,0.12)',
   },
   mappedText: { color: ACCENT, fontSize: 7, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.3 },
   repairRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
@@ -1530,8 +1634,8 @@ const s = StyleSheet.create({
     gap: 12,
   },
   serviceRowSelected: {
-    borderColor: 'rgba(255,107,53,0.3)',
-    backgroundColor: 'rgba(255,107,53,0.04)',
+    borderColor: 'rgba(255,128,54,0.3)',
+    backgroundColor: 'rgba(255,128,54,0.04)',
   },
   serviceInfo: { flex: 1, gap: 3 },
   serviceName: { color: '#f0f0f0', fontSize: 13, fontWeight: '700' },
@@ -1562,8 +1666,8 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(12,12,20,0.9)',
   },
   addOnChipActive: {
-    borderColor: 'rgba(255,107,53,0.25)',
-    backgroundColor: 'rgba(255,107,53,0.04)',
+    borderColor: 'rgba(255,128,54,0.25)',
+    backgroundColor: 'rgba(255,128,54,0.04)',
   },
   addOnChipName: { color: '#bbb', fontSize: 12, fontWeight: '600' },
   addOnChipNameActive: { color: '#f0f0f0' },
@@ -1580,6 +1684,16 @@ const s = StyleSheet.create({
     backgroundColor: '#0e0e18',
   },
   addOnCheckActive: { backgroundColor: ACCENT, borderColor: ACCENT },
+
+  /* ── Confidence Panel ── */
+  confidencePanelWrap: { gap: 12, marginTop: 4 },
+  confidencePanelLabel: { color: '#888', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
+  confidencePanelValue: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  confidencePanelTrack: { height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.06)', overflow: 'hidden' },
+  confidencePanelFill: { height: '100%', borderRadius: 2 },
+  confidenceFactorsRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
+  confidenceFactor: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,128,54,0.04)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: 'rgba(255,128,54,0.1)' },
+  confidenceFactorText: { color: '#bbb', fontSize: 9, fontWeight: '600' },
 
   /* ── Estimate Bands ── */
   estimateBands: {
@@ -1598,8 +1712,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   estimateBandCenter: {
-    borderColor: 'rgba(255,107,53,0.2)',
-    backgroundColor: 'rgba(255,107,53,0.03)',
+    borderColor: 'rgba(255,128,54,0.2)',
+    backgroundColor: 'rgba(255,128,54,0.03)',
     flex: 1.2,
   },
   estimateBandLabel: { color: '#5a5a68', fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
@@ -1607,11 +1721,6 @@ const s = StyleSheet.create({
   estimateBandValuePrimary: { color: '#fff', fontSize: 15 },
   estimateBandBar: { height: 2, borderRadius: 1, width: '100%', marginTop: 2 },
 
-  /* ── Before / After labels ── */
-  beforeAfterLabels: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 },
-  baLabel: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  baDot: { width: 6, height: 6, borderRadius: 3 },
-  baLabelText: { color: '#5a5a68', fontSize: 10, fontWeight: '600' },
 
   /* ── AI Ready badge ── */
   aiReadyBadge: {
@@ -1622,8 +1731,8 @@ const s = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.2)',
-    backgroundColor: 'rgba(255,107,53,0.06)',
+    borderColor: 'rgba(255,128,54,0.2)',
+    backgroundColor: 'rgba(255,128,54,0.06)',
   },
   aiReadyText: { color: ACCENT, fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
 
@@ -1704,7 +1813,7 @@ const s = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.1)',
+    borderColor: 'rgba(255,128,54,0.1)',
     padding: 16,
     backgroundColor: 'rgba(4,4,8,0.94)',
   },

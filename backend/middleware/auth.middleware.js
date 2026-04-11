@@ -1,12 +1,13 @@
 import jwt from 'jsonwebtoken';
 import { config } from '../config/environment.js';
 import { migrateLegacyUserRole } from '../constants/roles.js';
+import User from '../models/user.model.js';
 
 /**
  * Authentication middleware
- * Verifies JWT token from Authorization header
+ * Verifies JWT token from Authorization header and ensures user is still active in DB
  */
-export const authenticate = (req, res, next) => {
+export const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     
@@ -35,6 +36,21 @@ export const authenticate = (req, res, next) => {
 
       if (normalizedRole !== decoded.role) {
         console.warn(`[AUTH_MIGRATION] Normalized legacy token role ${decoded.role} -> ${normalizedRole}`);
+      }
+
+      // STRICT VERIFICATION: Ensure user actually still exists and has not been deleted/deactivated
+      const userDoc = await User.findById(decoded.id).select('isActive isDeleted lockUntil');
+      if (!userDoc) {
+        return res.status(401).json({ success: false, message: 'User account no longer exists.' });
+      }
+      if (userDoc.isDeleted) {
+        return res.status(401).json({ success: false, message: 'This account has been deleted by an administrator.', code: 'USER_DELETED' });
+      }
+      if (!userDoc.isActive) {
+        return res.status(403).json({ success: false, message: 'Your account has been deactivated.' });
+      }
+      if (userDoc.lockUntil && userDoc.lockUntil > new Date()) {
+        return res.status(423).json({ success: false, message: 'Your account is temporarily locked.' });
       }
 
       req.user = { ...decoded, role: normalizedRole };

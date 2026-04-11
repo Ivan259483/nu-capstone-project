@@ -1,7 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { Calendar, Car, User, CheckCircle, ChevronRight, ChevronLeft, Sparkles, Mail, Key } from "lucide-react";
+import {
+  Calendar, Car, User, CheckCircle, Sparkles, Mail, Key,
+  Clock, FileText, Upload, Camera, X, RefreshCw, Bookmark,
+  Shield, Phone, Info,
+} from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +14,7 @@ import PageLayout from "@/components/PageLayout";
 import { toast } from 'sonner';
 import { OrderService } from '@/lib/order-service';
 import api from '@/lib/api';
-import { cn } from "@/lib/utils";
+import './BookingPage.css';
 
 /* ─────────────────────── Types & Constants ─────────────────────── */
 interface BookingService {
@@ -31,14 +35,35 @@ const YEARS = Array.from({ length: 30 }, (_, i) => String(2025 - i));
 function getAvailableDates(): Date[] {
     const dates: Date[] = [];
     const d = new Date();
-    d.setDate(d.getDate() + 1); // start tomorrow
+    d.setDate(d.getDate() + 1);
     while (dates.length < 30) {
-        if (d.getDay() !== 0) dates.push(new Date(d)); // skip Sunday
+        if (d.getDay() !== 0) dates.push(new Date(d));
         d.setDate(d.getDate() + 1);
     }
     return dates;
 }
 const AVAILABLE_DATES = getAvailableDates();
+
+/* ─────────────────────── Helpers ─────────────────────── */
+function generatePreviewRef(): string {
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    return `ASPF-${yy}${mm}${dd}-${code}`;
+}
+
+function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
 
 /* ─────────────────────── Auth Component ─────────────────────── */
 function StepAuth() {
@@ -97,15 +122,16 @@ function StepAuth() {
     return (
         <div className="space-y-6">
             <div className="text-center mb-6">
-                 <h2 className="text-2xl font-bold text-foreground mb-2">Sign in to Book</h2>
-                 <p className="text-muted-foreground text-sm">You need an account to track your appointment.</p>
+                 <h2 className="text-2xl font-bold text-white mb-2">Sign in to Book</h2>
+                 <p className="text-sm" style={{ color: '#666' }}>You need an account to track your appointment.</p>
             </div>
             
             <button
                 type="button" 
                 onClick={handleSocialLogin} 
                 disabled={loading}
-                className="w-full flex items-center justify-center gap-2 h-11 rounded-xl bg-muted/40 hover:bg-muted/60 border border-border text-foreground text-sm font-medium transition-all duration-200 disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 h-11 rounded-xl border text-sm font-medium transition-all duration-200 disabled:opacity-50"
+                style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: '#ccc' }}
             >
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                     <path fill="#EA4335" d="M5.27 9.76A7.08 7.08 0 0 1 12 4.9c1.7 0 3.24.62 4.44 1.64l3.32-3.32A11.95 11.95 0 0 0 12 1C8.16 1 4.83 3.06 3 6.14l2.27 3.62z" />
@@ -117,52 +143,54 @@ function StepAuth() {
             </button>
 
             <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div>
+                <div className="absolute inset-0 flex items-center"><span className="w-full border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }} /></div>
                 <div className="relative flex justify-center">
-                    <span className="px-3 text-[11px] uppercase tracking-widest text-muted-foreground bg-background">or use email</span>
+                    <span className="px-3 text-[11px] uppercase tracking-widest" style={{ color: '#555', background: '#0a0a0c' }}>or use email</span>
                 </div>
             </div>
 
             <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                    <Label className="text-sm text-muted-foreground mb-1 block">Email</Label>
+                    <label className="bk-label">Email</label>
                     <div className="relative">
-                        <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <Input
+                        <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#555' }} />
+                        <input
                             type="email"
                             value={email}
                             onChange={e => setEmail(e.target.value)}
                             placeholder="name@example.com"
-                            className="bg-muted/40 border-border focus:border-primary pl-10"
+                            className="bk-input"
+                            style={{ paddingLeft: '2.5rem' }}
                         />
                     </div>
                 </div>
                 <div>
-                    <Label className="text-sm text-muted-foreground mb-1 block">Password</Label>
+                    <label className="bk-label">Password</label>
                     <div className="relative">
-                        <Key className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <Input
+                        <Key className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#555' }} />
+                        <input
                             type="password"
                             value={password}
                             onChange={e => setPassword(e.target.value)}
                             placeholder="••••••••"
-                            className="bg-muted/40 border-border focus:border-primary pl-10"
+                            className="bk-input"
+                            style={{ paddingLeft: '2.5rem' }}
                         />
                     </div>
                 </div>
-                <Button 
-                    type="submit" 
+                <button
+                    type="submit"
                     disabled={loading}
-                    className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 transition-opacity"
+                    className="bk-confirm-btn"
                 >
                     {loading ? 'Signing in...' : 'Sign In'}
-                </Button>
+                </button>
             </form>
 
             <div className="text-center mt-6">
-                 <p className="text-xs text-muted-foreground">
+                 <p className="text-xs" style={{ color: '#555' }}>
                     Don't have an account?{' '}
-                    <Link to="/login" className="text-primary hover:text-primary/80 font-medium ml-1">
+                    <Link to="/login" style={{ color: '#FF6B35' }} className="font-medium ml-1">
                         Sign up here
                     </Link>
                  </p>
@@ -178,8 +206,11 @@ export default function BookingPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const defaultPkg = searchParams.get('pkg') ?? '';
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [submitted, setSubmitted] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [downpaymentProof, setDownpaymentProof] = useState<string | null>(null);
     
     // DB Services
     const [dbServices, setDbServices] = useState<BookingService[]>([]);
@@ -209,6 +240,7 @@ export default function BookingPage() {
         vehicleModel: "",
         vehicleYear: "",
         vehicleColor: "",
+        vehiclePlate: "",
         date: "",
         time: "",
         name: "",
@@ -216,7 +248,6 @@ export default function BookingPage() {
         notes: "",
     });
 
-    // Populate user details if available
     useEffect(() => {
         if (user && !form.name) {
             setForm(f => ({ ...f, name: user.name || '' }));
@@ -232,23 +263,42 @@ export default function BookingPage() {
 
     const isComplete = form.service && form.vehicleModel && form.vehicleYear && form.vehicleColor && form.date && form.time && form.name && form.phone;
 
+    const previewRef = useMemo(() => generatePreviewRef(), []);
+
+    const handleFileUpload = async (file: File) => {
+        if (!file.type.startsWith('image/')) {
+            toast.error('Please select an image file');
+            return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+            toast.error('Image must be under 5MB');
+            return;
+        }
+        const base64 = await fileToBase64(file);
+        setDownpaymentProof(base64);
+    };
+
     const handleSubmit = async () => {
         if (!user) return toast.error("Please login first");
-        if (!isComplete) return toast.error("Please explicitly fill out all required fields.");
+        if (!isComplete) return toast.error("Please fill out all required fields.");
 
+        setSubmitting(true);
         try {
             const payload = {
                 customer: user.id,
                 customerName: form.name || user.name || 'Guest User',
+                customerPhone: form.phone,
                 vehicleYear: form.vehicleYear,
                 vehicleMake: form.vehicleMake || form.vehicleModel.split(' ')[0] || '',
                 vehicleModel: form.vehicleModel,
                 vehicleColor: form.vehicleColor,
+                vehiclePlate: form.vehiclePlate,
                 serviceType: selectedService?.name || form.service,
                 price: selectedPrice,
                 bookingDate: form.date,
                 bookingTime: form.time,
                 notes: form.notes,
+                downpaymentProof: downpaymentProof || undefined,
                 items: JSON.stringify([{
                     product: selectedService?.id || form.service,
                     quantity: 1,
@@ -260,7 +310,7 @@ export default function BookingPage() {
 
             if (response?.success) {
                 setSubmitted(true);
-                setTimeout(() => navigate('/customer/dashboard?tab=bookings'), 1500);
+                setTimeout(() => navigate('/customer/dashboard?tab=bookings'), 2500);
             } else {
                 toast.error(response?.message || 'Failed to submit booking');
             }
@@ -268,178 +318,200 @@ export default function BookingPage() {
             console.error('Booking failed:', error);
             const backendMessage = error?.response?.data?.message || error?.message;
             toast.error(backendMessage || 'Error submitting booking');
+        } finally {
+            setSubmitting(false);
         }
     };
 
+    /* ─────── Render ─────── */
     return (
         <PageLayout>
-            {/* Hero */}
-            <section className="relative pt-32 pb-12 section-dark overflow-hidden min-h-[30vh] flex flex-col items-center justify-center">
-                <div className="absolute inset-0 bg-hero-pattern opacity-50" />
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-background" />
-                <div className="container max-w-4xl mx-auto px-6 relative z-10 text-center">
-                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-gold/20 text-xs font-semibold text-primary mb-6 animate-slide-up">
-                        <Calendar className="w-3.5 h-3.5" />
-                        Express Booking
+            <div className="bk-page">
+                {/* ── Hero ── */}
+                <div className="bk-hero">
+                    <div className="bk-hero-badge">
+                        <Calendar size={14} />
+                        EXPRESS BOOKING
                     </div>
-                    <h1 className="text-4xl sm:text-5xl font-bold text-foreground mb-3 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-                        {t("booking.title") || "Schedule Your Detail"}
-                    </h1>
+                    <h1>{t("booking.title") || "Schedule Your Detail"}</h1>
+                    <p>Premium automotive care — one booking away</p>
                 </div>
-            </section>
 
-            <section className="py-12 section-darker relative z-20 pb-32">
-                <div className="container max-w-6xl mx-auto px-6">
-                    {!user ? (
-                        <div className="glass rounded-3xl p-8 border border-gold/15 max-w-md mx-auto animate-scale-in">
-                            <StepAuth />
-                        </div>
-                    ) : submitted ? (
-                        <div className="glass rounded-3xl p-12 text-center border border-gold/20 animate-scale-in max-w-2xl mx-auto">
-                            <div className="w-20 h-20 rounded-full bg-gradient-gold mx-auto mb-6 flex items-center justify-center glow-gold animate-pulse-gold">
-                                <CheckCircle className="w-10 h-10 text-primary-foreground" />
+                {/* ── Body ── */}
+                <div className="bk-body">
+                    <div className="bk-container">
+                        {!user ? (
+                            /* ── Auth Gate ── */
+                            <div className="bk-card bk-auth-card bk-animate">
+                                <StepAuth />
                             </div>
-                            <h2 className="text-3xl font-bold text-foreground mb-4">Booking Confirmed!</h2>
-                            <p className="text-muted-foreground mb-8 text-lg">Your appointment request has been sent securely. You will be redirected to your dashboard shortly.</p>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 relative items-start">
-                            {/* Left Column: Form Details */}
-                            <div className="lg:col-span-8 flex flex-col gap-8 animate-slide-up">
-                                
-                                {/* 1. Vehicle & Service */}
-                                <div className="glass rounded-3xl p-6 md:p-8 border border-gold/15 shadow-xl relative overflow-hidden">
-                                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-gold/30 to-transparent" />
-                                    <h3 className="text-xl font-bold flex items-center gap-3 mb-6 text-foreground">
-                                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                                            <Car className="w-4 h-4" />
-                                        </div>
-                                        Vehicle & Service
-                                    </h3>
-                                    
-                                    <div className="space-y-6">
-                                        <div>
-                                            <Label className="text-sm font-semibold text-foreground mb-3 block tracking-wide">Select Service</Label>
-                                            {dbServices.length === 0 ? (
-                                                <div className="text-center py-6 text-muted-foreground text-sm">Loading services...</div>
-                                            ) : (
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                                                    {dbServices.map((svc) => (
-                                                        <button
-                                                            key={svc.id}
-                                                            onClick={() => update("service", svc.id)}
-                                                            className={cn(
-                                                                "p-4 rounded-xl border text-left transition-all duration-300 flex flex-col justify-between h-full min-h-[90px]",
-                                                                form.service === svc.id
-                                                                    ? "border-gold/60 bg-gold/10 text-primary ring-1 ring-gold/30"
-                                                                    : "border-border hover:border-gold/30 text-muted-foreground hover:text-foreground bg-muted/20"
-                                                            )}
-                                                        >
-                                                            <div className="font-bold text-sm mb-1 leading-tight">{svc.name}</div>
-                                                            <div className="flex justify-between items-end mt-auto w-full">
-                                                                <span className="text-xs opacity-70">{svc.duration}</span>
-                                                                <span className={cn("font-bold text-sm", form.service === svc.id ? "text-primary" : "text-foreground")}>
-                                                                    {fmt(svc.basePrice)}
-                                                                </span>
-                                                            </div>
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
+                        ) : submitted ? (
+                            /* ── Success ── */
+                            <div className="bk-success">
+                                <div className="bk-success-icon">
+                                    <CheckCircle size={40} color="#fff" />
+                                </div>
+                                <h2>Booking Confirmed!</h2>
+                                <p>Your appointment has been submitted. We'll confirm it shortly.</p>
+                                <div className="bk-success-ref">
+                                    <Bookmark size={16} color="#FF6B35" />
+                                    <span>{previewRef}</span>
+                                </div>
+                                <p style={{ fontSize: '0.8rem', color: '#555' }}>
+                                    Redirecting to your dashboard...
+                                </p>
+                            </div>
+                        ) : (
+                            /* ── Booking Form ── */
+                            <div className="bk-grid">
+                                {/* ═══ LEFT COLUMN ═══ */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-                                        <div className="pt-4 border-t border-border">
-                                            <Label className="text-sm font-semibold text-foreground mb-4 block tracking-wide">Vehicle Details</Label>
-                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-                                                <div className="sm:col-span-6">
-                                                    <Label className="text-xs text-muted-foreground mb-1.5 block">Model</Label>
-                                                    <Input
-                                                        value={form.vehicleModel}
-                                                        onChange={(e) => update("vehicleModel", e.target.value)}
-                                                        placeholder="e.g. Toyota GR86"
-                                                        className="bg-muted/40 border-border focus:border-primary h-11"
-                                                    />
-                                                </div>
-                                                <div className="sm:col-span-3">
-                                                    <Label className="text-xs text-muted-foreground mb-1.5 block">Year</Label>
-                                                    <select
-                                                        value={form.vehicleYear}
-                                                        onChange={e => update('vehicleYear', e.target.value)}
-                                                        className="w-full h-11 px-3 py-2 rounded-md bg-muted/40 border border-border focus:border-primary text-sm text-foreground outline-none appearance-none cursor-pointer"
-                                                    >
-                                                        <option value="" disabled>Year</option>
-                                                        {YEARS.map(y => <option key={y} value={y} className="bg-background">{y}</option>)}
-                                                    </select>
-                                                </div>
-                                                <div className="sm:col-span-3">
-                                                    <Label className="text-xs text-muted-foreground mb-1.5 block">Color</Label>
-                                                    <select
-                                                        value={form.vehicleColor}
-                                                        onChange={e => update('vehicleColor', e.target.value)}
-                                                        className="w-full h-11 px-3 py-2 rounded-md bg-muted/40 border border-border focus:border-primary text-sm text-foreground outline-none appearance-none cursor-pointer"
-                                                    >
-                                                        <option value="" disabled>Color</option>
-                                                        {CAR_COLORS.map(c => <option key={c} value={c} className="bg-background">{c}</option>)}
-                                                    </select>
-                                                </div>
+                                    {/* 1. Customer Info */}
+                                    <div className="bk-card bk-animate">
+                                        <div className="bk-card-header">
+                                            <div className="bk-card-icon"><User size={16} /></div>
+                                            <span className="bk-card-title">Customer Information</span>
+                                        </div>
+                                        <div className="bk-form-row cols-2">
+                                            <div>
+                                                <label className="bk-label">Full Name</label>
+                                                <input
+                                                    className="bk-input"
+                                                    value={form.name}
+                                                    onChange={e => update('name', e.target.value)}
+                                                    placeholder="Juan dela Cruz"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="bk-label">Contact Number</label>
+                                                <input
+                                                    className="bk-input"
+                                                    type="tel"
+                                                    value={form.phone}
+                                                    onChange={e => update('phone', e.target.value)}
+                                                    placeholder="+63 912 345 6789"
+                                                />
                                             </div>
                                         </div>
                                     </div>
-                                </div>
 
-                                {/* 2. Schedule */}
-                                <div className="glass rounded-3xl p-6 md:p-8 border border-gold/15 shadow-xl relative overflow-hidden">
-                                     <h3 className="text-xl font-bold flex items-center gap-3 mb-6 text-foreground">
-                                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                                            <Calendar className="w-4 h-4" />
+                                    {/* 2. Vehicle Info */}
+                                    <div className="bk-card bk-animate bk-animate-d1">
+                                        <div className="bk-card-header">
+                                            <div className="bk-card-icon"><Car size={16} /></div>
+                                            <span className="bk-card-title">Vehicle Information</span>
                                         </div>
-                                        Schedule
-                                    </h3>
-                                    
-                                    <div className="space-y-6">
-                                        <div>
-                                            <Label className="text-sm font-semibold text-foreground mb-3 block tracking-wide">Preferred Date</Label>
-                                            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 max-h-52 overflow-y-auto pr-2 custom-scrollbar">
-                                                {AVAILABLE_DATES.map(d => {
-                                                    const iso = d.toISOString().split('T')[0];
-                                                    const sel = form.date === iso;
-                                                    return (
-                                                        <button
-                                                            key={iso}
-                                                            onClick={() => update('date', iso)}
-                                                            className={cn(
-                                                                "flex flex-col items-center justify-center py-3 rounded-xl border text-center transition-all duration-200",
-                                                                sel
-                                                                    ? "border-gold/60 bg-gold/10 text-primary ring-1 ring-gold/30"
-                                                                    : "border-border hover:border-gold/30 text-muted-foreground hover:text-foreground bg-muted/20"
-                                                            )}
-                                                        >
-                                                            <span className="font-bold text-[10px] uppercase">
-                                                                {d.toLocaleDateString('en-PH', { weekday: 'short' })}
-                                                            </span>
-                                                            <span className="text-xl font-black leading-none my-1.5">{d.getDate()}</span>
-                                                            <span className="text-[10px] opacity-70">
-                                                                {d.toLocaleDateString('en-PH', { month: 'short' })}
-                                                            </span>
-                                                        </button>
-                                                    );
-                                                })}
+                                        <div className="bk-form-row cols-2" style={{ marginBottom: '0.875rem' }}>
+                                            <div>
+                                                <label className="bk-label">Make</label>
+                                                <input
+                                                    className="bk-input"
+                                                    value={form.vehicleMake}
+                                                    onChange={e => update('vehicleMake', e.target.value)}
+                                                    placeholder="e.g. Toyota"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="bk-label">Model</label>
+                                                <input
+                                                    className="bk-input"
+                                                    value={form.vehicleModel}
+                                                    onChange={e => update('vehicleModel', e.target.value)}
+                                                    placeholder="e.g. GR86"
+                                                />
                                             </div>
                                         </div>
+                                        <div className="bk-form-row cols-3">
+                                            <div>
+                                                <label className="bk-label">Year</label>
+                                                <select className="bk-input" value={form.vehicleYear} onChange={e => update('vehicleYear', e.target.value)}>
+                                                    <option value="" disabled>Year</option>
+                                                    {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="bk-label">Color</label>
+                                                <select className="bk-input" value={form.vehicleColor} onChange={e => update('vehicleColor', e.target.value)}>
+                                                    <option value="" disabled>Color</option>
+                                                    {CAR_COLORS.map(c => <option key={c} value={c}>{c}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="bk-label">Plate Number</label>
+                                                <input
+                                                    className="bk-input"
+                                                    value={form.vehiclePlate}
+                                                    onChange={e => update('vehiclePlate', e.target.value)}
+                                                    placeholder="ABC 1234"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
 
-                                        <div className="pt-2">
-                                            <Label className="text-sm font-semibold text-foreground mb-3 block tracking-wide">Preferred Time</Label>
-                                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                                                {timeSlots.map((slot) => (
+                                    {/* 3. Service Selection */}
+                                    <div className="bk-card bk-animate bk-animate-d2">
+                                        <div className="bk-card-header">
+                                            <div className="bk-card-icon"><Sparkles size={16} /></div>
+                                            <span className="bk-card-title">Select Service</span>
+                                        </div>
+                                        {dbServices.length === 0 ? (
+                                            <div style={{ textAlign: 'center', padding: '2rem 0', color: '#555', fontSize: '0.85rem' }}>
+                                                Loading services...
+                                            </div>
+                                        ) : (
+                                            <div className="bk-service-grid">
+                                                {dbServices.map(svc => (
+                                                    <button
+                                                        key={svc.id}
+                                                        onClick={() => update('service', svc.id)}
+                                                        className={`bk-service-btn ${form.service === svc.id ? 'active' : ''}`}
+                                                    >
+                                                        <div className="sn">{svc.name}</div>
+                                                        <div className="sm">
+                                                            <span>{svc.duration}</span>
+                                                            <span>{fmt(svc.basePrice)}</span>
+                                                        </div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 4. Smart Calendar */}
+                                    <div className="bk-card bk-animate bk-animate-d3">
+                                        <div className="bk-card-header">
+                                            <div className="bk-card-icon"><Calendar size={16} /></div>
+                                            <span className="bk-card-title">Preferred Date</span>
+                                        </div>
+                                        <div className="bk-date-grid">
+                                            {AVAILABLE_DATES.map(d => {
+                                                const iso = d.toISOString().split('T')[0];
+                                                return (
+                                                    <button
+                                                        key={iso}
+                                                        onClick={() => update('date', iso)}
+                                                        className={`bk-date-btn ${form.date === iso ? 'active' : ''}`}
+                                                    >
+                                                        <span className="dw">{d.toLocaleDateString('en-PH', { weekday: 'short' })}</span>
+                                                        <span className="dd">{d.getDate()}</span>
+                                                        <span className="dm">{d.toLocaleDateString('en-PH', { month: 'short' })}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+
+                                        <div style={{ marginTop: '1.25rem' }}>
+                                            <div className="bk-card-header" style={{ marginBottom: '0.75rem' }}>
+                                                <div className="bk-card-icon"><Clock size={16} /></div>
+                                                <span className="bk-card-title">Preferred Time</span>
+                                            </div>
+                                            <div className="bk-time-grid">
+                                                {timeSlots.map(slot => (
                                                     <button
                                                         key={slot}
-                                                        onClick={() => update("time", slot)}
-                                                        className={cn(
-                                                            "py-3 rounded-xl border text-sm font-medium transition-all duration-300",
-                                                            form.time === slot
-                                                                ? "border-gold/60 bg-gold/10 text-primary ring-1 ring-gold/30"
-                                                                : "border-border hover:border-gold/30 text-muted-foreground bg-muted/20 hover:text-foreground"
-                                                        )}
+                                                        onClick={() => update('time', slot)}
+                                                        className={`bk-time-btn ${form.time === slot ? 'active' : ''}`}
                                                     >
                                                         {slot}
                                                     </button>
@@ -447,121 +519,179 @@ export default function BookingPage() {
                                             </div>
                                         </div>
                                     </div>
+
+                                    {/* 5. GCash Upload */}
+                                    <div className="bk-card bk-animate bk-animate-d4">
+                                        <div className="bk-card-header">
+                                            <div className="bk-card-icon"><Upload size={16} /></div>
+                                            <span className="bk-card-title">GCash Downpayment</span>
+                                            <span style={{ fontSize: '0.65rem', color: '#555', marginLeft: 'auto', fontWeight: 600 }}>OPTIONAL</span>
+                                        </div>
+
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept="image/*"
+                                            style={{ display: 'none' }}
+                                            onChange={e => {
+                                                const file = e.target.files?.[0];
+                                                if (file) handleFileUpload(file);
+                                                e.target.value = '';
+                                            }}
+                                        />
+
+                                        {!downpaymentProof ? (
+                                            <div
+                                                className="bk-upload-zone"
+                                                onClick={() => fileInputRef.current?.click()}
+                                            >
+                                                <div className="bk-upload-icon">
+                                                    <Camera size={20} />
+                                                </div>
+                                                <div className="bk-upload-title">Upload Payment Proof</div>
+                                                <div className="bk-upload-sub">Click to select an image (max 5MB)</div>
+                                            </div>
+                                        ) : (
+                                            <div className="bk-upload-preview">
+                                                <img src={downpaymentProof} alt="GCash proof" />
+                                                <div className="bk-upload-actions">
+                                                    <button
+                                                        className="bk-upload-action-btn"
+                                                        onClick={() => fileInputRef.current?.click()}
+                                                    >
+                                                        <RefreshCw size={12} /> Replace
+                                                    </button>
+                                                    <button
+                                                        className="bk-upload-action-btn"
+                                                        onClick={() => setDownpaymentProof(null)}
+                                                    >
+                                                        <X size={12} /> Remove
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 6. Notes */}
+                                    <div className="bk-card bk-animate bk-animate-d5">
+                                        <div className="bk-card-header">
+                                            <div className="bk-card-icon"><FileText size={16} /></div>
+                                            <span className="bk-card-title">Special Requests</span>
+                                            <span style={{ fontSize: '0.65rem', color: '#555', marginLeft: 'auto', fontWeight: 600 }}>OPTIONAL</span>
+                                        </div>
+                                        <textarea
+                                            className="bk-textarea"
+                                            value={form.notes}
+                                            onChange={e => update('notes', e.target.value)}
+                                            placeholder="Pre-existing scratches, specific instructions, preferences..."
+                                            rows={4}
+                                        />
+                                    </div>
                                 </div>
 
-                                {/* 3. Contact Info */}
-                                <div className="glass rounded-3xl p-6 md:p-8 border border-gold/15 shadow-xl relative overflow-hidden">
-                                     <h3 className="text-xl font-bold flex items-center gap-3 mb-6 text-foreground">
-                                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                                            <User className="w-4 h-4" />
+                                {/* ═══ RIGHT COLUMN — STICKY SIDEBAR ═══ */}
+                                <div className="bk-sidebar bk-animate bk-animate-d2">
+                                    <div className="bk-sidebar-card">
+                                        {/* Gradient header */}
+                                        <div className="bk-sidebar-header">
+                                            <Car size={14} color="#fff" />
+                                            <span>BOOKING SUMMARY</span>
                                         </div>
-                                        Contact Information
-                                    </h3>
-                                    
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                                        <div>
-                                            <Label className="text-xs text-muted-foreground mb-1.5 block">Full Name</Label>
-                                            <div className="relative">
-                                                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                                <Input
-                                                    value={form.name}
-                                                    onChange={(e) => update("name", e.target.value)}
-                                                    placeholder="Juan dela Cruz"
-                                                    className="bg-muted/40 border-border focus:border-primary pl-10 h-11"
-                                                />
+
+                                        <div className="bk-sidebar-body">
+                                            {/* Summary rows */}
+                                            {[
+                                                { icon: <User size={14} />, label: 'Customer', value: form.name },
+                                                { icon: <Phone size={14} />, label: 'Contact', value: form.phone },
+                                                { icon: <Car size={14} />, label: 'Vehicle', value: [form.vehicleYear, form.vehicleMake, form.vehicleModel].filter(Boolean).join(' ') },
+                                                { icon: <Sparkles size={14} />, label: 'Service', value: selectedService?.name },
+                                                { icon: <Calendar size={14} />, label: 'Date', value: form.date ? new Date(form.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '' },
+                                                { icon: <Clock size={14} />, label: 'Time', value: form.time },
+                                            ].map((row, i, arr) => (
+                                                <div key={i}>
+                                                    <div className="bk-summary-row">
+                                                        <div className="bk-summary-left">
+                                                            {row.icon}
+                                                            <span>{row.label}</span>
+                                                        </div>
+                                                        <div className={`bk-summary-val ${!row.value ? 'empty' : ''}`}>
+                                                            {row.value || '—'}
+                                                        </div>
+                                                    </div>
+                                                    {i < arr.length - 1 && <div className="bk-summary-divider" />}
+                                                </div>
+                                            ))}
+
+                                            {/* Downpayment badge */}
+                                            {downpaymentProof && (
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                                    background: 'rgba(52,199,89,0.08)', borderRadius: '0.5rem',
+                                                    border: '1px solid rgba(52,199,89,0.2)', padding: '0.5rem 0.75rem',
+                                                    marginTop: '0.75rem',
+                                                }}>
+                                                    <CheckCircle size={14} color="#34C759" />
+                                                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#34C759' }}>
+                                                        GCash proof attached
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            {/* Booking Reference */}
+                                            <div className="bk-ref-card">
+                                                <Bookmark size={14} color="#FF6B35" />
+                                                <div>
+                                                    <div className="bk-ref-label">BOOKING REFERENCE</div>
+                                                    <div className="bk-ref-code">{previewRef}</div>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div>
-                                            <Label className="text-xs text-muted-foreground mb-1.5 block">Phone Number</Label>
-                                            <Input
-                                                type="tel"
-                                                value={form.phone}
-                                                onChange={(e) => update("phone", e.target.value)}
-                                                placeholder="+63 912 345 6789"
-                                                className="bg-muted/40 border-border focus:border-primary h-11"
-                                            />
-                                        </div>
-                                        <div className="sm:col-span-2">
-                                            <Label className="text-xs text-muted-foreground mb-1.5 block">Additional Notes <span className="opacity-50">(optional)</span></Label>
-                                            <textarea
-                                                value={form.notes}
-                                                onChange={(e) => update("notes", e.target.value)}
-                                                placeholder="Any pre-existing scratches, specific instructions, etc."
-                                                rows={3}
-                                                className="w-full px-3 py-2.5 rounded-lg bg-muted/40 border border-border focus:border-primary text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none transition-colors"
-                                            />
+
+                                            {/* Total */}
+                                            <div className="bk-total-row">
+                                                <span className="bk-total-label">Estimated Total</span>
+                                                <span className="bk-total-val">
+                                                    {form.service ? fmt(selectedPrice) : '₱0'}
+                                                </span>
+                                            </div>
+
+                                            {/* Confirm */}
+                                            <button
+                                                className="bk-confirm-btn"
+                                                disabled={!isComplete || submitting}
+                                                onClick={handleSubmit}
+                                            >
+                                                {submitting ? (
+                                                    'Submitting...'
+                                                ) : (
+                                                    <>
+                                                        <Sparkles size={18} />
+                                                        {isComplete ? 'Confirm Booking' : 'Complete All Fields'}
+                                                    </>
+                                                )}
+                                            </button>
+                                            {!isComplete && (
+                                                <div className="bk-confirm-hint">
+                                                    Please fill out all required fields above.
+                                                </div>
+                                            )}
+
+                                            {/* Notice */}
+                                            <div className="bk-notice">
+                                                <Info size={14} color="#FF6B35" style={{ flexShrink: 0, marginTop: 2 }} />
+                                                <p>
+                                                    By confirming, you agree to the booking terms. Please arrive{' '}
+                                                    <strong style={{ color: '#FF6B35' }}>15 min early</strong>.
+                                                    Schedule may be adjusted by our team.
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-
-                            {/* Right Column: Sticky Summary */}
-                            <div className="lg:col-span-4 relative h-full">
-                                <div className="sticky top-24 glass rounded-3xl p-6 md:p-8 border border-gold/20 shadow-2xl animate-fade-in">
-                                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-gold/50 to-transparent" />
-                                    
-                                    <h3 className="text-lg font-bold text-foreground mb-6 pb-4 border-b border-border">Booking Summary</h3>
-                                    
-                                    <div className="space-y-6">
-                                        {/* Service */}
-                                        <div>
-                                            <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold mb-1">Service</p>
-                                            <p className="font-medium text-foreground text-sm sm:text-base">
-                                                {selectedService ? selectedService.name : <span className="text-muted-foreground/50 italic">Not Selected</span>}
-                                            </p>
-                                        </div>
-
-                                        {/* Vehicle */}
-                                        <div>
-                                            <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold mb-1">Vehicle</p>
-                                            <p className="font-medium text-foreground text-sm">
-                                                {(form.vehicleYear || form.vehicleModel || form.vehicleColor) ? (
-                                                    `${form.vehicleYear} ${form.vehicleModel} ${form.vehicleColor ? `(${form.vehicleColor})` : ''}`
-                                                ) : <span className="text-muted-foreground/50 italic">Required</span>}
-                                            </p>
-                                        </div>
-
-                                        {/* Date & Time */}
-                                        <div>
-                                            <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold mb-1">Schedule</p>
-                                            <p className="font-medium text-foreground text-sm">
-                                                {(form.date && form.time) ? (
-                                                    `${new Date(form.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric'})} at ${form.time}`
-                                                ) : <span className="text-muted-foreground/50 italic">Required</span>}
-                                            </p>
-                                        </div>
-
-                                        {/* Price */}
-                                        <div className="pt-6 border-t border-border flex items-end justify-between">
-                                            <div>
-                                                <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Total Price</p>
-                                                <p className="text-2xl font-bold text-primary mt-1">{form.service ? fmt(selectedPrice) : '₱0'}</p>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-8">
-                                        <Button
-                                            onClick={handleSubmit}
-                                            disabled={!isComplete}
-                                            className="w-full h-12 text-base font-bold bg-gradient-gold text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-all duration-300 shadow-xl shadow-gold/10 group"
-                                        >
-                                            <Sparkles className="w-5 h-5 mr-2 group-disabled:opacity-50" />
-                                            {isComplete ? "Confirm Booking" : "Finish Form"}
-                                        </Button>
-                                    </div>
-                                    {!isComplete && (
-                                        <p className="text-center text-xs text-muted-foreground mt-3">
-                                            Please fill out all required fields.
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
-            </section>
+            </div>
         </PageLayout>
     );
 }

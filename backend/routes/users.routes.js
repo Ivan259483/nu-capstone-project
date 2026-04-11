@@ -57,5 +57,11 @@ router.post('/', authenticate, authorizeStaffManagers, userController.createUser
  */
 router.patch('/change-password', authenticate, userController.changePassword);
 
+/**
+ * @route POST /api/users/push-token
+ * @desc Register Expo Push Notification Token
+ * @access Private
+ */
+router.post('/push-token', authenticate, userController.registerPushToken);
 
 export default router;

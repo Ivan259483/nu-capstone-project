@@ -318,59 +318,185 @@
   min-width: 0
 }
 
+
+/* ── Sidebar Footer Action Buttons ── */
 .admin-shell .sidebar-footer {
   margin-top: auto;
-  padding: 16px;
+  padding: 12px;
   border-top: 1px solid var(--border);
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  position: relative;
   transition: all 0.3s;
 }
 
 .admin-shell .sidebar.collapsed .sidebar-footer {
-  padding: 16px 0;
-  justify-content: center;
+  padding: 12px 0;
+  align-items: center;
   border-top-color: transparent;
 }
 
-.admin-shell .signout-btn {
+/* ── Email Trigger Row ── */
+.admin-shell .user-email-trigger {
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 8px 10px;
   background: transparent;
   border: 1px solid transparent;
-  color: var(--text3);
   border-radius: var(--r);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Inter', sans-serif;
+}
+
+.admin-shell .user-email-trigger:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.admin-shell .user-email-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--surface3);
+  border: 1.5px solid var(--border2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text2);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.admin-shell .user-email-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.admin-shell .user-email-text {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text2);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-shell .user-email-dots {
+  color: var(--text3);
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.admin-shell .sidebar.collapsed .user-email-text,
+.admin-shell .sidebar.collapsed .user-email-dots {
+  display: none;
+}
+
+.admin-shell .sidebar.collapsed .user-email-trigger {
+  justify-content: center;
+  padding: 8px;
+}
+
+/* ── Popover Menu ── */
+.admin-shell .user-popover-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 12px;
+  right: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--r2);
+  padding: 6px;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  z-index: 100;
+  backdrop-filter: blur(16px);
+  overflow: hidden;
+}
+
+.admin-shell .user-popover-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--r);
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
   font-weight: 500;
-  transition: all 0.2s;
-  cursor: pointer;
+  color: var(--text2);
+  transition: background 0.15s, color 0.15s;
+  position: relative;
 }
 
-.admin-shell .signout-btn:hover {
-  background: var(--red-bg);
+.admin-shell .user-popover-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.admin-shell .user-popover-item.highlight {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.admin-shell .user-popover-item.highlight:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.admin-shell .user-popover-item.danger {
+  color: var(--text3);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--r) var(--r);
+  margin-top: 2px;
+  padding-top: 10px;
+}
+
+.admin-shell .user-popover-item.danger:hover {
   color: var(--red);
-  border-color: var(--red-border);
+  background: var(--red-bg);
 }
 
-.admin-shell .signout-btn .shortcut {
+.admin-shell .user-popover-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+}
+
+.admin-shell .user-popover-item:hover .user-popover-icon {
+  opacity: 1;
+}
+
+.admin-shell .user-popover-label {
+  flex: 1;
+  text-align: left;
+}
+
+.admin-shell .user-popover-badge {
   font-size: 10px;
-  padding: 2px 6px;
+  font-weight: 700;
+  padding: 2px 7px;
   border-radius: 4px;
   background: var(--surface3);
-  color: inherit;
-  font-family: monospace;
+  color: var(--text3);
+  letter-spacing: 0.5px;
 }
 
-.admin-shell .sidebar.collapsed .signout-btn {
-  width: auto;
-  padding: 10px;
-}
-.admin-shell .sidebar.collapsed .signout-text,
-.admin-shell .sidebar.collapsed .shortcut {
-  display: none;
+.admin-shell .sidebar.collapsed .user-popover-menu {
+  left: 8px;
+  right: auto;
+  min-width: 200px;
 }
 
 .admin-shell .avatar {

@@ -28,6 +28,8 @@ const orderSchema = new mongoose.Schema(
     ],
     totalAmount: Number,
     totalPrice: Number,
+    downPaymentAmount: { type: Number, default: 0 },
+    finalPaymentAmount: { type: Number, default: 0 },
     invoiceId: String,
     paymentStatus: {
       type: String,
@@ -40,24 +42,27 @@ const orderSchema = new mongoose.Schema(
     inventoryDeductedAt: Date,
     customerStatus: {
       type: String,
-      enum: ['received', 'washing', 'detailing', 'ready', 'queued', 'in-progress', 'finishing'],
+      enum: ['received', 'washing', 'detailing', 'ready', 'completed', 'queued', 'in-progress', 'finishing', 'Queued', 'Confirmed', 'In Progress', 'Finishing', 'Ready'],
       default: 'received',
     },
     customerStatusUpdatedAt: Date,
     status: {
       type: String,
-      enum: ['pending', 'confirmed', 'assigned', 'processing', 'completed', 'cancelled', 'in-progress'],
+      enum: ['pending', 'confirmed', 'assigned', 'received', 'in_progress', 'completed', 'paid', 'released', 'cancelled'],
       default: 'pending',
     },
     legalCompliance: {
       waiverSignature: String,
       waiverSignedAt: Date,
       waiverPdf: String,
+      qcPdf: String,
       preServicePhotos: {
         type: [String],
         default: [],
       },
       damageNotes: String,
+      releaseSignature: String,
+      releaseSignedAt: Date,
     },
     archived: {
       type: Boolean,
@@ -71,6 +76,23 @@ const orderSchema = new mongoose.Schema(
     vehicleModel: String,
     vehicleColor: String,
     vehiclePlate: String,
+    bookingReference: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    downpaymentProof: String,
+    inventoryReservation: {
+      items: [{
+        product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+        productName: String,
+        quantity: Number,
+        reservedAt: Date,
+      }],
+      status: { type: String, enum: [null, 'reserved', 'committed', 'released'], default: null },
+      reservedAt: Date,
+      committedAt: Date,
+    },
     bookingDate: String,
     bookingTime: String,
     notes: String,
@@ -129,6 +151,7 @@ const orderSchema = new mongoose.Schema(
       warrantyType: String,
       warrantyPeriod: String,
       customerSignature: String,
+      warrantyPdf: String,
       amountPaid: Number,
       paymentMethod: { type: String, enum: ['cash', 'others'] },
       paymentExtent: { type: String, enum: ['partial', 'full'] },
@@ -259,6 +282,15 @@ const orderSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Virtual alias: plateNumber ↔ vehiclePlate (read/write convenience accessor)
+orderSchema.virtual('plateNumber')
+  .get(function () {
+    return this.vehiclePlate;
+  })
+  .set(function (value) {
+    this.vehiclePlate = value;
+  });
+
 // Encrypt before saving
 orderSchema.pre('save', function (next) {
   if (this.isModified('vehiclePlate') && this.vehiclePlate) {
@@ -306,5 +338,6 @@ orderSchema.index({ assignedDetailer: 1, status: 1 });                // Detaile
 orderSchema.index({ status: 1, archived: 1 });                        // Admin status filtering
 orderSchema.index({ bookingDate: 1, bookingTime: 1, status: 1 });     // Available slots lookup
 orderSchema.index({ archived: 1, createdAt: -1 });                    // Archived orders listing
+orderSchema.index({ bookingReference: 1 }, { unique: true, sparse: true }); // Booking ref lookup
 
 export default mongoose.model('Order', orderSchema);

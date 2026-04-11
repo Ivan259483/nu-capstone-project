@@ -101,6 +101,17 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
         [bookings]
     );
 
+    // ─── Check-In Queue: ONLY show bookings with status 'assigned' (technician assigned, awaiting vehicle arrival)
+    const checkinQueue = useMemo(() =>
+        bookings.filter(b =>
+            b.status === 'assigned' &&
+            b.paymentStatus !== 'paid' &&
+            !(b as any).archived
+        ),
+        [bookings]
+    );
+    const [isCheckingIn, setIsCheckingIn] = useState<string | null>(null);
+
     const filteredBookings = useMemo(() => {
         if (!bookingSearch.trim()) return unpaidBookings.slice(0, 15);
         const q = bookingSearch.toLowerCase();
@@ -283,6 +294,39 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
             toast.success('Transaction resumed');
         }
     }, [heldTransactions]);
+
+    // ─── Check-In Customer ────────────────────────────────────────────────────────
+    const handleCheckIn = async (booking: Booking) => {
+        const bookingId = booking.id || booking._id || '';
+        if (!bookingId) return;
+        setIsCheckingIn(bookingId);
+        try {
+            // Transition: confirmed → received (arrived at shop)
+            const response = await OrderService.updateOrder(bookingId, {
+                status: 'received',
+                customerStatus: 'Queued',
+                receivedAt: new Date().toISOString(),
+            });
+            if (response.success) {
+                // Also sync to Firestore for real-time updates
+                await OrderService.syncBookingToFirestore({
+                    ...booking,
+                    status: 'received',
+                    customerStatus: 'Queued',
+                    receivedAt: new Date().toISOString(),
+                } as any);
+                toast.success(`${booking.customerName || 'Customer'} checked in successfully!`);
+                onTransactionComplete(); // Refresh data
+            } else {
+                toast.error(response.message || 'Check-in failed');
+            }
+        } catch (error: any) {
+            console.error('Check-in error:', error);
+            toast.error('Failed to check in customer');
+        } finally {
+            setIsCheckingIn(null);
+        }
+    };
 
     // ─── Confirm Payment ───────────────────────────────────────────────────────────
     const handleConfirmPayment = async () => {
@@ -507,8 +551,8 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                     { label: "TODAY'S REVENUE", value: formatCurrency(todayRevenue), sub: `${completedToday} transactions`, icon: TrendingUp, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-                    { label: 'UNPAID', value: formatCurrency(unpaidTotal), sub: `${unpaidBookings.length} pending collections`, icon: Clock, color: 'text-orange-400', bg: 'bg-orange-500/10' },
-                    { label: 'COMPLETED JOBS', value: String(completedToday), sub: 'today', icon: ShoppingBag, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+                    { label: 'CHECK-IN QUEUE', value: String(checkinQueue.length), sub: 'arrivals to check in', icon: UserIcon, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
+                    { label: 'READY TO PAY', value: String(unpaidBookings.length), sub: formatCurrency(unpaidTotal), icon: Clock, color: 'text-orange-400', bg: 'bg-orange-500/10' },
                     { label: 'AVG. TICKET SIZE', value: formatCurrency(avgTicket), sub: 'per transaction', icon: BarChart3, color: 'text-purple-400', bg: 'bg-purple-500/10' },
                 ].map((m, i) => (
                     <motion.div
@@ -535,6 +579,69 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                     </motion.div>
                 ))}
             </div>
+
+            {/* ───── Check-In Queue (Arriving Customers) ───── */}
+            {checkinQueue.length > 0 && (
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 }}
+                    className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.03] backdrop-blur-md overflow-hidden shadow-lg"
+                >
+                    <div className="flex items-center justify-between px-5 py-3 border-b border-emerald-500/10 bg-emerald-500/[0.05]">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20 relative">
+                                <UserIcon className="w-4 h-4 text-emerald-400" />
+                                <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-pulse border-2 border-black" />
+                            </div>
+                            <div>
+                                <h3 className="text-sm font-bold text-emerald-400 tracking-wide">Check-In Queue</h3>
+                                <p className="text-[10px] text-zinc-500">Confirmed bookings arriving today — tap to check in</p>
+                            </div>
+                        </div>
+                        <Badge className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold">
+                            {checkinQueue.length} waiting
+                        </Badge>
+                    </div>
+                    <div className="divide-y divide-white/5 max-h-[200px] overflow-y-auto">
+                        {checkinQueue.map(booking => (
+                            <div key={booking.id} className="flex items-center gap-4 px-5 py-3 hover:bg-white/[0.02] transition-colors group">
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm font-semibold text-white truncate">{booking.customerName || 'Customer'}</span>
+                                        <span className="text-[10px] text-zinc-500 font-mono">#{booking.orderNumber || booking.id?.slice(-6)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3 mt-0.5 text-[11px] text-zinc-500">
+                                        <span className="flex items-center gap-1"><Car className="w-3 h-3" />{booking.vehiclePlate || [booking.vehicleYear, booking.vehicleMake, booking.vehicleModel].filter(Boolean).join(' ') || 'N/A'}</span>
+                                        <span>•</span>
+                                        <span>{booking.serviceName || 'Service'}</span>
+                                        <span>•</span>
+                                        <span className="text-orange-400 font-semibold">{booking.bookingTime || booking.time || '--:--'}</span>
+                                    </div>
+                                </div>
+                                <Button
+                                    size="sm"
+                                    onClick={() => handleCheckIn(booking)}
+                                    disabled={isCheckingIn === (booking.id || booking._id)}
+                                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all hover:-translate-y-0.5 active:translate-y-0 border-0"
+                                >
+                                    {isCheckingIn === (booking.id || booking._id) ? (
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                            Checking in...
+                                        </span>
+                                    ) : (
+                                        <span className="flex items-center gap-1.5">
+                                            <CheckCircle className="w-3.5 h-3.5" />
+                                            Check In
+                                        </span>
+                                    )}
+                                </Button>
+                            </div>
+                        ))}
+                    </div>
+                </motion.div>
+            )}
 
             {/* ───── Main POS Layout ───── */}
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

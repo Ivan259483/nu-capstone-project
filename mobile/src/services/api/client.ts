@@ -42,7 +42,17 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       Toast.show('Session expired. Please log in again.', 'error');
       await authStorage.clearToken();
-    } else if (!error.message || error.message === 'Network Error') {
+    } else if (!error.response && error.message === 'Network Error') {
+      // ── Offline Queue Integration ────────────────────────────────
+      const isMutation = ['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase() || '');
+      // Make sure we aren't enqueuing a replay of a queue operation itself
+      if (isMutation && !(config as any)._isRetry) {
+        const { enqueueRequest } = require('../offlineQueue');
+        await enqueueRequest(config);
+        Toast.show('You are offline. Request saved and will sync later.', 'warning');
+        // Return a mocked success for optimistic UI offline
+        return Promise.resolve({ data: { success: true, offline: true } });
+      }
       Toast.show('Network unavailable. Check connection.', 'error');
     }
     return Promise.reject(error);

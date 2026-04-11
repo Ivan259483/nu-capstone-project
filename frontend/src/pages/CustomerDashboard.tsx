@@ -140,7 +140,7 @@ export default function CustomerDashboard() {
 
             // Auto-open waiver if needed
             const pendingWaiver = updatedBookings.find(
-                (b) => b.status === 'assigned' && !b.legalCompliance?.waiverSignature
+                (b) => (b.status as string) === 'assigned' && !b.legalCompliance?.waiverSignature
             );
             if (pendingWaiver) {
                 setWaiverBooking(pendingWaiver);

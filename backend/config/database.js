@@ -35,16 +35,18 @@ const connectDB = async () => {
     }
 
     // Final fallback: in-memory MongoDB for local dev (no external DB required)
+    // Uses MongoMemoryReplSet (single-node replica set) so Change Streams work.
     if (nodeEnv === 'development') {
       try {
-        const { MongoMemoryServer } = await import('mongodb-memory-server');
+        const { MongoMemoryReplSet } = await import('mongodb-memory-server');
         const downloadDir = path.join(process.cwd(), '.mongodb-binaries');
-        const mem = await MongoMemoryServer.create({
+        const replSet = await MongoMemoryReplSet.create({
           binary: { downloadDir, version: '7.0.14' },
-          instance: { dbName: 'autospf' },
+          instanceOpts: [{ storageEngine: 'wiredTiger' }],
+          replSet: { count: 1, dbName: 'autospf' },
         });
-        const memUri = mem.getUri();
-        console.log('Starting in-memory MongoDB for development:', memUri);
+        const memUri = replSet.getUri();
+        console.log('Starting in-memory MongoDB (replica set) for development:', memUri);
         return await connectWithUri(memUri);
       } catch (memErr) {
         console.error(`In-memory MongoDB fallback failed: ${memErr.message}`);
