@@ -5,9 +5,14 @@ import { toast } from 'sonner';
 // During development: Use /api which proxies to http://localhost:3000
 // During production: Use full URL from environment variable
 const isDevelopment = import.meta.env.MODE === 'development';
-export const BACKEND_API_URL = isDevelopment
-    ? '/api'
-    : (import.meta.env.VITE_API_URL || 'http://localhost:3000/api');
+
+export const getBaseApiUrl = () => {
+    if (isDevelopment) return '/api';
+    let url = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+    return url.replace(/\/+$/, ''); // Strip trailing slashes safely
+};
+
+export const BACKEND_API_URL = getBaseApiUrl();
 
 const api = axios.create({
     baseURL: BACKEND_API_URL,
@@ -16,6 +21,14 @@ const api = axios.create({
         'Content-Type': 'application/json'
     }
 });
+
+// Socket connection URL
+export const getBackendSocketUrl = () => {
+    const backendUrl = import.meta.env.VITE_BACKEND_URL
+        || (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') : '')
+        || 'http://localhost:3001';
+    return backendUrl;
+};
 
 // Request Interceptor: Attach Authorization Header
 api.interceptors.request.use(
@@ -58,41 +71,28 @@ api.interceptors.response.use(
 
         // Global Error Handler with Toast Notifications
         if (response?.status === 401) {
-            // IMPORTANT: Only force a full logout on genuine session expiry.
-            // "Invalid token" is NOT a reliable signal — it fires when the backend
-            // receives a Firebase ID token it can't verify (different JWT format).
-            // Forcing logout on that would kick the user out on every dashboard load.
-            const hardExpiredErrors = [
-                'Token expired',
-                'Not authorized - Invalid or missing user session'
-            ];
-            const isHardExpired = hardExpiredErrors.some(err => message?.includes(err));
+            console.warn('🔓 [API 401]: Session expired or invalid. Clearing session.');
 
-            if (isHardExpired) {
-                console.warn('🔓 [API 401]: Session expired. Clearing session.');
+            if (!suppressErrorToast) {
+                toast.error('Session Expired', {
+                    id: 'api-session-expired',
+                    description: 'Please login again to continue.'
+                });
+            }
 
-                if (!suppressErrorToast) {
-                    toast.error('Session Expired', {
-                        id: 'api-session-expired',
-                        description: 'Please login again to continue.'
-                    });
-                }
+            // Clear auth data
+            localStorage.removeItem('autospf_token');
+            localStorage.removeItem('autospf_current_user');
+            localStorage.removeItem('autospf_backend_user');
+            localStorage.removeItem('autospf_session_cache'); // Also clear session cache
 
-                // Clear auth data
-                localStorage.removeItem('autospf_token');
-                localStorage.removeItem('autospf_current_user');
-
-                // Only redirect if not already on login/home
-                if (typeof window !== 'undefined' &&
-                    !window.location.pathname.includes('/login') &&
-                    window.location.pathname !== '/' &&
-                    !window.location.search.includes('session=expired')) {
-                    window.location.replace('/?session=expired');
-                }
-            } else {
-                // Soft 401 — log it but do NOT logout the user
-                console.warn('⚠️ [API 401]: Received, keeping session alive.', message);
-                // Don't show a toast for every 401 — it's noisy during dashboard loads
+            // Only redirect if not already on login/home
+            if (typeof window !== 'undefined' &&
+                !window.location.pathname.includes('/login') &&
+                window.location.pathname !== '/' &&
+                !window.location.search.includes('session=expired')) {
+                // Ensure we use React Router or similar if possible, but window.location.replace works
+                window.location.replace('/?session=expired');
             }
         } else if (response?.status === 403) {
             // Forbidden - Access Denied

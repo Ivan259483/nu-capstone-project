@@ -16,15 +16,15 @@ export default function Footer() {
     ];
 
     const socials = [
-        { 
-            icon: Instagram, 
-            label: "Instagram", 
+        {
+            icon: Instagram,
+            label: "Instagram",
             href: "https://www.instagram.com/auto.spf/",
             customClass: "border-[#E1306C]/30 text-[#E1306C] shadow-[0_0_10px_rgba(225,48,108,0.2)] hover:border-pink-500 hover:text-pink-400 hover:shadow-[0_0_25px_rgba(225,48,108,0.6),_4px_4px_25px_rgba(249,206,52,0.5),_-4px_-4px_25px_rgba(98,40,215,0.5)] hover:bg-[#E1306C]/10"
         },
-        { 
-            icon: Facebook, 
-            label: "Facebook", 
+        {
+            icon: Facebook,
+            label: "Facebook",
             href: "https://www.facebook.com/autospfmain",
             customClass: "border-[#1877F2]/30 text-[#1877F2] shadow-[0_0_10px_rgba(24,119,242,0.2)] hover:border-[#1877F2] hover:text-[#1877F2] hover:shadow-[0_0_25px_rgba(24,119,242,0.6)] hover:bg-[#1877F2]/10"
         }

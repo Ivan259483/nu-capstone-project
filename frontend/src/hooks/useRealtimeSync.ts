@@ -3,6 +3,7 @@ import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { isAdminDashboardRole, isServiceStaffRole } from '@/lib/roles';
 import { invalidate } from '@/lib/queryCache';
+import { getBackendSocketUrl } from '@/lib/api';
 
 // ── Collection → cache key mapping ──────────────────────────────────
 // When a change stream event arrives for a collection, we bust the
@@ -21,7 +22,7 @@ export const getSharedSocket = (): Socket => {
     if (sharedSocket) {
       sharedSocket.disconnect();
     }
-    sharedSocket = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001', {
+    sharedSocket = io(getBackendSocketUrl(), {
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,

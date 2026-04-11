@@ -3,6 +3,7 @@ import { io, type Socket } from 'socket.io-client';
 import { OrderService } from '@/lib/order-service';
 import type { Booking, User } from '@/types';
 import { isAdminDashboardRole, isServiceStaffRole } from '@/lib/roles';
+import { getBackendSocketUrl } from '@/lib/api';
 
 let socket: Socket | null = null;
 
@@ -64,7 +65,7 @@ export function useLiveJobs(user?: User | null) {
             fetchJobs();
         }, SYNC_INTERVAL_MS);
 
-        socket = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001', {
+        socket = io(getBackendSocketUrl(), {
             transports: ['websocket'],
             reconnection: true,
             reconnectionDelay: 1000,

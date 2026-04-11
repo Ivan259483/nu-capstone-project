@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import Navbar from "@/components/Navbar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { getBaseApiUrl } from "@/lib/api";
 import { getDashboardPathForRole } from "@/lib/roles";
 import { auth, googleProvider, isFirebaseInitialized } from "@/config/firebase";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -55,7 +56,7 @@ export default function Login() {
 
     /* ── OTP verification state ── */
     const [otpStep, setOtpStep] = useState<"form" | "verify">("form");
-    const [otpDigits, setOtpDigits] = useState(["" , "", "", "", "", ""]);
+    const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
     const [otpCountdown, setOtpCountdown] = useState(0);
     const [otpSending, setOtpSending] = useState(false);
     const [otpVerifying, setOtpVerifying] = useState(false);
@@ -138,9 +139,7 @@ export default function Login() {
             // ── CRITICAL: Call backend /social-login to ensure a backend user
             // record exists and to obtain a JWT for API calls ──
             try {
-                const backendUrl = import.meta.env.MODE === 'development'
-                    ? '/api'
-                    : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
+                const backendUrl = getBaseApiUrl();
                 const resp = await fetch(`${backendUrl}/auth/social-login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -229,9 +228,7 @@ export default function Login() {
         // Send OTP to the user's email
         setOtpSending(true);
         try {
-            const backendUrl = import.meta.env.MODE === 'development'
-                ? '/api'
-                : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
+            const backendUrl = getBaseApiUrl();
             const resp = await fetch(`${backendUrl}/auth/send-otp`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -261,9 +258,7 @@ export default function Login() {
         if (otpCountdown > 0) return;
         setOtpSending(true);
         try {
-            const backendUrl = import.meta.env.MODE === 'development'
-                ? '/api'
-                : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
+            const backendUrl = getBaseApiUrl();
             const resp = await fetch(`${backendUrl}/auth/send-otp`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -329,9 +324,7 @@ export default function Login() {
 
         setOtpVerifying(true);
         try {
-            const backendUrl = import.meta.env.MODE === 'development'
-                ? '/api'
-                : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
+            const backendUrl = getBaseApiUrl();
 
             // Step 1: Verify OTP with backend
             const verifyResp = await fetch(`${backendUrl}/auth/verify-otp`, {
@@ -564,7 +557,7 @@ export default function Login() {
                                 >
                                     {/* Google-inspired accent glow */}
                                     <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-r from-[#4285F4]/10 via-[#EA4335]/10 via-[#FBBC05]/10 to-[#34A853]/10" />
-                                    
+
                                     <div className="relative flex items-center justify-center gap-2.5">
                                         <svg className="w-4 h-4" viewBox="0 0 24 24">
                                             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />

@@ -561,7 +561,7 @@ export default function DetailerDashboard() {
                 const response = await OrderService.updateOrder(jobId, updatePayload);
                 if (response.success) {
                     toast.success('Job started successfully!');
-                    
+
                     try {
                         await ActivityService.createActivityLog(
                             'status_change',
@@ -645,7 +645,7 @@ export default function DetailerDashboard() {
                 const response = await OrderService.updateProgress(jobId, lastStepIndex, 'completed', true, 'completed');
                 if (response.success) {
                     toast.success('Job completed!');
-                    
+
                     try {
                         await ActivityService.createActivityLog(
                             'status_change',
@@ -868,7 +868,7 @@ export default function DetailerDashboard() {
 
         const noteContent = newNote;
         const jobId = activeJob.id || (activeJob as any)._id;
-        
+
         try {
             // Call our new backend API endpoint
             const res = await OrderService.addNote(jobId, noteContent);
@@ -907,13 +907,13 @@ export default function DetailerDashboard() {
     const activeJob = activeJobRaw;
     const isChecklistComplete = (() => {
         if (!activeJob) return false;
-        
+
         const hasServiceSteps = activeJob.serviceSteps && activeJob.serviceSteps.length > 0;
         const hasIngress = activeJob.operationsChecklist?.ingress && activeJob.operationsChecklist.ingress.length > 0;
         const hasEgress = activeJob.operationsChecklist?.egress && activeJob.operationsChecklist.egress.length > 0;
 
         if (!hasServiceSteps && !hasIngress && !hasEgress) return false;
-        
+
         const serviceComplete = !hasServiceSteps || activeJob.serviceSteps!.every(s => s.status === 'completed');
         const ingressComplete = !hasIngress || activeJob.operationsChecklist!.ingress.every(s => s.completed);
         const egressComplete = !hasEgress || activeJob.operationsChecklist!.egress.every(s => s.completed);
@@ -1162,7 +1162,7 @@ export default function DetailerDashboard() {
                     <div className="detailer-content">
                         <AnimatePresence mode="wait">
                             {activeTab === 'dashboard' && (
-                                <DashboardTab 
+                                <DashboardTab
                                     activeJob={activeJob}
                                     safeJobs={safeJobs}
                                     finalPendingJobs={finalPendingJobs}
@@ -1184,7 +1184,7 @@ export default function DetailerDashboard() {
                             )}
 
                             {activeTab === 'queue' && (
-                                <QueueTab 
+                                <QueueTab
                                     finalPendingJobs={finalPendingJobs}
                                     activeJob={activeJob}
                                     elapsedTime={elapsedTime}
@@ -1203,7 +1203,7 @@ export default function DetailerDashboard() {
                             )}
 
                             {activeTab === 'inventory' && (
-                                <InventoryTab 
+                                <InventoryTab
                                     inventory={inventory}
                                     inventoryThreshold={inventoryThreshold}
                                     inventoryUsage={inventoryUsage}
@@ -1219,11 +1219,11 @@ export default function DetailerDashboard() {
                                     findInventoryItemByNames={findInventoryItemByNames}
                                 />
                             )}
-                            
+
                             {activeTab === 'records' && (
                                 <ServiceRecordsTab activeJob={activeJob} />
                             )}
-                            
+
                             {activeTab === 'progress' && (
                                 <ProgressReportsTab
                                     activeJob={activeJob}
@@ -1236,7 +1236,7 @@ export default function DetailerDashboard() {
                                     isCompleting={isCompleting}
                                 />
                             )}
-                            
+
                             {activeTab === 'activity' && (
                                 <ActivityLogsTab />
                             )}
@@ -1246,7 +1246,7 @@ export default function DetailerDashboard() {
                             )}
 
                             {activeTab === 'notes' && (
-                                <NotesTab 
+                                <NotesTab
                                     activeJob={activeJob}
                                     newNote={newNote}
                                     setNewNote={setNewNote}
@@ -1256,7 +1256,7 @@ export default function DetailerDashboard() {
                             )}
 
                             {activeTab === 'settings' && (
-                                <SettingsTab 
+                                <SettingsTab
                                     user={user}
                                     roleLabel={roleLabel}
                                     notifSound={notifSound}
@@ -1269,7 +1269,7 @@ export default function DetailerDashboard() {
                     </div>
                 </div>
             </div>
-            
+
             {warrantyReceiptJob && (
                 <WarrantyReceiptModal
                     job={warrantyReceiptJob}

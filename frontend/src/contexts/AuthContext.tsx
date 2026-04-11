@@ -11,13 +11,12 @@ import {
     sendPasswordResetEmail,
     onAuthStateChanged
 } from 'firebase/auth';
+import { getBaseApiUrl } from '@/lib/api';
 
 // NOTE: Firestore is intentionally NOT used for role lookup.
 // Role is sourced from the MongoDB backend API (GET /api/users?email=...)
 // to avoid Firestore "client is offline" errors blocking authentication.
-const BACKEND_URL = import.meta.env.MODE === 'development'
-    ? '/api'
-    : (import.meta.env.VITE_API_URL || 'http://localhost:3001/api');
+const BACKEND_URL = getBaseApiUrl();
 
 /* ═══════════════════════════════════════════════════════
    SESSION CACHE — persist role + profile across refreshes
@@ -81,6 +80,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const pendingAvatarRef = useRef<{ id: string; avatar: string } | null>(null);
     // Track whether login() already resolved the user to avoid double-fetch in onAuthStateChanged
     const loginResolvedRef = useRef(false);
+    // Track whether login() is currently in progress — onAuthStateChanged must completely
+    // defer to login() during this window to prevent stale role data from triggering redirects.
+    const loginInProgressRef = useRef(false);
 
     const sanitizeUser = useCallback((userData: User): User => {
         if (!userData) return userData;
@@ -143,9 +145,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Firestore is intentionally skipped — it causes "client is offline" errors.
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
             if (firebaseUser) {
-                // ── Fast exit: login() already resolved user — skip redundant API calls ──
-                if (loginResolvedRef.current) {
-                    loginResolvedRef.current = false;
+                // ── Fast exit: login() is in progress or already resolved user ──
+                // login() will handle setUser() with the correct role from the backend.
+                // We MUST NOT proceed here or we'll set stale role data and cause
+                // admin users to be redirected to /customer/dashboard.
+                if (loginInProgressRef.current || loginResolvedRef.current) {
+                    console.log('⏭️ [AuthContext] Skipping onAuthStateChanged — login() is handling auth');
+                    if (loginResolvedRef.current) {
+                        loginResolvedRef.current = false;
+                    }
                     setIsLoading(false);
                     return;
                 }
@@ -161,8 +169,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     let mongoPayload: any = {};
 
                     // ── Ultra-fast path: use session cache if UID matches ──
+                    // GUARD: Skip cache if login() is in progress — it will resolve
+                    // the user with fresh backend data including the correct role.
                     const cached = getSessionCache();
-                    if (cached && cached.user.id === firebaseUser.uid) {
+                    if (cached && cached.user.id === firebaseUser.uid && !loginResolvedRef.current) {
                         console.log(`⚡ [AuthContext] Session cache hit — instant restore`);
                         const sanitized = sanitizeUser(cached.user);
                         userStorage.setCurrentUser(sanitized);
@@ -269,11 +279,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     const token = localStorage.getItem('autospf_token') || '';
                     setSessionCache(userData, token);
 
-                    // Ensure Firebase token is also available as fallback
-                    if (!localStorage.getItem('autospf_token')) {
-                        const fbToken = await firebaseUser.getIdToken();
-                        localStorage.setItem('autospf_token', fbToken);
-                    }
+                    // Firebase token is INTENTIONALLY not saved to autospf_token.
+                    // The backend API requires its own JWT token. If the user does not have an
+                    // autospf_token, they will remain unauthenticated for API calls and will
+                    // receive 401s, which will correctly kick them back to login.
                 } catch (err) {
                     console.error('❌ [AuthContext] Auth state error:', err);
                     // Don't wipe existing user state on error
@@ -342,6 +351,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; message?: string }> => {
         try {
+            // ── CRITICAL: Signal that login() owns the auth flow ──
+            // onAuthStateChanged MUST NOT resolve or redirect during this window.
+            loginInProgressRef.current = true;
+            loginResolvedRef.current = false;
+
+            // Clear stale caches so no stale role data can leak through
+            clearSessionCache();
+            localStorage.removeItem('autospf_backend_user');
+            userStorage.setCurrentUser(null);
+
             // ── PARALLEL: Fire Firebase + Backend auth simultaneously ──
             const [firebaseCred, backendResult] = await Promise.allSettled([
                 signInWithEmailAndPassword(auth, email, password),
@@ -402,20 +421,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 };
                 const sanitized = sanitizeUser(userData);
                 userStorage.setCurrentUser(sanitized);
-                setUser(userData);
                 setSessionCache(userData, backendToken);
 
-                // Signal onAuthStateChanged to skip redundant work
+                // Signal BEFORE setUser so any re-entrant onAuthStateChanged sees it
                 loginResolvedRef.current = true;
+                loginInProgressRef.current = false;
+
+                console.log(`✅ [AuthContext] Login resolved with role: ${finalRole}`);
+                setUser(userData);
                 setIsLoading(false);
             } else {
-                // Backend failed — let onAuthStateChanged handle role resolution
+                // Backend failed — release the lock so onAuthStateChanged can resolve role
+                loginInProgressRef.current = false;
                 localStorage.setItem('autospf_backend_user', JSON.stringify({ email }));
             }
 
             return { success: true };
         } catch (error: any) {
             console.error('Login error:', error);
+            // Always release the lock on error
+            loginInProgressRef.current = false;
+            loginResolvedRef.current = false;
+
             // Translate Firebase Auth error codes to user-friendly messages
             const code = error?.code || '';
             let message = error.message || 'Invalid credentials';

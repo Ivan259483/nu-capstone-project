@@ -160,12 +160,7 @@ type TabType =
     | 'profile'
     | 'landing';
 
-const getBackendSocketUrl = () => {
-    const backendUrl = import.meta.env.VITE_BACKEND_URL
-        || (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') : '')
-        || 'http://localhost:3001';
-    return backendUrl;
-};
+import { getBackendSocketUrl } from '@/lib/api';
 
 export default function AdminDashboard() {
     const navigate = useNavigate();
