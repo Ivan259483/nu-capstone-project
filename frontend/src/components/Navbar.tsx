@@ -42,24 +42,21 @@ export default function Navbar() {
                         : "bg-transparent py-5"
                 )}
             >
-                <div className="container max-w-7xl mx-auto px-6 flex items-center justify-between">
+                <div className="container max-w-7xl mx-auto px-6 flex items-center justify-between relative">
                     {/* Logo */}
                     <Link
                         to="/"
-                        className="flex items-center gap-2.5 group"
+                        className="flex items-center group hover:opacity-80 transition-opacity"
                     >
-                        <div className="w-9 h-9 rounded-lg bg-gradient-gold flex items-center justify-center animate-pulse-gold group-hover:scale-110 transition-transform duration-300">
-                            <Car className="w-5 h-5 text-primary-foreground" />
-                        </div>
-                        <span className="text-xl font-bold tracking-tight">
-                            <span className="text-white">Auto</span>
-                            <span className="text-primary">SPF</span>
-                            <span className="text-white">+</span>
-                        </span>
+                        <img 
+                            src="/images/autospf-logo.png" 
+                            alt="AutoSPF+" 
+                            className="h-12 md:h-16 object-contain"
+                        />
                     </Link>
 
-                    {/* Desktop Links */}
-                    <div className="hidden lg:flex items-center gap-1">
+                    {/* Desktop Links — absolutely centered in navbar */}
+                    <div className="hidden lg:flex items-center gap-1 absolute left-1/2 -translate-x-1/2">
                         {navLinks.map((link) => (
                             <Link
                                 key={link.to}

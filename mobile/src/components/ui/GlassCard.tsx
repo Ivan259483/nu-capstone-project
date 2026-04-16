@@ -8,7 +8,6 @@ import { View, StyleSheet, ViewStyle, StyleProp, Pressable } from 'react-native'
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/hooks/useThemeContext';
@@ -43,13 +42,13 @@ export default function GlassCard({
 
   const handlePressIn = () => {
     if (animated && onPress) {
-      scale.value = withSpring(0.97, { damping: 15, stiffness: 300 });
+      scale.value = withTiming(0.97, { duration: 220 });
     }
   };
 
   const handlePressOut = () => {
     if (animated && onPress) {
-      scale.value = withSpring(1, { damping: 12, stiffness: 200 });
+      scale.value = withTiming(1, { duration: 220 });
     }
   };
 

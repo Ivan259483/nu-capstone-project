@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   Alert,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,6 +30,8 @@ import PremiumInput from '@/components/ui/PremiumInput';
 import PremiumButton from '@/components/ui/PremiumButton';
 import { Toast } from '@/components/ui/PremiumToast';
 
+import * as ImagePicker from 'expo-image-picker';
+
 const SURFACE = '#111114';
 const SURFACE_ALT = '#1A1A22';
 const BORDER = '#2A2A30';
@@ -42,6 +45,7 @@ export default function EditProfileScreen() {
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
 
   // Validation
   const [nameError, setNameError] = useState('');
@@ -135,6 +139,36 @@ export default function EditProfileScreen() {
     }
   };
 
+  const handlePickImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]?.base64 && user) {
+        setIsUpdatingAvatar(true);
+        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        
+        const base64Avatar = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        await authService.updateUserBackendProfile(user, {
+          avatar: base64Avatar,
+        });
+        await refreshProfile();
+        
+        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Toast.show('Profile photo updated successfully!', 'success');
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to update profile picture.');
+    } finally {
+      setIsUpdatingAvatar(false);
+    }
+  };
+
   const handleDiscard = () => {
     if (!hasChanges) {
       router.back();
@@ -192,22 +226,36 @@ export default function EditProfileScreen() {
         >
           {/* Avatar Area */}
           <Animated.View
-            entering={FadeInDown.delay(100).springify().damping(16).stiffness(120)}
+            entering={FadeInDown.delay(100).duration(200)}
             style={styles.avatarArea}
           >
-            <View style={styles.avatarContainer}>
-              <LinearGradient
-                colors={[Palette.accent, Palette.accentDark]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.avatar}
-              >
-                <Text style={styles.avatarInitials}>{initials}</Text>
-              </LinearGradient>
+            <TouchableOpacity 
+              style={styles.avatarContainer} 
+              activeOpacity={0.8}
+              onPress={handlePickImage}
+              disabled={isUpdatingAvatar}
+            >
+              {profile?.avatar_url ? (
+                <View style={[styles.avatar, { overflow: 'hidden' }]}>
+                  <Image 
+                    source={{ uri: profile.avatar_url }} 
+                    style={styles.avatar} 
+                  />
+                </View>
+              ) : (
+                <LinearGradient
+                  colors={[Palette.accent, Palette.accentDark]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.avatar}
+                >
+                  <Text style={styles.avatarInitials}>{isUpdatingAvatar ? '...' : initials}</Text>
+                </LinearGradient>
+              )}
               <View style={styles.avatarBadge}>
                 <Ionicons name="camera" size={12} color="#fff" />
               </View>
-            </View>
+            </TouchableOpacity>
             <Text style={styles.avatarName}>{profile?.full_name || 'Customer'}</Text>
             <View style={styles.roleBadge}>
               <Text style={styles.roleText}>
@@ -224,7 +272,7 @@ export default function EditProfileScreen() {
 
           {/* Form */}
           <View style={styles.formContainer}>
-            <Animated.View entering={FadeInUp.delay(200).springify().damping(16).stiffness(120)}>
+            <Animated.View entering={FadeInUp.delay(200).duration(200)}>
               <PremiumInput
                 label="FULL NAME"
                 iconName="person-outline"
@@ -239,7 +287,7 @@ export default function EditProfileScreen() {
               />
             </Animated.View>
 
-            <Animated.View entering={FadeInUp.delay(250).springify().damping(16).stiffness(120)}>
+            <Animated.View entering={FadeInUp.delay(250).duration(200)}>
               <PremiumInput
                 label="MOBILE NUMBER"
                 iconName="call-outline"
@@ -255,7 +303,7 @@ export default function EditProfileScreen() {
             </Animated.View>
 
             {/* Read-only email */}
-            <Animated.View entering={FadeInUp.delay(300).springify().damping(16).stiffness(120)}>
+            <Animated.View entering={FadeInUp.delay(300).duration(200)}>
               <View style={styles.readOnlyField}>
                 <Text style={styles.readOnlyLabel}>EMAIL ADDRESS</Text>
                 <View style={styles.readOnlyRow}>
@@ -270,7 +318,7 @@ export default function EditProfileScreen() {
             </Animated.View>
 
             {/* Read-only role */}
-            <Animated.View entering={FadeInUp.delay(400).springify().damping(16).stiffness(120)}>
+            <Animated.View entering={FadeInUp.delay(400).duration(200)}>
               <View style={styles.readOnlyField}>
                 <Text style={styles.readOnlyLabel}>ACCOUNT TYPE</Text>
                 <View style={styles.readOnlyRow}>
@@ -284,7 +332,7 @@ export default function EditProfileScreen() {
 
             {/* Save Button */}
             <Animated.View
-              entering={FadeInUp.delay(500).springify().damping(15).stiffness(100)}
+              entering={FadeInUp.delay(500).duration(200)}
               style={{ marginTop: 20 }}
             >
               <PremiumButton
@@ -305,7 +353,7 @@ export default function EditProfileScreen() {
 
             {/* Info note */}
             <Animated.View
-              entering={FadeInUp.delay(600).springify()}
+              entering={FadeInUp.delay(600).duration(200)}
               style={styles.infoRow}
             >
               <Ionicons name="information-circle" size={16} color="#444" />

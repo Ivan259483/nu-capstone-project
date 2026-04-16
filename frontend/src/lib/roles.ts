@@ -108,7 +108,7 @@ export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
 };
 
 export const USER_ROLE_OPTIONS = [
-  { group: 'Admin Roles', value: 'administrator', label: 'Administrator' },
+  // Note: 'administrator' is intentionally omitted — office_admin is the highest assignable role via UI
   { group: 'Admin Roles', value: 'office_admin', label: 'Office Admin' },
   { group: 'Admin Roles', value: 'operation_manager', label: 'Operation Manager' },
   { group: 'Operational Roles', value: 'hr', label: 'HR' },

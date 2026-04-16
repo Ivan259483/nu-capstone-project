@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { toast } from 'sonner';
+import { auth } from '@/config/firebase';
+import { signOut } from 'firebase/auth';
 
 // Backend API configuration
 // During development: Use /api which proxies to http://localhost:3000
@@ -24,6 +26,7 @@ const api = axios.create({
 
 // Socket connection URL
 export const getBackendSocketUrl = () => {
+    if (isDevelopment) return '/';
     const backendUrl = import.meta.env.VITE_BACKEND_URL
         || (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') : '')
         || 'http://localhost:3001';
@@ -85,6 +88,13 @@ api.interceptors.response.use(
             localStorage.removeItem('autospf_current_user');
             localStorage.removeItem('autospf_backend_user');
             localStorage.removeItem('autospf_session_cache'); // Also clear session cache
+            
+            // Critical: Sign out of Firebase so the frontend doesn't auto-login again
+            try {
+                signOut(auth);
+            } catch (e) {
+                console.error('Failed to sign out of Firebase during 401 handling:', e);
+            }
 
             // Only redirect if not already on login/home
             if (typeof window !== 'undefined' &&

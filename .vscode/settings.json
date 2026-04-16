@@ -1,4 +1,6 @@
 {
     "liveServer.settings.multiRootWorkspaceName": "AutoSPF+",
-    "kiroAgent.configureMCP": "Disabled"
+    "kiroAgent.configureMCP": "Disabled",
+    "css.validate": false,
+    "css.lint.unknownAtRules": "ignore"
 }

@@ -71,6 +71,7 @@ function StepAuth() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [focusedField, setFocusedField] = useState<string | null>(null);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -120,80 +121,120 @@ function StepAuth() {
     };
 
     return (
-        <div className="space-y-6">
-            <div className="text-center mb-6">
-                 <h2 className="text-2xl font-bold text-white mb-2">Sign in to Book</h2>
-                 <p className="text-sm" style={{ color: '#666' }}>You need an account to track your appointment.</p>
-            </div>
-            
-            <button
-                type="button" 
-                onClick={handleSocialLogin} 
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 h-11 rounded-xl border text-sm font-medium transition-all duration-200 disabled:opacity-50"
-                style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: '#ccc' }}
-            >
-                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                    <path fill="#EA4335" d="M5.27 9.76A7.08 7.08 0 0 1 12 4.9c1.7 0 3.24.62 4.44 1.64l3.32-3.32A11.95 11.95 0 0 0 12 1C8.16 1 4.83 3.06 3 6.14l2.27 3.62z" />
-                    <path fill="#34A853" d="M16.04 18.01A7.08 7.08 0 0 1 12 19.1c-2.96 0-5.5-1.82-6.6-4.41L3.12 17.9C4.95 21.05 8.22 23 12 23c2.96 0 5.65-1.07 7.72-2.82l-3.68-2.17z" />
-                    <path fill="#4A90D9" d="M19.72 20.18C21.72 18.22 23 15.36 23 12c0-.73-.1-1.44-.25-2.12H12v4.5h6.2a5.3 5.3 0 0 1-2.16 3.07l3.68 2.73z" />
-                    <path fill="#FBBC05" d="M5.4 14.69A7.17 7.17 0 0 1 4.9 12c0-.94.17-1.84.47-2.68L3.1 5.7A11.93 11.93 0 0 0 1 12c0 1.92.45 3.74 1.24 5.36l3.16-2.67z" />
-                </svg>
-                Continue with Google
-            </button>
-
-            <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center"><span className="w-full border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }} /></div>
-                <div className="relative flex justify-center">
-                    <span className="px-3 text-[11px] uppercase tracking-widest" style={{ color: '#555', background: '#0a0a0c' }}>or use email</span>
+        <div className="bk-auth-split">
+            {/* ── Left Brand Panel ── */}
+            <div className="bk-auth-brand">
+                <div className="bk-auth-brand-glow" />
+                <div className="bk-auth-brand-content">
+                    <img 
+                        src="/images/autospf-logo.png" 
+                        alt="AutoSPF+" 
+                        className="h-14 object-contain mb-6"
+                    />
+                    <p>Premium Automotive<br />Detailing & Protection</p>
+                    <div className="bk-auth-brand-features">
+                        {['Paint Protection Film', 'Ceramic Coating', 'Window Tinting', 'Interior Detailing'].map(f => (
+                            <div key={f} className="bk-auth-feature">
+                                <CheckCircle size={12} />
+                                <span>{f}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="bk-auth-brand-trust">
+                        {['⭐ 5-Star Rated', '🛡️ Certified', '📍 Las Piñas'].map(t => (
+                            <span key={t} className="bk-auth-trust-pill">{t}</span>
+                        ))}
+                    </div>
                 </div>
             </div>
 
-            <form onSubmit={handleLogin} className="space-y-4">
-                <div>
-                    <label className="bk-label">Email</label>
-                    <div className="relative">
-                        <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#555' }} />
-                        <input
-                            type="email"
-                            value={email}
-                            onChange={e => setEmail(e.target.value)}
-                            placeholder="name@example.com"
-                            className="bk-input"
-                            style={{ paddingLeft: '2.5rem' }}
-                        />
+            {/* ── Right Form Panel ── */}
+            <div className="bk-auth-form-panel">
+                <div className="bk-auth-form-inner">
+                    <div className="bk-auth-form-header">
+                        <div className="bk-auth-badge">
+                            <Shield size={12} />
+                            <span>SECURE LOGIN</span>
+                        </div>
+                        <h2>Sign in to Book</h2>
+                        <p>Create or access your account to track appointments</p>
                     </div>
-                </div>
-                <div>
-                    <label className="bk-label">Password</label>
-                    <div className="relative">
-                        <Key className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#555' }} />
-                        <input
-                            type="password"
-                            value={password}
-                            onChange={e => setPassword(e.target.value)}
-                            placeholder="••••••••"
-                            className="bk-input"
-                            style={{ paddingLeft: '2.5rem' }}
-                        />
-                    </div>
-                </div>
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className="bk-confirm-btn"
-                >
-                    {loading ? 'Signing in...' : 'Sign In'}
-                </button>
-            </form>
 
-            <div className="text-center mt-6">
-                 <p className="text-xs" style={{ color: '#555' }}>
-                    Don't have an account?{' '}
-                    <Link to="/login" style={{ color: '#FF6B35' }} className="font-medium ml-1">
-                        Sign up here
-                    </Link>
-                 </p>
+                    {/* Google button */}
+                    <button
+                        type="button"
+                        onClick={handleSocialLogin}
+                        disabled={loading}
+                        className="bk-google-btn"
+                    >
+                        <svg className="w-[18px] h-[18px] shrink-0 pointer-events-none" viewBox="0 0 24 24">
+                            <path fill="#EA4335" d="M5.27 9.76A7.08 7.08 0 0 1 12 4.9c1.7 0 3.24.62 4.44 1.64l3.32-3.32A11.95 11.95 0 0 0 12 1C8.16 1 4.83 3.06 3 6.14l2.27 3.62z" />
+                            <path fill="#34A853" d="M16.04 18.01A7.08 7.08 0 0 1 12 19.1c-2.96 0-5.5-1.82-6.6-4.41L3.12 17.9C4.95 21.05 8.22 23 12 23c2.96 0 5.65-1.07 7.72-2.82l-3.68-2.17z" />
+                            <path fill="#4A90D9" d="M19.72 20.18C21.72 18.22 23 15.36 23 12c0-.73-.1-1.44-.25-2.12H12v4.5h6.2a5.3 5.3 0 0 1-2.16 3.07l3.68 2.73z" />
+                            <path fill="#FBBC05" d="M5.4 14.69A7.17 7.17 0 0 1 4.9 12c0-.94.17-1.84.47-2.68L3.1 5.7A11.93 11.93 0 0 0 1 12c0 1.92.45 3.74 1.24 5.36l3.16-2.67z" />
+                        </svg>
+                        Continue with Google
+                    </button>
+
+                    {/* Divider */}
+                    <div className="bk-auth-divider">
+                        <div className="bk-auth-divider-line" />
+                        <span>OR</span>
+                        <div className="bk-auth-divider-line" />
+                    </div>
+
+                    {/* Email form */}
+                    <form onSubmit={handleLogin} className="bk-auth-fields">
+                        <div className="bk-auth-field-group">
+                            <label className="bk-auth-field-label">Email Address</label>
+                            <div className={`bk-auth-input-wrap ${focusedField === 'email' ? 'focused' : ''}`}>
+                                <Mail size={16} className="bk-auth-input-icon" />
+                                <input
+                                    type="email"
+                                    value={email}
+                                    onChange={e => setEmail(e.target.value)}
+                                    onFocus={() => setFocusedField('email')}
+                                    onBlur={() => setFocusedField(null)}
+                                    placeholder="name@example.com"
+                                    className="bk-auth-input"
+                                />
+                            </div>
+                        </div>
+                        <div className="bk-auth-field-group">
+                            <label className="bk-auth-field-label">Password</label>
+                            <div className={`bk-auth-input-wrap ${focusedField === 'password' ? 'focused' : ''}`}>
+                                <Key size={16} className="bk-auth-input-icon" />
+                                <input
+                                    type="password"
+                                    value={password}
+                                    onChange={e => setPassword(e.target.value)}
+                                    onFocus={() => setFocusedField('password')}
+                                    onBlur={() => setFocusedField(null)}
+                                    placeholder="••••••••"
+                                    className="bk-auth-input"
+                                />
+                            </div>
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="bk-auth-submit"
+                        >
+                            {loading ? (
+                                <span className="bk-auth-spinner" />
+                            ) : (
+                                <>Sign In</>
+                            )}
+                        </button>
+                    </form>
+
+                    <div className="bk-auth-footer">
+                        <p>
+                            Don't have an account?{' '}
+                            <Link to="/login" className="bk-auth-link">Sign up here</Link>
+                        </p>
+                    </div>
+                </div>
             </div>
         </div>
     );
@@ -222,7 +263,21 @@ export default function BookingPage() {
                 if (res.data.success && Array.isArray(res.data.data)) {
                     const mapped = res.data.data.map((s: any) => ({ ...s, id: s._id || s.id }));
                     setDbServices(mapped);
-                    if (!defaultPkg && mapped.length > 0 && !form.service) {
+
+                    // Resolve the ?pkg= key to the actual DB service _id
+                    // Services page sends keys like "spf80", "spf89" etc.
+                    // DB services have names like "SPF 80", "SPF 89" etc.
+                    if (defaultPkg) {
+                        const pkgNorm = defaultPkg.replace(/[^a-z0-9]/gi, '').toLowerCase();
+                        const match = mapped.find((s: BookingService) =>
+                            s.name.replace(/[^a-z0-9]/gi, '').toLowerCase() === pkgNorm
+                        );
+                        if (match) {
+                            setForm(f => ({ ...f, service: match.id }));
+                        } else if (mapped.length > 0) {
+                            setForm(f => ({ ...f, service: mapped[0].id }));
+                        }
+                    } else if (mapped.length > 0 && !form.service) {
                         setForm(f => ({ ...f, service: mapped[0].id }));
                     }
                 }
@@ -234,7 +289,7 @@ export default function BookingPage() {
     }, [defaultPkg]); // eslint-disable-line
 
     const [form, setForm] = useState({
-        service: defaultPkg,
+        service: "",
         vehicleType: "",
         vehicleMake: "",
         vehicleModel: "",
@@ -342,7 +397,7 @@ export default function BookingPage() {
                     <div className="bk-container">
                         {!user ? (
                             /* ── Auth Gate ── */
-                            <div className="bk-card bk-auth-card bk-animate">
+                            <div className="bk-card bk-auth-wrapper bk-animate">
                                 <StepAuth />
                             </div>
                         ) : submitted ? (

@@ -150,6 +150,21 @@
 .animate-spin-slow {
     animation: spin-slow 20s linear infinite;
 }
+.animate-tab-from-right {
+    animation: slide-in-from-right 0.30s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.animate-tab-from-left {
+    animation: slide-in-from-left 0.30s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes slide-in-from-right {
+    from { opacity: 0; transform: translateX(28px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes slide-in-from-left {
+    from { opacity: 0; transform: translateX(-28px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
 
 @keyframes hero-car-drift {
     0% {

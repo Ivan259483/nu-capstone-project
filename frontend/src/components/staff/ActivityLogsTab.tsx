@@ -35,46 +35,48 @@ export function ActivityLogsTab() {
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' - ' + d.toLocaleDateString();
     };
 
+    const getDotStyle = (status?: string): React.CSSProperties => {
+        switch (status) {
+            case 'success': return { background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.35)' };
+            case 'info': return { background: '#3b82f6', boxShadow: '0 0 8px rgba(59,130,246,0.35)' };
+            case 'error': return { background: '#ba1a1a', boxShadow: '0 0 8px rgba(186,26,26,0.35)' };
+            case 'warning': return { background: '#f59e0b', boxShadow: '0 0 8px rgba(245,158,11,0.35)' };
+            default: return { background: '#c4c6cd' };
+        }
+    };
+
     return (
         <motion.div key="activity" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="max-w-4xl mx-auto">
-            <motion.div className="glass-panel" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-                <div className="glass-panel-header flex justify-between items-center">
-                    <h3><Activity style={{ width: 14, height: 14, color: 'var(--accent)' }} /> Workspace Activity Log</h3>
-                    {loading && <span className="text-xs text-zinc-500">Refreshing...</span>}
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} style={{ background: '#ffffff', borderRadius: 12, border: 'none', boxShadow: '0 2px 8px rgba(6,39,75,0.05)', overflow: 'hidden' }}>
+                <div style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(6,39,75,0.06)' }}>
+                    <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 14, fontWeight: 700, color: '#06274b', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}><Activity style={{ width: 14, height: 14, color: '#06274b' }} /> Workspace Activity Log</h3>
+                    {loading && <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: '#74777d' }}>Refreshing...</span>}
                 </div>
-                <div className="glass-panel-body" style={{ padding: '24px' }}>
+                <div style={{ padding: 24 }}>
                     {logs.length === 0 && !loading ? (
-                        <div className="text-center py-12 text-zinc-500">
-                            <Activity className="w-8 h-8 mx-auto mb-3 opacity-20" />
-                            <p>No activity logs found for your workspace.</p>
+                        <div style={{ textAlign: 'center', padding: '48px 0' }}>
+                            <Activity style={{ width: 32, height: 32, color: '#c4c6cd', margin: '0 auto 12px', display: 'block' }} />
+                            <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#74777d' }}>No activity logs found for your workspace.</p>
                         </div>
                     ) : (
-                        <div className="relative border-l border-zinc-800 ml-4 space-y-8">
-                            {logs.map((log, idx) => {
-                                let dotColor = 'bg-zinc-600';
-                                if (log.status === 'success') dotColor = 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]';
-                                if (log.status === 'info') dotColor = 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]';
-                                if (log.status === 'error') dotColor = 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]';
-                                if (log.status === 'warning') dotColor = 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]';
-
-                                return (
-                                    <motion.div key={log.id || idx} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.min(idx * 0.05, 1) }} className="relative pl-8">
-                                        <span className={`absolute -left-1.5 top-1.5 h-3 w-3 rounded-full ${dotColor}`} />
-                                        <div className="bg-[#18181B] border border-zinc-800 p-4 rounded-xl hover:border-zinc-700 transition-colors">
-                                            <div className="flex justify-between items-start mb-2">
-                                                <h4 className="font-semibold text-zinc-100 text-sm">{log.action || log.title}</h4>
-                                                <span className="flex items-center text-xs text-zinc-500 gap-1 font-mono">
-                                                    <Clock className="w-3 h-3" /> {formatTime(log.createdAt)}
-                                                </span>
-                                            </div>
-                                            <p className="text-sm text-zinc-400 mb-3">{log.description}</p>
-                                            <div className="text-xs text-zinc-500 font-medium uppercase tracking-wider">
-                                                By {log.userName || 'System'}
-                                            </div>
+                        <div style={{ position: 'relative', borderLeft: '2px solid rgba(196,198,205,0.4)', marginLeft: 16, display: 'flex', flexDirection: 'column', gap: 24 }}>
+                            {logs.map((log, idx) => (
+                                <motion.div key={log.id || idx} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.min(idx * 0.05, 1) }} style={{ position: 'relative', paddingLeft: 32 }}>
+                                    <span style={{ position: 'absolute', left: -7, top: 6, width: 12, height: 12, borderRadius: '50%', ...getDotStyle(log.status) }} />
+                                    <div style={{ background: '#f7f9fb', border: 'none', borderRadius: 10, padding: '14px 16px', transition: 'background 0.2s ease' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                                            <h4 style={{ fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 13, color: '#191c1e', margin: 0 }}>{log.action || log.title}</h4>
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#74777d', flexShrink: 0 }}>
+                                                <Clock style={{ width: 10, height: 10, color: '#74777d' }} /> {formatTime(log.createdAt)}
+                                            </span>
                                         </div>
-                                    </motion.div>
-                                );
-                            })}
+                                        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: '#43474c', marginBottom: 10, marginTop: 0 }}>{log.description}</p>
+                                        <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#74777d' }}>
+                                            By {log.userName || 'System'}
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            ))}
                         </div>
                     )}
                 </div>

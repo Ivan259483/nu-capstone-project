@@ -58,7 +58,7 @@ import Animated, {
   FadeIn, FadeInDown, FadeInUp, FadeInRight, SlideInRight,
   useSharedValue, useAnimatedStyle, useAnimatedScrollHandler,
   useAnimatedProps, withRepeat, withTiming, withSequence,
-  withSpring, withDelay, Easing, interpolate, Extrapolation,
+withDelay, Easing, interpolate, Extrapolation,
   runOnJS,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -314,7 +314,7 @@ function CountBounce({ n, color, delay = 0 }: { n: number; color: string; delay?
   const sc = useSharedValue(0);
   const op = useSharedValue(0);
   useEffect(() => {
-    sc.value = withDelay(delay, withSpring(1, { damping: 9, stiffness: 140 }));
+    sc.value = withDelay(delay, withTiming(1, { duration: 220 }));
     op.value = withDelay(delay, withTiming(1, { duration: 300 }));
   }, [n]);
   const anim = useAnimatedStyle(() => ({
@@ -365,8 +365,8 @@ function Tap({
     <Animated.View style={[anim, style]}>
       <Pressable
         onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle[h]); onPress?.(); }}
-        onPressIn={() => { sc.value = withSpring(targetScale, { damping: 12, stiffness: 460 }); }}
-        onPressOut={() => { sc.value = withSpring(1, { damping: 10, stiffness: 195 }); }}
+        onPressIn={() => { sc.value = withTiming(targetScale, { duration: 220 }); }}
+        onPressOut={() => { sc.value = withTiming(1, { duration: 220 }); }}
         style={{ flex: 1 }}
       >{children}</Pressable>
     </Animated.View>
@@ -410,7 +410,7 @@ function Rail({ step }: { step: number }) {
         {STEPS.map((lbl, i) => {
           const done = i < step, active = i === step;
           return (
-            <Animated.View key={lbl} entering={FadeInDown.delay(500 + i * 50).springify()} style={rl.col}>
+            <Animated.View key={lbl} entering={FadeInDown.delay(500 + i * 50).duration(200)} style={rl.col}>
               <View style={[rl.node, done && rl.nodeDone, active && rl.nodeActive]}>
                 {done
                   ? <Ionicons name="checkmark-sharp" size={9} color="#fff" />
@@ -473,7 +473,7 @@ function HeaderSection({
         <Animated.Text entering={FadeIn.delay(60).duration(380)} style={$.greet}>
           {greet()}
         </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(130).springify()} style={$.nameText} numberOfLines={1} adjustsFontSizeToFit>
+        <Animated.Text entering={FadeInDown.delay(130).duration(200)} style={$.nameText} numberOfLines={1} adjustsFontSizeToFit>
           {name}
         </Animated.Text>
         {(active.length > 0 || completed > 0) && (
@@ -551,7 +551,7 @@ function HeroSection({ job, isLoading, st, stepFor, router, scrollY }: any) {
                 </View>
               </View>
 
-              <Animated.Text entering={FadeInDown.delay(300).springify()} style={$.trVeh} numberOfLines={1} adjustsFontSizeToFit>
+              <Animated.Text entering={FadeInDown.delay(300).duration(200)} style={$.trVeh} numberOfLines={1} adjustsFontSizeToFit>
                 {String(job.vehicleMake||'')} {String(job.vehicleModel||'')}
               </Animated.Text>
               <Text style={$.trSvc}>{job.serviceName}</Text>
@@ -671,7 +671,7 @@ function StatsSection({ active, completed, total }: { active:number; completed:n
   }, [total]);
 
   return (
-    <Animated.View entering={FadeInUp.delay(260).springify()}>
+    <Animated.View entering={FadeInUp.delay(260).duration(200)}>
       <GBCard colors={GB.neutral} radius={26} style={sh('#000',0.30,14,4)}>
         <View style={$.statsRow}>
           {cells.map((s, i) => {
@@ -682,7 +682,7 @@ function StatsSection({ active, completed, total }: { active:number; completed:n
               <React.Fragment key={s.lbl}>
                 {i > 0 && <View style={$.statDiv} />}
                 <View style={$.statCell}>
-                  <Animated.View entering={FadeInDown.delay(280 + s.delay).springify()} style={[$.statIconBg, {backgroundColor:s.fi}]}>
+                  <Animated.View entering={FadeInDown.delay(280 + s.delay).duration(200)} style={[$.statIconBg, {backgroundColor:s.fi}]}>
                     <Ionicons name={s.ic} size={13} color={s.col} />
                   </Animated.View>
                   <CountBounce n={s.n} color={s.col} delay={300 + s.delay} />
@@ -708,7 +708,7 @@ function TrustSection() {
     <Animated.View entering={FadeIn.delay(285).duration(500)}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={$.trustScroll}>
         {TRUST.map((t, i) => (
-          <Animated.View key={t.label} entering={SlideInRight.delay(300 + i * 50).springify()}>
+          <Animated.View key={t.label} entering={SlideInRight.delay(300 + i * 50).duration(200)}>
             <View style={$.trustChip}>
               <Ionicons name={t.icon} size={12} color={D.Go} />
               <Text style={$.trustTxt}>{t.label}</Text>
@@ -730,11 +730,11 @@ function QuickSection({ router, completed }: any) {
   ] as const;
 
   return (
-    <Animated.View entering={FadeInUp.delay(320).springify()}>
+    <Animated.View entering={FadeInUp.delay(320).duration(200)}>
       <Eye label="Quick Access" />
       <View style={$.qaRow}>
         {/* TALL — Book Now */}
-        <Animated.View entering={FadeInDown.delay(355).springify()} style={$.qaLeft}>
+        <Animated.View entering={FadeInDown.delay(355).duration(200)} style={$.qaLeft}>
           <Tap onPress={() => router.push('/(customer)/book')} h="Medium" style={{flex:1}}>
             <GBCard colors={GB.amber} radius={26} bg={D.s1} style={{flex:1,...sh(D.A,0.24,16,6)}}>
               <LinearGradient
@@ -762,7 +762,7 @@ function QuickSection({ router, completed }: any) {
         {/* RIGHT stack */}
         <View style={$.qaRight}>
           {compact.map((a, i) => (
-            <Animated.View key={a.n} entering={FadeInRight.delay(370+i*65).springify()} style={{flex:1}}>
+            <Animated.View key={a.n} entering={FadeInRight.delay(370+i*65).duration(200)} style={{flex:1}}>
               <Tap onPress={() => router.push(a.r as any)} style={{flex:1}}>
                 <GBCard colors={a.gb} radius={22} bg={D.s1} style={{flex:1,...sh('#000',0.18,10,3)}}>
                   <LinearGradient colors={[a.fi,'transparent']} start={{x:0,y:0}} end={{x:1,y:1}} style={StyleSheet.absoluteFill} />
@@ -786,7 +786,7 @@ function QuickSection({ router, completed }: any) {
       </View>
 
       {/* Full-width: My Records */}
-      <Animated.View entering={FadeInUp.delay(445).springify()} style={{marginTop:10}}>
+      <Animated.View entering={FadeInUp.delay(445).duration(200)} style={{marginTop:10}}>
         <Tap onPress={() => router.push('/(screens)/appointments')}>
           <GBCard colors={GB.green} radius={22} bg={D.s1} style={sh('#000',0.16,10,3)}>
             <LinearGradient colors={[D.Gf,'transparent']} start={{x:0,y:0}} end={{x:1,y:0}} style={StyleSheet.absoluteFill} />
@@ -818,11 +818,11 @@ function QuickSection({ router, completed }: any) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function ServicesSection({ router }: any) {
   return (
-    <Animated.View entering={FadeInUp.delay(400).springify()}>
+    <Animated.View entering={FadeInUp.delay(400).duration(200)}>
       <Eye label="Our Services" cta="View All" onCta={() => router.push('/(customer)/book')} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingRight:22}}>
         {SERVICES.map((svc, i) => (
-          <Animated.View key={svc.name} entering={SlideInRight.delay(420+i*65).springify()}>
+          <Animated.View key={svc.name} entering={SlideInRight.delay(420+i*65).duration(200)}>
             <Tap
               onPress={() => router.push('/(customer)/book')}
               style={[$.svcWrap, i===0&&{marginLeft:0}]}
@@ -885,7 +885,7 @@ function PromoSection({ router }: any) {
   const glowAnim = useAnimatedStyle(() => ({ opacity: interpolate(glow.value, [0,1], [0.06,0.16]) }));
 
   return (
-    <Animated.View entering={FadeInUp.delay(430).springify()}>
+    <Animated.View entering={FadeInUp.delay(430).duration(200)}>
       <Eye label="Current Offer" />
       <Tap onPress={() => router.push('/(customer)/book')} h="Medium">
         <GBCard colors={GB.gold} radius={26} style={sh(D.Go,0.18,22,7)}>
@@ -931,7 +931,7 @@ function PromoSection({ router }: any) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function HistorySection({ history, isLoading, totalSpend, router }: any) {
   return (
-    <Animated.View entering={FadeInUp.delay(500).springify()}>
+    <Animated.View entering={FadeInUp.delay(500).duration(200)}>
       <Eye
         label="Recent Services"
         cta={history.length > 0 ? 'See All' : undefined}
@@ -958,7 +958,7 @@ function HistorySection({ history, isLoading, totalSpend, router }: any) {
           <View style={$.histHdr}>
             <View>
               <Text style={$.histHdrEye}>LIFETIME SPEND</Text>
-              <Animated.Text entering={FadeInDown.delay(520).springify()} style={$.histHdrAmt}>
+              <Animated.Text entering={FadeInDown.delay(520).duration(200)} style={$.histHdrAmt}>
                 ₱{totalSpend.toLocaleString()}
               </Animated.Text>
             </View>
@@ -973,7 +973,7 @@ function HistorySection({ history, isLoading, totalSpend, router }: any) {
           {history.map((item: any, i: number) => (
             <React.Fragment key={item.id}>
               {i > 0 && <View style={$.histDiv} />}
-              <Animated.View entering={FadeInRight.delay(540 + i*55).springify()}>
+              <Animated.View entering={FadeInRight.delay(540 + i*55).duration(200)}>
                 <Tap onPress={() => router.push('/(screens)/appointments')} style={$.histRow}>
                   <View style={$.histBubble}>
                     <Ionicons name="checkmark-circle" size={18} color={D.G} />
@@ -1017,7 +1017,7 @@ function HistorySection({ history, isLoading, totalSpend, router }: any) {
         <GBCard colors={GB.neutral} radius={26} style={sh('#000',0.22,12,4)}>
           <LinearGradient colors={['rgba(255,124,30,0.06)','transparent']} style={StyleSheet.absoluteFill} />
           <View style={$.emptyInner}>
-            <Animated.View entering={FadeInDown.delay(520).springify()} style={$.emptyIconOuter}>
+            <Animated.View entering={FadeInDown.delay(520).duration(200)} style={$.emptyIconOuter}>
               <LinearGradient colors={[D.Af, D.Ag2]} start={{x:0,y:0}} end={{x:1,y:1}} style={$.emptyIconBg}>
                 <Ionicons name="car-sport-outline" size={32} color={D.A} />
               </LinearGradient>
@@ -1050,7 +1050,7 @@ function CareSection({ freshJob }: { freshJob: any }) {
   const tips = isTint ? CARE_TIPS : CARE_TIPS.slice(1);
 
   return (
-    <Animated.View entering={FadeInUp.delay(530).springify()}>
+    <Animated.View entering={FadeInUp.delay(530).duration(200)}>
       <Eye label="After-Care Guide" />
       <GBCard colors={GB.gold} radius={26} style={sh(D.Go,0.14,18,5)}>
         <LinearGradient
@@ -1075,7 +1075,7 @@ function CareSection({ freshJob }: { freshJob: any }) {
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={$.tipScroll}>
           {tips.map((t, i) => (
-            <Animated.View key={i} entering={SlideInRight.delay(550+i*60).springify()} style={$.tipCard}>
+            <Animated.View key={i} entering={SlideInRight.delay(550+i*60).duration(200)} style={$.tipCard}>
               <View style={$.tipIconBg}>
                 <Ionicons name={t.icon} size={15} color={D.Go} />
               </View>
@@ -1105,7 +1105,7 @@ function LoyaltySection({ completed, router }: { completed: number; router: any 
   const isGold = completed >= 5;
 
   return (
-    <Animated.View entering={FadeInUp.delay(575).springify()}>
+    <Animated.View entering={FadeInUp.delay(575).duration(200)}>
       <Tap onPress={() => router.push('/(screens)/appointments')}>
         <GBCard colors={GB.gold} radius={26} style={sh(D.Go,0.18,20,7)}>
           <LinearGradient
@@ -1281,7 +1281,7 @@ export default function HomeScreen() {
 
         {/* FIRST-VISIT brand CTA */}
         {!job && bookings.length === 0 && !isLoading && (
-          <Animated.View entering={FadeInUp.delay(640).springify()} style={[$.sect,{marginBottom:20}]}>
+          <Animated.View entering={FadeInUp.delay(640).duration(200)} style={[$.sect,{marginBottom:20}]}>
             <Tap onPress={() => router.push('/(customer)/book')}>
               <GBCard colors={GB.amber} radius={22} style={sh(D.A,0.10,10,3)}>
                 <LinearGradient colors={['rgba(255,124,30,0.08)','transparent']} start={{x:0,y:0}} end={{x:1,y:1}} style={StyleSheet.absoluteFill} />

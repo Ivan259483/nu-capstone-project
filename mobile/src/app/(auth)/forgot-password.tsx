@@ -92,7 +92,7 @@ export default function ForgotPasswordScreen() {
         style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 32 }}
       >
         {/* Back Button */}
-        <Animated.View entering={FadeInDown.delay(50).springify().damping(16).stiffness(120)} style={styles.backButtonContainer}>
+        <Animated.View entering={FadeInDown.delay(50).duration(200)} style={styles.backButtonContainer}>
              <TouchableOpacity 
                 style={styles.backButton}
                 hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
@@ -106,7 +106,7 @@ export default function ForgotPasswordScreen() {
         </Animated.View>
 
         {/* Header */}
-        <Animated.View entering={FadeInDown.delay(100).springify().damping(16).stiffness(120)} style={styles.headerContainer}>
+        <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.headerContainer}>
           <View style={styles.iconWrapper}>
             <Ionicons name="lock-closed-outline" size={32} color={Palette.accent} />
           </View>
@@ -119,7 +119,7 @@ export default function ForgotPasswordScreen() {
         {/* Form or Success State */}
         {!submitted ? (
           <View style={styles.formContainer}>
-            <Animated.View entering={FadeInUp.delay(200).springify().damping(16).stiffness(120)}>
+            <Animated.View entering={FadeInUp.delay(200).duration(200)}>
               <PremiumInput
                 label="EMAIL ADDRESS"
                 iconName="mail-outline"
@@ -132,7 +132,7 @@ export default function ForgotPasswordScreen() {
               />
             </Animated.View>
 
-            <Animated.View entering={FadeInUp.delay(300).springify().damping(15).stiffness(100)} style={{ marginTop: 40 }}>
+            <Animated.View entering={FadeInUp.delay(300).duration(200)} style={{ marginTop: 40 }}>
               <PremiumButton
                 title={loading ? 'SENDING LINK...' : 'SEND RESET LINK'}
                 icon={loading ? undefined : 'paper-plane-outline'}
@@ -142,7 +142,7 @@ export default function ForgotPasswordScreen() {
             </Animated.View>
           </View>
         ) : (
-          <Animated.View entering={FadeInUp.delay(100).springify().damping(15).stiffness(100)} style={styles.successContainer}>
+          <Animated.View entering={FadeInUp.delay(100).duration(200)} style={styles.successContainer}>
             <View style={styles.successIconWrapper}>
               <Ionicons name="mail-unread-outline" size={48} color={Palette.accent} />
             </View>

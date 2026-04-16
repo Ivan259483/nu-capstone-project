@@ -323,8 +323,8 @@ export const authService = {
     // Also try updating backend as fallback (silent fail)
     try {
       await apiClient.patch('/users/change-password', { currentPassword: currentPw, newPassword: newPw });
-    } catch {
-      // Ignored
+    } catch (syncError) {
+      console.warn('[Password Sync] Backend password update failed — Firebase updated but MongoDB hash may be stale:', syncError);
     }
   }
 };

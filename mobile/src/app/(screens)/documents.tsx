@@ -45,7 +45,7 @@ export default function DocumentsScreen() {
         windowSize={5}
         removeClippedSubviews={Platform.OS === 'android'}
         renderItem={({ item: d, index: i }) => (
-          <Animated.View entering={FadeInDown.delay(100 + i * 100).springify().damping(16).stiffness(120)}>
+          <Animated.View entering={FadeInDown.delay(100 + i * 100).duration(200)}>
             <GlassCard>
               <View style={styles.docHeader}>
                 <Text style={[styles.docLabel, { color: colors.text }]}>{d.label}</Text>

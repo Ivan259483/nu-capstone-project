@@ -34,37 +34,29 @@ export const fil = {
 
     // Services
     services: {
-        title: "Aming Mga Serbisyo",
-        subtitle: "Premium na mga pakete ng pagde-detalye para sa bawat pangangailangan",
-        viewAll: "Tingnan Lahat ng Serbisyo",
+        title: "Aming Mga Pakete",
+        subtitle: "Premium na mga Pakete ng Proteksyon",
+        viewAll: "Tingnan Lahat ng Pakete at Presyo",
         learnMore: "Matuto Nang Higit Pa",
         bookNow: "Mag-book Ngayon",
         startingAt: "Nagsisimula sa",
-        popular: "Pinaka-popular",
+        popular: "Inirerekomenda",
         items: {
-            exterior: {
-                name: "Paghugas ng Labas",
-                desc: "Kumpletong paghugas ng kamay, clay bar treatment, at spray wax para sa magandang kislap.",
+            spf80: {
+                name: "SPF 80 — Essential",
+                desc: "3 Layer Graphene Ceramic Coating (Canada) na may Graphene Sealant. 3 taong proteksyon.",
             },
-            interior: {
-                name: "Detalye ng Loob",
-                desc: "Malalim na vacuum, steam cleaning, kondisyonamento ng katad, at pag-aalis ng amoy.",
+            spf89: {
+                name: "SPF 89 — Advanced",
+                desc: "4 Layer Graphene Ceramic Coating (Canada) na may libreng maintenance visit. 5 taong proteksyon.",
             },
-            paint: {
-                name: "Pagwawasto ng Pintura",
-                desc: "Multi-stage na makina polish para alisin ang swirls, gasgas, at oxidation.",
+            spf99: {
+                name: "SPF 99 — Premium",
+                desc: "4 Layer SONAX Profiline CC EVO (Germany) na may libreng recoat at maintenance. 10 taong proteksyon.",
             },
-            ceramic: {
-                name: "Ceramic Coating",
-                desc: "Pangmatagalang nano-ceramic na proteksyon na tumatanggi sa tubig, dumi, at UV rays.",
-            },
-            engine: {
-                name: "Detalye ng Engine Bay",
-                desc: "Ligtas na degreasing at pagde-detalye ng engine bay para sa showroom-clean na tapusin.",
-            },
-            full: {
-                name: "Kumpletong Pakete",
-                desc: "Ganap na loob + labas + pagwawasto ng pintura — ang pinakamataas na pagtrato.",
+            spf101: {
+                name: "SPF 101 — Flagship ALL-IN",
+                desc: "PPF + SONAX CC EVO + Nano Ceramic Tint + Undercoating — ang pinakamataas na 10-taong pakete.",
             },
         },
     },

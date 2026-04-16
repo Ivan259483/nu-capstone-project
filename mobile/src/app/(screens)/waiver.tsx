@@ -212,7 +212,7 @@ export default function WaiverScreen() {
     return (
       <View style={[s.screen, { paddingTop: insets.top }]}>
         <View style={s.successCenter}>
-          <Animated.View entering={FadeInDown.springify()} style={s.successContent}>
+          <Animated.View entering={FadeInDown.duration(200)} style={s.successContent}>
             <LinearGradient colors={[ACCENT, ACCENT_DARK]} style={s.successIcon}>
               <Ionicons name="document-text" size={36} color="#fff" />
             </LinearGradient>
@@ -265,7 +265,7 @@ export default function WaiverScreen() {
           scrollEventThrottle={16}
         >
           {/* Info Banner */}
-          <Animated.View entering={FadeInDown.delay(100).springify()}>
+          <Animated.View entering={FadeInDown.delay(100).duration(200)}>
             <View style={s.infoBanner}>
               <LinearGradient
                 colors={['rgba(255,107,53,0.12)', 'rgba(255,107,53,0.04)']}
@@ -285,7 +285,7 @@ export default function WaiverScreen() {
           </Animated.View>
 
           {/* Customer Info */}
-          <Animated.View entering={FadeInDown.delay(150).springify()}>
+          <Animated.View entering={FadeInDown.delay(150).duration(200)}>
             <Text style={s.sectionLabel}>CUSTOMER INFO</Text>
             <View style={s.customerCard}>
               <View style={s.customerRow}>
@@ -303,7 +303,7 @@ export default function WaiverScreen() {
           </Animated.View>
 
           {/* Vehicle Info */}
-          <Animated.View entering={FadeInDown.delay(200).springify()}>
+          <Animated.View entering={FadeInDown.delay(200).duration(200)}>
             <Text style={s.sectionLabel}>VEHICLE INFO</Text>
             <View style={s.vehicleCard}>
               <View style={s.vehicleRow}>
@@ -329,7 +329,7 @@ export default function WaiverScreen() {
           </Animated.View>
 
           {/* Pre-Service Photos */}
-          <Animated.View entering={FadeInDown.delay(250).springify()}>
+          <Animated.View entering={FadeInDown.delay(250).duration(200)}>
             <Text style={s.sectionLabel}>PRE-SERVICE CONDITION MODULE</Text>
             <View style={s.card}>
               <Text style={s.photoInstruction}>
@@ -387,7 +387,7 @@ export default function WaiverScreen() {
           </Animated.View>
 
           {/* Terms & Conditions */}
-          <Animated.View entering={FadeInDown.delay(300).springify()}>
+          <Animated.View entering={FadeInDown.delay(300).duration(200)}>
             <Text style={s.sectionLabel}>TERMS & CONDITIONS</Text>
             <View style={s.termsCard}>
               {WAIVER_SECTIONS.map((section, i) => (
@@ -408,7 +408,7 @@ export default function WaiverScreen() {
           </Animated.View>
 
           {/* Signature Pad */}
-          <Animated.View entering={FadeInDown.delay(350).springify()}>
+          <Animated.View entering={FadeInDown.delay(350).duration(200)}>
             <Text style={s.sectionLabel}>YOUR SIGNATURE</Text>
             <View style={s.sigCard}>
               <View style={s.sigHeader}>
@@ -465,7 +465,7 @@ export default function WaiverScreen() {
           </Animated.View>
 
           {/* Submit */}
-          <Animated.View entering={FadeInDown.delay(400).springify()}>
+          <Animated.View entering={FadeInDown.delay(400).duration(200)}>
             <TouchableOpacity
               style={[
                 s.submitBtn,

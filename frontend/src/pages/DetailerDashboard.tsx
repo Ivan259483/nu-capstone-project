@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
@@ -18,6 +19,7 @@ import { SettingsTab } from '@/components/staff/SettingsTab';
 import { ServiceRecordsTab } from '@/components/staff/ServiceRecordsTab';
 import { ProgressReportsTab } from '@/components/staff/ProgressReportsTab';
 import { ActivityLogsTab } from '@/components/staff/ActivityLogsTab';
+import { HistoryTab } from '@/components/staff/HistoryTab';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { formatDistanceToNow } from 'date-fns';
 import { collection, query, where, onSnapshot, orderBy, doc, setDoc } from 'firebase/firestore';
@@ -51,7 +53,7 @@ import type { Booking, InventoryItem, InventoryUsage, CustomerNote } from '@/typ
 import WorkflowOrchestrator from '@/components/staff/workflow/WorkflowOrchestrator';
 import './DetailerDashboard.css';
 
-type TabType = 'dashboard' | 'queue' | 'schedule' | 'inventory' | 'records' | 'progress' | 'activity' | 'photos' | 'notes' | 'settings';
+type TabType = 'dashboard' | 'queue' | 'schedule' | 'inventory' | 'records' | 'progress' | 'activity' | 'photos' | 'notes' | 'settings' | 'history';
 
 const LOW_STOCK_THRESHOLD = 10;
 const normalizeBookingId = (id?: string) => (id ? String(id).replace(/^#/, '') : '');
@@ -183,11 +185,213 @@ export default function DetailerDashboard() {
     const validTabs: TabType[] = ['dashboard', 'queue', 'schedule', 'inventory', 'records', 'progress', 'activity', 'photos', 'notes', 'settings'];
     const [activeTab, setActiveTab] = useState<TabType>(() => {
         const hash = window.location.hash.replace('#', '');
-        return validTabs.includes(hash as TabType) ? (hash as TabType) : 'dashboard';
+        if (validTabs.includes(hash as TabType)) return hash as TabType;
+        
+        try {
+            const savedSettings = localStorage.getItem('detailer_settings');
+            if (savedSettings) {
+                const parsed = JSON.parse(savedSettings);
+                if (parsed.defaultView) {
+                    const defaultTab = parsed.defaultView.toLowerCase();
+                    if (validTabs.includes(defaultTab as TabType)) {
+                        return defaultTab as TabType;
+                    }
+                    if (defaultTab === 'history') return 'records' as TabType; // map history to records tab
+                }
+            }
+        } catch (e) {}
+
+        return 'dashboard';
     });
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('autospf_sidebar_collapsed') === 'true');
     const [notifSound, setNotifSound] = useState(() => localStorage.getItem('autospf_notif_sound') !== 'off');
+    const [isDark, setIsDark] = useState(() => {
+        // Use a detailer-scoped key so the public marketing site is never affected
+        const saved = localStorage.getItem('autospf_detailer_theme');
+        return saved ? saved === 'dark' : true; // default dark
+    });
+
+    // Sync dark mode when SettingsTab saves — scoped to detailer portal only.
+    // IMPORTANT: Do NOT touch document.documentElement here. The `.detailer-root.dark`
+    // class on the wrapper div handles all dark-mode CSS. Mutating <html> would
+    // bleed into the public marketing site.
+    useEffect(() => {
+        const syncTheme = () => {
+            const saved = localStorage.getItem('autospf_detailer_theme');
+            const dark = saved ? saved === 'dark' : true;
+            setIsDark(dark);
+        };
+        window.addEventListener('storage', syncTheme);
+        window.addEventListener('autospf-detailer-theme-change', syncTheme);
+        return () => {
+            window.removeEventListener('storage', syncTheme);
+            window.removeEventListener('autospf-detailer-theme-change', syncTheme);
+        };
+    }, []);
+
+    // ── Dynamic dark-mode style injection ─────────────────────────────────────
+    // React serialises inline colours as rgb() in the DOM, so CSS [style*="'#fff'"]
+    // never matches. Instead we inject a <style> tag with !important rules that
+    // target element types by their computed position inside `.detailer-root.dark`.
+    useEffect(() => {
+        const STYLE_ID = 'autospf-dark-override';
+        let el = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
+
+        if (isDark) {
+            if (!el) {
+                el = document.createElement('style');
+                el.id = STYLE_ID;
+                document.head.appendChild(el);
+            }
+            el.textContent = `
+/* ── AutoSPF+ Dark Mode: inline-style override injection ── */
+
+/* ── Background: white (rgb(255,255,255)) — React serialises '#fff' / '#ffffff' as this ── */
+.detailer-root.dark .detailer-main-area [style*="rgb(255, 255, 255)"], 
+.detailer-root.dark .detailer-main-area [style*="#fff"], 
+.detailer-root.dark .detailer-main-area [style*="#ffffff"], 
+.detailer-root.dark .detailer-main-area [style*="white"],
+.detailer-root.dark .detailer-main-area [style*="rgb(255,255,255)"] {
+  background: #1A1A1A !important;
+  color: #E5E5E5 !important;
+  border-color: #2A2A2A !important;
+}
+
+/* All card-shell elements with a border-radius inside the content area */
+.detailer-root.dark .detailer-content [style*="border-radius"] {
+  border-color: #2A2A2A !important;
+}
+
+/* ── Background near-white shades (Cards/Panels) ── */
+.detailer-root.dark .detailer-main-area [style*="rgb(247, 249, 251)"],
+.detailer-root.dark .detailer-main-area [style*="rgb(242, 244, 246)"],
+.detailer-root.dark .detailer-main-area [style*="rgba(242,244,246"],
+.detailer-root.dark .detailer-main-area [style*="rgba(242, 244, 246"],
+.detailer-root.dark .detailer-main-area [style*="rgb(248, 250, 252)"],
+.detailer-root.dark .detailer-main-area [style*="rgb(250, 251, 252)"],
+.detailer-root.dark .detailer-main-area [style*="rgb(236, 238, 240)"],
+.detailer-root.dark .detailer-main-area [style*="rgb(230, 232, 234)"],
+.detailer-root.dark .detailer-main-area [style*="#f7f9fb"],
+.detailer-root.dark .detailer-main-area [style*="#f2f4f6"],
+.detailer-root.dark .detailer-main-area [style*="#eceef0"],
+.detailer-root.dark .detailer-main-area [style*="#e6e8ea"],
+.detailer-root.dark .detailer-main-area [style*="#dae2fd"] {
+  background: #111111 !important;
+  color: #E5E5E5 !important;
+  border-color: #2A2A2A !important;
+}
+
+/* ── Text: dark navy (#06274b = rgb(6,39,75)) ── */
+.detailer-root.dark .detailer-main-area [style*="rgb(6, 39, 75)"],
+.detailer-root.dark .detailer-main-area h1[style], .detailer-root.dark .detailer-main-area h2[style],
+.detailer-root.dark .detailer-main-area h3[style], .detailer-root.dark .detailer-main-area h4[style] {
+  color: #E5E5E5 !important;
+}
+
+/* ── Text: medium-dark (#191c1e = rgb(25,28,30)) ── */
+.detailer-root.dark .detailer-main-area [style*="color: rgb(25, 28, 30)"],
+.detailer-root.dark .detailer-main-area [style*="color: rgb(67, 71, 76)"],
+.detailer-root.dark .detailer-main-area [style*="color: rgb(81, 95, 116)"] {
+  color: #B0B0B0 !important;
+}
+
+/* ── Text: muted (#74777d = rgb(116,119,125)) ── */
+.detailer-root.dark .detailer-main-area [style*="color: rgb(116, 119, 125)"],
+.detailer-root.dark .detailer-main-area [style*="color: rgb(159, 163, 169)"] {
+  color: #777777 !important;
+}
+
+/* ── Schedule Tab: light-blue slate tones ── */
+.detailer-root.dark .detailer-main-area [style*="color: rgb(15, 23, 42)"],
+.detailer-root.dark .detailer-main-area [style*="color: rgb(30, 41, 59)"],
+.detailer-root.dark .detailer-main-area [style*="color: rgb(51, 65, 85)"] {
+  color: #E5E5E5 !important;
+}
+.detailer-root.dark .detailer-main-area [style*="color: rgb(71, 85, 105)"],
+.detailer-root.dark .detailer-main-area [style*="color: rgb(100, 116, 139)"] {
+  color: #B0B0B0 !important;
+}
+.detailer-root.dark .detailer-main-area [style*="color: rgb(148, 163, 184)"] {
+  color: #555555 !important;
+}
+
+/* ── Schedule: white panel backgrounds ── */
+.detailer-root.dark .detailer-main-area [style*="rgb(255, 255, 255)"] {
+  background: #1A1A1A !important;
+  border-color: #2A2A2A !important;
+}
+.detailer-root.dark .detailer-main-area [style*="rgb(248, 250, 252)"],
+.detailer-root.dark .detailer-main-area [style*="rgb(250, 251, 252)"],
+.detailer-root.dark .detailer-main-area [style*="rgb(241, 245, 249)"] {
+  background: #222222 !important;
+  border-color: #2A2A2A !important;
+}
+
+/* ── Table overrides ── */
+.detailer-root.dark .data-table,
+.detailer-root.dark .data-table thead,
+.detailer-root.dark .data-table tbody { background: #1A1A1A !important; }
+.detailer-root.dark .data-table thead th { color: #777777 !important; border-bottom: 1px solid #2A2A2A !important; }
+.detailer-root.dark .data-table tbody td { color: #E5E5E5 !important; border-bottom: 1px solid #2A2A2A !important; }
+.detailer-root.dark .data-table tbody td.muted { color: #777777 !important; }
+.detailer-root.dark .data-table tbody tr:hover { background: #222222 !important; }
+
+/* ── Settings cards ── */
+.detailer-root.dark .settings-card { background: #1A1A1A !important; border: 1px solid #2A2A2A !important; }
+.detailer-root.dark .settings-card-header { background: #111111 !important; border-bottom: 1px solid #2A2A2A !important; }
+.detailer-root.dark .settings-card-header h3 { color: #E5E5E5 !important; }
+.detailer-root.dark .settings-card-header p { color: #777777 !important; }
+.detailer-root.dark .settings-row-label { color: #E5E5E5 !important; }
+.detailer-root.dark .settings-row-desc { color: #777777 !important; }
+.detailer-root.dark .settings-row-value { color: #B0B0B0 !important; }
+.detailer-root.dark .settings-row { border-bottom: 1px solid #2A2A2A !important; }
+
+/* ── KPI/Job cards with CSS classes ── */
+.detailer-root.dark .kpi-card-v2 { background: #1A1A1A !important; }
+.detailer-root.dark .kpi-card-v2-label { color: #777777 !important; }
+.detailer-root.dark .kpi-card-v2-value { color: #E5E5E5 !important; }
+.detailer-root.dark .job-card-v2 { background: #111111 !important; }
+.detailer-root.dark .schedule-appointment { background: #1A1A1A !important; border-left-color: #E8650A !important; }
+.detailer-root.dark .photo-slot { background: #1A1A1A !important; border-color: #2A2A2A !important; }
+
+/* ── Dialogs / Radix modals ── */
+.detailer-root.dark [role="dialog"],
+.detailer-root.dark [data-radix-dialog-content] {
+  background: #1A1A1A !important;
+  border: 1px solid #2A2A2A !important;
+  color: #E5E5E5 !important;
+}
+.detailer-root.dark [role="listbox"],
+.detailer-root.dark [data-radix-select-content] {
+  background: #1A1A1A !important;
+  border: 1px solid #2A2A2A !important;
+  color: #E5E5E5 !important;
+}
+.detailer-root.dark [role="option"]:hover { background: #2A2A2A !important; }
+
+/* ── Form inputs ── */
+.detailer-root.dark .detailer-main-area input:not([type=checkbox]):not([type=radio]),
+.detailer-root.dark .detailer-main-area select,
+.detailer-root.dark .detailer-main-area textarea {
+  background: #1A1A1A !important;
+  border-color: #2A2A2A !important;
+  color: #E5E5E5 !important;
+}
+
+/* ── General heading/text inheritance ── */
+.detailer-root.dark .detailer-main-area h1:not([style]),
+.detailer-root.dark .detailer-main-area h2:not([style]),
+.detailer-root.dark .detailer-main-area h3:not([style]),
+.detailer-root.dark .detailer-main-area h4:not([style]) { color: #E5E5E5 !important; }
+.detailer-root.dark .detailer-main-area p:not([style]) { color: #B0B0B0 !important; }
+`;
+        } else {
+            // Light mode: remove the override tag if present
+            el?.remove();
+        }
+    }, [isDark]);
+
     const toggleSidebar = useCallback(() => {
         setSidebarCollapsed(prev => {
             const next = !prev;
@@ -217,6 +421,23 @@ export default function DetailerDashboard() {
 
     const [isLoading, setIsLoading] = useState(false);
     const apiDataLoadedRef = useRef(false);
+
+    // ── Real-time MongoDB Change Stream Sync ─────────────────────────
+    // When admin assigns a detailer or any order changes, this fires
+    // and auto-refreshes the dashboard — no manual reload needed.
+    const loadDataRef = useRef<(() => void) | null>(null);
+    const realtimeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useRealtimeSync(
+        ['orders', 'products'],
+        useCallback((_collection: string) => {
+            // Debounce rapid successive changes (e.g. assign + status change)
+            if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
+            realtimeDebounceRef.current = setTimeout(() => {
+                console.log('⚡ [REALTIME] db_change detected, refreshing detailer data...');
+                loadDataRef.current?.();
+            }, 400);
+        }, [])
+    );
     const [isCompleting, setIsCompleting] = useState(false);
     // Time tracking
     const [elapsedTime, setElapsedTime] = useState(0);
@@ -229,6 +450,8 @@ export default function DetailerDashboard() {
 
     // Note form
     const [newNote, setNewNote] = useState('');
+
+    const [profilePhotoUrl, setProfilePhotoUrl] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('detailer_profile_photo') : null);
 
     const loadData = useCallback(async () => {
         if (!user) return;
@@ -244,7 +467,7 @@ export default function DetailerDashboard() {
                 setJobs(response.data.map(ensureWaiverSigned));
 
                 // Check for active job start time (derived from status)
-                const activeJob = response.data.find((j: Booking) => j.status === 'in_progress' || j.status === 'processing');
+                const activeJob = response.data.find((j: Booking) => j.status === 'in_progress' || (j.status as string) === 'processing');
                 if (activeJob) {
                     setActiveJobStartTime(prev => prev || Date.now());
                 }
@@ -287,6 +510,9 @@ export default function DetailerDashboard() {
         }
     }, [user, ensureWaiverSigned]);
 
+    // Keep loadDataRef in sync so realtime callback uses latest loadData
+    useEffect(() => { loadDataRef.current = loadData; }, [loadData]);
+
     // Emergency Refresh Listener - IMMEDIATE SYNC
     useEffect(() => {
         const handleEmergencyRefresh = () => {
@@ -297,12 +523,18 @@ export default function DetailerDashboard() {
             loadData();
         };
 
+        const handleProfileUpdate = () => {
+            setProfilePhotoUrl(localStorage.getItem('detailer_profile_photo'));
+        };
+
         window.addEventListener('storage', handleEmergencyRefresh);
         window.addEventListener('local-booking-update', handleEmergencyRefresh);
+        window.addEventListener('profile-photo-updated', handleProfileUpdate);
 
         return () => {
             window.removeEventListener('storage', handleEmergencyRefresh);
             window.removeEventListener('local-booking-update', handleEmergencyRefresh);
+            window.removeEventListener('profile-photo-updated', handleProfileUpdate);
         };
     }, [loadData]);
 
@@ -346,6 +578,7 @@ export default function DetailerDashboard() {
                             ...(firestoreData.status && { status: firestoreData.status }),
                             ...(firestoreData.customerStatus && { customerStatus: firestoreData.customerStatus }),
                             ...(firestoreData.customerStatusUpdatedAt && { customerStatusUpdatedAt: firestoreData.customerStatusUpdatedAt }),
+                            ...(firestoreData.assignedDetailer && { assignedDetailer: firestoreData.assignedDetailer }),
                         };
                     }
                     return job;
@@ -828,7 +1061,7 @@ export default function DetailerDashboard() {
             return;
         }
 
-        const activeJob = safeJobs.find(j => j.status === 'in_progress' || j.status === 'processing');
+        const activeJob = safeJobs.find(j => j.status === 'in_progress' || (j.status as string) === 'processing');
 
         toast.loading('Logging usage...');
         const result = await consumeInventory(item, usageAmount, activeJob?.id || 'general', { voiceAlert: false });
@@ -860,7 +1093,7 @@ export default function DetailerDashboard() {
             return;
         }
 
-        const activeJob = safeJobs.find(j => j.status === 'in_progress' || j.status === 'processing');
+        const activeJob = safeJobs.find(j => j.status === 'in_progress' || (j.status as string) === 'processing');
         if (!activeJob) {
             toast.error('No active job found to add a note to.');
             return;
@@ -902,7 +1135,7 @@ export default function DetailerDashboard() {
 
     const safeJobs = Array.isArray(jobs) ? jobs : [];
     console.log('📋 [DASHBOARD] STATE JOBS exactly as set in state:', safeJobs.length, safeJobs.map(j => ({ id: j.id, status: j.status })));
-    const activeJobRaw = safeJobs.find(j => j.status === 'in_progress') || safeJobs.find(j => j.status === 'processing');
+    const activeJobRaw = safeJobs.find(j => j.status === 'in_progress') || safeJobs.find(j => (j.status as string) === 'processing');
 
     const activeJob = activeJobRaw;
     const isChecklistComplete = (() => {
@@ -925,7 +1158,7 @@ export default function DetailerDashboard() {
         j.status === 'pending'
         || j.status === 'confirmed'
         || j.status === 'assigned'
-        || j.status === 'processing'
+        || (j.status as string) === 'processing'
         || j.status === 'in_progress'
         || j.status === 'received'
         || j.customerStatus === 'washing'
@@ -954,16 +1187,15 @@ export default function DetailerDashboard() {
         }
         return acc;
     }, 0);
+
+    // Calculate purely unstarted/pending jobs
+    const totalPending = safeJobs.filter(j => j.status?.toLowerCase() === 'pending').length;
+
     const sidebarNavItems = [
-        { id: 'dashboard' as TabType, label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'queue' as TabType, label: 'Job Queue', icon: ClipboardList, badge: finalPendingJobs.length > 0 ? finalPendingJobs.length : undefined },
-        { id: 'schedule' as TabType, label: 'Schedule', icon: Calendar },
+        { id: 'dashboard' as TabType, label: "Today's Jobs", icon: LayoutDashboard, badge: finalPendingJobs.length > 0 ? finalPendingJobs.length : undefined },
+        { id: 'schedule' as TabType, label: "Schedule", icon: Calendar, badge: totalPending > 0 ? totalPending : undefined, badgeDanger: true },
+        { id: 'history' as TabType, label: 'History', icon: ClipboardList },
         { id: 'inventory' as TabType, label: 'Inventory', icon: Package },
-        { id: 'records' as TabType, label: 'Service Records', icon: ClipboardList },
-        { id: 'progress' as TabType, label: 'Progress Reports', icon: CheckCircle },
-        { id: 'activity' as TabType, label: 'Activity Logs', icon: Activity },
-        { id: 'photos' as TabType, label: 'Photos', icon: Camera },
-        { id: 'notes' as TabType, label: 'Notes', icon: MessageSquare },
         { id: 'settings' as TabType, label: 'Settings', icon: Settings },
     ];
 
@@ -984,11 +1216,12 @@ export default function DetailerDashboard() {
     const roleLabel = (user?.role || 'service_staff').replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
 
     const scheduleItems = safeJobs.map((j) => ({
-        time: j.time || '—',
+        time: j.time || j.bookingTime || '—',
         customer: j.customer?.name || j.customerName || 'Customer',
         status: j.status?.toUpperCase?.() || 'PENDING',
-        vehicle: j.vehicleInfo,
+        vehicle: j.vehicleInfo || (j.vehicleMake ? `${j.vehicleMake} ${j.vehicleModel}` : undefined),
         service: j.serviceName,
+        rawDate: j.date || j.bookingDate || j.createdAt,
         id: getJobId(j)
     }));
 
@@ -1002,7 +1235,7 @@ export default function DetailerDashboard() {
 
     if (isLoading) {
         return (
-            <div className="detailer-shell detailer-root">
+            <div className={`detailer-shell detailer-root${isDark ? ' dark' : ' light-mode'}`}>
                 <div className="detailer-layout">
                     {/* Skeleton Sidebar */}
                     <aside className="detailer-sidebar">
@@ -1047,7 +1280,7 @@ export default function DetailerDashboard() {
     }
 
     return (
-        <div className={`detailer-shell detailer-root${document.documentElement.classList.contains('light') ? ' light-mode' : ''}`}>
+        <div className={`detailer-shell detailer-root${isDark ? ' dark' : ' light-mode'}`}>
             <div className="detailer-layout">
 
                 {/* ── Mobile Hamburger ── */}
@@ -1059,10 +1292,7 @@ export default function DetailerDashboard() {
                 {/* ══════════ SIDEBAR ══════════ */}
                 <aside className={`detailer-sidebar${sidebarCollapsed ? ' collapsed' : ''}${sidebarOpen ? ' open' : ''}`}>
                     {/* Brand + User Combined */}
-                    <div className="sidebar-brand" style={{ position: 'relative' }}>
-                        <motion.div className="sidebar-brand-logo" whileHover={{ rotate: -8, scale: 1.1 }} whileTap={{ scale: 0.9 }}>
-                            <Zap style={{ width: 18, height: 18, color: '#fff' }} />
-                        </motion.div>
+                    <div className="sidebar-brand" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div className="sidebar-brand-text">
                             <span className="sidebar-brand-name">AutoSPF+</span>
                             <span className="sidebar-brand-sub" style={{ fontSize: 10, opacity: 0.5 }}>{user?.name || 'Service Staff'} · {roleLabel}</span>
@@ -1092,7 +1322,7 @@ export default function DetailerDashboard() {
                             >
                                 <item.icon className="sidebar-nav-icon" />
                                 <span className="nav-label">{item.label}</span>
-                                {item.badge && <span className="sidebar-nav-badge">{item.badge}</span>}
+                                {item.badge && <span className={`sidebar-nav-badge ${item.badgeDanger ? 'danger' : ''}`}>{item.badge}</span>}
                             </motion.button>
                         ))}
                     </nav>
@@ -1112,7 +1342,7 @@ export default function DetailerDashboard() {
                     <header className="detailer-header">
                         <div className="detailer-header-content">
                             <div className="detailer-header-left">
-                                <h1 className="title">{sidebarNavItems.find(i => i.id === activeTab)?.label || 'Dashboard'}</h1>
+                                <h1 className="title">Detailing Portal</h1>
                                 <p className="subtitle">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                             </div>
                             <div className="detailer-header-actions">
@@ -1161,6 +1391,7 @@ export default function DetailerDashboard() {
                     {/* ── Tab Content ── */}
                     <div className="detailer-content">
                         <AnimatePresence mode="wait">
+                            {/* ── PRIMARY 4-TAB ROUTING ── */}
                             {activeTab === 'dashboard' && (
                                 <DashboardTab
                                     activeJob={activeJob}
@@ -1170,6 +1401,7 @@ export default function DetailerDashboard() {
                                     hoursLogged={hoursLogged}
                                     inventory={inventory}
                                     inventoryThreshold={inventoryThreshold}
+                                    inventoryUsage={inventoryUsage}
                                     elapsedTime={elapsedTime}
                                     isChecklistComplete={isChecklistComplete}
                                     isCompleting={isCompleting}
@@ -1183,23 +1415,10 @@ export default function DetailerDashboard() {
                                 />
                             )}
 
-                            {activeTab === 'queue' && (
-                                <QueueTab
-                                    finalPendingJobs={finalPendingJobs}
-                                    activeJob={activeJob}
-                                    elapsedTime={elapsedTime}
-                                    isChecklistComplete={isChecklistComplete}
-                                    isCompleting={isCompleting}
-                                    handleStartJob={handleStartJob}
-                                    handleCompleteJob={handleCompleteJob}
-                                    handleForceReady={handleForceReady}
-                                    handleToggleChecklist={handleToggleChecklist}
-                                    handleToggleOperationsChecklist={handleToggleOperationsChecklist}
+                            {activeTab === 'history' && (
+                                <HistoryTab
+                                    completedJobs={safeJobs.filter(j => j.status === 'completed' || j.status === 'released' || j.status === 'paid' || j.status === 'cancelled')}
                                 />
-                            )}
-
-                            {activeTab === 'schedule' && (
-                                <ScheduleTab scheduleItems={scheduleItems} />
                             )}
 
                             {activeTab === 'inventory' && (
@@ -1218,6 +1437,37 @@ export default function DetailerDashboard() {
                                     SERVICE_USAGE_SUGGESTIONS={SERVICE_USAGE_SUGGESTIONS}
                                     findInventoryItemByNames={findInventoryItemByNames}
                                 />
+                            )}
+
+                            {activeTab === 'settings' && (
+                                <SettingsTab
+                                    user={user}
+                                    roleLabel={roleLabel}
+                                    notifSound={notifSound}
+                                    handleToggleNotifSound={handleToggleNotifSound}
+                                    sidebarCollapsed={sidebarCollapsed}
+                                    toggleSidebar={toggleSidebar}
+                                />
+                            )}
+
+                            {/* ── INTERNAL ROUTES (accessible via inline buttons) ── */}
+                            {activeTab === 'queue' && (
+                                <QueueTab
+                                    finalPendingJobs={finalPendingJobs}
+                                    activeJob={activeJob}
+                                    elapsedTime={elapsedTime}
+                                    isChecklistComplete={isChecklistComplete}
+                                    isCompleting={isCompleting}
+                                    handleStartJob={handleStartJob}
+                                    handleCompleteJob={handleCompleteJob}
+                                    handleForceReady={handleForceReady}
+                                    handleToggleChecklist={handleToggleChecklist}
+                                    handleToggleOperationsChecklist={handleToggleOperationsChecklist}
+                                />
+                            )}
+
+                            {activeTab === 'schedule' && (
+                                <ScheduleTab scheduleItems={scheduleItems} />
                             )}
 
                             {activeTab === 'records' && (
@@ -1252,17 +1502,6 @@ export default function DetailerDashboard() {
                                     setNewNote={setNewNote}
                                     handleSaveNote={handleSaveNote}
                                     customerNotes={customerNotes}
-                                />
-                            )}
-
-                            {activeTab === 'settings' && (
-                                <SettingsTab
-                                    user={user}
-                                    roleLabel={roleLabel}
-                                    notifSound={notifSound}
-                                    handleToggleNotifSound={handleToggleNotifSound}
-                                    sidebarCollapsed={sidebarCollapsed}
-                                    toggleSidebar={toggleSidebar}
                                 />
                             )}
                         </AnimatePresence>

@@ -38,4 +38,9 @@ const vehicleSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// ── Indexes ────────────────────────────────────────────────────────────────
+// Fast per-user vehicle lookup — without this, every getMyVehicles call is
+// a full collection scan O(n) instead of an indexed O(k) lookup.
+vehicleSchema.index({ customer: 1, createdAt: -1 });
+
 export default mongoose.model('Vehicle', vehicleSchema);

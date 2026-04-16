@@ -41,35 +41,40 @@ export function InventoryTab({
 }: InventoryTabProps) {
     return (
         <motion.div key="inventory" variants={pageVariants} initial="initial" animate="animate" exit="exit">
-            <motion.div className="glass-panel" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-                <div className="glass-panel-header">
-                    <h3><Package style={{ width: 14, height: 14, color: 'var(--accent)' }} /> Inventory Stock</h3>
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} style={{ background: '#ffffff', borderRadius: 12, border: 'none', boxShadow: '0 2px 8px rgba(6,39,75,0.05)', overflow: 'hidden' }}>
+                <div style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(6,39,75,0.06)' }}>
+                    <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 15, fontWeight: 700, color: '#191c1e', display: 'flex', alignItems: 'center', gap: 8 }}><Package style={{ width: 14, height: 14, color: '#06274b' }} /> Inventory Stock</h3>
                     <Dialog open={showUsageModal} onOpenChange={setShowUsageModal}>
                         <DialogTrigger asChild>
-                            <motion.button whileHover={btnHover} whileTap={btnTap} disabled={!activeJob} className="btn-premium primary" style={{ height: 32, fontSize: 11, opacity: activeJob ? 1 : 0.5 }}>
+                            <motion.button whileHover={btnHover} whileTap={btnTap} disabled={!activeJob} style={{ 
+                                height: 32, fontSize: 11, fontWeight: 700, fontFamily: "'Inter', sans-serif",
+                                background: 'linear-gradient(135deg, #06274b, #213d62)', color: '#fff', border: 'none', borderRadius: 8,
+                                padding: '0 14px', display: 'flex', alignItems: 'center', gap: 6, cursor: activeJob ? 'pointer' : 'not-allowed',
+                                opacity: activeJob ? 1 : 0.5
+                            }}>
                                 <Plus style={{ width: 12, height: 12 }} /> Log Usage
                             </motion.button>
                         </DialogTrigger>
-                        <DialogContent className="bg-[#121214] border-zinc-800">
-                            <DialogHeader><DialogTitle className="text-white">Log Inventory Usage</DialogTitle></DialogHeader>
+                        <DialogContent style={{ background: '#ffffff', border: 'none', borderRadius: 16, boxShadow: '0 20px 60px rgba(6,39,75,0.12)' }}>
+                            <DialogHeader><DialogTitle style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, color: '#06274b' }}>Log Inventory Usage</DialogTitle></DialogHeader>
                             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={modalSpring} className="space-y-4 py-4">
                                 <div>
-                                    <Label className="text-zinc-400">Select Item</Label>
+                                    <Label style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: '#74777d' }}>Select Item</Label>
                                     <Select value={selectedItem} onValueChange={setSelectedItem}>
-                                        <SelectTrigger className="mt-1 bg-zinc-950 border-zinc-800 text-white"><SelectValue placeholder="Choose an item" /></SelectTrigger>
-                                        <SelectContent className="bg-[#121214] border-zinc-800">
+                                        <SelectTrigger style={{ marginTop: 4, background: '#f2f4f6', border: 'none', borderRadius: 8, color: '#191c1e' }}><SelectValue placeholder="Choose an item" /></SelectTrigger>
+                                        <SelectContent style={{ background: '#ffffff', border: '1px solid rgba(6,39,75,0.08)', borderRadius: 10 }}>
                                             {inventory.map(item => (<SelectItem key={item.id} value={item.id}>{item.name} ({item.stock} {item.unit})</SelectItem>))}
                                         </SelectContent>
                                     </Select>
                                 </div>
                                 {activeJob && (
                                     <div className="space-y-2">
-                                        <Label className="text-zinc-400">Suggested for {activeJob.serviceName}</Label>
+                                        <Label style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: '#74777d' }}>Suggested for {activeJob.serviceName}</Label>
                                         <div className="flex flex-wrap gap-2">
                                             {(SERVICE_USAGE_SUGGESTIONS[(activeJob.serviceName || '').toLowerCase()] || []).map((sugg) => {
                                                 const match = findInventoryItemByNames([sugg.name]);
                                                 return (
-                                                    <Button key={sugg.name} size="sm" variant="outline" className="border-orange-500/40 text-orange-300 hover:bg-orange-500/10" onClick={() => { if (match) setSelectedItem(match.id); setUsageQuantity(String(sugg.quantity)); }}>
+                                                    <Button key={sugg.name} size="sm" variant="outline" style={{ border: '1px solid rgba(6,39,75,0.2)', color: '#06274b', background: 'rgba(6,39,75,0.04)', borderRadius: 9999, fontFamily: "'Inter', sans-serif", fontSize: 12, fontWeight: 600 }} onClick={() => { if (match) setSelectedItem(match.id); setUsageQuantity(String(sugg.quantity)); }}>
                                                         {sugg.name} • {sugg.quantity}{sugg.unit ? ` ${sugg.unit}` : ''}
                                                     </Button>
                                                 );
@@ -78,15 +83,15 @@ export function InventoryTab({
                                     </div>
                                 )}
                                 <div>
-                                    <Label className="text-zinc-400">Quantity Used</Label>
-                                    <Input type="number" value={usageQuantity} onChange={(e) => setUsageQuantity(e.target.value)} className="mt-1 bg-zinc-950 border-zinc-800 text-white" />
+                                    <Label style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: '#74777d' }}>Quantity Used</Label>
+                                    <Input type="number" value={usageQuantity} onChange={(e) => setUsageQuantity(e.target.value)} style={{ marginTop: 4, background: '#f2f4f6', border: 'none', borderRadius: 8, color: '#191c1e' }} />
                                 </div>
-                                <Button onClick={handleLogUsage} disabled={!selectedItem || !usageQuantity} className="w-full bg-[#F57C00] hover:bg-[#E65100]">Confirm & Deduct Stock</Button>
+                                <Button onClick={handleLogUsage} disabled={!selectedItem || !usageQuantity} style={{ width: '100%', background: 'linear-gradient(135deg, #06274b, #213d62)', color: '#fff', borderRadius: 8, fontFamily: "'Manrope', sans-serif", fontWeight: 700 }}>Confirm & Deduct Stock</Button>
                             </motion.div>
                         </DialogContent>
                     </Dialog>
                 </div>
-                <div className="glass-panel-body" style={{ padding: 0 }}>
+                <div style={{ padding: 0 }}>
                     <div className="overflow-x-auto w-full">
                         <table className="data-table">
                             <thead><tr><th>Product</th><th>Category</th><th>Stock</th><th>Threshold</th><th>Status</th></tr></thead>
@@ -100,8 +105,8 @@ export function InventoryTab({
                                             <td className="muted">{item.category}</td>
                                             <td>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                    <span style={{ fontWeight: 600, color: isLow ? 'var(--red)' : 'var(--text)' }}>{item.stock}</span>
-                                                    <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{item.unit}</span>
+                                                    <span style={{ fontFamily: "'Inter', sans-serif", fontWeight: isLow ? 700 : 600, color: isLow ? '#ba1a1a' : '#191c1e' }}>{item.stock}</span>
+                                                    <span style={{ fontFamily: "'Inter', sans-serif", color: '#74777d', fontSize: 11 }}>{item.unit}</span>
                                                 </div>
                                             </td>
                                             <td className="muted">{threshold}</td>
@@ -117,12 +122,17 @@ export function InventoryTab({
 
             {/* Usage Log */}
             {activeJob && inventoryUsage.filter(i => i.jobId === (activeJob?.id || (activeJob as any)?._id)).length > 0 && (
-                <motion.div className="glass-panel" style={{ marginTop: 20 }} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-                    <div className="glass-panel-header"><h3><Activity style={{ width: 14, height: 14, color: 'var(--accent)' }} /> Usage Log — Current Job</h3></div>
-                    <div className="glass-panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <motion.div style={{ marginTop: 20, background: '#ffffff', borderRadius: 12, border: 'none', boxShadow: '0 2px 8px rgba(6,39,75,0.05)', overflow: 'hidden' }} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+                    <div style={{ padding: '16px 24px', borderBottom: '1px solid rgba(6,39,75,0.06)' }}>
+                        <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 15, fontWeight: 700, color: '#191c1e', display: 'flex', alignItems: 'center', gap: 8 }}><Activity style={{ width: 14, height: 14, color: '#06274b' }} /> Usage Log — Current Job</h3>
+                    </div>
+                    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {inventoryUsage.filter(i => i.jobId === (activeJob?.id || (activeJob as any)?._id)).map((item) => (
                             <motion.div key={item.id} className="queue-card" whileHover={cardHover} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12 }}>
-                                <div><p style={{ fontWeight: 500, fontSize: 13 }}>{item.itemName}</p><time style={{ fontSize: 10, color: 'var(--text-dim)' }}>{new Date(item.usedAt).toLocaleTimeString()}</time></div>
+                                <div>
+                                    <p style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 13, color: '#191c1e' }}>{item.itemName}</p>
+                                    <time style={{ fontFamily: "'Inter', sans-serif", fontSize: 10, color: '#9fa3a9' }}>{item.usedAt && !isNaN(new Date(item.usedAt).getTime()) ? new Date(item.usedAt).toLocaleTimeString() : '—'}</time>
+                                </div>
                                 <span className="status-badge active">{item.quantity} {item.unit || 'units'}</span>
                             </motion.div>
                         ))}

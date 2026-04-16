@@ -85,7 +85,7 @@ export default function WelcomeScreen() {
 
       {/* ── Top Left Logo ── */}
       <Animated.View 
-        entering={ZoomIn.duration(1000).springify().delay(200)} 
+        entering={ZoomIn.duration(1000).duration(200).delay(200)} 
         style={[styles.logoWrap, { top: Math.max(insets.top, 20) + 10 }]}
       >
         <Image 
@@ -99,7 +99,7 @@ export default function WelcomeScreen() {
       <View style={[styles.contentContainer, { paddingBottom: Math.max(insets.bottom, 20) + 20 }]}>
         
         {/* Typography */}
-        <Animated.View entering={FadeInUp.delay(500).duration(1000).springify().damping(14)} style={styles.textWrap}>
+        <Animated.View entering={FadeInUp.delay(500).duration(1000).duration(200)} style={styles.textWrap}>
           <Text style={styles.title}>
             Redefining{'\n'}Auto Perfection
           </Text>
@@ -109,7 +109,7 @@ export default function WelcomeScreen() {
         </Animated.View>
 
         {/* Action Buttons */}
-        <Animated.View entering={FadeInUp.delay(800).springify().damping(16).stiffness(100)} style={styles.actionWrap}>
+        <Animated.View entering={FadeInUp.delay(800).duration(200)} style={styles.actionWrap}>
           
           <Animated.View style={[styles.ctaWrapper, ctaAnimatedStyle]}>
             <TouchableOpacity 

@@ -74,7 +74,7 @@ function AddressCard({
   return (
     <Animated.View
       entering={FadeInUp.delay(100 + index * 80)
-        .springify()
+        .duration(200)
         .damping(16)}
       style={s.addressCard}
     >

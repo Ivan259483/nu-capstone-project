@@ -6,7 +6,6 @@ import Animated, {
   useAnimatedStyle, 
   withSequence, 
   withTiming, 
-  withSpring, 
   interpolateColor
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -124,7 +123,7 @@ export default function PremiumInput({
       </Animated.View>
 
       {error ? (
-        <Animated.Text entering={FadeInUp.springify().damping(15)} style={styles.errorText}>
+        <Animated.Text entering={FadeInUp.duration(200)} style={styles.errorText}>
           {error}
         </Animated.Text>
       ) : null}

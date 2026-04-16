@@ -140,7 +140,7 @@ function InnerLayout() {
   );
 }
 
-import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
@@ -156,9 +156,9 @@ const queryClient = new QueryClient({
   },
 });
 
-// React Query Network offline polling configurations
+// React Query Network online/offline state management
 NetInfo.addEventListener((state: any) => {
-  focusManager.setFocused(!!state.isConnected);
+  onlineManager.setOnline(!!state.isConnected);
   if (state.isConnected) {
     // Attempt to drain queue immediately when network connects!
     processQueue();

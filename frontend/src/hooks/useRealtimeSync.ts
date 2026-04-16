@@ -23,11 +23,11 @@ export const getSharedSocket = (): Socket => {
       sharedSocket.disconnect();
     }
     sharedSocket = io(getBackendSocketUrl(), {
-      transports: ['websocket'],
+      transports: ['polling', 'websocket'], // polling first for handshake, then upgrades to ws
       reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
+      reconnectionAttempts: 5,
     });
 
     sharedSocket.on('db_change', (payload) => {

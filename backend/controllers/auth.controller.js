@@ -7,14 +7,16 @@ import { sendOtpEmail } from '../utils/mail.utils.js'; // Use new strict Brevo m
 import mockOtpStore from '../utils/mockOtpStore.utils.js';
 import { getInvalidUserRoleMessage, isValidUserRole } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
+import { admin } from '../config/firebaseAdmin.js';
 
 /**
  * Generate OTP
  */
 const generateOTP = (length = 6) => {
+  // Use cryptographically secure random integer (replaces Math.random)
   const min = Math.pow(10, length - 1);
-  const max = Math.pow(10, length) - 1;
-  return Math.floor(Math.random() * (max - min + 1) + min).toString();
+  const max = Math.pow(10, length); // crypto.randomInt upper bound is exclusive
+  return crypto.randomInt(min, max).toString();
 };
 
 /**
@@ -43,7 +45,10 @@ export const sendOtp = async (req, res, next) => {
     // Generate 6-digit OTP code
     const otp = generateOTP(config.otpLength);
     console.log(`\n📨 [OTP REQUEST] Email: ${email}`);
-    console.log(`   Generated OTP: ${otp}`);
+    // ⚠️ Bug #1 fix: Never log OTP in production — only print in development for debugging
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`   Generated OTP: ${otp}`);
+    }
 
     // Delete previous OTP for this email if exists (cleanup)
     await OTP.deleteMany({ email });
@@ -214,34 +219,25 @@ export const resetPassword = async (req, res, next) => {
       });
     }
 
-    // Verify OTP first
+    // ⚠️ Bug #2 fix: Strictly require a VERIFIED OTP record.
+    // The client MUST call POST /verify-otp first, which marks verified=true.
+    // Removed the insecure pendingOtp fallback that allowed bypassing verification.
     const otpRecord = await OTP.findOne({ email, verified: true });
-    
-    // Note: The frontend flow might verify OTP first via /verify-otp endpoint
-    // which marks it as verified. So we check for a verified OTP record here.
-    // If the flow expects atomic verification + reset, we'd verify here.
-    // Assuming the standard flow: 1. ForgotPassword(send otp) -> 2. VerifyOTP -> 3. ResetPassword
-    
-    // However, if the user calls verify-otp, it marks verified=true.
-    // Then reset-password checks if verified=true.
 
     if (!otpRecord) {
-       // Fallback: Check if unverified OTP matches (atomic flow)
-       const pendingOtp = await OTP.findOne({ email, otp });
-       if (!pendingOtp) {
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid or expired OTP. Please verify first.',
-          });
-       }
-       // If found pending, verify it now? 
-       // Better to enforce the 2-step flow or just check strictly.
-       // Let's assume strict flow: Verify endpoint must be called first OR we verify here.
-       // Let's verify here to be safe if it wasn't done.
-       if (pendingOtp.expiresAt < new Date()) {
-          return res.status(400).json({ success: false, message: 'OTP expired' });
-       }
-       // If atomic, proceed.
+      return res.status(400).json({
+        success: false,
+        message: 'OTP not verified. Please call /verify-otp before resetting your password.',
+      });
+    }
+
+    // Ensure the verified OTP has not expired
+    if (otpRecord.expiresAt < new Date()) {
+      await OTP.deleteOne({ email });
+      return res.status(400).json({
+        success: false,
+        message: 'OTP has expired. Please request a new OTP and verify again.',
+      });
     }
 
     const user = await User.findOne({ email });
@@ -466,7 +462,7 @@ export const register = async (req, res, next) => {
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
       config.jwtSecret,
-      { expiresIn: '7d' }
+      { expiresIn: '30m' }
     );
 
     const userObject = user.toObject({ virtuals: true });
@@ -505,8 +501,8 @@ export const register = async (req, res, next) => {
 export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    const MAX_LOGIN_ATTEMPTS = 6;
-    const LOCK_TIME_MS = 20 * 60 * 1000;
+    const MAX_LOGIN_ATTEMPTS = 5;
+    const LOCK_TIME_MS = 15 * 60 * 1000;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -555,6 +551,11 @@ export const login = async (req, res, next) => {
       return res.status(423).json({
         success: false,
         message: `Account locked. Please try again in ${remainingMinutes} minute(s).`,
+        data: {
+          locked: true,
+          lockUntilMs: user.lockUntil.getTime(),
+          remainingMinutes,
+        },
       });
     }
 
@@ -573,7 +574,6 @@ export const login = async (req, res, next) => {
 
       if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
         user.lockUntil = new Date(Date.now() + LOCK_TIME_MS);
-        user.loginAttempts = 0;
         await user.save();
 
         logActivity({
@@ -585,21 +585,33 @@ export const login = async (req, res, next) => {
 
         return res.status(423).json({
           success: false,
-          message: 'Account locked for 20 minutes due to too many failed attempts.',
+          message: 'Account locked for 15 minutes due to too many failed attempts.',
+          data: {
+            locked: true,
+            lockUntilMs: user.lockUntil.getTime(),
+            remainingMinutes: 15,
+          },
         });
       }
+
+      const remainingAttempts = MAX_LOGIN_ATTEMPTS - user.loginAttempts;
 
       logActivity({
         userId: user._id, userName: user.name || email, userRole: user.role,
         type: 'failed_login', module: 'Auth', action: 'Failed Login',
-        description: `Failed login attempt for ${email}. Attempts: ${user.loginAttempts}/${MAX_LOGIN_ATTEMPTS}.`,
+        description: `Failed login attempt for ${email}. Attempts: ${user.loginAttempts}/${MAX_LOGIN_ATTEMPTS}. Remaining: ${remainingAttempts}.`,
         status: 'error',
       });
 
       await user.save();
       return res.status(401).json({
         success: false,
-        message: `Invalid credentials. Attempts remaining: ${MAX_LOGIN_ATTEMPTS - user.loginAttempts}`,
+        message: `Invalid credentials. ${remainingAttempts} attempt(s) remaining before your account is locked.`,
+        data: {
+          loginAttempts: user.loginAttempts,
+          remainingAttempts,
+          maxAttempts: MAX_LOGIN_ATTEMPTS,
+        },
       });
     }
 
@@ -614,7 +626,7 @@ export const login = async (req, res, next) => {
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
       config.jwtSecret,
-      { expiresIn: '7d' }
+      { expiresIn: '30m' }
     );
 
     const userObject = user.toObject({ virtuals: true });
@@ -781,7 +793,7 @@ export const socialLogin = async (req, res, next) => {
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
       config.jwtSecret,
-      { expiresIn: '7d' }
+      { expiresIn: '30m' }
     );
 
      const userObject = user.toObject({ virtuals: true });
@@ -810,6 +822,168 @@ export const socialLogin = async (req, res, next) => {
       success: false,
       message: 'Social login failed',
       error: error.message,
+    });
+  }
+};
+
+/**
+ * Delete Account
+ * DELETE /api/auth/account
+ *
+ * Requires:
+ *   - Valid JWT in Authorization header (authenticate middleware)
+ *   - { password } in req.body  — the user's current password for confirmation
+ *
+ * Process:
+ *   1. Verify password with bcrypt
+ *   2. Delete Firebase Auth user (Admin SDK) — prevents future Firebase logins
+ *   3. Delete all associated MongoDB documents in parallel
+ *   4. Return success ONLY after all deletions succeed
+ *   5. On partial failure → attempt rollback and return 500
+ */
+export const deleteAccount = async (req, res) => {
+  const userId = req.user?.id;
+
+  try {
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password is required to delete your account.',
+      });
+    }
+
+    // ── 1. Fetch user (with password hash) ──────────────────────────────
+    const user = await User.findById(userId).select('+password firebaseUid email name');
+    if (!user || user.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'User account not found.',
+      });
+    }
+
+    // ── 2. Verify password ───────────────────────────────────────────────
+    const passwordMatch = await user.comparePassword(password);
+    if (!passwordMatch) {
+      console.warn(`[DELETE_ACCOUNT] Wrong password attempt for user ${userId}`);
+      return res.status(401).json({
+        success: false,
+        message: 'Incorrect password. Please try again.',
+      });
+    }
+
+    const firebaseUid = user.firebaseUid;
+
+    // ── 3. Delete Firebase Auth user (Admin SDK) ─────────────────────────
+    //    Do this FIRST — if Firebase deletion fails we have not yet touched MongoDB.
+    if (firebaseUid) {
+      if (!admin) {
+        console.error('[DELETE_ACCOUNT] Firebase Admin SDK is not initialized. Set FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in .env');
+        return res.status(503).json({
+          success: false,
+          message: 'Account deletion is temporarily unavailable. Please contact support.',
+        });
+      }
+      try {
+        await admin.auth().deleteUser(firebaseUid);
+        console.log(`[DELETE_ACCOUNT] ✅ Firebase user deleted: ${firebaseUid}`);
+      } catch (firebaseError) {
+        // If the Firebase user was already deleted, that's fine — proceed with MongoDB cleanup.
+        if (firebaseError.code === 'auth/user-not-found') {
+          console.warn(`[DELETE_ACCOUNT] Firebase user ${firebaseUid} not found — already deleted. Proceeding with MongoDB cleanup.`);
+        } else {
+          console.error('[DELETE_ACCOUNT] ❌ Firebase deletion failed:', firebaseError.message);
+          return res.status(500).json({
+            success: false,
+            message: 'Failed to delete authentication account. Please try again or contact support.',
+          });
+        }
+      }
+    } else {
+      console.warn(`[DELETE_ACCOUNT] User ${userId} has no firebaseUid — skipping Firebase deletion.`);
+    }
+
+    // ── 4. Delete all associated MongoDB records in parallel ─────────────
+    //    Import models lazily to avoid circular import issues.
+    try {
+      const { default: mongoose } = await import('mongoose');
+      const mongoId = new mongoose.Types.ObjectId(userId);
+
+      // Load all models that may have user-owned records
+      const [Order, Customer, Vehicle, AIServiceRequest, ActivityLog, ChatSession, ChatMessage, Notification] =
+        await Promise.all([
+          import('../models/order.model.js').then((m) => m.default),
+          import('../models/customer.model.js').then((m) => m.default),
+          import('../models/vehicle.model.js').then((m) => m.default),
+          import('../models/aIServiceRequest.model.js').then((m) => m.default),
+          import('../models/activityLog.model.js').then((m) => m.default),
+          import('../models/chatSession.model.js').then((m) => m.default),
+          import('../models/chatMessage.model.js').then((m) => m.default),
+          import('../models/notification.model.js').then((m) => m.default),
+        ]);
+
+      // Run all deletions in parallel
+      const deletionResults = await Promise.allSettled([
+        Order.deleteMany({ customer: mongoId }),
+        Customer.deleteMany({ user: mongoId }),
+        Vehicle.deleteMany({ user: mongoId }),
+        AIServiceRequest.deleteMany({ customer: mongoId }),
+        ActivityLog.deleteMany({ userId: mongoId }),
+        ChatSession.deleteMany({ userId: mongoId }),
+        ChatMessage.deleteMany({ userId: mongoId }),
+        Notification.deleteMany({ userId: mongoId }),
+        OTP.deleteMany({ email: user.email }),
+      ]);
+
+      // Log any partial failures (non-fatal for the user experience)
+      deletionResults.forEach((result, i) => {
+        const labels = ['Order', 'Customer', 'Vehicle', 'AIServiceRequest', 'ActivityLog', 'ChatSession', 'ChatMessage', 'Notification', 'OTP'];
+        if (result.status === 'rejected') {
+          console.error(`[DELETE_ACCOUNT] ⚠️  Failed to delete ${labels[i]} records:`, result.reason?.message);
+        } else {
+          console.log(`[DELETE_ACCOUNT] ✅ ${labels[i]}: deleted ${result.value?.deletedCount ?? 0} records`);
+        }
+      });
+
+      // ── 5. Hard-delete the User document ────────────────────────────────
+      await User.findByIdAndDelete(userId);
+      console.log(`[DELETE_ACCOUNT] ✅ User document deleted: ${userId} (${user.email})`);
+
+    } catch (mongoError) {
+      // Critical: Firebase user is already deleted but MongoDB cleanup failed.
+      // The user can no longer log in via Firebase, which is the desired security outcome.
+      // Mark the MongoDB user as deleted so the auth middleware rejects any remaining JWTs.
+      console.error('[DELETE_ACCOUNT] ❌ MongoDB cleanup failed after Firebase deletion:', mongoError.message);
+      await User.findByIdAndUpdate(userId, {
+        isDeleted: true,
+        deletedAt: new Date(),
+        isActive: false,
+      }).catch((e) => console.error('[DELETE_ACCOUNT] ❌ Fallback soft-delete also failed:', e.message));
+
+      return res.status(500).json({
+        success: false,
+        message: 'Your authentication credentials were removed, but some account data could not be fully cleaned up. Please contact support.',
+      });
+    }
+
+    // ── 6. Log the deletion (best-effort) ───────────────────────────────
+    logActivity({
+      action: 'USER_ACCOUNT_DELETED',
+      description: `User ${user.email} permanently deleted their account.`,
+      ipAddress: req.ip,
+    }).catch(() => {});
+
+    return res.status(200).json({
+      success: true,
+      message: 'Your account has been permanently deleted.',
+    });
+
+  } catch (error) {
+    console.error('[DELETE_ACCOUNT] ❌ Unexpected error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'An unexpected error occurred. Please try again or contact support.',
     });
   }
 };

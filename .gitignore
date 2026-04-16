@@ -1,2 +1,35 @@
 node_modules
 backend/.mongodb-binaries/
+
+# ─── Environment / Secrets ────────────────────────────────────────────────────
+# Never commit .env files. Use .env.example as the safe template instead.
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.local
+mobile/.env
+mobile/.env.local
+frontend/.env
+frontend/.env.local
+
+# Allow the example template (no real secrets)
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+!mobile/.env.example
+
+# ─── Build Artifacts ──────────────────────────────────────────────────────────
+dist/
+build/
+.next/
+out/
+
+# ─── OS / Editor ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json

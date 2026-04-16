@@ -39,11 +39,11 @@ export function ProgressReportsTab({
     if (!activeJob) {
         return (
             <motion.div key="progress-empty" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="max-w-4xl mx-auto flex flex-col items-center justify-center p-12 text-center h-[50vh]">
-                <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                    <Activity className="w-8 h-8 opacity-50" />
+                <div style={{ width: 64, height: 64, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, background: '#f2f4f6', border: 'none' }}>
+                    <Activity style={{ width: 32, height: 32, color: '#74777d', opacity: 0.5 }} />
                 </div>
-                <h3 className="text-xl font-bold mb-2">No Active Progress Reports</h3>
-                <p className="text-sm opacity-60">You do not have any jobs currently in progress to report on.</p>
+                <h3 style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 20, color: '#191c1e', margin: '0 0 8px' }}>No Active Progress Reports</h3>
+                <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 14, color: '#74777d' }}>You do not have any jobs currently in progress to report on.</p>
             </motion.div>
         );
     }
@@ -60,38 +60,102 @@ export function ProgressReportsTab({
     else if (activeJob.customerStatus === 'washing') currentPhaseIndex = 3;
     else if (activeJob.customerStatus === 'detailing') currentPhaseIndex = 4;
 
+    const renderChecklistPanel = (
+        title: string,
+        icon: React.ReactNode,
+        items: { name: string; completed: boolean }[],
+        onToggle: (idx: number) => void,
+        emptyText: string
+    ) => (
+        <motion.div variants={staggerItem} style={{ background: '#ffffff', borderRadius: 12, boxShadow: '0 2px 8px rgba(6,39,75,0.05)', border: 'none', overflow: 'hidden' }}>
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(6,39,75,0.06)' }}>
+                <h3 style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#06274b', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                    {icon} {title}
+                </h3>
+            </div>
+            <div style={{ padding: 16 }}>
+                {items.length === 0 ? (
+                    <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#74777d', textAlign: 'center', padding: '16px 0' }}>{emptyText}</p>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {items.map((item, idx) => (
+                            <div
+                                key={idx}
+                                style={{
+                                    padding: '10px 14px',
+                                    borderRadius: 8,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    ...(item.completed
+                                        ? { background: 'rgba(6,39,75,0.06)', borderLeft: '3px solid #06274b', border: 'none', borderLeftStyle: 'solid' as const, borderLeftWidth: 3, borderLeftColor: '#06274b' }
+                                        : { background: '#f7f9fb', border: 'none' })
+                                }}
+                                onClick={() => onToggle(idx)}
+                            >
+                                <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: item.completed ? '#191c1e' : '#43474c' }}>{item.name}</span>
+                                <div style={{
+                                    width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    transition: 'all 0.2s ease',
+                                    ...(item.completed
+                                        ? { background: '#06274b', border: '2px solid #06274b' }
+                                        : { background: 'transparent', border: '2px solid #c4c6cd' })
+                                }}>
+                                    {item.completed && <Check size={12} style={{ color: '#ffffff' }} />}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </motion.div>
+    );
+
     return (
         <motion.div key="progress" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="max-w-4xl mx-auto space-y-6">
             
-            <motion.div className="glass-panel" style={{ background: 'linear-gradient(135deg, rgba(30,30,35,0.7) 0%, rgba(20,20,24,0.9) 100%)' }}>
-                <div className="glass-panel-header border-b border-[var(--border)] pb-4 flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-white flex items-center gap-2 m-0">
-                        <Activity className="text-[var(--accent)]" /> Progress Workflow
+            {/* Progress Workflow Hero */}
+            <motion.div style={{ background: '#ffffff', borderRadius: 14, boxShadow: '0 2px 12px rgba(6,39,75,0.06)', border: 'none', overflow: 'hidden' }}>
+                <div style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(6,39,75,0.06)' }}>
+                    <h2 style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 20, color: '#06274b', display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
+                        <Activity style={{ width: 20, height: 20, color: '#06274b' }} /> Progress Workflow
                     </h2>
-                    <span className="text-xs uppercase tracking-widest px-3 py-1 bg-[var(--accent)] text-black font-bold rounded-full">
+                    <span style={{ background: 'rgba(6,39,75,0.08)', color: '#06274b', borderRadius: 9999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '4px 12px', fontFamily: "'Inter', sans-serif" }}>
                         {activeJob.vehicleInfo || 'Vehicle'}
                     </span>
                 </div>
-                <div className="glass-panel-body p-6">
-                    <div className="relative">
-                        <div className="absolute top-1/2 left-0 w-full h-1 bg-[var(--bg-canvas)] -translate-y-1/2 rounded-full overflow-hidden">
-                            <div className="h-full bg-[var(--accent)] transition-all duration-500" style={{ width: `${(currentPhaseIndex / (REPORT_STATUSES.length - 1)) * 100}%` }} />
+                <div style={{ padding: '32px 24px' }}>
+                    <div style={{ position: 'relative' }}>
+                        {/* Track */}
+                        <div style={{ position: 'absolute', top: '50%', left: 0, width: '100%', height: 4, background: '#eceef0', transform: 'translateY(-50%)', borderRadius: 9999, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', background: 'linear-gradient(90deg, #06274b, #213d62)', transition: 'width 0.5s ease', width: `${(currentPhaseIndex / (REPORT_STATUSES.length - 1)) * 100}%` }} />
                         </div>
-                        <div className="relative flex justify-between">
+                        {/* Steps */}
+                        <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between' }}>
                             {REPORT_STATUSES.map((status, idx) => {
                                 const isActive = idx === currentPhaseIndex;
                                 const isPast = idx <= currentPhaseIndex;
                                 return (
-                                    <div key={status} className="flex flex-col items-center group cursor-pointer w-12 pt-8">
-                                        <div className={`absolute top-0 w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all duration-300 -mt-3
-                                            ${isActive ? 'bg-[var(--accent)] border-[var(--accent)] shadow-[0_0_15px_var(--accent)] scale-125' : 
-                                              isPast ? 'bg-[var(--accent)] border-[var(--accent)]' : 'bg-[var(--bg-card)] border-[var(--border)]'}`}
-                                        >
-                                            {isPast && !isActive && <Check size={12} className="text-black font-bold" />}
-                                            {isActive && <div className="w-2 h-2 bg-black rounded-full" />}
+                                    <div key={status} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', width: 48, paddingTop: 32 }}>
+                                        <div style={{
+                                            position: 'absolute', top: 0, width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            border: '2px solid', marginTop: -12, transition: 'all 0.3s ease',
+                                            ...(isActive
+                                                ? { background: '#06274b', borderColor: '#06274b', boxShadow: '0 0 0 4px rgba(6,39,75,0.15)', transform: 'scale(1.25)' }
+                                                : isPast
+                                                    ? { background: '#06274b', borderColor: '#06274b' }
+                                                    : { background: '#f7f9fb', borderColor: '#c4c6cd' })
+                                        }}>
+                                            {isPast && !isActive && <Check size={12} style={{ color: '#ffffff', fontWeight: 'bold' }} />}
+                                            {isActive && <div style={{ width: 8, height: 8, background: '#ffffff', borderRadius: '50%' }} />}
                                         </div>
-                                        <span className={`text-[10px] uppercase font-bold text-center tracking-wider transition-colors duration-300 w-24 absolute top-6
-                                            ${isActive ? 'text-[var(--accent)]' : isPast ? 'text-white opacity-80' : 'text-white opacity-40'}`}>
+                                        <span style={{
+                                            fontFamily: "'Inter', sans-serif", fontSize: 10, textTransform: 'uppercase', fontWeight: 700, textAlign: 'center',
+                                            letterSpacing: '0.06em', width: 96, position: 'absolute', top: 24, transition: 'color 0.3s ease',
+                                            ...(isActive ? { color: '#06274b' } : isPast ? { color: '#43474c', opacity: 0.8 } : { color: '#74777d', opacity: 0.5 })
+                                        }}>
                                             {status}
                                         </span>
                                     </div>
@@ -102,131 +166,48 @@ export function ProgressReportsTab({
                 </div>
             </motion.div>
 
+            {/* Checklist Grid */}
             <motion.div variants={staggerContainer} initial="initial" animate="animate" className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8 pt-8">
                 
-                {/* Ingress Checklist */}
-                <motion.div variants={staggerItem} className="glass-panel">
-                    <div className="glass-panel-header">
-                        <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-[var(--accent)]">
-                            <CheckCircle size={16} /> Prep & Ingress
-                        </h3>
-                    </div>
-                    <div className="glass-panel-body">
-                        {ingressChecklist.length === 0 ? (
-                            <p className="text-sm opacity-50 py-4 text-center">No ingress items.</p>
-                        ) : (
-                            <div className="space-y-2">
-                                {ingressChecklist.map((item, idx) => (
-                                    <div 
-                                        key={`in-${idx}`}
-                                        className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between
-                                            ${item.completed ? 'bg-[var(--accent-glow)] border-[var(--accent)]' : 'bg-[var(--bg-canvas)] border-[var(--border)] hover:border-gray-500'}`}
-                                        onClick={() => handleToggleOperationsChecklist(activeJob, 'ingress', idx)}
-                                    >
-                                        <span className={`text-sm ${item.completed ? 'text-white' : 'opacity-70'}`}>{item.name}</span>
-                                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors
-                                            ${item.completed ? 'bg-[var(--accent)] border-transparent' : 'border-gray-500'}`}>
-                                            {item.completed && <Check size={12} className="text-black" />}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </motion.div>
+                {renderChecklistPanel('Prep & Ingress', <CheckCircle size={14} style={{ color: '#06274b' }} />, ingressChecklist, (idx) => handleToggleOperationsChecklist(activeJob, 'ingress', idx), 'No ingress items.')}
+                
+                {renderChecklistPanel('Service Stages', <Activity size={14} style={{ color: '#06274b' }} />, steps.map(s => ({ name: s.name, completed: s.status === 'completed' })), (idx) => handleToggleChecklist(activeJob, idx), 'No service stages defined.')}
+                
+                {renderChecklistPanel('QC & Egress', <CheckCircle size={14} style={{ color: '#06274b' }} />, egressChecklist, (idx) => handleToggleOperationsChecklist(activeJob, 'egress', idx), 'No egress items.')}
 
-                {/* Service Steps */}
-                <motion.div variants={staggerItem} className="glass-panel">
-                    <div className="glass-panel-header">
-                        <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-[var(--accent)]">
-                            <Activity size={16} /> Service Stages
+                {/* Sign Off Panel */}
+                <motion.div variants={staggerItem} style={{ background: '#ffffff', borderRadius: 12, boxShadow: '0 2px 8px rgba(6,39,75,0.05)', border: 'none', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(6,39,75,0.06)' }}>
+                        <h3 style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#06274b', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                            <CheckCircle size={14} style={{ color: '#06274b' }} /> Sign Off
                         </h3>
                     </div>
-                    <div className="glass-panel-body">
-                        {steps.length === 0 ? (
-                            <p className="text-sm opacity-50 py-4 text-center">No service stages defined.</p>
-                        ) : (
-                            <div className="space-y-2">
-                                {steps.map((step, idx) => {
-                                    const isCompleted = step.status === 'completed';
-                                    return (
-                                        <div 
-                                            key={`ss-${idx}`}
-                                            className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between
-                                                ${isCompleted ? 'bg-[var(--accent-glow)] border-[var(--accent)]' : 'bg-[var(--bg-canvas)] border-[var(--border)] hover:border-gray-500'}`}
-                                            onClick={() => handleToggleChecklist(activeJob, idx)}
-                                        >
-                                            <span className={`text-sm ${isCompleted ? 'text-white' : 'opacity-70'}`}>{step.name}</span>
-                                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors
-                                                ${isCompleted ? 'bg-[var(--accent)] border-transparent' : 'border-gray-500'}`}>
-                                                {isCompleted && <Check size={12} className="text-black" />}
-                                            </div>
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        )}
-                    </div>
-                </motion.div>
-
-                {/* Egress Checklist */}
-                <motion.div variants={staggerItem} className="glass-panel">
-                    <div className="glass-panel-header">
-                        <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-[var(--accent)]">
-                            <CheckCircle size={16} /> QC & Egress
-                        </h3>
-                    </div>
-                    <div className="glass-panel-body">
-                        {egressChecklist.length === 0 ? (
-                            <p className="text-sm opacity-50 py-4 text-center">No egress items.</p>
-                        ) : (
-                            <div className="space-y-2">
-                                {egressChecklist.map((item, idx) => (
-                                    <div 
-                                        key={`eg-${idx}`}
-                                        className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between
-                                            ${item.completed ? 'bg-[var(--accent-glow)] border-[var(--accent)]' : 'bg-[var(--bg-canvas)] border-[var(--border)] hover:border-gray-500'}`}
-                                        onClick={() => handleToggleOperationsChecklist(activeJob, 'egress', idx)}
-                                    >
-                                        <span className={`text-sm ${item.completed ? 'text-white' : 'opacity-70'}`}>{item.name}</span>
-                                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors
-                                            ${item.completed ? 'bg-[var(--accent)] border-transparent' : 'border-gray-500'}`}>
-                                            {item.completed && <Check size={12} className="text-black" />}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </motion.div>
-
-                {/* Completion Submission */}
-                <motion.div variants={staggerItem} className="glass-panel flex flex-col justify-end">
-                    <div className="glass-panel-header">
-                        <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-[var(--accent)]">
-                            <CheckCircle size={16} /> Sign Off
-                        </h3>
-                    </div>
-                    <div className="glass-panel-body flex-1 flex flex-col">
-                        <p className="text-sm opacity-70 mb-6">All stages and checklists must be completed before you can sign off and finalize this job.</p>
+                    <div style={{ padding: 16, flex: 1, display: 'flex', flexDirection: 'column' }}>
+                        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#74777d', marginBottom: 24 }}>All stages and checklists must be completed before you can sign off and finalize this job.</p>
                         
-                        <div className="mt-auto">
+                        <div style={{ marginTop: 'auto' }}>
                             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.96 }}>
                                 <Button 
-                                    className="w-full h-14 text-base font-bold text-black uppercase tracking-widest relative overflow-hidden group"
-                                    style={{ background: isChecklistComplete ? 'var(--accent)' : 'var(--bg-canvas)' }}
+                                    style={{ 
+                                        width: '100%', height: 56, fontSize: 15, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                                        fontFamily: "'Manrope', sans-serif", borderRadius: 10, border: 'none', cursor: isChecklistComplete ? 'pointer' : 'not-allowed',
+                                        position: 'relative', overflow: 'hidden',
+                                        ...(isChecklistComplete 
+                                            ? { background: 'linear-gradient(135deg, #06274b, #213d62)', color: '#ffffff' }
+                                            : { background: '#eceef0', color: '#74777d' })
+                                    }}
                                     onClick={() => isChecklistComplete && handleCompleteJob(activeJob)}
                                     disabled={!isChecklistComplete || isCompleting}
                                 >
                                     {isCompleting ? (
-                                        <span className="flex items-center gap-2">Finalizing<span className="loading-dots">...</span></span>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>Finalizing<span className="loading-dots">...</span></span>
                                     ) : (
-                                        <span className="flex items-center gap-2 relative z-10">
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative', zIndex: 10 }}>
                                             {isChecklistComplete ? 'Sign Off & Complete' : 'Incomplete Workflow'} 
                                             {isChecklistComplete && <ChevronRight size={18} />}
                                         </span>
                                     )}
-                                    {isChecklistComplete && <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />}
+                                    {isChecklistComplete && <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.15)', transform: 'translateY(100%)', transition: 'transform 0.3s ease-out' }} className="group-hover:translate-y-0" />}
                                 </Button>
                             </motion.div>
                         </div>

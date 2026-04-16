@@ -61,17 +61,18 @@ export const InventoryService = {
         if (productData.name !== undefined) payload.name = productData.name;
         if (productData.description !== undefined) payload.description = productData.description;
         if (productData.minLevel !== undefined) payload.minLevel = productData.minLevel;
+        if (productData.maxLevel !== undefined) payload.maxLevel = productData.maxLevel;
         if (productData.sku !== undefined) payload.sku = productData.sku;
+        if (productData.unit !== undefined) payload.unit = productData.unit;
         if (productData.images !== undefined) payload.images = productData.images;
         if (productData.isActive !== undefined) payload.isActive = productData.isActive;
 
-        // Only pass category/supplier if they look like valid ObjectIds
-        const isValidId = (v: any) => typeof v === 'string' && v.length === 24 && /^[0-9a-fA-F]+$/.test(v);
+        // Pass category and supplier explicitly so backend can auto-resolve names to ObjectIds
         if (productData.category !== undefined) {
-            payload.category = isValidId(productData.category) ? productData.category : null;
+            payload.category = productData.category;
         }
         if (productData.supplier !== undefined) {
-            payload.supplier = isValidId(productData.supplier) ? productData.supplier : null;
+            payload.supplier = productData.supplier;
         }
 
         const response = await api.put(`/products/${id}`, payload);

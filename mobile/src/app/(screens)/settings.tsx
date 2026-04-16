@@ -16,6 +16,8 @@ import {
   ActivityIndicator,
   Platform,
   Switch,
+  Modal,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -106,12 +108,18 @@ const m = StyleSheet.create({
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, deleteAccount } = useAuth();
   const { isDark, toggleTheme } = useTheme();
 
   const [pushNotifs, setPushNotifs] = useState(true);
   const [emailNotifs, setEmailNotifs] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // ── Delete Account State ────────────────────────────────────────────
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
@@ -135,6 +143,51 @@ export default function SettingsScreen() {
         },
       ]
     );
+  };
+
+  // ── Delete Account ──────────────────────────────────────────────────
+  const openDeleteFlow = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert(
+      'Delete Account?',
+      'This action is permanent and cannot be undone. All account data, history, and associated records will be permanently removed.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            setDeletePassword('');
+            setDeleteError('');
+            setShowDeleteModal(true);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deletePassword.trim()) {
+      setDeleteError('Please enter your password to confirm.');
+      return;
+    }
+    setIsDeleting(true);
+    setDeleteError('');
+    try {
+      const result = await deleteAccount(deletePassword);
+      setIsDeleting(false);
+      if (result.success) {
+        setShowDeleteModal(false);
+        Alert.alert('Account Deleted', 'Your account has been permanently deleted.', [
+          { text: 'OK', onPress: () => signOut() },
+        ]);
+      } else {
+        setDeleteError(result.message || 'Deletion failed. Please try again.');
+      }
+    } catch {
+      setIsDeleting(false);
+      setDeleteError('Network error. Please try again.');
+    }
   };
 
   const initials = profile?.full_name
@@ -162,7 +215,7 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ─── Profile Card ─── */}
-        <Animated.View entering={FadeInDown.delay(100).springify()}>
+        <Animated.View entering={FadeInDown.delay(100).duration(200)}>
           <View style={s.profileCard}>
             <LinearGradient
               colors={[ACCENT, ACCENT_DARK]}
@@ -191,7 +244,7 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* ─── Account ─── */}
-        <Animated.View entering={FadeInDown.delay(150).springify()}>
+        <Animated.View entering={FadeInDown.delay(150).duration(200)}>
           <Text style={s.sectionLabel}>ACCOUNT</Text>
           <View style={s.card}>
             <MenuItem
@@ -227,7 +280,7 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* ─── Notifications ─── */}
-        <Animated.View entering={FadeInDown.delay(200).springify()}>
+        <Animated.View entering={FadeInDown.delay(200).duration(200)}>
           <Text style={s.sectionLabel}>NOTIFICATIONS</Text>
           <View style={s.card}>
             <MenuItem
@@ -279,7 +332,7 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* ─── Appearance ─── */}
-        <Animated.View entering={FadeInDown.delay(250).springify()}>
+        <Animated.View entering={FadeInDown.delay(250).duration(200)}>
           <Text style={s.sectionLabel}>APPEARANCE</Text>
           <View style={s.card}>
             <MenuItem
@@ -304,7 +357,7 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* ─── Documents & Legal ─── */}
-        <Animated.View entering={FadeInDown.delay(300).springify()}>
+        <Animated.View entering={FadeInDown.delay(300).duration(200)}>
           <Text style={s.sectionLabel}>DOCUMENTS & LEGAL</Text>
           <View style={s.card}>
             <MenuItem
@@ -340,7 +393,7 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* ─── Support ─── */}
-        <Animated.View entering={FadeInDown.delay(350).springify()}>
+        <Animated.View entering={FadeInDown.delay(350).duration(200)}>
           <Text style={s.sectionLabel}>SUPPORT</Text>
           <View style={s.card}>
             <MenuItem
@@ -364,8 +417,39 @@ export default function SettingsScreen() {
           </View>
         </Animated.View>
 
+        {/* ─── Danger Zone ─── */}
+        <Animated.View entering={FadeInDown.delay(380).duration(200)}>
+          <Text style={s.sectionLabel}>DANGER ZONE</Text>
+          <View style={s.dangerCard}>
+            <View style={s.dangerHeader}>
+              <View style={s.dangerIconWrap}>
+                <Ionicons name="warning-outline" size={18} color="#EF4444" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.dangerTitle}>Delete Account</Text>
+                <Text style={s.dangerSub}>
+                  Permanently removes your account and all data.
+                </Text>
+              </View>
+            </View>
+            <Text style={s.dangerBody}>
+              This action is{' '}
+              <Text style={{ color: '#EF4444', fontWeight: '700' }}>permanent and cannot be undone</Text>.
+              All personal data, service history, vehicles, and records will be erased.
+            </Text>
+            <TouchableOpacity
+              style={s.dangerBtn}
+              activeOpacity={0.8}
+              onPress={openDeleteFlow}
+            >
+              <Ionicons name="trash-outline" size={16} color="#EF4444" />
+              <Text style={s.dangerBtnText}>Delete My Account</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+
         {/* ─── Sign Out ─── */}
-        <Animated.View entering={FadeInDown.delay(400).springify()}>
+        <Animated.View entering={FadeInDown.delay(400).duration(200)}>
           <TouchableOpacity
             style={s.logoutBtn}
             activeOpacity={0.85}
@@ -384,11 +468,92 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* App info */}
-        <Animated.View entering={FadeInDown.delay(450).springify()} style={s.appInfo}>
+        <Animated.View entering={FadeInDown.delay(450).duration(200)} style={s.appInfo}>
           <Text style={s.appName}>AutoGloss</Text>
           <Text style={s.appVersion}>AI-Driven Smart Detailing · v1.0.0</Text>
         </Animated.View>
       </ScrollView>
+
+      {/* ─── Delete Account Password Modal ────────────────────────────── */}
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { if (!isDeleting) setShowDeleteModal(false); }}
+      >
+        <KeyboardAvoidingView
+          style={s.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={s.modalSheet}>
+            {/* Handle bar */}
+            <View style={s.modalHandle} />
+
+            {/* Icon + Title */}
+            <View style={s.modalTitleRow}>
+              <View style={s.modalIconWrap}>
+                <Ionicons name="warning" size={20} color="#EF4444" />
+              </View>
+              <Text style={s.modalTitle}>Confirm Deletion</Text>
+            </View>
+
+            <Text style={s.modalBody}>
+              Enter your password to permanently delete your account. This cannot be reversed.
+            </Text>
+
+            {/* Password Input */}
+            <View style={s.modalInputWrapper}>
+              <Ionicons name="lock-closed-outline" size={16} color="rgba(239,68,68,0.5)" style={{ marginRight: 8 }} />
+              <TextInput
+                style={s.modalInput}
+                placeholder="Enter your password"
+                placeholderTextColor="rgba(239,68,68,0.35)"
+                secureTextEntry
+                value={deletePassword}
+                onChangeText={(t) => { setDeletePassword(t); setDeleteError(''); }}
+                editable={!isDeleting}
+                autoFocus
+              />
+            </View>
+
+            {/* Error message */}
+            {!!deleteError && (
+              <View style={s.errorRow}>
+                <Ionicons name="alert-circle-outline" size={13} color="#EF4444" />
+                <Text style={s.errorText}>{deleteError}</Text>
+              </View>
+            )}
+
+            {/* Buttons */}
+            <View style={s.modalActions}>
+              <TouchableOpacity
+                style={s.modalCancelBtn}
+                activeOpacity={0.8}
+                onPress={() => setShowDeleteModal(false)}
+                disabled={isDeleting}
+              >
+                <Text style={s.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[s.modalDeleteBtn, (isDeleting || !deletePassword) && { opacity: 0.5 }]}
+                activeOpacity={0.85}
+                onPress={handleDeleteAccount}
+                disabled={isDeleting || !deletePassword}
+              >
+                {isDeleting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="trash-outline" size={15} color="#fff" style={{ marginRight: 6 }} />
+                    <Text style={s.modalDeleteText}>Delete Permanently</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -507,4 +672,166 @@ const s = StyleSheet.create({
   appInfo: { alignItems: 'center', gap: 4, paddingVertical: 10 },
   appName: { fontSize: 14, fontWeight: '800', color: '#444', letterSpacing: 1 },
   appVersion: { fontSize: 11, color: '#333' },
+
+  // ─── Danger Zone ────────────────────────────────────────────────────
+  dangerCard: {
+    backgroundColor: 'rgba(239,68,68,0.05)',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(239,68,68,0.22)',
+    padding: 16,
+    gap: 12,
+  },
+  dangerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  dangerIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dangerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#EF4444',
+  },
+  dangerSub: {
+    fontSize: 11,
+    color: 'rgba(239,68,68,0.6)',
+    marginTop: 1,
+  },
+  dangerBody: {
+    fontSize: 12,
+    color: 'rgba(239,68,68,0.65)',
+    lineHeight: 18,
+  },
+  dangerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(239,68,68,0.08)',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(239,68,68,0.3)',
+    paddingVertical: 12,
+  },
+  dangerBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#EF4444',
+  },
+
+  // ─── Delete Account Modal ────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#111114',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderColor: 'rgba(239,68,68,0.2)',
+    padding: 24,
+    gap: 16,
+    paddingBottom: 40,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#333',
+    alignSelf: 'center',
+    marginBottom: 4,
+  },
+  modalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  modalIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.2)',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  modalBody: {
+    fontSize: 13,
+    color: '#888',
+    lineHeight: 19,
+  },
+  modalInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239,68,68,0.06)',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(239,68,68,0.2)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  modalInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#fff',
+  },
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#EF4444',
+    flex: 1,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCancelText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#888',
+  },
+  modalDeleteBtn: {
+    flex: 2,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: '#DC2626',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalDeleteText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
 });

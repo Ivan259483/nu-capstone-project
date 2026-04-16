@@ -64,7 +64,7 @@ function VehicleCard({
   return (
     <Animated.View
       entering={FadeInUp.delay(100 + index * 80)
-        .springify()
+        .duration(200)
         .damping(16)
         .stiffness(120)}
       style={s.vehicleCard}
@@ -264,7 +264,7 @@ export default function VehiclesScreen() {
       </View>
 
       {/* ── Vehicle count badge ── */}
-      <Animated.View entering={FadeInDown.delay(100).springify()} style={s.countRow}>
+      <Animated.View entering={FadeInDown.delay(100).duration(200)} style={s.countRow}>
         <Text style={s.countText}>
           {vehicles.length} vehicle{vehicles.length !== 1 ? 's' : ''} registered
         </Text>

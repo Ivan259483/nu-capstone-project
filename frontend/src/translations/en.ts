@@ -34,37 +34,29 @@ export const en = {
 
     // Services
     services: {
-        title: "Our Services",
-        subtitle: "Premium detailing packages crafted for every need",
-        viewAll: "View All Services",
+        title: "Our Packages",
+        subtitle: "Premium Protection Packages",
+        viewAll: "View All Packages & Pricing",
         learnMore: "Learn More",
         bookNow: "Book Now",
         startingAt: "Starting at",
-        popular: "Most Popular",
+        popular: "Recommended",
         items: {
-            exterior: {
-                name: "Exterior Wash",
-                desc: "Full exterior hand wash, clay bar treatment, and spray wax for a brilliant shine.",
+            spf80: {
+                name: "SPF 80 — Essential",
+                desc: "3 Layers Graphene Ceramic Coating (Canada) with Graphene Sealant. 3 years protection.",
             },
-            interior: {
-                name: "Interior Detail",
-                desc: "Deep vacuum, steam cleaning, leather conditioning, and odor elimination.",
+            spf89: {
+                name: "SPF 89 — Advanced",
+                desc: "4 Layers Graphene Ceramic Coating (Canada) with free maintenance visit. 5 years protection.",
             },
-            paint: {
-                name: "Paint Correction",
-                desc: "Multi-stage machine polish to remove swirls, scratches, and oxidation.",
+            spf99: {
+                name: "SPF 99 — Premium",
+                desc: "4 Layers SONAX Profiline CC EVO (Germany) with free recoat and maintenance. 10 years protection.",
             },
-            ceramic: {
-                name: "Ceramic Coating",
-                desc: "Long-lasting nano-ceramic protection that repels water, dirt, and UV rays.",
-            },
-            engine: {
-                name: "Engine Bay Detail",
-                desc: "Safe degreasing and detailing of engine bay for a showroom-clean finish.",
-            },
-            full: {
-                name: "Full Detail Package",
-                desc: "Complete interior + exterior + paint correction — the ultimate treatment.",
+            spf101: {
+                name: "SPF 101 — Flagship ALL-IN",
+                desc: "PPF + SONAX CC EVO + Nano Ceramic Tint + Undercoating — the ultimate 10-year package.",
             },
         },
     },
@@ -159,7 +151,7 @@ export const en = {
     // Login
     login: {
         title: "Welcome Back",
-        subtitle: "Sign in to manage your bookings",
+        subtitle: "Access your appointments, vehicle status, and service history",
         email: "Email Address",
         password: "Password",
         forgotPassword: "Forgot Password?",

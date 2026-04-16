@@ -39,15 +39,12 @@ export default function Footer() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
                     {/* Brand */}
                     <div className="lg:col-span-2">
-                        <Link to="/" className="flex items-center gap-2.5 mb-4 group w-fit">
-                            <div className="w-9 h-9 rounded-lg bg-gradient-gold flex items-center justify-center group-hover:scale-110 transition-transform">
-                                <Car className="w-5 h-5 text-primary-foreground" />
-                            </div>
-                            <span className="text-xl font-bold">
-                                <span className="text-white">Auto</span>
-                                <span className="text-primary">SPF</span>
-                                <span className="text-white">+</span>
-                            </span>
+                        <Link to="/" className="flex items-center mb-5 group w-fit hover:opacity-80 transition-opacity">
+                            <img 
+                                src="/images/autospf-logo.png" 
+                                alt="AutoSPF+" 
+                                className="h-10 md:h-12 object-contain"
+                            />
                         </Link>
                         <p className="text-muted-foreground text-sm leading-relaxed max-w-xs mb-6">
                             {t("footer.tagline")}. {t("about.storyText").slice(0, 100)}...

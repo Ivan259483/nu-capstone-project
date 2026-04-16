@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Variants } from "framer-motion";
-import { Sparkles, Wind, Layers, Shield, Wrench, Package, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Sparkles, Shield, Crown, ArrowRight, CheckCircle2, Zap, Star, Wind, Layers, Wrench, Package } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 import { Button } from "@/components/ui/button";
@@ -38,25 +38,43 @@ const shimmer: Variants = {
     visible: { x: '200%', transition: { duration: 2.2, ease: 'easeInOut', repeat: Infinity, repeatDelay: 5 } },
 };
 
-/* ── Data ── */
 const serviceIcons = [Sparkles, Wind, Layers, Shield, Wrench, Package];
 const servicePrices = ["₱499", "₱699", "₱1,499", "₱3,999", "₱799", "₱5,499"];
 const serviceKeys = ["exterior", "interior", "paint", "ceramic", "engine", "full"] as const;
+
+const serviceNames = [
+    "Exterior Wash",
+    "Interior Detail",
+    "Paint Correction",
+    "Ceramic Coating",
+    "Engine Bay Detail",
+    "Full Detail Package",
+];
+
+const serviceDescs = [
+    "Full exterior hand wash, clay bar treatment, and spray wax for a brilliant shine.",
+    "Deep vacuum, steam cleaning, leather conditioning, and odor elimination.",
+    "Multi-stage machine polish to remove swirls, scratches, and oxidation.",
+    "Long-lasting nano-ceramic protection that repels water, dirt, and UV rays.",
+    "Safe degreasing and detailing of engine bay for a showroom-clean finish.",
+    "Complete interior + exterior + paint correction — the ultimate treatment.",
+];
+
 const serviceGlows = [
-    'rgba(212,175,55,0.08)',
-    'rgba(99,102,241,0.08)',
-    'rgba(16,185,129,0.08)',
+    'rgba(14,165,233,0.08)',
+    'rgba(16,185,129,0.10)',
     'rgba(245,158,11,0.10)',
-    'rgba(6,182,212,0.08)',
-    'rgba(244,63,94,0.10)',
+    'rgba(212,175,55,0.12)',
+    'rgba(239,68,68,0.08)',
+    'rgba(139,92,246,0.10)',
 ];
 const serviceAccents = [
-    '#d4af37',
-    '#818cf8',
+    '#0ea5e9',
     '#10b981',
     '#f59e0b',
-    '#06b6d4',
-    '#f43f5e',
+    '#d4af37',
+    '#ef4444',
+    '#8b5cf6',
 ];
 
 /* ── Card Component ── */
@@ -65,14 +83,16 @@ interface ServiceCardProps {
     name: string;
     desc: string;
     price: string;
+    years?: string;
     isPopular?: boolean;
+    isFlagship?: boolean;
     index: number;
     glow: string;
     accent: string;
     onBookClick: () => void;
 }
 
-function ServiceCard({ icon: Icon, name, desc, price, isPopular, index, glow, accent, onBookClick }: ServiceCardProps) {
+function ServiceCard({ icon: Icon, name, desc, price, years, isPopular, isFlagship, index, glow, accent, onBookClick }: ServiceCardProps) {
     const { t } = useLanguage();
     const [isHovered, setIsHovered] = useState(false);
 
@@ -127,35 +147,58 @@ function ServiceCard({ icon: Icon, name, desc, price, isPopular, index, glow, ac
                     whileInView={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ duration: 0.4, delay: 0.5, type: 'spring', stiffness: 300 }}
                     viewport={{ once: true }}
-                    className="absolute -top-0 right-5 px-3 py-1.5 rounded-b-lg bg-gradient-gold text-primary-foreground text-[10px] font-bold tracking-widest uppercase shadow-lg shadow-gold/20 z-20"
+                    className="absolute -top-0 right-5 px-3 py-1.5 rounded-b-lg bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[10px] font-bold tracking-widest uppercase shadow-lg shadow-emerald-500/30 z-20"
                 >
-                    {t("services.popular")}
+                    <Star className="w-2.5 h-2.5 inline mr-1 fill-current" />
+                    Recommended
                 </motion.span>
             )}
 
-            <div className="p-7 relative">
-                {/* Icon with glow */}
-                <motion.div
-                    className="w-12 h-12 rounded-xl flex items-center justify-center mb-5 relative"
-                    whileHover={{ rotate: 8, scale: 1.1 }}
-                    transition={{ type: 'spring', stiffness: 300 }}
-                    style={{
-                        background: `${accent}15`,
-                        border: `1px solid ${accent}30`,
-                    }}
+            {/* Flagship badge */}
+            {isFlagship && (
+                <motion.span
+                    initial={{ opacity: 0, y: -10, scale: 0.9 }}
+                    whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ duration: 0.4, delay: 0.5, type: 'spring', stiffness: 300 }}
+                    viewport={{ once: true }}
+                    className="absolute -top-0 right-5 px-3 py-1.5 rounded-b-lg bg-gradient-gold text-primary-foreground text-[10px] font-bold tracking-widest uppercase shadow-lg shadow-gold/20 z-20"
                 >
-                    <Icon className="w-5 h-5 text-primary" />
-                    {/* Icon glow */}
+                    <Crown className="w-2.5 h-2.5 inline mr-1" />
+                    Flagship
+                </motion.span>
+            )}
+
+            <div className="p-7 relative flex flex-col items-center text-center">
+                {/* Icon + Protection badge */}
+                <div className="flex flex-col items-center gap-3 mb-5">
                     <motion.div
-                        className="absolute inset-0 rounded-xl"
-                        animate={isHovered ? {
-                            boxShadow: `0 0 20px ${accent}30`,
-                        } : {
-                            boxShadow: `0 0 0px transparent`,
+                        className="w-12 h-12 rounded-xl flex items-center justify-center relative"
+                        whileHover={{ rotate: 8, scale: 1.1 }}
+                        transition={{ type: 'spring', stiffness: 300 }}
+                        style={{
+                            background: `${accent}15`,
+                            border: `1px solid ${accent}30`,
                         }}
-                        transition={{ duration: 0.4 }}
-                    />
-                </motion.div>
+                    >
+                        <Icon className="w-5 h-5 text-primary" />
+                        {/* Icon glow */}
+                        <motion.div
+                            className="absolute inset-0 rounded-xl"
+                            animate={isHovered ? {
+                                boxShadow: `0 0 20px ${accent}30`,
+                            } : {
+                                boxShadow: `0 0 0px transparent`,
+                            }}
+                            transition={{ duration: 0.4 }}
+                        />
+                    </motion.div>
+                    {years && (
+                        <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/30 bg-white/5 px-2.5 py-1 rounded-full border border-white/8 inline-flex items-center gap-1">
+                            <Shield className="w-2.5 h-2.5" />
+                            {years}
+                        </span>
+                    )}
+                </div>
 
                 <h3 className="text-base font-bold text-foreground mb-2 group-hover:text-primary transition-colors duration-300">
                     {name}
@@ -177,20 +220,20 @@ function ServiceCard({ icon: Icon, name, desc, price, isPopular, index, glow, ac
                 </div>
 
                 {/* Price + CTA */}
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col items-center gap-4 w-full">
                     <div>
                         <motion.span
-                            className="text-[10px] text-muted-foreground uppercase tracking-widest"
+                            className="text-[10px] text-muted-foreground uppercase tracking-widest block"
                             initial={{ opacity: 0 }}
                             whileInView={{ opacity: 1 }}
                             transition={{ delay: 0.3 + index * 0.08 }}
                         >
-                            {t("services.startingAt")}
+                            Starting from
                         </motion.span>
                         <motion.div
                             className="text-xl font-black gradient-text"
-                            initial={{ opacity: 0, x: -10 }}
-                            whileInView={{ opacity: 1, x: 0 }}
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            whileInView={{ opacity: 1, scale: 1 }}
                             transition={{ duration: 0.5, delay: 0.4 + index * 0.08 }}
                         >
                             {price}
@@ -225,7 +268,7 @@ export default function ServicesSection() {
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     return (
-        <section className="relative pt-24 pb-32 mb-8 section-dark z-20 min-h-max isolate overflow-hidden">
+        <section className="relative pt-24 pb-16 section-dark z-20 min-h-max isolate overflow-hidden">
             {/* Ambient background blobs */}
             <motion.div
                 className="absolute top-20 left-10 w-96 h-96 bg-gold/[0.03] blur-[120px] rounded-full pointer-events-none"
@@ -292,10 +335,10 @@ export default function ServicesSection() {
                         <ServiceCard
                             key={key}
                             icon={serviceIcons[i]}
-                            name={t(`services.items.${key}.name`)}
-                            desc={t(`services.items.${key}.desc`)}
+                            name={serviceNames[i]}
+                            desc={serviceDescs[i]}
                             price={servicePrices[i]}
-                            isPopular={key === "full"}
+                            isPopular={key === "full" || key === "ceramic"}
                             index={i}
                             glow={serviceGlows[i]}
                             accent={serviceAccents[i]}
@@ -321,7 +364,7 @@ export default function ServicesSection() {
                             {/* Shimmer effect */}
                             <div className="absolute inset-0 -translate-x-full group-hover/cta:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-gold/[0.08] to-transparent" />
                             <span className="relative z-10">{t("services.viewAll")}</span>
-                            <ArrowRight className="w-4 h-4 relative z-10 group-hover/cta:translate-x-1 transition-transform duration-200" />
+                            <ArrowRight className="w-4 h-4 ml-2 relative z-10 group-hover/cta:translate-x-1 transition-transform" />
                         </motion.button>
                     </Link>
                 </motion.div>

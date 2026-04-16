@@ -202,8 +202,9 @@ const mapAnalysisPayload = (payload: Record<string, unknown>): AnalysisResult =>
     totalEstimatedCost: String(payload.total_estimated_cost || '₱0 - ₱0'),
     source: (() => {
       const raw = String(payload.analysis_source || payload.source || '');
-      if (raw === 'gemini_vision') return 'rule_based' as const; // Treat AI results as primary source
-      if (raw === 'rule_based') return 'rule_based' as const;
+      if (raw === 'roboflow_workflows') return 'rule_based' as const; // Roboflow AI — primary source
+      if (raw === 'gemini_vision')      return 'rule_based' as const; // Legacy Gemini — kept for compat
+      if (raw === 'rule_based')         return 'rule_based' as const;
       return 'fallback' as const;
     })(),
     fallbackReason:

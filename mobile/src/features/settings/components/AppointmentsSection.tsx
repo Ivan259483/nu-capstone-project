@@ -57,7 +57,7 @@ export default function AppointmentsSection({ onViewCalendar, onReschedule }: Ap
   };
 
   return (
-    <Animated.View entering={FadeInUp.delay(250).springify().damping(18)}>
+    <Animated.View entering={FadeInUp.delay(250).duration(200)}>
       <SectionHeader
         title="Appointments"
         icon="calendar-outline"

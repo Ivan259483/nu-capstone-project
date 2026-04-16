@@ -271,7 +271,9 @@ export const getVehicles = async (req, res, next) => {
         });
     }
 
-    const vehicles = await Vehicle.find({ customer: req.user.id });
+    const vehicles = await Vehicle.find({ customer: req.user.id })
+      .select('year make model color plateNumber customer')
+      .lean();
 
     res.json({
       success: true,

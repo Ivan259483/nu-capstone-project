@@ -1,10 +1,56 @@
-import { Shield, Star, Zap, Award, Users, Car } from "lucide-react";
+import { useState } from "react";
+import { Shield, Star, Zap, Award, Users, Car, Sparkles, ArrowRight } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import type { Variants } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScrollAnimation, useCounter } from "@/hooks/useScrollAnimation";
 import PageLayout from "@/components/PageLayout";
 import BookingCTA from "@/components/BookingCTA";
 import { cn } from "@/lib/utils";
 
+/* ── Framer Motion Variants (matching Services/Gallery) ── */
+const EASE = [0.16, 1, 0.3, 1] as const;
+
+const fadeUp: Variants = {
+    hidden: { opacity: 0, y: 40 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: EASE } },
+};
+
+const stagger: Variants = {
+    hidden: {},
+    visible: { transition: { staggerChildren: 0.12, delayChildren: 0.05 } },
+};
+
+const slideLeft: Variants = {
+    hidden: { opacity: 0, x: -60 },
+    visible: { opacity: 1, x: 0, transition: { duration: 0.85, ease: EASE } },
+};
+
+const slideRight: Variants = {
+    hidden: { opacity: 0, x: 60 },
+    visible: { opacity: 1, x: 0, transition: { duration: 0.85, ease: EASE } },
+};
+
+const cardReveal: Variants = {
+    hidden: { opacity: 0, y: 30, scale: 0.95 },
+    visible: (i: number) => ({
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        transition: { duration: 0.55, ease: EASE, delay: i * 0.1 },
+    }),
+};
+
+const counterPop: Variants = {
+    hidden: { opacity: 0, scale: 0.8 },
+    visible: (i: number) => ({
+        opacity: 1,
+        scale: 1,
+        transition: { duration: 0.5, ease: EASE, delay: i * 0.12, type: "spring", stiffness: 200, damping: 15 },
+    }),
+};
+
+/* ── Data ── */
 const team = [
     { name: "Ivan Wong", role: "Head Detailer & Founder", years: "4 yrs", src: "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=400" },
     { name: "Earl Francis Jeremiah", role: "Service Advisor", years: "8 yrs", src: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=400" },
@@ -13,205 +59,415 @@ const team = [
 ];
 
 const values = [
-    { icon: Star, key: "quality", keyDesc: "qualityDesc" },
-    { icon: Shield, key: "trust", keyDesc: "trustDesc" },
-    { icon: Zap, key: "passion", keyDesc: "passionDesc" },
+    { icon: Star, key: "quality", keyDesc: "qualityDesc", glowColor: "rgba(245,158,11,0.12)" },
+    { icon: Shield, key: "trust", keyDesc: "trustDesc", glowColor: "rgba(16,185,129,0.12)" },
+    { icon: Zap, key: "passion", keyDesc: "passionDesc", glowColor: "rgba(139,92,246,0.12)" },
 ] as const;
 
-function CounterStat({ value, suffix, label, isVisible }: { value: number; suffix: string; label: string; isVisible: boolean }) {
+/* ── Counter Component ── */
+function CounterStat({ value, suffix, label, isVisible, index }: { value: number; suffix: string; label: string; isVisible: boolean; index: number }) {
     const count = useCounter(value, 2200, isVisible);
     return (
-        <div className="text-center">
-            <div className="text-3xl font-bold gradient-text mb-1">{count.toLocaleString()}{suffix}</div>
-            <div className="text-xs text-muted-foreground uppercase tracking-widest">{label}</div>
-        </div>
+        <motion.div
+            custom={index}
+            variants={counterPop}
+            className="text-center group"
+        >
+            <div className="text-3xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 mb-1 tracking-tight">
+                {count.toLocaleString()}{suffix}
+            </div>
+            <div className="text-[10px] text-white/25 uppercase tracking-[0.2em] font-medium">{label}</div>
+        </motion.div>
     );
 }
 
+/* ═══════════════════════════════════════
+   ABOUT PAGE
+═══════════════════════════════════════ */
 export default function About() {
     const { t } = useLanguage();
-    const { ref: heroRef, isVisible: heroVisible } = useScrollAnimation({ threshold: 0.1 });
     const { ref: statsRef, isVisible: statsVisible } = useScrollAnimation({ threshold: 0.3 });
-    const { ref: teamRef, isVisible: teamVisible } = useScrollAnimation({ threshold: 0.1 });
-    const { ref: valuesRef, isVisible: valuesVisible } = useScrollAnimation({ threshold: 0.1 });
 
     return (
         <PageLayout>
-            {/* Hero */}
-            <section className="relative pt-32 pb-20 section-dark overflow-hidden">
+            {/* ══════════════════════════════════
+                HERO SECTION
+            ══════════════════════════════════ */}
+            <section className="relative pt-36 pb-24 overflow-hidden">
                 <div className="absolute inset-0 bg-hero-pattern" />
-                <div className="container max-w-7xl mx-auto px-6 relative z-10 text-center">
-                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-gold/20 text-xs font-semibold text-primary mb-6 animate-slide-up">
-                        <Car className="w-3.5 h-3.5" />
-                        {t("about.title")}
-                    </div>
-                    <h1 className="text-4xl sm:text-5xl font-bold text-foreground mb-4 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-                        {t("about.title")}
-                    </h1>
-                    <p className="text-muted-foreground max-w-xl mx-auto animate-slide-up" style={{ animationDelay: "0.2s" }}>
-                        {t("about.subtitle")}
-                    </p>
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background" />
+                <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-amber-500/[0.06] blur-[150px] rounded-full pointer-events-none" />
+                <div className="absolute top-40 right-0 w-[400px] h-[300px] bg-indigo-500/[0.04] blur-[120px] rounded-full pointer-events-none" />
+
+                <div className="container max-w-5xl mx-auto px-6 relative z-10 text-center">
+                    <motion.div
+                        variants={stagger}
+                        initial="hidden"
+                        animate="visible"
+                    >
+                        {/* Badge */}
+                        <motion.div
+                            variants={fadeUp}
+                            className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-white/[0.04] border border-white/10 text-[11px] font-bold uppercase tracking-[0.3em] text-amber-400/80 mb-6 backdrop-blur-sm"
+                        >
+                            <Car className="w-3.5 h-3.5" />
+                            {t("about.title")}
+                        </motion.div>
+
+                        {/* Headline */}
+                        <motion.h1
+                            variants={fadeUp}
+                            className="text-5xl sm:text-6xl lg:text-7xl font-serif font-medium text-white tracking-tight mb-5 leading-[1.05]"
+                        >
+                            About{" "}
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">
+                                AutoSPF+
+                            </span>
+                        </motion.h1>
+
+                        {/* Subtitle */}
+                        <motion.p
+                            variants={fadeUp}
+                            className="text-white/35 text-base md:text-lg max-w-2xl mx-auto font-light leading-relaxed"
+                        >
+                            {t("about.subtitle")}
+                        </motion.p>
+
+                        {/* Trust badges */}
+                        <motion.div
+                            variants={fadeUp}
+                            className="flex items-center justify-center gap-6 mt-8"
+                        >
+                            {["Since 2011", "Las Piñas City", "500+ Cars"].map((item) => (
+                                <span
+                                    key={item}
+                                    className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20 px-3 py-1.5 rounded-full border border-white/5"
+                                >
+                                    {item}
+                                </span>
+                            ))}
+                        </motion.div>
+                    </motion.div>
                 </div>
+
+                <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-500/15 to-transparent" />
             </section>
 
-            {/* Story Section */}
-            <section className="py-20 section-darker">
-                <div
-                    ref={heroRef}
-                    className="container max-w-6xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center"
-                >
-                    <div className={cn("reveal-left", heroVisible ? "visible" : "")}>
-                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-gold/20 text-xs font-semibold text-primary mb-5">
+            {/* ══════════════════════════════════
+                OUR STORY
+            ══════════════════════════════════ */}
+            <section className="relative py-24 overflow-hidden">
+                <div className="absolute top-0 right-0 w-[500px] h-[400px] bg-amber-500/[0.03] blur-[130px] rounded-full pointer-events-none" />
+                <div className="absolute bottom-0 left-0 w-[400px] h-[300px] bg-indigo-500/[0.03] blur-[110px] rounded-full pointer-events-none" />
+
+                <div className="container max-w-6xl mx-auto px-6 relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+                    {/* Left: Story text */}
+                    <motion.div
+                        variants={stagger}
+                        initial="hidden"
+                        whileInView="visible"
+                        viewport={{ once: true, margin: "-60px" }}
+                    >
+                        <motion.div
+                            variants={slideLeft}
+                            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-xs font-bold uppercase tracking-[0.2em] text-amber-400/80 mb-5"
+                        >
+                            <Sparkles className="w-3 h-3" />
                             {t("about.story")}
-                        </div>
-                        <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-6 leading-tight">
-                            {t("about.story")}
-                        </h2>
-                        <div className="text-muted-foreground leading-relaxed text-base space-y-4">
+                        </motion.div>
+
+                        <motion.h2
+                            variants={slideLeft}
+                            className="text-3xl sm:text-4xl font-serif font-medium text-white mb-6 leading-tight tracking-tight"
+                        >
+                            Built on{" "}
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">
+                                Passion
+                            </span>{" "}
+                            & Precision
+                        </motion.h2>
+
+                        <motion.div
+                            variants={slideLeft}
+                            className="text-white/40 leading-[1.85] text-[15px] space-y-4 font-light mb-8"
+                        >
                             <p>
-                                AutoSPF+ is a premium automotive care and protection specialist based in <strong className="text-foreground font-semibold">Las Piñas, Philippines</strong>, dedicated to delivering high-quality detailing and vehicle protection services.
+                                AutoSPF+ is a premium automotive care and protection specialist based in <strong className="text-white/60 font-semibold">Las Piñas, Philippines</strong>, dedicated to delivering high-quality detailing and vehicle protection services.
                             </p>
                             <p>
-                                We specialize in <strong className="text-foreground font-semibold">Paint Protection Film (PPF), Ceramic Coating, Window Tinting, and Premium Auto Detailing</strong>, helping vehicle owners preserve the beauty, protection, and long-term value of their cars.
+                                We specialize in <strong className="text-white/60 font-semibold">Paint Protection Film (PPF), Ceramic Coating, Window Tinting, and Premium Auto Detailing</strong>, helping vehicle owners preserve the beauty, protection, and long-term value of their cars.
                             </p>
                             <p>
                                 Our mission is to provide professional-grade workmanship, premium materials, and exceptional customer service to ensure every vehicle leaves with a showroom-quality finish.
                             </p>
-                            <p>
-                                From daily driven vehicles to luxury cars, we treat every unit with precision, care, and expert craftsmanship.
-                            </p>
-                        </div>
-                        <div className="mt-8 flex items-center gap-6">
-                            <div className="text-center">
-                                <div className="text-2xl font-bold gradient-text">2011</div>
-                                <div className="text-xs text-muted-foreground">Founded</div>
-                            </div>
-                            <div className="w-px h-10 bg-border" />
-                            <div className="text-center">
-                                <div className="text-2xl font-bold gradient-text">3</div>
-                                <div className="text-xs text-muted-foreground">Locations</div>
-                            </div>
-                            <div className="w-px h-10 bg-border" />
-                            <div className="text-center">
-                                <div className="text-2xl font-bold gradient-text">5k+</div>
-                                <div className="text-xs text-muted-foreground">Cars Detailed</div>
-                            </div>
-                        </div>
-                    </div>
+                        </motion.div>
 
-                    <div className={cn("reveal-right", heroVisible ? "visible" : "")}>
-                        <div className="relative">
-                            <div className="w-full h-80 glass rounded-3xl border border-gold/15 flex items-center justify-center overflow-hidden">
-                                <div className="absolute inset-0 bg-gradient-to-br from-amber-900/30 to-amber-950/60" />
-                                <div className="relative z-10 text-center p-8">
-                                    <div className="w-20 h-20 rounded-full bg-gradient-gold mx-auto mb-4 flex items-center justify-center glow-gold animate-pulse-gold">
-                                        <Award className="w-10 h-10 text-primary-foreground" />
-                                    </div>
-                                    <div className="text-lg font-bold text-foreground mb-2">AutoSPF+</div>
-                                    <div className="text-sm text-muted-foreground">Premium Auto Detailing</div>
-                                    <div className="flex justify-center gap-1 mt-3">
-                                        {[...Array(5)].map((_, i) => (
-                                            <Star key={i} className="w-4 h-4 fill-primary text-primary" />
-                                        ))}
-                                    </div>
+                        {/* Mini Stats */}
+                        <motion.div
+                            variants={slideLeft}
+                            className="flex items-center gap-8 flex-wrap"
+                        >
+                            {[
+                                { value: "2011", label: "Founded" },
+                                { value: "3", label: "Locations" },
+                                { value: "5K+", label: "Cars Detailed" },
+                            ].map(({ value, label }) => (
+                                <div key={label} className="group">
+                                    <p className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 tracking-tight">{value}</p>
+                                    <p className="text-[10px] uppercase tracking-widest text-white/25 font-medium">{label}</p>
                                 </div>
+                            ))}
+                        </motion.div>
+                    </motion.div>
+
+                    {/* Right: Card */}
+                    <motion.div
+                        variants={slideRight}
+                        initial="hidden"
+                        whileInView="visible"
+                        viewport={{ once: true, margin: "-60px" }}
+                        className="relative"
+                    >
+                        <div className="absolute -inset-4 bg-gradient-to-br from-amber-500/8 via-transparent to-indigo-500/8 blur-3xl rounded-3xl pointer-events-none" />
+
+                        <motion.div
+                            whileHover={{ y: -6, transition: { duration: 0.3 } }}
+                            className="relative overflow-hidden rounded-3xl ring-1 ring-white/[0.07] p-10 text-center"
+                            style={{
+                                background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%)",
+                                backdropFilter: "blur(12px)",
+                            }}
+                        >
+                            {/* Ambient corner glow */}
+                            <div className="absolute top-0 right-0 w-40 h-40 bg-amber-500/[0.08] blur-[60px] rounded-full pointer-events-none" />
+
+                            <motion.div
+                                initial={{ scale: 0.8, opacity: 0 }}
+                                whileInView={{ scale: 1, opacity: 1 }}
+                                viewport={{ once: true }}
+                                transition={{ duration: 0.6, delay: 0.3, type: "spring", stiffness: 200 }}
+                                className="w-24 h-24 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 mx-auto mb-5 flex items-center justify-center shadow-2xl shadow-amber-500/30"
+                            >
+                                <Award className="w-12 h-12 text-white" />
+                            </motion.div>
+
+                            <h3 className="text-xl font-bold text-white mb-2">AutoSPF+</h3>
+                            <p className="text-sm text-white/35 mb-4">Premium Auto Detailing</p>
+
+                            <div className="flex justify-center gap-1 mb-6">
+                                {[...Array(5)].map((_, i) => (
+                                    <motion.div
+                                        key={i}
+                                        initial={{ opacity: 0, scale: 0 }}
+                                        whileInView={{ opacity: 1, scale: 1 }}
+                                        viewport={{ once: true }}
+                                        transition={{ delay: 0.5 + i * 0.08, type: "spring", stiffness: 300 }}
+                                    >
+                                        <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+                                    </motion.div>
+                                ))}
                             </div>
-                            {/* Floating badge */}
-                            <div className="absolute -bottom-4 -right-4 glass rounded-2xl px-4 py-3 border border-gold/20 animate-float">
-                                <div className="text-xs text-muted-foreground">Since</div>
-                                <div className="text-xl font-bold gradient-text">2011</div>
+
+                            {/* Badge pills */}
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                                {["SONAX Certified", "PPF Installer", "Vinyl Frog Partner"].map((badge) => (
+                                    <span key={badge} className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/20 px-3 py-1.5 rounded-full border border-white/5">
+                                        {badge}
+                                    </span>
+                                ))}
                             </div>
-                        </div>
-                    </div>
+                        </motion.div>
+
+                        {/* Floating badge */}
+                        <motion.div
+                            initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                            whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                            viewport={{ once: true }}
+                            transition={{ duration: 0.5, delay: 0.6, ease: EASE }}
+                            className="absolute -bottom-4 -right-4 rounded-2xl px-5 py-3 ring-1 ring-white/[0.07] backdrop-blur-md shadow-xl"
+                            style={{
+                                background: "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)",
+                            }}
+                        >
+                            <div className="text-[10px] text-white/30 uppercase tracking-wider font-medium">Since</div>
+                            <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500">2011</div>
+                        </motion.div>
+                    </motion.div>
                 </div>
             </section>
 
-            {/* Stats */}
-            <section className="py-16 section-dark border-y border-gold/10 relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-radial-gold opacity-50" />
-                <div
+            {/* ══════════════════════════════════
+                STATS
+            ══════════════════════════════════ */}
+            <section className="relative py-16 overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-500/15 to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-500/15 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/[0.02] via-transparent to-orange-500/[0.02]" />
+
+                <motion.div
                     ref={statsRef}
-                    className={cn("container max-w-4xl mx-auto px-6 reveal", statsVisible ? "visible" : "")}
+                    variants={stagger}
+                    initial="hidden"
+                    whileInView="visible"
+                    viewport={{ once: true, margin: "-40px" }}
+                    className="container max-w-4xl mx-auto px-6"
                 >
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-10">
-                        <CounterStat value={5000} suffix="+" label={t("stats.carsDetailed")} isVisible={statsVisible} />
-                        <CounterStat value={15} suffix="+" label={t("stats.yearsExperience")} isVisible={statsVisible} />
-                        <CounterStat value={4} suffix=".9" label={t("stats.rating")} isVisible={statsVisible} />
-                        <CounterStat value={2500} suffix="+" label={t("stats.happyClients")} isVisible={statsVisible} />
+                        <CounterStat value={5000} suffix="+" label={t("stats.carsDetailed")} isVisible={statsVisible} index={0} />
+                        <CounterStat value={15} suffix="+" label={t("stats.yearsExperience")} isVisible={statsVisible} index={1} />
+                        <CounterStat value={4} suffix=".9" label={t("stats.rating")} isVisible={statsVisible} index={2} />
+                        <CounterStat value={2500} suffix="+" label={t("stats.happyClients")} isVisible={statsVisible} index={3} />
                     </div>
-                </div>
+                </motion.div>
             </section>
 
-            {/* Team */}
-            <section className="py-20 section-darker">
-                <div className="container max-w-6xl mx-auto px-6">
-                    <div
-                        ref={teamRef}
-                        className={cn("text-center mb-14 reveal", teamVisible ? "visible" : "")}
+            {/* ══════════════════════════════════
+                TEAM
+            ══════════════════════════════════ */}
+            <section className="relative py-24 overflow-hidden">
+                <div className="absolute top-20 left-0 w-[500px] h-[500px] bg-indigo-500/[0.02] blur-[140px] rounded-full pointer-events-none" />
+                <div className="absolute bottom-20 right-0 w-[400px] h-[400px] bg-amber-500/[0.03] blur-[120px] rounded-full pointer-events-none" />
+
+                <div className="container max-w-6xl mx-auto px-6 relative z-10">
+                    <motion.div
+                        variants={stagger}
+                        initial="hidden"
+                        whileInView="visible"
+                        viewport={{ once: true, margin: "-60px" }}
+                        className="text-center mb-14"
                     >
-                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-gold/20 text-xs font-semibold text-primary mb-4">
+                        <motion.div
+                            variants={fadeUp}
+                            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-xs font-bold uppercase tracking-[0.2em] text-amber-400/80 mb-5"
+                        >
                             <Users className="w-3.5 h-3.5" />
                             {t("about.team")}
-                        </div>
-                        <h2 className="text-3xl font-bold text-foreground mb-3">{t("about.team")}</h2>
-                        <p className="text-muted-foreground">{t("about.teamSubtitle")}</p>
-                    </div>
+                        </motion.div>
+                        <motion.h2
+                            variants={fadeUp}
+                            className="text-3xl sm:text-4xl font-serif font-medium text-white mb-3 tracking-tight"
+                        >
+                            Meet the{" "}
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">
+                                Experts
+                            </span>
+                        </motion.h2>
+                        <motion.p variants={fadeUp} className="text-white/30 text-sm font-light max-w-md mx-auto">
+                            {t("about.teamSubtitle")}
+                        </motion.p>
+                    </motion.div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <motion.div
+                        variants={stagger}
+                        initial="hidden"
+                        whileInView="visible"
+                        viewport={{ once: true, margin: "-40px" }}
+                        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+                    >
                         {team.map((member, i) => (
-                            <div
+                            <motion.div
                                 key={member.name}
-                                className={cn(
-                                    "reveal glass rounded-2xl p-6 text-center hover:-translate-y-2 transition-all duration-400 hover:border-gold/40 hover:glow-gold group",
-                                    teamVisible ? "visible" : ""
-                                )}
-                                style={{ transitionDelay: `${i * 100}ms` }}
+                                custom={i}
+                                variants={cardReveal}
+                                whileHover={{ y: -8, transition: { duration: 0.25 } }}
+                                className="group relative text-center p-7 rounded-2xl overflow-hidden
+                                           ring-1 ring-white/[0.07] hover:ring-amber-500/20 transition-all duration-500"
+                                style={{
+                                    background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%)",
+                                    backdropFilter: "blur(12px)",
+                                }}
                             >
-                                <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-gold/20 mx-auto mb-4 group-hover:border-gold/60 transition-colors">
-                                    <img 
-                                        src={member.src} 
-                                        alt={member.name} 
-                                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                {/* Hover glow */}
+                                <div className="absolute top-0 right-0 w-32 h-32 rounded-full blur-[60px] opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-amber-500/[0.08]" />
+
+                                <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-white/10 mx-auto mb-5 group-hover:border-amber-500/30 transition-colors duration-500 relative">
+                                    <img
+                                        src={member.src}
+                                        alt={member.name}
+                                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                                     />
                                 </div>
-                                <h3 className="text-lg font-bold text-white mb-1">{member.name}</h3>
-                                <p className="text-sm font-medium text-primary mb-2">{member.role}</p>
-                                <p className="text-xs text-muted-foreground">{member.years} experience</p>
-                            </div>
+                                <h3 className="text-base font-semibold text-white mb-1 group-hover:text-amber-400 transition-colors duration-300">{member.name}</h3>
+                                <p className="text-xs font-semibold text-amber-400/60 mb-2 uppercase tracking-wider">{member.role}</p>
+                                <p className="text-[11px] text-white/25 font-medium">{member.years} experience</p>
+                            </motion.div>
                         ))}
-                    </div>
+                    </motion.div>
                 </div>
             </section>
 
-            {/* Values */}
-            <section className="py-20 section-dark">
-                <div className="container max-w-5xl mx-auto px-6">
-                    <div
-                        ref={valuesRef}
-                        className={cn("text-center mb-14 reveal", valuesVisible ? "visible" : "")}
-                    >
-                        <h2 className="text-3xl font-bold text-foreground mb-3">{t("about.values")}</h2>
-                        <div className="w-24 h-0.5 bg-gradient-gold mx-auto" />
-                    </div>
+            {/* ══════════════════════════════════
+                VALUES
+            ══════════════════════════════════ */}
+            <section className="relative py-24 overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/8 to-transparent" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-amber-500/[0.03] blur-[120px] rounded-full pointer-events-none" />
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                        {values.map(({ icon: Icon, key, keyDesc }, i) => (
-                            <div
+                <div className="container max-w-5xl mx-auto px-6 relative z-10">
+                    <motion.div
+                        variants={stagger}
+                        initial="hidden"
+                        whileInView="visible"
+                        viewport={{ once: true, margin: "-60px" }}
+                        className="text-center mb-14"
+                    >
+                        <motion.div
+                            variants={fadeUp}
+                            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-xs font-bold uppercase tracking-[0.2em] text-amber-400/80 mb-5"
+                        >
+                            <Sparkles className="w-3 h-3" />
+                            Our Core
+                        </motion.div>
+                        <motion.h2
+                            variants={fadeUp}
+                            className="text-3xl sm:text-4xl font-serif font-medium text-white mb-3 tracking-tight"
+                        >
+                            Our{" "}
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">
+                                Values
+                            </span>
+                        </motion.h2>
+                        <motion.div variants={fadeUp} className="w-16 h-0.5 bg-gradient-to-r from-amber-400 to-orange-500 mx-auto rounded-full" />
+                    </motion.div>
+
+                    <motion.div
+                        variants={stagger}
+                        initial="hidden"
+                        whileInView="visible"
+                        viewport={{ once: true, margin: "-40px" }}
+                        className="grid grid-cols-1 sm:grid-cols-3 gap-6"
+                    >
+                        {values.map(({ icon: Icon, key, keyDesc, glowColor }, i) => (
+                            <motion.div
                                 key={key}
-                                className={cn(
-                                    "reveal glass rounded-2xl p-8 text-center hover:-translate-y-1 transition-all duration-400 hover:border-gold/30 group",
-                                    valuesVisible ? "visible" : ""
-                                )}
-                                style={{ transitionDelay: `${i * 100}ms` }}
+                                custom={i}
+                                variants={cardReveal}
+                                whileHover={{ y: -8, transition: { duration: 0.25 } }}
+                                className="group relative p-8 rounded-2xl text-center overflow-hidden
+                                           ring-1 ring-white/[0.07] hover:ring-amber-500/20 transition-all duration-500"
+                                style={{
+                                    background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%)",
+                                    backdropFilter: "blur(12px)",
+                                }}
                             >
-                                <div className="w-12 h-12 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center mx-auto mb-4 group-hover:bg-gold/20 transition-colors">
-                                    <Icon className="w-6 h-6 text-primary" />
-                                </div>
-                                <h3 className="text-base font-semibold text-foreground mb-2">{t(`about.${key}`)}</h3>
-                                <p className="text-sm text-muted-foreground">{t(`about.${keyDesc}`)}</p>
-                            </div>
+                                {/* Hover glow */}
+                                <div
+                                    className="absolute top-0 right-0 w-32 h-32 rounded-full blur-[60px] opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+                                    style={{ background: glowColor }}
+                                />
+
+                                <motion.div
+                                    className="w-14 h-14 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-5 group-hover:bg-amber-500/15 group-hover:border-amber-500/30 transition-all duration-300"
+                                    whileHover={{ rotate: [0, -5, 5, 0], scale: 1.05 }}
+                                    transition={{ duration: 0.5 }}
+                                >
+                                    <Icon className="w-6 h-6 text-amber-400" />
+                                </motion.div>
+                                <h3 className="text-base font-semibold text-white mb-3 group-hover:text-amber-400 transition-colors duration-300">{t(`about.${key}`)}</h3>
+                                <p className="text-sm text-white/35 leading-relaxed font-light group-hover:text-white/50 transition-colors duration-300">{t(`about.${keyDesc}`)}</p>
+                            </motion.div>
                         ))}
-                    </div>
+                    </motion.div>
                 </div>
             </section>
 

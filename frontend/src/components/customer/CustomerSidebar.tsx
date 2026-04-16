@@ -40,12 +40,11 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
         <aside className={cn("hidden lg:flex flex-col w-64 glass border-r h-screen sticky top-0 rounded-none border-white/5", className)}>
             <div className="p-6 border-b border-white/5">
                 <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center shadow-lg shadow-violet-500/20">
-                        <span className="text-white font-bold text-lg">A</span>
-                    </div>
-                    <span className="text-xl font-bold tracking-tight">
-                        <span className="text-white">Auto</span><span className="text-violet-400">SPF</span><span className="text-white">+</span>
-                    </span>
+                    <img 
+                        src="/images/autospf-logo.png" 
+                        alt="AutoSPF+" 
+                        className="h-8 object-contain"
+                    />
                 </div>
                 <div className="mt-2 text-xs text-violet-400 opacity-80 uppercase tracking-wider font-medium">
                     Customer Panel

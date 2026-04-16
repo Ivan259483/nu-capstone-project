@@ -9,16 +9,28 @@ import {
     Shield,
     Camera,
     Palette,
-    Car
+    Car,
+    AlertTriangle,
+    Loader2,
+    Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+} from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 import type { Vehicle } from '@/types';
 
@@ -39,7 +51,8 @@ export const Settings: React.FC<SettingsProps> = ({
     onEditVehicle,
     onDeleteVehicle
 }) => {
-    const { user, logout } = useAuth();
+    const { user, logout, deleteAccount } = useAuth();
+    const navigate = useNavigate();
 
     // Profile State
     const [name, setName] = useState(user?.name || '');
@@ -52,6 +65,12 @@ export const Settings: React.FC<SettingsProps> = ({
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+    // Delete Account State
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [deletePassword, setDeletePassword] = useState('');
+    const [deleteError, setDeleteError] = useState('');
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const handleProfileSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -83,6 +102,24 @@ export const Settings: React.FC<SettingsProps> = ({
             toast.error(error.message || 'Failed to change password');
         } finally {
             setIsChangingPassword(false);
+        }
+    };
+
+    const handleDeleteAccount = async () => {
+        if (!deletePassword) {
+            setDeleteError('Please enter your password to confirm.');
+            return;
+        }
+        setIsDeleting(true);
+        setDeleteError('');
+        const result = await deleteAccount(deletePassword);
+        setIsDeleting(false);
+        if (result.success) {
+            toast.success('Your account has been permanently deleted.');
+            setShowDeleteModal(false);
+            navigate('/login', { replace: true });
+        } else {
+            setDeleteError(result.message || 'Deletion failed. Please try again.');
         }
     };
 
@@ -393,9 +430,107 @@ export const Settings: React.FC<SettingsProps> = ({
                             </div>
                         </div>
 
+                        {/* ─────────────────────────────────────────── */}
+                        {/* Danger Zone Card                            */}
+                        {/* ─────────────────────────────────────────── */}
+                        <div className="rounded-2xl border border-red-500/25 bg-red-500/5 overflow-hidden shadow-[0_0_20px_rgba(239,68,68,0.08)]">
+                            <div className="px-6 py-5 border-b border-red-500/20">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center border border-red-500/20">
+                                        <AlertTriangle className="w-4 h-4 text-red-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-sm font-bold tracking-tight text-red-400">Delete Account</h3>
+                                        <p className="text-xs text-red-400/60">Irreversible action — proceed with caution.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="p-6 flex flex-col gap-4">
+                                <p className="text-sm text-red-300/70 leading-relaxed">
+                                    Permanently deletes your account, all personal data, service history, vehicles, and associated records.
+                                    <span className="font-semibold text-red-400"> This cannot be undone.</span>
+                                </p>
+                                <div>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => { setDeleteError(''); setDeletePassword(''); setShowDeleteModal(true); }}
+                                        className="gap-2 border-red-500/40 text-red-400 bg-red-500/5 hover:bg-red-500/15 hover:border-red-500/70 hover:text-red-300 rounded-xl transition-all duration-300 font-bold"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                        Delete My Account
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             </div>
+
+            {/* ── Delete Account Confirmation Modal ── */}
+            <Dialog open={showDeleteModal} onOpenChange={(open) => { if (!isDeleting) setShowDeleteModal(open); }}>
+                <DialogContent className="glass border-red-500/25 bg-[#0a0a0a]/95 backdrop-blur-2xl rounded-2xl max-w-md shadow-[0_0_40px_rgba(239,68,68,0.15)]">
+                    <DialogHeader className="space-y-3">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center border border-red-500/20">
+                                <AlertTriangle className="w-5 h-5 text-red-400" />
+                            </div>
+                            <DialogTitle className="text-lg font-bold text-white">Delete Account?</DialogTitle>
+                        </div>
+                        <DialogDescription className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                            This action is <span className="text-red-400 font-semibold">permanent and cannot be undone</span>.
+                            All account data, history, and associated records will be permanently removed.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-2 space-y-3">
+                        <Label htmlFor="delete-password" className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                            Confirm your password
+                        </Label>
+                        <div className="relative">
+                            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-red-400/50" />
+                            <Input
+                                id="delete-password"
+                                type="password"
+                                value={deletePassword}
+                                onChange={(e) => { setDeletePassword(e.target.value); setDeleteError(''); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter' && !isDeleting) handleDeleteAccount(); }}
+                                className="pl-10 rounded-xl bg-red-500/5 border-red-500/25 text-white placeholder-red-400/30 focus:ring-2 focus:ring-red-500/40 focus:border-red-500/50 transition-all"
+                                placeholder="Enter your current password"
+                                disabled={isDeleting}
+                            />
+                        </div>
+                        {deleteError && (
+                            <p className="text-xs text-red-400 flex items-center gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                                {deleteError}
+                            </p>
+                        )}
+                    </div>
+
+                    <DialogFooter className="flex gap-2 pt-2">
+                        <Button
+                            variant="ghost"
+                            onClick={() => setShowDeleteModal(false)}
+                            disabled={isDeleting}
+                            className="flex-1 rounded-xl border border-white/10 text-[var(--text-secondary)] hover:text-white hover:bg-white/5"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleDeleteAccount}
+                            disabled={isDeleting || !deletePassword}
+                            className="flex-1 rounded-xl bg-red-600 hover:bg-red-500 text-white border-none font-bold shadow-[0_0_15px_rgba(239,68,68,0.3)] transition-all duration-300 disabled:opacity-50"
+                        >
+                            {isDeleting ? (
+                                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Deleting...</>
+                            ) : (
+                                <><Trash2 className="w-4 h-4 mr-2" />Delete Permanently</>
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

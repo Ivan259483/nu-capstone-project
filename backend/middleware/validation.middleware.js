@@ -1,4 +1,7 @@
 import { body, validationResult } from 'express-validator';
+// ⚠️ Bug #5 fix: Import USER_ROLES so the role validator stays in sync
+// with the canonical role list rather than a hardcoded, stale subset.
+import { USER_ROLES } from '../constants/roles.js';
 
 /* ═══════════════════════════════════════════════════════
    VALIDATION MIDDLEWARE — express-validator chains
@@ -56,7 +59,7 @@ export const validateRegistration = [
 
   body('role')
     .optional()
-    .isIn(['customer', 'detailer', 'admin', 'supplier']).withMessage('Invalid user role'),
+    .isIn([...USER_ROLES]).withMessage(`Invalid user role. Allowed: ${USER_ROLES.join(', ')}`),
 
   handleValidationErrors,
 ];

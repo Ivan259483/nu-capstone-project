@@ -1,4 +1,17 @@
-import React, { useState } from 'react';
+/**
+ * DamageOverlayImage — Premium AI Detection Visualization
+ *
+ * ✦ Animated radar scan sweep line
+ * ✦ Draw-in bounding boxes with animated 4-corner L-brackets
+ * ✦ Severity-colored pulsing glow on each zone
+ * ✦ Marching-ants dashed border on highlighted/selected box
+ * ✦ Label chip slides in from top-left with spring
+ * ✦ Confidence ring spins in with scale spring
+ * ✦ Blinking AI Vision badge dot
+ * ✦ Crosshair target-lock animation on press
+ */
+
+import React, { useEffect } from 'react';
 import { Image } from 'expo-image';
 import {
   StyleSheet,
@@ -7,159 +20,498 @@ import {
   View,
   type LayoutChangeEvent,
 } from 'react-native';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+  interpolate,
+  Easing,
+} from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { DamageIssue } from '@/features/ai-scan/types';
+import { useState } from 'react';
 
-/* ═══════════════════════════════════════════════════════════════════════════
- * PREMIUM Damage Overlay — floating glass pills, confidence glow ring,
- * no childish red/yellow/green boxes.
- *
- * Design language: Tesla service center diagnostic readout
- * ═══════════════════════════════════════════════════════════════════════════ */
-
+/* ────────────────────────────────────────────────────────────────────────────
+ * Design tokens
+ * ──────────────────────────────────────────────────────────────────────────── */
 const ACCENT = '#FF6B35';
-const SEVERITY_COLORS: Record<string, { bg: string; glow: string; text: string; border: string }> = {
-  severe:   { bg: 'rgba(255,60,60,0.12)',  glow: 'rgba(255,60,60,0.4)',   text: '#FF6B6B', border: 'rgba(255,60,60,0.35)' },
-  moderate: { bg: 'rgba(255,165,0,0.10)',   glow: 'rgba(255,165,0,0.35)',  text: '#FFB347', border: 'rgba(255,165,0,0.3)' },
-  minor:    { bg: 'rgba(80,200,120,0.10)',  glow: 'rgba(80,200,120,0.3)', text: '#60D394', border: 'rgba(80,200,120,0.25)' },
+
+const SEVERITY: Record<string, {
+  border: string; glow: string; text: string;
+  bg: string; labelBg: string[];
+}> = {
+  severe: {
+    border:   '#FF3B30',
+    glow:     'rgba(255,59,48,0.55)',
+    text:     '#FF6B6B',
+    bg:       'rgba(255,59,48,0.08)',
+    labelBg:  ['rgba(180,20,20,0.92)', 'rgba(120,10,10,0.88)'],
+  },
+  moderate: {
+    border:   '#FF9500',
+    glow:     'rgba(255,149,0,0.50)',
+    text:     '#FFB347',
+    bg:       'rgba(255,149,0,0.07)',
+    labelBg:  ['rgba(160,90,0,0.92)', 'rgba(100,60,0,0.88)'],
+  },
+  minor: {
+    border:   '#30D158',
+    glow:     'rgba(48,209,88,0.45)',
+    text:     '#60D394',
+    bg:       'rgba(48,209,88,0.06)',
+    labelBg:  ['rgba(0,100,40,0.92)', 'rgba(0,70,20,0.88)'],
+  },
 };
 
-const getSeverityMeta = (severity: string) =>
-  SEVERITY_COLORS[severity] ?? SEVERITY_COLORS.minor;
+const getSev = (s: string) => SEVERITY[s] ?? SEVERITY.moderate;
 
-interface DamageOverlayImageProps {
+/* ────────────────────────────────────────────────────────────────────────────
+ * Sub-component: Radar Scan Line
+ * ──────────────────────────────────────────────────────────────────────────── */
+function ScanLine({ containerH }: { containerH: number }) {
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withRepeat(
+      withTiming(1, { duration: 2800, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  }, []);
+
+  const lineStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: progress.value * containerH }],
+    opacity: interpolate(
+      progress.value,
+      [0, 0.05, 0.88, 1],
+      [0, 1, 1, 0],
+    ),
+  }));
+
+  const trailStyle = useAnimatedStyle(() => ({
+    height: interpolate(progress.value, [0, 1], [0, containerH * progress.value]),
+    opacity: 0.07,
+  }));
+
+  return (
+    <>
+      {/* Trailing glow behind the scan line */}
+      <Animated.View style={[styles.scanTrail, trailStyle]} />
+      {/* Main scan line */}
+      <Animated.View style={[styles.scanLine, lineStyle]}>
+        <LinearGradient
+          colors={['transparent', ACCENT, '#FF9A6C', ACCENT, 'transparent']}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+      </Animated.View>
+    </>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Sub-component: L-shaped Corner Bracket
+ * ──────────────────────────────────────────────────────────────────────────── */
+type CornerPos = 'TL' | 'TR' | 'BL' | 'BR';
+
+function CornerBracket({
+  pos, color, delay, isHighlighted,
+}: { pos: CornerPos; color: string; delay: number; isHighlighted: boolean }) {
+  const scale = useSharedValue(0);
+  const rotate = useSharedValue(0);
+
+  useEffect(() => {
+    scale.value = withDelay(delay, withTiming(1, { duration: 220 }));
+  }, [delay]);
+
+  useEffect(() => {
+    if (isHighlighted) {
+      rotate.value = withRepeat(
+        withTiming(360, { duration: 3000, easing: Easing.linear }),
+        -1,
+        false,
+      );
+    } else {
+      rotate.value = withTiming(0, { duration: 200 });
+    }
+  }, [isHighlighted]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: scale.value },
+      { rotate: `${rotate.value}deg` },
+    ],
+  }));
+
+  const isTop    = pos === 'TL' || pos === 'TR';
+  const isLeft   = pos === 'TL' || pos === 'BL';
+
+  return (
+    <Animated.View
+      style={[
+        styles.corner,
+        isTop  ? { top: -1 }    : { bottom: -1 },
+        isLeft ? { left: -1 }   : { right: -1 },
+        animStyle,
+      ]}
+    >
+      <View
+        style={[
+          styles.cornerInner,
+          {
+            borderColor: color,
+            borderTopWidth:    isTop    ? 2.5 : 0,
+            borderBottomWidth: !isTop   ? 2.5 : 0,
+            borderLeftWidth:   isLeft   ? 2.5 : 0,
+            borderRightWidth:  !isLeft  ? 2.5 : 0,
+            borderTopLeftRadius:     pos === 'TL' ? 2 : 0,
+            borderTopRightRadius:    pos === 'TR' ? 2 : 0,
+            borderBottomLeftRadius:  pos === 'BL' ? 2 : 0,
+            borderBottomRightRadius: pos === 'BR' ? 2 : 0,
+          },
+        ]}
+      />
+    </Animated.View>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Sub-component: Animated Bounding Box
+ * ──────────────────────────────────────────────────────────────────────────── */
+interface BoxProps {
+  issue: DamageIssue;
+  containerW: number;
+  containerH: number;
+  index: number;
+  isHighlighted: boolean;
+  labelOffset: number;
+  onPress?: () => void;
+}
+
+function AnimatedDamageBox({
+  issue, containerW, containerH, index, isHighlighted, labelOffset, onPress,
+}: BoxProps) {
+  const sev = getSev(issue.severity);
+  const { x, y, width, height } = issue.boundingBox!;
+
+  /* ── Entry animation ── */
+  const boxScale   = useSharedValue(0.6);
+  const boxOpacity = useSharedValue(0);
+
+  /* ── Glow pulse ── */
+  const glowOpacity   = useSharedValue(0.3);
+  const borderOpacity = useSharedValue(0.6);
+
+  /* ── Label entry ── */
+  const labelX = useSharedValue(-24);
+  const labelO = useSharedValue(0);
+
+  /* ── Confidence ring entry ── */
+  const ringScale = useSharedValue(0);
+
+  /* ── Highlighted scale pop ── */
+  const highlightScale = useSharedValue(1);
+
+  useEffect(() => {
+    const d = index * 120;
+
+    // Box draw-in
+    boxScale.value   = withDelay(d, withTiming(1, { duration: 220 }));
+    boxOpacity.value = withDelay(d, withTiming(1, { duration: 250 }));
+
+    // Glow pulse loop
+    glowOpacity.value = withDelay(
+      d + 300,
+      withRepeat(
+        withSequence(
+          withTiming(0.9, { duration: 900, easing: Easing.inOut(Easing.sin) }),
+          withTiming(0.25, { duration: 900, easing: Easing.inOut(Easing.sin) }),
+        ),
+        -1,
+        false,
+      ),
+    );
+
+    // Border pulse
+    borderOpacity.value = withDelay(
+      d + 300,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 700 }),
+          withTiming(0.5, { duration: 700 }),
+        ),
+        -1,
+        false,
+      ),
+    );
+
+    // Label slide-in
+    labelX.value = withDelay(d + 200, withTiming(0, { duration: 220 }));
+    labelO.value = withDelay(d + 200, withTiming(1, { duration: 220 }));
+
+    // Confidence ring
+    ringScale.value = withDelay(d + 350, withTiming(1, { duration: 220 }));
+  }, [index]);
+
+  useEffect(() => {
+    highlightScale.value = isHighlighted
+      ? withSequence(
+          withTiming(1.06, { duration: 120 }),
+          withTiming(1.0,  { duration: 150 }),
+        )
+      : withTiming(1, { duration: 150 });
+  }, [isHighlighted]);
+
+  const boxStyle = useAnimatedStyle(() => ({
+    opacity:   boxOpacity.value,
+    transform: [{ scale: boxScale.value * highlightScale.value }],
+  }));
+
+  const glowStyle = useAnimatedStyle(() => ({
+    opacity: glowOpacity.value,
+  }));
+
+  const borderStyle = useAnimatedStyle(() => ({
+    opacity: borderOpacity.value,
+  }));
+
+  const labelStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: labelX.value }],
+    opacity:   labelO.value,
+  }));
+
+  const ringStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: ringScale.value }],
+  }));
+
+  const pct = Math.round(issue.confidence * 100);
+
+  return (
+    <Animated.View
+      style={[
+        styles.boxOuter,
+        {
+          left:   x * containerW,
+          top:    y * containerH,
+          width:  width  * containerW,
+          height: height * containerH,
+        },
+        boxStyle,
+      ]}
+    >
+      {/* Glow background fill */}
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFillObject,
+          { backgroundColor: sev.glow, borderRadius: 4 },
+          glowStyle,
+        ]}
+      />
+
+      {/* Main border */}
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFillObject,
+          {
+            borderWidth: isHighlighted ? 2 : 1.5,
+            borderColor: sev.border,
+            borderRadius: 4,
+            borderStyle: isHighlighted ? 'solid' : 'dashed',
+          },
+          borderStyle,
+        ]}
+      />
+
+      {/* Highlighted inner glow ring */}
+      {isHighlighted && (
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              borderWidth: 6,
+              borderColor: sev.glow,
+              borderRadius: 6,
+              marginTop: -3,
+              marginLeft: -3,
+            },
+          ]}
+        />
+      )}
+
+      <TouchableOpacity
+        style={styles.boxTouchable}
+        onPress={onPress}
+        activeOpacity={0.8}
+      >
+        {/* ── Label chip (top-left) ── */}
+        <Animated.View style={[styles.labelWrap, { marginTop: labelOffset }, labelStyle]}>
+          <LinearGradient
+            colors={sev.labelBg as [string, string]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.labelGradient}
+          >
+            {/* Severity dot */}
+            <View style={[styles.sevDot, { backgroundColor: sev.border, shadowColor: sev.glow }]} />
+            <Text style={styles.labelDamage} numberOfLines={1}>
+              {issue.damageType}
+            </Text>
+            <View style={styles.labelDivider} />
+            <Text style={[styles.labelPct, { color: sev.text }]}>{pct}%</Text>
+          </LinearGradient>
+        </Animated.View>
+
+        {/* ── Area tag (bottom-left) ── */}
+        {issue.affectedArea ? (
+          <View style={styles.areaTag}>
+            <Text style={styles.areaTagText} numberOfLines={1}>
+              ⬡ {issue.affectedArea}
+            </Text>
+          </View>
+        ) : null}
+      </TouchableOpacity>
+
+      {/* ── 4 Corner L-brackets ── */}
+      {(['TL', 'TR', 'BL', 'BR'] as CornerPos[]).map((pos, ci) => (
+        <CornerBracket
+          key={pos}
+          pos={pos}
+          color={sev.border}
+          delay={index * 120 + ci * 40}
+          isHighlighted={isHighlighted}
+        />
+      ))}
+
+      {/* ── Confidence ring (bottom-right) ── */}
+      <Animated.View style={[styles.ringWrap, ringStyle]}>
+        <View style={[styles.ring, { borderColor: sev.border, shadowColor: sev.glow }]}>
+          <Text style={[styles.ringText, { color: sev.text }]}>{pct}</Text>
+        </View>
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Sub-component: Blinking AI Badge Dot
+ * ──────────────────────────────────────────────────────────────────────────── */
+function BlinkDot() {
+  const opacity = useSharedValue(1);
+
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(0.2, { duration: 600 }),
+        withTiming(1.0, { duration: 600 }),
+      ),
+      -1,
+      false,
+    );
+  }, []);
+
+  const dotStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+
+  return <Animated.View style={[styles.badgeDot, dotStyle]} />;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Props
+ * ──────────────────────────────────────────────────────────────────────────── */
+interface Props {
   imageUri: string;
   issues: DamageIssue[];
   onIssuePress?: (issue: DamageIssue) => void;
   highlightedIssueId?: string | null;
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * Main Component
+ * ──────────────────────────────────────────────────────────────────────────── */
 export default function DamageOverlayImage({
   imageUri,
   issues,
   onIssuePress,
   highlightedIssueId,
-}: DamageOverlayImageProps) {
-  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+}: Props) {
+  const [size, setSize] = useState({ width: 0, height: 0 });
 
-  const onLayout = (event: LayoutChangeEvent) => {
-    const { width, height } = event.nativeEvent.layout;
-    setContainerSize({ width, height });
+  const onLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setSize({ width, height });
   };
 
-  const overlayIssues = issues.filter((issue) => issue.boundingBox);
+  const overlayIssues = issues.filter((i) => i.boundingBox);
 
   return (
     <View style={styles.container} onLayout={onLayout}>
-      <Image source={{ uri: imageUri }} style={styles.image} contentFit="cover" cachePolicy="memory-disk" transition={200} />
+      <Image
+        source={{ uri: imageUri }}
+        style={styles.image}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        transition={300}
+      />
 
-      {/* Subtle scan-grid lines */}
-      <View style={styles.scanOverlay}>
+      {/* HUD grid lines */}
+      <View style={styles.grid} pointerEvents="none">
         {[1, 2, 3].map((i) => (
-          <View key={`h${i}`} style={[styles.scanLine, { top: `${i * 25}%`, left: 0, right: 0, height: StyleSheet.hairlineWidth }]} />
+          <View key={`h${i}`} style={[styles.gridLine, { top: `${i * 25}%`, left: 0, right: 0, height: StyleSheet.hairlineWidth }]} />
         ))}
         {[1, 2, 3].map((i) => (
-          <View key={`v${i}`} style={[styles.scanLine, { left: `${i * 25}%`, top: 0, bottom: 0, width: StyleSheet.hairlineWidth }]} />
+          <View key={`v${i}`} style={[styles.gridLine, { left: `${i * 25}%`, top: 0, bottom: 0, width: StyleSheet.hairlineWidth }]} />
         ))}
       </View>
 
-      {/* Top-left scan badge */}
-      <Animated.View entering={FadeIn.delay(200)} style={styles.scanBadge}>
-        <View style={styles.scanBadgeDot} />
-        <Text style={styles.scanBadgeText}>AI VISION</Text>
+      {/* Radar scan sweep — only while scanning */}
+      {size.height > 0 && <ScanLine containerH={size.height} />}
+
+      {/* AI Vision badge */}
+      <Animated.View entering={FadeIn.delay(150)} style={styles.badge}>
+        <BlinkDot />
+        <Text style={styles.badgeText}>AI VISION</Text>
+        {overlayIssues.length > 0 && (
+          <View style={styles.badgeCount}>
+            <Text style={styles.badgeCountText}>{overlayIssues.length}</Text>
+          </View>
+        )}
       </Animated.View>
 
-      {/* Damage zone bounding boxes — clean thin border + floating pill label */}
-      {containerSize.width > 0 &&
-        overlayIssues.map((issue, index) => {
-          if (!issue.boundingBox) return null;
-          const { x, y, width, height } = issue.boundingBox;
-          const meta = getSeverityMeta(issue.severity);
-          const isHighlighted = highlightedIssueId === issue.id;
-
-          // Calculate vertical offset for overlapping labels
+      {/* Bounding boxes */}
+      {size.width > 0 &&
+        overlayIssues.map((issue, i) => {
           const labelOffset = overlayIssues
-            .slice(0, index)
+            .slice(0, i)
             .filter(
               (b) =>
                 b.boundingBox &&
-                Math.abs(b.boundingBox.y - y) < 0.12 &&
-                Math.abs(b.boundingBox.x - x) < 0.12
-            ).length * 28;
+                Math.abs(b.boundingBox.y - (issue.boundingBox?.y ?? 0)) < 0.1 &&
+                Math.abs(b.boundingBox.x - (issue.boundingBox?.x ?? 0)) < 0.1,
+            ).length * 26;
 
           return (
-            <Animated.View
+            <AnimatedDamageBox
               key={issue.id}
-              entering={FadeIn.delay(index * 100).duration(350)}
-              style={[
-                styles.damageZone,
-                {
-                  left: x * containerSize.width,
-                  top: y * containerSize.height,
-                  width: width * containerSize.width,
-                  height: height * containerSize.height,
-                  borderColor: isHighlighted ? meta.text : meta.border,
-                  backgroundColor: isHighlighted ? meta.bg : 'transparent',
-                },
-              ]}
-            >
-              <TouchableOpacity
-                style={styles.zoneInner}
-                onPress={() => onIssuePress?.(issue)}
-                activeOpacity={0.7}
-              >
-                {/* ── Floating pill label ── */}
-                <View
-                  style={[
-                    styles.floatingPill,
-                    { marginTop: labelOffset },
-                  ]}
-                >
-                  <LinearGradient
-                    colors={['rgba(0,0,0,0.82)', 'rgba(0,0,0,0.72)']}
-                    style={styles.pillGradient}
-                  >
-                    {/* Severity dot */}
-                    <View style={[styles.severityDot, {
-                      backgroundColor: meta.text,
-                      shadowColor: meta.glow,
-                      shadowOpacity: 0.8,
-                      shadowRadius: 4,
-                      shadowOffset: { width: 0, height: 0 },
-                    }]} />
-                    <Text style={styles.pillLabel} numberOfLines={1}>
-                      {issue.damageType}
-                    </Text>
-                    {issue.location && (
-                      <Text style={styles.pillLocation} numberOfLines={1}>
-                        · {issue.location}
-                      </Text>
-                    )}
-                  </LinearGradient>
-                </View>
-
-                {/* ── Confidence ring badge ── */}
-                <View style={styles.confidenceWrap}>
-                  <View style={[styles.confidenceRing, { borderColor: meta.text }]}>
-                    <Text style={[styles.confidenceValue, { color: meta.text }]}>
-                      {(issue.confidence * 100).toFixed(0)}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-
-              {/* Corner crosshairs — only 2 corners for clean look */}
-              <View style={[styles.crosshair, styles.crossTL, { borderColor: meta.text }]} />
-              <View style={[styles.crosshair, styles.crossBR, { borderColor: meta.text }]} />
-            </Animated.View>
+              issue={issue}
+              containerW={size.width}
+              containerH={size.height}
+              index={i}
+              isHighlighted={highlightedIssueId === issue.id}
+              labelOffset={labelOffset}
+              onPress={() => onIssuePress?.(issue)}
+            />
           );
         })}
 
-      {/* Bottom-right zone summary */}
+      {/* Bottom summary */}
       {overlayIssues.length > 0 && (
-        <Animated.View entering={FadeInDown.delay(350)} style={styles.summaryBadge}>
+        <Animated.View entering={FadeInDown.delay(400)} style={styles.summary}>
           <Ionicons name="analytics-outline" size={10} color={ACCENT} />
           <Text style={styles.summaryText}>
             {overlayIssues.length} anomal{overlayIssues.length !== 1 ? 'ies' : 'y'} mapped
@@ -170,15 +522,17 @@ export default function DamageOverlayImage({
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
- * STYLES
- * ═══════════════════════════════════════════════════════════════════════════ */
+/* ────────────────────────────────────────────────────────────────────────────
+ * Styles
+ * ──────────────────────────────────────────────────────────────────────────── */
+const CORNER_SIZE = 12;
+
 const styles = StyleSheet.create({
   container: {
     borderRadius: 14,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.07)',
     backgroundColor: '#08080c',
     aspectRatio: 16 / 10,
   },
@@ -186,120 +540,192 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  scanOverlay: {
+
+  /* Grid */
+  grid: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 1,
   },
-  scanLine: {
+  gridLine: {
     position: 'absolute',
-    backgroundColor: 'rgba(255,107,53,0.04)',
+    backgroundColor: 'rgba(255,107,53,0.05)',
   },
 
-  /* Scan badge */
-  scanBadge: {
+  /* Scan line */
+  scanLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 2,
+    zIndex: 5,
+    overflow: 'hidden',
+  },
+  scanTrail: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: ACCENT,
+    zIndex: 4,
+  },
+
+  /* AI badge */
+  badge: {
     position: 'absolute',
     top: 8,
     left: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingVertical: 4,
+    borderRadius: 7,
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.2)',
+    borderColor: `${ACCENT}33`,
     zIndex: 30,
   },
-  scanBadgeDot: {
-    width: 5,
-    height: 5,
+  badgeDot: {
+    width: 6,
+    height: 6,
     borderRadius: 3,
     backgroundColor: ACCENT,
+    shadowColor: ACCENT,
+    shadowOpacity: 0.9,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 0 },
   },
-  scanBadgeText: {
+  badgeText: {
     color: ACCENT,
     fontSize: 8,
     fontWeight: '800',
-    letterSpacing: 1,
+    letterSpacing: 1.2,
+  },
+  badgeCount: {
+    backgroundColor: ACCENT,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  badgeCountText: {
+    color: '#fff',
+    fontSize: 7,
+    fontWeight: '800',
   },
 
-  /* Damage zones */
-  damageZone: {
+  /* Bounding box */
+  boxOuter: {
     position: 'absolute',
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderRadius: 3,
     zIndex: 10,
   },
-  zoneInner: {
+  boxTouchable: {
     flex: 1,
     justifyContent: 'space-between',
-    padding: 2,
+    padding: 3,
   },
 
-  /* Floating pill */
-  floatingPill: {
+  /* Label chip */
+  labelWrap: {
     alignSelf: 'flex-start',
-    borderRadius: 6,
+    borderRadius: 5,
     overflow: 'hidden',
-    maxWidth: '92%',
+    maxWidth: '90%',
+    shadowColor: '#000',
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
-  pillGradient: {
+  labelGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingVertical: 4,
+    borderRadius: 5,
   },
-  severityDot: {
+  sevDot: {
     width: 5,
     height: 5,
     borderRadius: 3,
+    shadowOpacity: 1,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 3,
   },
-  pillLabel: {
-    color: '#e8e8ec',
+  labelDamage: {
+    color: '#fff',
     fontSize: 9,
     fontWeight: '700',
     letterSpacing: 0.2,
+    flexShrink: 1,
   },
-  pillLocation: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 8,
+  labelDivider: {
+    width: 1,
+    height: 8,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  labelPct: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+
+  /* Area tag */
+  areaTag: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  areaTagText: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 7.5,
     fontWeight: '500',
+    letterSpacing: 0.2,
+  },
+
+  /* Corner brackets */
+  corner: {
+    position: 'absolute',
+    width: CORNER_SIZE,
+    height: CORNER_SIZE,
+  },
+  cornerInner: {
+    width: CORNER_SIZE,
+    height: CORNER_SIZE,
   },
 
   /* Confidence ring */
-  confidenceWrap: {
-    alignSelf: 'flex-end',
+  ringWrap: {
+    position: 'absolute',
+    bottom: 3,
+    right: 3,
   },
-  confidenceRing: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1.5,
+  ring: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
   },
-  confidenceValue: {
-    fontSize: 7,
+  ringText: {
+    fontSize: 8,
     fontWeight: '800',
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
   },
 
-  /* Crosshairs */
-  crosshair: {
-    position: 'absolute',
-    width: 6,
-    height: 6,
-  },
-  crossTL: { top: -1, left: -1, borderTopWidth: 1.5, borderLeftWidth: 1.5 },
-  crossBR: { bottom: -1, right: -1, borderBottomWidth: 1.5, borderRightWidth: 1.5 },
-
-  /* Summary badge */
-  summaryBadge: {
+  /* Summary */
+  summary: {
     position: 'absolute',
     bottom: 8,
     right: 8,
@@ -309,13 +735,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.72)',
     borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.2)',
+    borderColor: `${ACCENT}33`,
     zIndex: 20,
   },
   summaryText: {
-    color: 'rgba(255,255,255,0.6)',
+    color: 'rgba(255,255,255,0.65)',
     fontSize: 9,
     fontWeight: '600',
     letterSpacing: 0.3,

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Car, LogIn, UserPlus, Mail, Lock, User, Loader2, ArrowLeft, ShieldCheck, RefreshCw } from "lucide-react";
+import { Eye, EyeOff, Car, LogIn, UserPlus, Mail, Lock, User, Loader2, ArrowLeft, ShieldCheck, RefreshCw, AlertTriangle, LockKeyhole, Clock } from "lucide-react";
 import { signInWithPopup } from "firebase/auth";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -45,6 +45,11 @@ export default function Login() {
 
     /* ── Form state ── */
     const [tab, setTab] = useState<"login" | "register">("login");
+    const prevTabRef = useRef<"login" | "register">("login");
+    const handleTabSwitch = useCallback((next: "login" | "register") => {
+        prevTabRef.current = tab;
+        setTab(next);
+    }, [tab]);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
     const [loginForm, setLoginForm] = useState({ email: "", password: "" });
@@ -53,6 +58,13 @@ export default function Login() {
     const [rememberMe, setRememberMe] = useState(false);
     const [passwordValidation, setPasswordValidation] = useState(validatePassword(""));
     const [confirmPasswordError, setConfirmPasswordError] = useState("");
+
+    /* ── Login attempt tracking & lock state ── */
+    const [loginAttempts, setLoginAttempts] = useState(0);
+    const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+    const [isLocked, setIsLocked] = useState(false);
+    const [lockUntilMs, setLockUntilMs] = useState<number | null>(null);
+    const [lockCountdown, setLockCountdown] = useState("");
 
     /* ── OTP verification state ── */
     const [otpStep, setOtpStep] = useState<"form" | "verify">("form");
@@ -75,6 +87,26 @@ export default function Login() {
         const timer = setInterval(() => setOtpCountdown((c) => c - 1), 1000);
         return () => clearInterval(timer);
     }, [otpCountdown]);
+
+    /* ── Lock countdown timer ── */
+    useEffect(() => {
+        if (!isLocked || !lockUntilMs) return;
+        const tick = () => {
+            const diff = lockUntilMs - Date.now();
+            if (diff <= 0) {
+                setIsLocked(false);
+                setLockUntilMs(null);
+                setLockCountdown("");
+                return;
+            }
+            const mins = Math.floor(diff / 60000);
+            const secs = Math.floor((diff % 60000) / 1000);
+            setLockCountdown(`${mins}:${secs.toString().padStart(2, "0")}`);
+        };
+        tick();
+        const timer = setInterval(tick, 1000);
+        return () => clearInterval(timer);
+    }, [isLocked, lockUntilMs]);
 
     /* ── Reset OTP state when switching tabs ── */
     useEffect(() => {
@@ -109,23 +141,34 @@ export default function Login() {
     /* ── Redirect helper ── */
     const performRedirect = useCallback((role: string) => {
         const redirectUrl = sessionStorage.getItem("redirect_after_login");
+        const dashboardPath = getDashboardPathForRole(role);
+        console.log('🧭 [DEBUG-Login] performRedirect called:', {
+            inputRole: role,
+            typeofRole: typeof role,
+            computedDashboardPath: dashboardPath,
+            hasRedirectOverride: !!redirectUrl,
+            redirectOverride: redirectUrl,
+        });
         if (redirectUrl) {
             sessionStorage.removeItem("redirect_after_login");
+            console.log('🧭 [DEBUG-Login] Navigating to override:', redirectUrl);
             navigate(redirectUrl, { replace: true });
             return;
         }
-        navigate(getDashboardPathForRole(role), { replace: true });
+        console.log('🧭 [DEBUG-Login] Navigating to dashboard:', dashboardPath);
+        navigate(dashboardPath, { replace: true });
     }, [navigate]);
 
     /* ── Redirect on auth state ── */
     useEffect(() => {
-        console.log('🔄 [Login] Auth state changed =>', {
+        console.log('🔄 [DEBUG-Login] useEffect triggered =>', {
             hasUser: !!user,
             role: user?.role,
-            isAuthLoading
+            isAuthLoading,
+            hasToken: !!localStorage.getItem('autospf_token'),
         });
         if (user && !isAuthLoading) {
-            console.log('🚀 [Login] Redirecting user with role:', user.role);
+            console.log('🚀 [DEBUG-Login] REDIRECTING user with role:', user.role, '=> path:', getDashboardPathForRole(user.role));
             performRedirect(user.role);
         }
     }, [user, isAuthLoading, performRedirect]);
@@ -193,13 +236,36 @@ export default function Login() {
             toast.error("Please fill in all fields.");
             return;
         }
+        if (isLocked) {
+            toast.error(`Account locked. Try again in ${lockCountdown}.`);
+            return;
+        }
         setIsLoading(true);
         try {
             const result = await login(loginForm.email, loginForm.password);
             if (!result.success) {
-                toast.error(result.message || "Invalid credentials");
+                // Handle structured lock / attempt data from backend
+                if (result.data?.locked || result.data?.lockUntilMs) {
+                    setIsLocked(true);
+                    setLockUntilMs(result.data.lockUntilMs ?? Date.now() + 15 * 60 * 1000);
+                    setLoginAttempts(0);
+                    setRemainingAttempts(0);
+                    toast.error(result.message || "Account locked.");
+                } else if (result.data?.remainingAttempts !== undefined) {
+                    setLoginAttempts(result.data.loginAttempts ?? loginAttempts + 1);
+                    setRemainingAttempts(result.data.remainingAttempts);
+                    toast.error(result.message || "Invalid credentials.");
+                } else {
+                    // Firebase-level error or unknown (no structured data)
+                    toast.error(result.message || "Invalid credentials.");
+                }
                 return;
             }
+            // Success — reset attempt state
+            setLoginAttempts(0);
+            setRemainingAttempts(null);
+            setIsLocked(false);
+            setLockUntilMs(null);
             if (rememberMe) localStorage.setItem("remembered_email", loginForm.email);
             else localStorage.removeItem("remembered_email");
             toast.success("Welcome back.");
@@ -415,14 +481,12 @@ export default function Login() {
                 <div className="w-full max-w-md animate-scale-in">
                     {/* Logo */}
                     <div className="text-center mb-8">
-                        <Link to="/" className="inline-flex items-center gap-2.5 group mb-4">
-                            <div className="w-11 h-11 rounded-xl bg-gradient-gold flex items-center justify-center glow-gold group-hover:scale-110 transition-transform">
-                                <Car className="w-6 h-6 text-primary-foreground" />
-                            </div>
-                            <span className="text-2xl font-bold">
-                                <span className="gradient-text">Auto</span>
-                                <span className="text-foreground">SPF+</span>
-                            </span>
+                        <Link to="/" className="inline-flex items-center justify-center group mb-4">
+                            <img
+                                src="/images/autospf-logo.png"
+                                alt="AutoSPF+ Logo"
+                                className="h-20 w-auto object-contain group-hover:scale-105 transition-transform duration-200"
+                            />
                         </Link>
                         <h1 className="text-2xl font-bold text-foreground mt-2">
                             {tab === "login" ? t("login.title") : t("login.register")}
@@ -437,7 +501,7 @@ export default function Login() {
                         {/* Tabs */}
                         <div className="flex rounded-xl p-1 bg-muted/30 mb-8 gap-1">
                             <button
-                                onClick={() => setTab("login")}
+                                onClick={() => handleTabSwitch("login")}
                                 className={cn(
                                     "flex-1 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2",
                                     tab === "login"
@@ -449,7 +513,7 @@ export default function Login() {
                                 {t("login.tabLogin")}
                             </button>
                             <button
-                                onClick={() => setTab("register")}
+                                onClick={() => handleTabSwitch("register")}
                                 className={cn(
                                     "flex-1 py-2 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2",
                                     tab === "register"
@@ -462,9 +526,18 @@ export default function Login() {
                             </button>
                         </div>
 
+                        {/* ══ Animated form content ══ */}
+                        <div className="overflow-hidden">
+                        <div
+                            key={tab}
+                            className={cn(
+                                tab === "register" ? "animate-tab-from-right" : "animate-tab-from-left"
+                            )}
+                        >
+
                         {/* ══════════ LOGIN FORM ══════════ */}
                         {tab === "login" && (
-                            <div className="space-y-4 animate-slide-up">
+                            <div className="space-y-4">
                                 {/* Email */}
                                 <div>
                                     <Label htmlFor="login-email" className="text-sm text-muted-foreground mb-1.5 block">{t("login.email")}</Label>
@@ -516,6 +589,36 @@ export default function Login() {
                                     </div>
                                 </div>
 
+                                {/* ── Failed-attempt warning banner ── */}
+                                {loginAttempts > 0 && !isLocked && remainingAttempts !== null && (
+                                    <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-3 text-xs animate-slide-up">
+                                        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                                        <div>
+                                            <p className="font-semibold text-amber-300">
+                                                {loginAttempts} failed attempt{loginAttempts !== 1 ? "s" : ""}
+                                            </p>
+                                            <p className="text-amber-400/80 mt-0.5">
+                                                {remainingAttempts} attempt{remainingAttempts !== 1 ? "s" : ""} remaining before your account is locked for 15 minutes.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── Account locked countdown banner ── */}
+                                {isLocked && (
+                                    <div className="flex items-start gap-2.5 rounded-xl border border-red-500/40 bg-red-500/10 px-3.5 py-3 text-xs animate-slide-up">
+                                        <LockKeyhole className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                                        <div className="flex-1">
+                                            <p className="font-semibold text-red-300">Account Temporarily Locked</p>
+                                            <p className="text-red-400/80 mt-0.5">
+                                                Too many failed attempts. Try again in{" "}
+                                                <span className="font-mono font-bold text-red-300">{lockCountdown || "15:00"}</span>.
+                                            </p>
+                                        </div>
+                                        <Clock className="w-4 h-4 text-red-400/60 shrink-0 mt-0.5" />
+                                    </div>
+                                )}
+
                                 {/* Remember me */}
                                 <label className="flex items-center gap-2 cursor-pointer group">
                                     <div
@@ -534,7 +637,7 @@ export default function Login() {
                                 <Button
                                     onClick={handleLoginSubmit}
                                     className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold mt-2 group"
-                                    disabled={!loginForm.email || !loginForm.password || isLoading}
+                                    disabled={!loginForm.email || !loginForm.password || isLoading || isLocked}
                                 >
                                     {isLoading ? (
                                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -804,6 +907,8 @@ export default function Login() {
                                 </Button>
                             </div>
                         )}
+                        </div>{/* end animated form wrapper */}
+                        </div>{/* end overflow-hidden wrapper */}
                     </div>
 
                     {/* Back to home */}

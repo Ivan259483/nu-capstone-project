@@ -22,6 +22,7 @@ import {
 } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
+import { decrypt } from '../utils/encryption.utils.js';
 
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
@@ -162,6 +163,21 @@ const formatBookingDto = (orderDoc) => {
     ? (order.customer?._id?.toString?.() || order.customer?.id)
     : (order.customer?.toString?.() || order.customer);
 
+  // ── Decrypt fields that may still be encrypted (e.g. from .lean() queries) ──
+  // Mongoose post('init') middleware only fires for non-lean queries, so we
+  // need to handle decryption manually for lean results.
+  const safeDecrypt = (val) => {
+    if (!val || typeof val !== 'string') return val;
+    // Encrypted format is "hex:hex" — 32+ chars of hex with a colon separator
+    if (/^[0-9a-f]{32}:[0-9a-f]+$/i.test(val)) {
+      try { return decrypt(val); } catch { return val; }
+    }
+    return val;
+  };
+
+  const decryptedNotes = safeDecrypt(order.notes);
+  const decryptedPlate = safeDecrypt(order.vehiclePlate);
+
   const vehicleInfo =
     order.vehicleInfo
     || [order.vehicleYear, order.vehicleMake, order.vehicleModel].filter(Boolean).join(' ').trim();
@@ -182,6 +198,8 @@ const formatBookingDto = (orderDoc) => {
     || (typeof order.customer === 'object' ? order.customer?.phone : '')
     || '';
 
+  const customerAvatar = typeof order.customer === 'object' ? order.customer?.avatar : null;
+
   return {
     ...order,
     id,
@@ -191,8 +209,19 @@ const formatBookingDto = (orderDoc) => {
     date: order.date || order.bookingDate || '',
     time: order.time || order.bookingTime || '',
     vehicleInfo: vehicleInfo || '',
+    vehiclePlate: decryptedPlate || '',
     customerName,
     customerPhone,
+    customerAvatar,
+    notes: decryptedNotes || '',
+    // Also decrypt legal compliance fields if present
+    ...(order.legalCompliance ? {
+      legalCompliance: {
+        ...order.legalCompliance,
+        waiverSignature: safeDecrypt(order.legalCompliance.waiverSignature),
+        damageNotes: safeDecrypt(order.legalCompliance.damageNotes),
+      }
+    } : {}),
   };
 };
 
@@ -232,7 +261,7 @@ export const getAllOrders = async (req, res, next) => {
     const parsedLimit = parseInt(limit);
 
     const orders = await Order.find(query)
-      .populate('customer', 'name email phone')
+      .populate('customer', 'name email phone avatar')
       .populate('items.product')
       .populate('assignedDetailer', 'name email')
       .sort({ createdAt: -1 })
@@ -355,14 +384,14 @@ export const getActiveJobs = async (req, res, next) => {
     }
 
     const orders = await Order.find(query)
-      .populate('customer', 'name email phone')
+      .populate('customer', 'name email phone avatar')
       .populate('assignedDetailer', 'name email')
       .sort({ createdAt: -1 })
       .lean();
 
     res.json({
       success: true,
-      data: orders,
+      data: orders.map((o) => formatBookingDto(o)),
       count: orders.length
     });
   } catch (error) {
@@ -376,7 +405,7 @@ export const getActiveJobs = async (req, res, next) => {
 export const getOrderById = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id)
-      .populate('customer', 'name email phone')
+      .populate('customer', 'name email phone avatar')
       .populate('items.product')
       .populate('assignedDetailer', 'name email');
 
@@ -675,24 +704,26 @@ export const createOrder = async (req, res, next) => {
 
     await order.save();
 
-    // 🔍 DEBUG: Verify saved document has vehicle fields (remove after verification)
-    console.log('🔍 [SAVED_ORDER] Vehicle Data:', {
-      id: order._id,
-      orderNumber: order.orderNumber,
-      customerName: order.customerName,
-      vehicleYear: order.vehicleYear,
-      vehicleMake: order.vehicleMake,
-      vehicleModel: order.vehicleModel,
-      vehicleColor: order.vehicleColor,
-      vehiclePlate: order.vehiclePlate,
-      customerPhone: order.customerPhone,
-      serviceType: order.serviceType,
-      status: order.status,
-    });
+    // ⚠️ Bug #3 fix: Wrapped debug log in dev-only guard — never runs in production.
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 [SAVED_ORDER] Vehicle Data:', {
+        id: order._id,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        vehicleYear: order.vehicleYear,
+        vehicleMake: order.vehicleMake,
+        vehicleModel: order.vehicleModel,
+        vehicleColor: order.vehicleColor,
+        vehiclePlate: order.vehiclePlate,
+        customerPhone: order.customerPhone,
+        serviceType: order.serviceType,
+        status: order.status,
+      });
+    }
 
     // Populate so the response DTO is consistent with list endpoints (My Bookings)
     try {
-      await order.populate('customer', 'name email phone');
+      await order.populate('customer', 'name email phone avatar');
       await order.populate('items.product');
       await order.populate('assignedDetailer', 'name email');
     } catch (populateErr) {
@@ -1135,7 +1166,7 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
 
     // (Restriction removed: Detailers can have multiple scheduled active bookings)
 
-    const order = await Order.findById(req.params.id).populate('customer', 'name email');
+    const order = await Order.findById(req.params.id).populate('customer', 'name email avatar');
 
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
@@ -1608,7 +1639,7 @@ export const updateCustomerStatus = async (req, res, next) => {
       });
     }
 
-    const order = await Order.findById(req.params.id).populate('customer', 'email name');
+    const order = await Order.findById(req.params.id).populate('customer', 'email name avatar');
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
@@ -1678,9 +1709,10 @@ export const getDetailerOrders = async (req, res, next) => {
       assignedDetailer: req.user.id,
       status: { $in: ['assigned', 'received', 'in_progress', 'completed'] },
     })
-      .populate('customer', 'name email phone')
+      .populate('customer', 'name email phone avatar')
       .populate('assignedDetailer', 'name email')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     console.log('📋 [DETAILER_ORDERS] Total orders returned:', orders.length);
     console.log('📋 [DETAILER_ORDERS] Breakdown:', {
@@ -1691,7 +1723,7 @@ export const getDetailerOrders = async (req, res, next) => {
       statuses: [...new Set(orders.map(o => o.status))],
     });
 
-    res.json({ success: true, data: orders });
+    res.json({ success: true, data: orders.map(o => formatBookingDto(o)) });
   } catch (error) {
     console.error('❌ [DETAILER_ORDERS] Error:', error.message);
     next(error);
@@ -1753,7 +1785,7 @@ export const submitRating = async (req, res, next) => {
  */
 export const getWaiverPdf = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id).populate('customer', 'name email');
+    const order = await Order.findById(req.params.id).populate('customer', 'name email avatar');
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
@@ -1810,7 +1842,7 @@ export const getWaiverPdf = async (req, res, next) => {
  */
 export const sendWaiverReminder = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id).populate('customer', 'name email phone');
+    const order = await Order.findById(req.params.id).populate('customer', 'name email phone avatar');
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
@@ -2012,8 +2044,8 @@ export const updateWorkflowStep = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid step number (1-7)' });
     }
 
-    // Strict step-locking: all previous steps must be completed
-    const completedSteps = order.workflowCompletedSteps || [];
+    // Workflow unification: Read from canonical workflow.completedSteps sub-document
+    const completedSteps = order.workflow?.completedSteps || [];
     for (let i = 1; i < step; i++) {
       if (!completedSteps.includes(i)) {
         return res.status(403).json({
@@ -2083,15 +2115,16 @@ export const updateWorkflowStep = async (req, res, next) => {
         break;
     }
 
-    // Mark step as completed
-    if (!order.workflowCompletedSteps) order.workflowCompletedSteps = [];
-    if (!order.workflowCompletedSteps.includes(step)) {
-      order.workflowCompletedSteps.push(step);
+    // Mark step as completed — write to canonical workflow sub-document only
+    if (!order.workflow) order.workflow = { currentStep: 1, completedSteps: [], status: 'pending' };
+    if (!order.workflow.completedSteps.includes(step)) {
+      order.workflow.completedSteps.push(step);
     }
-    order.workflowStep = Math.max(order.workflowStep || 0, step);
+    order.workflow.currentStep = Math.max(order.workflow.currentStep || 1, step);
+    order.markModified('workflow');
 
     // Declarative Status Sync (Fallback to ensure Web POS accuracy)
-    const maxStep = Math.max(...order.workflowCompletedSteps, step);
+    const maxStep = Math.max(...order.workflow.completedSteps, step);
     if (maxStep >= 1 && maxStep < 7 && !['cancelled', 'failed'].includes(order.status)) {
        order.status = 'in_progress';
     } else if (maxStep >= 7 && !['cancelled', 'failed'].includes(order.status)) {
@@ -2104,7 +2137,7 @@ export const updateWorkflowStep = async (req, res, next) => {
     // Fire exact real-time payload socket for customers and admins immediately to reduce syncing delay
     import('../socket.js').then((socketModule) => {
       const io = socketModule.getIO();
-      if (io) io.emit('orderUpdated', { orderId: order._id, status: order.status, workflowStep: order.workflowStep });
+      if (io) io.emit('orderUpdated', { orderId: order._id, status: order.status, workflowStep: order.workflow?.currentStep });
     }).catch(err => console.error("Error retrieving socket io module inside updateWorkflowStep", err));
 
     // Log activity
@@ -2208,7 +2241,7 @@ export const operateCheckIn = async (req, res, next) => {
     const { downPaymentAmount, signature, signatureBase64, paymentMethod } = req.body;
     const sigData = signature || signatureBase64 || null;
 
-    const order = await Order.findById(id).populate('customer');
+    const order = await Order.findById(id).populate('customer', 'name email phone avatar');
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
@@ -2322,7 +2355,7 @@ export const operateStartService = async (req, res, next) => {
 export const operateQCComplete = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const order = await Order.findById(id).populate('customer').populate('items.product');
+    const order = await Order.findById(id).populate('customer', 'name email phone avatar').populate('items.product');
 
     if (!order) return res.status(404).json({ message: 'Order not found' });
     if (order.status !== 'in_progress') {
@@ -2486,7 +2519,7 @@ export const operateRelease = async (req, res, next) => {
  */
 export const confirmBooking = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id).populate('customer', 'name email');
+    const order = await Order.findById(req.params.id).populate('customer', 'name email avatar');
 
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
@@ -2583,7 +2616,7 @@ export const getStaffQueue = async (req, res, next) => {
     }
 
     const orders = await Order.find(filter)
-      .populate('customer', 'name email phone loyaltyTier')
+      .populate('customer', 'name email phone loyaltyTier avatar')
       .populate('assignedDetailer', 'name email')
       .select(
         'orderNumber bookingReference status customerStatus customerName serviceType ' +
@@ -2622,7 +2655,7 @@ export const getStaffQueue = async (req, res, next) => {
     return res.json({
       success: true,
       count: orders.length,
-      data: orders,
+      data: orders.map((o) => formatBookingDto(o)),
     });
   } catch (error) {
     next(error);

@@ -711,12 +711,11 @@ export default function LandingPage() {
             <footer className="border-t border-white/5 py-8 px-8">
                 <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center">
-                            <span className="text-white font-black text-[10px]">A+</span>
-                        </div>
-                        <span className="text-white/30 text-xs font-medium">
-                            AutoSPF<span className="text-orange-400/60">+</span>
-                        </span>
+                        <img 
+                            src="/images/autospf-logo.png" 
+                            alt="AutoSPF+" 
+                            className="h-6 object-contain opacity-50 grayscale hover:grayscale-0 hover:opacity-100 transition-all duration-300"
+                        />
                     </div>
                     <p className="text-[11px] text-white/20">© 2026 AutoSPF+ Inc. All rights reserved.</p>
                     <div className="flex items-center gap-6 text-[11px] text-white/25 hover:[&>*]:text-white/60 transition-colors">

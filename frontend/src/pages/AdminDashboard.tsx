@@ -18,7 +18,7 @@ import {
     ChevronLeft, ChevronRight, List,
     LayoutTemplate, ArrowUp, ArrowDown, Download, LayoutGrid,
     RefreshCw, MapPin, Truck, Mail, Phone, Monitor, Menu, BadgeCheck, Play, Car, Zap,
-    ExternalLink, Sparkles, MoreHorizontal
+    ExternalLink, Sparkles, MoreHorizontal, Tag, Save, DollarSign
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { formatDistanceToNow } from 'date-fns';
@@ -27,7 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox as UiCheckbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
@@ -290,6 +290,8 @@ export default function AdminDashboard() {
     const [itemQuantity, setItemQuantity] = useState('');
     const [itemUnit, setItemUnit] = useState('');
     const [itemMinLevel, setItemMinLevel] = useState('');
+    const [itemMaxLevel, setItemMaxLevel] = useState('');
+    const [itemSku, setItemSku] = useState('');
     const [itemCost, setItemCost] = useState('');
     const [itemSupplier, setItemSupplier] = useState('');
     const [itemCategoryFilter, setItemCategoryFilter] = useState('All Category');
@@ -554,8 +556,10 @@ export default function AdminDashboard() {
                         categoryId: typeof p.category === 'object' ? p.category?._id : p.category,
                         category: (typeof p.category === 'object' && p.category !== null) ? (p.category.name || 'Uncategorized') : (p.category || 'Uncategorized'),
                         stock: p.inventory,
-                        unit: 'units',
+                        unit: p.unit || 'units',
                         minLevel: p.minLevel || 5,
+                        maxLevel: p.maxLevel,
+                        sku: p.sku,
                         cost: p.price,
                         supplierId: typeof p.supplier === 'object' ? p.supplier?._id : p.supplier,
                         supplier: p.supplier?.name || 'Manual'
@@ -1143,6 +1147,8 @@ export default function AdminDashboard() {
             inventory: parseInt(itemQuantity),
             price: parseFloat(itemCost),
             minLevel: parseInt(itemMinLevel),
+            maxLevel: itemMaxLevel ? parseInt(itemMaxLevel) : undefined,
+            sku: itemSku || undefined,
             unit: itemUnit,
             supplier: itemSupplier
         };
@@ -1180,12 +1186,14 @@ export default function AdminDashboard() {
         setIsEditingInventory(true);
         setEditingInventoryId(item.id);
         setItemName(item.name);
-        setItemCategory(item.categoryId || '');
+        setItemCategory(item.categoryId || item.category || '');
         setItemQuantity(item.stock.toString());
         setItemUnit(item.unit);
         setItemMinLevel(item.minLevel.toString());
+        setItemMaxLevel(item.maxLevel?.toString() || '');
+        setItemSku(item.sku || '');
         setItemCost(item.cost.toString());
-        setItemSupplier(item.supplierId || '');
+        setItemSupplier(item.supplierId || item.supplier || '');
         setShowInventoryModal(true);
     };
 
@@ -1203,6 +1211,8 @@ export default function AdminDashboard() {
         setItemQuantity('');
         setItemUnit('');
         setItemMinLevel('');
+        setItemMaxLevel('');
+        setItemSku('');
         setItemCost('');
         setItemSupplier('');
         setIsEditingInventory(false);
@@ -1636,6 +1646,18 @@ export default function AdminDashboard() {
                 }
                 if (response.success) {
                     toast.success('Detailer assigned.');
+
+                    // Firestore real-time sync — so DetailerDashboard picks up assignment live
+                    try {
+                        await setDoc(doc(db, 'bookings', selectedBooking.id), {
+                            assignedDetailer: selectedDetailerId,
+                            status: response.data?.status || 'assigned',
+                            updatedAt: new Date().toISOString()
+                        }, { merge: true });
+                    } catch (fsErr) {
+                        console.warn('[FIRESTORE] Assignment sync failed (non-critical):', fsErr);
+                    }
+
                     setShowAssignModal(false);
                     setSelectedBooking(null);
                     setSelectedDetailerId('');
@@ -2330,8 +2352,10 @@ export default function AdminDashboard() {
 
                                                 <div className="seg">
                                                     <div className={`seg-item ${itemCategoryFilter === 'All Category' ? 'on' : ''}`} onClick={() => setItemCategoryFilter('All Category')}>All items</div>
-                                                    <div className={`seg-item ${itemCategoryFilter === 'Chemicals' ? 'on' : ''}`} onClick={() => setItemCategoryFilter('Chemicals')}>Chemicals</div>
-                                                    <div className={`seg-item ${itemCategoryFilter === 'Tools' ? 'on' : ''}`} onClick={() => setItemCategoryFilter('Tools')}>Tools</div>
+                                                    <div className={`seg-item ${itemCategoryFilter === 'Uncategorized' ? 'on' : ''}`} onClick={() => setItemCategoryFilter('Uncategorized')}>Uncategorized</div>
+                                                    <div className={`seg-item ${itemCategoryFilter === 'Cleaning Chemicals' ? 'on' : ''}`} onClick={() => setItemCategoryFilter('Cleaning Chemicals')}>Cleaning Chemicals</div>
+                                                    <div className={`seg-item ${itemCategoryFilter === 'Waxes & Polishes' ? 'on' : ''}`} onClick={() => setItemCategoryFilter('Waxes & Polishes')}>Waxes & Polishes</div>
+                                                    <div className={`seg-item ${itemCategoryFilter === 'Tools & Equipment' ? 'on' : ''}`} onClick={() => setItemCategoryFilter('Tools & Equipment')}>Tools & Equipment</div>
                                                     <div className={`seg-item ${itemCategoryFilter === 'Accessories' ? 'on' : ''}`} onClick={() => setItemCategoryFilter('Accessories')}>Accessories</div>
                                                 </div>
 
@@ -2358,89 +2382,120 @@ export default function AdminDashboard() {
                                                                 Add Item
                                                             </button>
                                                         </DialogTrigger>
-                                                        <DialogContent className={theme === 'light' ? 'bg-white' : 'bg-[#121214] border-zinc-800'}>
-                                                            <DialogHeader>
-                                                                <DialogTitle className={theme === 'light' ? 'text-gray-900' : 'text-white'}>
-                                                                    {isEditingInventory ? 'Edit Item' : 'Add New Item'}
+                                                        <DialogContent className={theme === 'light' ? 'bg-white sm:max-w-[650px]' : 'bg-[#0c0c0e] border-[#27272a]/50 sm:max-w-[650px] shadow-2xl shadow-orange-500/5'}>
+                                                            <DialogHeader className="pb-4 border-b border-zinc-800/50 mb-4">
+                                                                <DialogTitle className={`text-xl font-bold tracking-tight ${theme === 'light' ? 'text-gray-900' : 'text-zinc-100 flex items-center gap-2'}`}>
+                                                                    <div className="p-2 bg-orange-500/10 rounded-lg">
+                                                                        <Package className="w-5 h-5 text-orange-500" />
+                                                                    </div>
+                                                                    {isEditingInventory ? 'Update Inventory Item' : 'Register New Item'}
                                                                 </DialogTitle>
+                                                                <p className={`text-xs mt-1.5 ${theme === 'light' ? 'text-gray-500 ml-0' : 'text-zinc-500 ml-[44px]'}`}>Fill out the details below to track this item in your inventory system.</p>
                                                             </DialogHeader>
-                                                            <div className="space-y-4">
-                                                                <div>
-                                                                    <Label className={theme === 'light' ? 'text-gray-700' : 'text-zinc-300'}>Item Name</Label>
-                                                                    <Input
-                                                                        value={itemName}
-                                                                        onChange={(e) => setItemName(e.target.value)}
-                                                                        className={theme === 'light' ? 'bg-gray-50 border-gray-300' : 'bg-[#09090b] border-zinc-800'}
-                                                                    />
-                                                                </div>
-                                                                <div>
-                                                                    <Label className={theme === 'light' ? 'text-gray-700' : 'text-zinc-300'}>Category</Label>
-                                                                    <Input
-                                                                        value={itemCategory}
-                                                                        onChange={(e) => setItemCategory(e.target.value)}
-                                                                        className={theme === 'light' ? 'bg-gray-50 border-gray-300' : 'bg-[#09090b] border-zinc-800'}
-                                                                    />
-                                                                </div>
-                                                                <div className="grid grid-cols-2 gap-4">
-                                                                    <div>
-                                                                        <Label className={theme === 'light' ? 'text-gray-700' : 'text-zinc-300'}>Quantity</Label>
-                                                                        <Input
-                                                                            type="number"
-                                                                            value={itemQuantity}
-                                                                            onChange={(e) => setItemQuantity(e.target.value)}
-                                                                            className={theme === 'light' ? 'bg-gray-50 border-gray-300' : 'bg-[#09090b] border-zinc-800'}
-                                                                        />
-                                                                    </div>
-                                                                    <div>
-                                                                        <Label className={theme === 'light' ? 'text-gray-700' : 'text-zinc-300'}>Unit</Label>
-                                                                        <Input
-                                                                            value={itemUnit}
-                                                                            onChange={(e) => setItemUnit(e.target.value)}
-                                                                            className={theme === 'light' ? 'bg-gray-50 border-gray-300' : 'bg-[#09090b] border-zinc-800'}
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                                <div className="grid grid-cols-2 gap-4">
-                                                                    <div>
-                                                                        <Label className={theme === 'light' ? 'text-gray-700' : 'text-zinc-300'}>Min Level</Label>
-                                                                        <Input
-                                                                            type="number"
-                                                                            value={itemMinLevel}
-                                                                            onChange={(e) => setItemMinLevel(e.target.value)}
-                                                                            className={theme === 'light' ? 'bg-gray-50 border-gray-300' : 'bg-[#09090b] border-zinc-800'}
-                                                                        />
-                                                                    </div>
-                                                                    <div>
-                                                                        <Label className={theme === 'light' ? 'text-gray-700' : 'text-zinc-300'}>Cost</Label>
-                                                                        <div className="relative">
-                                                                            <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold ${theme === 'light' ? 'text-gray-500' : 'text-zinc-500'}`}>
-                                                                                ₱
-                                                                            </span>
+
+                                                            <div className="space-y-6">
+                                                                {/* SECTION 1: Item Identification */}
+                                                                <div className="space-y-4">
+                                                                    <h4 className={`text-[10px] uppercase tracking-widest font-bold pb-2 ${theme === 'light' ? 'text-gray-500 border-b border-gray-200' : 'text-zinc-500 border-b border-zinc-800/60'}`}>Item Identification</h4>
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                        <div className="space-y-1.5">
+                                                                            <Label className={theme === 'light' ? 'text-xs font-bold text-gray-700 uppercase tracking-widest' : 'text-[11px] font-bold tracking-widest uppercase text-zinc-400'}>Item Name</Label>
                                                                             <Input
-                                                                                type="number"
-                                                                                step="0.01"
-                                                                                value={itemCost}
-                                                                                onChange={(e) => setItemCost(e.target.value)}
-                                                                                className={`pl-7 ${theme === 'light' ? 'bg-gray-50 border-gray-300' : 'bg-[#09090b] border-zinc-800'}`}
+                                                                                value={itemName}
+                                                                                placeholder="e.g. Ceramic Coating Spray"
+                                                                                onChange={(e) => setItemName(e.target.value)}
+                                                                                className={theme === 'light' ? 'bg-gray-50 border-gray-200 focus:ring-orange-500 focus:border-orange-500' : 'bg-[#121214] border-zinc-800/60 text-zinc-200 placeholder:text-zinc-600 focus:border-orange-500/50'}
                                                                             />
+                                                                        </div>
+                                                                        <div className="space-y-1.5">
+                                                                            <Label className={theme === 'light' ? 'text-xs font-bold text-gray-700 uppercase tracking-widest' : 'text-[11px] font-bold tracking-widest uppercase text-zinc-400'}>Category</Label>
+                                                                            <Select value={itemCategory} onValueChange={setItemCategory}>
+                                                                                <SelectTrigger className={theme === 'light' ? 'bg-gray-50 border-gray-200 focus:ring-orange-500 focus:border-orange-500' : 'bg-[#121214] border-zinc-800/60 text-zinc-200 focus:ring-orange-500/50'}>
+                                                                                    <SelectValue placeholder="Select Category" />
+                                                                                </SelectTrigger>
+                                                                                <SelectContent className={theme === 'light' ? 'bg-white border-gray-200' : 'bg-[#18181b] border-zinc-800 text-zinc-200'}>
+                                                                                    <SelectItem value="Uncategorized">Uncategorized</SelectItem>
+                                                                                    <SelectItem value="Cleaning Chemicals">Cleaning Chemicals</SelectItem>
+                                                                                    <SelectItem value="Waxes & Polishes">Waxes & Polishes</SelectItem>
+                                                                                    <SelectItem value="Tools & Equipment">Tools & Equipment</SelectItem>
+                                                                                    <SelectItem value="Accessories">Accessories</SelectItem>
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                        </div>
+                                                                        <div className="space-y-1.5 md:col-span-2">
+                                                                            <Label className={theme === 'light' ? 'text-xs font-bold text-gray-700 uppercase tracking-widest' : 'text-[11px] font-bold tracking-widest uppercase text-zinc-400'}>SKU (Item Code)</Label>
+                                                                            <div className="relative">
+                                                                                <span className={`absolute left-3 top-1/2 -translate-y-1/2 ${theme === 'light' ? 'text-gray-400' : 'text-zinc-500'}`}><Tag className="w-3.5 h-3.5" /></span>
+                                                                                <Input
+                                                                                    value={itemSku}
+                                                                                    placeholder="e.g. CHM-CC-001"
+                                                                                    onChange={(e) => setItemSku(e.target.value)}
+                                                                                    className={theme === 'light' ? 'pl-9 bg-gray-50 border-gray-200 focus:ring-orange-500 focus:border-orange-500' : 'pl-9 bg-[#121214] border-zinc-800/60 text-zinc-200 placeholder:text-zinc-600 focus:border-orange-500/50'}
+                                                                                />
+                                                                            </div>
                                                                         </div>
                                                                     </div>
                                                                 </div>
-                                                                <div>
-                                                                    <Label className={theme === 'light' ? 'text-gray-700' : 'text-zinc-300'}>Supplier</Label>
-                                                                    <Input
-                                                                        value={itemSupplier}
-                                                                        onChange={(e) => setItemSupplier(e.target.value)}
-                                                                        className={theme === 'light' ? 'bg-gray-50 border-gray-300' : 'bg-[#09090b] border-zinc-800'}
-                                                                    />
+
+                                                                {/* SECTION 2: Stock Metrics */}
+                                                                <div className="space-y-4 pt-1">
+                                                                    <h4 className={`text-[10px] uppercase tracking-widest font-bold pb-2 ${theme === 'light' ? 'text-gray-500 border-b border-gray-200' : 'text-zinc-500 border-b border-zinc-800/60'}`}>Stock Metrics</h4>
+                                                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                                        <div className="space-y-1.5">
+                                                                            <Label className={theme === 'light' ? 'text-[10px] font-bold text-gray-700 uppercase tracking-widest' : 'text-[10px] font-bold tracking-widest uppercase text-zinc-400'}>Initial Qty</Label>
+                                                                            <Input type="number" value={itemQuantity} onChange={(e) => setItemQuantity(e.target.value)} placeholder="0" className={theme === 'light' ? 'bg-gray-50 border-gray-200 focus:ring-orange-500 focus:border-orange-500' : 'bg-[#121214] border-zinc-800/60 text-zinc-200 font-mono'} />
+                                                                        </div>
+                                                                        <div className="space-y-1.5">
+                                                                            <Label className={theme === 'light' ? 'text-[10px] font-bold text-gray-700 uppercase tracking-widest' : 'text-[10px] font-bold tracking-widest uppercase text-zinc-400'}>Unit</Label>
+                                                                            <Input value={itemUnit} onChange={(e) => setItemUnit(e.target.value)} placeholder="pcs, ml, L" className={theme === 'light' ? 'bg-gray-50 border-gray-200 focus:ring-orange-500 focus:border-orange-500' : 'bg-[#121214] border-zinc-800/60 text-zinc-200 text-center'} />
+                                                                        </div>
+                                                                        <div className="space-y-1.5">
+                                                                            <Label className={theme === 'light' ? 'text-[10px] font-bold text-gray-700 uppercase tracking-widest' : 'text-[10px] font-bold tracking-widest uppercase text-zinc-400'}>Min Level</Label>
+                                                                            <Input type="number" value={itemMinLevel} onChange={(e) => setItemMinLevel(e.target.value)} placeholder="5" className={theme === 'light' ? 'bg-gray-50 border-gray-200 focus:ring-orange-500 border-l-[3px] border-l-red-500' : 'bg-[#121214] border-zinc-800/60 text-zinc-200 font-mono text-orange-200/70 border-l-[3px] border-l-red-500/50'} />
+                                                                        </div>
+                                                                        <div className="space-y-1.5">
+                                                                            <Label className={theme === 'light' ? 'text-[10px] font-bold text-gray-700 uppercase tracking-widest' : 'text-[10px] font-bold tracking-widest uppercase text-zinc-400'}>Max Level</Label>
+                                                                            <Input type="number" value={itemMaxLevel} onChange={(e) => setItemMaxLevel(e.target.value)} placeholder="50" className={theme === 'light' ? 'bg-gray-50 border-gray-200 focus:ring-orange-500 border-l-[3px] border-l-emerald-500' : 'bg-[#121214] border-zinc-800/60 text-zinc-200 font-mono border-l-[3px] border-l-emerald-500/50'} />
+                                                                        </div>
+                                                                    </div>
                                                                 </div>
-                                                                <Button
-                                                                    onClick={handleAddInventory}
-                                                                    disabled={isLoading}
-                                                                    className="w-full bg-orange-600 hover:bg-orange-700"
-                                                                >
-                                                                    {isLoading ? 'Saving...' : isEditingInventory ? 'Update Item' : 'Add Item'}
-                                                                </Button>
+
+                                                                {/* SECTION 3: Cost & Supplier */}
+                                                                <div className="space-y-4 pt-1">
+                                                                    <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl border ${theme === 'light' ? 'bg-gray-50 border-gray-200' : 'bg-[#121214]/50 border-zinc-800/40'}`}>
+                                                                        <div className="space-y-1.5">
+                                                                            <Label className={theme === 'light' ? 'text-xs font-bold text-gray-700 uppercase tracking-widest flex items-center gap-1.5' : 'text-[11px] font-bold tracking-widest uppercase text-zinc-400 flex items-center gap-1.5'}><DollarSign className="w-3.5 h-3.5" /> Unit Cost</Label>
+                                                                            <div className="relative">
+                                                                                <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold ${theme === 'light' ? 'text-gray-500' : 'text-zinc-500'}`}>₱</span>
+                                                                                <Input type="number" step="0.01" value={itemCost} onChange={(e) => setItemCost(e.target.value)} placeholder="0.00" className={theme === 'light' ? 'pl-7 bg-white border-gray-200 focus:ring-orange-500 focus:border-orange-500' : 'pl-7 bg-[#0c0c0e] border-zinc-800/60 text-zinc-200 font-mono text-emerald-400'} />
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="space-y-1.5">
+                                                                            <Label className={theme === 'light' ? 'text-xs font-bold text-gray-700 uppercase tracking-widest flex items-center gap-1.5' : 'text-[11px] font-bold tracking-widest uppercase text-zinc-400 flex items-center gap-1.5'}><Truck className="w-3.5 h-3.5" /> Supplier</Label>
+                                                                            <Input value={itemSupplier} onChange={(e) => setItemSupplier(e.target.value)} placeholder="Supplier Name" className={theme === 'light' ? 'bg-white border-gray-200 focus:ring-orange-500 focus:border-orange-500' : 'bg-[#0c0c0e] border-zinc-800/60 text-zinc-200'} />
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* BUTTONS */}
+                                                                <div className={`pt-4 border-t flex gap-3 ${theme === 'light' ? 'border-gray-200' : 'border-zinc-800/50'}`}>
+                                                                    <DialogClose asChild>
+                                                                        <Button variant="ghost" className={`w-1/3 ${theme === 'light' ? 'text-gray-600 hover:bg-gray-100' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'}`} disabled={isLoading}>Cancel</Button>
+                                                                    </DialogClose>
+                                                                    <Button
+                                                                        onClick={handleAddInventory}
+                                                                        disabled={isLoading}
+                                                                        className="w-2/3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white shadow-lg shadow-orange-900/20 border border-orange-500/30 transition-all font-semibold"
+                                                                    >
+                                                                        {isLoading ? (
+                                                                            <span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</span>
+                                                                        ) : isEditingInventory ? (
+                                                                            <span className="flex items-center gap-2"><Save className="w-4 h-4" /> Save Changes</span>
+                                                                        ) : (
+                                                                            <span className="flex items-center gap-2"><Plus className="w-4 h-4" /> Add Item to Inventory</span>
+                                                                        )}
+                                                                    </Button>
+                                                                </div>
                                                             </div>
                                                         </DialogContent>
                                                     </Dialog>

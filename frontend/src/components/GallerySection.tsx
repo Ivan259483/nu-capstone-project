@@ -101,7 +101,7 @@ export default function GallerySection({ items }: GallerySectionProps) {
     }));
 
     return (
-        <section id="gallery" className="relative py-24 section-darker z-10 isolate min-h-max overflow-hidden bg-background/50">
+        <section id="gallery" className="relative pt-12 pb-24 section-darker z-10 isolate min-h-max overflow-hidden bg-background/50">
             {/* Ambient glow */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[300px] bg-gold/5 blur-[120px] rounded-full pointer-events-none" />
             <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-zinc-800/20 blur-[100px] rounded-full pointer-events-none" />

@@ -86,7 +86,7 @@ export default function ConfirmBookingSheet({
       onRequestClose={onClose}
     >
       <Animated.View entering={FadeIn.duration(200)} style={styles.backdrop}>
-        <Animated.View entering={SlideInDown.springify().damping(20)} style={styles.sheet}>
+        <Animated.View entering={SlideInDown.duration(200)} style={styles.sheet}>
           <BlurView intensity={60} tint="dark" style={styles.blurFill}>
             {/* ── Header ── */}
             <View style={styles.header}>
@@ -108,7 +108,7 @@ export default function ConfirmBookingSheet({
             >
               {/* ── Preview Thumbnails ── */}
               {(beforeImageUri || afterImageUri) && (
-                <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.previewRow}>
+                <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.previewRow}>
                   {beforeImageUri && (
                     <View style={styles.previewSlot}>
                       <Image source={beforeImageUri} style={styles.previewImage} contentFit="cover" cachePolicy="memory-disk" transition={200} />
@@ -139,7 +139,7 @@ export default function ConfirmBookingSheet({
               )}
 
               {/* ── Repair Services ── */}
-              <Animated.View entering={FadeInDown.delay(200).springify()}>
+              <Animated.View entering={FadeInDown.delay(200).duration(200)}>
                 <Text style={styles.sectionLabel}>REPAIR SERVICES ({selectedServiceCount})</Text>
                 {estimate.breakdown.map((line) => (
                   <View key={line.serviceId} style={styles.lineItem}>
@@ -156,7 +156,7 @@ export default function ConfirmBookingSheet({
 
               {/* ── Add-Ons ── */}
               {estimate.addOnBreakdown.length > 0 && (
-                <Animated.View entering={FadeInDown.delay(300).springify()}>
+                <Animated.View entering={FadeInDown.delay(300).duration(200)}>
                   <Text style={styles.sectionLabel}>ADD-ON SERVICES</Text>
                   {estimate.addOnBreakdown.map((addOn) => (
                     <View key={addOn.id} style={styles.lineItem}>
@@ -173,7 +173,7 @@ export default function ConfirmBookingSheet({
               )}
 
               {/* ── Cost Summary ── */}
-              <Animated.View entering={FadeInDown.delay(350).springify()} style={styles.costSummaryCard}>
+              <Animated.View entering={FadeInDown.delay(350).duration(200)} style={styles.costSummaryCard}>
                 <LinearGradient
                   colors={['rgba(255,107,53,0.06)', 'rgba(255,107,53,0.02)', 'rgba(4,4,6,0.5)']}
                   style={styles.costGradient}
@@ -200,7 +200,7 @@ export default function ConfirmBookingSheet({
 
               {/* ── Assumptions ── */}
               {estimate.assumptions.length > 0 && (
-                <Animated.View entering={FadeInDown.delay(400).springify()} style={styles.assumptionsWrap}>
+                <Animated.View entering={FadeInDown.delay(400).duration(200)} style={styles.assumptionsWrap}>
                   {estimate.assumptions.map((a, i) => (
                     <Text key={i} style={styles.assumptionText}>• {a}</Text>
                   ))}
@@ -209,7 +209,7 @@ export default function ConfirmBookingSheet({
             </ScrollView>
 
             {/* ── Bottom CTA ── */}
-            <Animated.View entering={FadeInUp.delay(500).springify()} style={styles.ctaWrap}>
+            <Animated.View entering={FadeInUp.delay(500).duration(200)} style={styles.ctaWrap}>
               <LinearGradient
                 colors={['rgba(4,4,6,0)', 'rgba(4,4,6,0.98)']}
                 style={styles.ctaGradientMask}

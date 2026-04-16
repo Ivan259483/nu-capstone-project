@@ -1,10 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
-  Alert,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
@@ -13,7 +11,7 @@ import {
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/hooks/useThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -23,8 +21,13 @@ import PremiumInput from '@/components/ui/PremiumInput';
 import { Toast } from '@/components/ui/PremiumToast';
 import { Validation } from '@/utils/validation';
 
-const { height } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
+
+
+/* ═══════════════════════════════════════
+   LoginScreen Component
+═══════════════════════════════════════ */
 export default function LoginScreen() {
   const { signIn } = useAuth();
   
@@ -32,30 +35,42 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
-  
+
+  // Brute-force lock state (driven by backend structured data)
+  const [loginAttempts, setLoginAttempts] = useState(0);
+  const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+  const [isLocked, setIsLocked] = useState(false);
+  const [lockUntilMs, setLockUntilMs] = useState<number | null>(null);
+  const [lockCountdown, setLockCountdown] = useState('');
+
   // Validation errors
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
-  // Cooldown timer for rate-limiting
-  React.useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = setInterval(() => {
-      setCooldown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+
+  // Lock countdown timer
+  useEffect(() => {
+    if (!isLocked || !lockUntilMs) return;
+    const tick = () => {
+      const diff = lockUntilMs - Date.now();
+      if (diff <= 0) {
+        setIsLocked(false);
+        setLockUntilMs(null);
+        setLockCountdown('');
+        return;
+      }
+      const mins = Math.floor(diff / 60000);
+      const secs = Math.floor((diff % 60000) / 1000);
+      setLockCountdown(`${mins}:${secs.toString().padStart(2, '0')}`);
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [cooldown]);
+  }, [isLocked, lockUntilMs]);
 
   async function handleLogin() {
-    if (cooldown > 0) {
-      Toast.show(`Please wait ${cooldown}s before trying again.`, 'error');
+    if (isLocked) {
+      Toast.show(`Account locked. Try again in ${lockCountdown}.`, 'error');
       return;
     }
 
@@ -77,27 +92,46 @@ export default function LoginScreen() {
       hasError = true;
     }
 
-    if (hasError) {
-      return;
-    }
+    if (hasError) return;
 
     setLoading(true);
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
+
     const result = await signIn(email.trim(), password);
+
     if (result.success) {
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
+      // Reset attempt tracking on success
+      setLoginAttempts(0);
+      setRemainingAttempts(null);
+      setIsLocked(false);
+      setLockUntilMs(null);
       router.replace('/');
     } else {
-      // If rate-limited or locked, enforce a 30-second cooldown locally
-      if (result.message?.toLowerCase().includes('too many') || result.message?.toLowerCase().includes('locked')) {
-        setCooldown(30);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
-      Alert.alert('Login Failed', result.message || 'Invalid credentials. Please try again.', [{ text: 'OK' }]);
+      // Parse structured lock / attempt data from backend
+      if (result.data?.locked || result.data?.lockUntilMs) {
+        setIsLocked(true);
+        setLockUntilMs(result.data.lockUntilMs ?? Date.now() + 15 * 60 * 1000);
+        setLoginAttempts(0);
+        setRemainingAttempts(0);
+        Toast.show(result.message || 'Account locked for 15 minutes.', 'error');
+      } else if (result.data?.remainingAttempts !== undefined) {
+        setLoginAttempts(result.data.loginAttempts ?? loginAttempts + 1);
+        setRemainingAttempts(result.data.remainingAttempts);
+        Toast.show(result.message || 'Invalid credentials.', 'error');
+      } else {
+        // Firebase-level error or unknown (no structured data)
+        Toast.show(result.message || 'Invalid credentials. Please try again.', 'error');
+      }
     }
+
     setLoading(false);
   }
 
@@ -132,7 +166,7 @@ export default function LoginScreen() {
         style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 32 }}
       >
         {/* Premium Back Button */}
-        <Animated.View entering={FadeInDown.delay(50).springify().damping(16).stiffness(120)} style={styles.backButtonContainer}>
+        <Animated.View entering={FadeInDown.delay(50).duration(200)} style={styles.backButtonContainer}>
              <TouchableOpacity 
                 style={styles.backButton}
                 hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
@@ -146,7 +180,7 @@ export default function LoginScreen() {
         </Animated.View>
 
         {/* Branding & Logo */}
-        <Animated.View entering={FadeInDown.delay(100).springify().damping(16).stiffness(120)} style={styles.headerContainer}>
+        <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.headerContainer}>
           <View style={styles.iconWrapper}>
             <LinearGradient
               colors={[Palette.accent, Palette.accentDark]}
@@ -161,14 +195,18 @@ export default function LoginScreen() {
         </Animated.View>
 
         {/* Welcome Text */}
-        <Animated.View entering={FadeInUp.delay(200).springify().damping(16).stiffness(120)} style={styles.welcomeArea}>
+        <Animated.View entering={FadeInUp.delay(200).duration(200)} style={styles.welcomeArea}>
             <Text style={styles.welcomeText}>Welcome Back</Text>
-            <Text style={styles.welcomeSubtext}>Sign in to manage your vehicle services.</Text>
+            <Text style={styles.welcomeSubtext}>
+              Access your appointments, vehicle status, and service history
+            </Text>
         </Animated.View>
 
-        {/* Floating Inputs Form */}
+
+
+            {/* Floating Inputs Form */}
         <View style={styles.formContainer}>
-            <Animated.View entering={FadeInUp.delay(300).springify().damping(16).stiffness(120)}>
+            <Animated.View entering={FadeInUp.delay(300).duration(200)}>
               <PremiumInput
                 label="EMAIL ADDRESS"
                 iconName="mail-outline"
@@ -181,7 +219,7 @@ export default function LoginScreen() {
               />
             </Animated.View>
 
-            <Animated.View entering={FadeInUp.delay(400).springify().damping(16).stiffness(120)}>
+            <Animated.View entering={FadeInUp.delay(400).duration(200)}>
               <PremiumInput
                 label="PASSWORD"
                 iconName="lock-closed-outline"
@@ -193,8 +231,35 @@ export default function LoginScreen() {
               />
             </Animated.View>
 
+            {/* ── Failed-attempt inline warning ── */}
+            {loginAttempts > 0 && !isLocked && remainingAttempts !== null && (
+              <Animated.View entering={FadeInUp.duration(200)} style={styles.warningBanner}>
+                <Ionicons name="warning-outline" size={16} color="#FCD34D" />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={styles.warningTitle}>{loginAttempts} Failed Attempt{loginAttempts !== 1 ? 's' : ''}</Text>
+                  <Text style={styles.warningBody}>
+                    {remainingAttempts} attempt{remainingAttempts !== 1 ? 's' : ''} remaining before your account is locked for 15 minutes.
+                  </Text>
+                </View>
+              </Animated.View>
+            )}
+
+            {/* ── Account locked panel ── */}
+            {isLocked && (
+              <Animated.View entering={FadeInUp.duration(200)} style={styles.lockBanner}>
+                <Ionicons name="lock-closed" size={20} color="#F87171" />
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <Text style={styles.lockTitle}>Account Temporarily Locked</Text>
+                  <Text style={styles.lockBody}>
+                    Too many failed attempts. Try again in{' '}
+                    <Text style={styles.lockTimer}>{lockCountdown || '15:00'}</Text>.
+                  </Text>
+                </View>
+              </Animated.View>
+            )}
+
             {/* Forgot Password */}
-            <Animated.View entering={FadeInUp.delay(500).springify().damping(16).stiffness(120)}>
+            <Animated.View entering={FadeInUp.delay(500).duration(200)}>
               <TouchableOpacity
                 style={{ alignSelf: 'flex-end', marginTop: 16 }}
                 onPress={() => {
@@ -209,19 +274,19 @@ export default function LoginScreen() {
             </Animated.View>
 
             {/* Sign In Button */}
-            <Animated.View entering={FadeInUp.delay(600).springify().damping(15).stiffness(100)} style={{ marginTop: 32 }}>
+            <Animated.View entering={FadeInUp.delay(600).duration(200)} style={{ marginTop: 32 }}>
               <PremiumButton
-                title={cooldown > 0 ? `WAIT ${cooldown}s` : loading ? 'SIGNING IN...' : 'SIGN IN'}
-                icon={loading || cooldown > 0 ? undefined : 'log-in-outline'}
+                title={isLocked ? `LOCKED — ${lockCountdown || '15:00'}` : loading ? 'SIGNING IN...' : 'SIGN IN'}
+                icon={loading || isLocked ? undefined : 'log-in-outline'}
                 onPress={handleLogin}
-                disabled={loading || cooldown > 0}
+                disabled={loading || isLocked}
               />
             </Animated.View>
         </View>
 
         {/* Footer */}
         <Animated.View
-          entering={FadeInUp.delay(700).springify().damping(16).stiffness(120)}
+          entering={FadeInUp.delay(700).duration(200)}
           style={{
             flexDirection: 'row',
             justifyContent: 'center',
@@ -284,7 +349,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  headerContainer: { alignItems: 'center', marginBottom: 40 },
+  headerContainer: { alignItems: 'center', marginBottom: 24 },
   iconWrapper: {
     width: 60,
     height: 60,
@@ -299,13 +364,44 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 10, fontWeight: '800', color: '#8A8A9A', letterSpacing: 3, marginTop: 6 },
   
   welcomeArea: {
-    marginBottom: 40,
+    marginBottom: 16,
     alignItems: 'center',
   },
   welcomeText: { fontSize: 26, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', letterSpacing: 0.5 },
   welcomeSubtext: { fontSize: 14, color: '#8A8A9A', textAlign: 'center', marginTop: 8, fontWeight: '500' },
   
+
+
   formContainer: {
     width: '100%',
   },
+
+  // Failed-attempt warning banner
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(251, 191, 36, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.3)',
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 12,
+  },
+  warningTitle: { fontSize: 13, fontWeight: '700', color: '#FCD34D' },
+  warningBody: { fontSize: 12, color: 'rgba(252, 211, 77, 0.75)', marginTop: 3, lineHeight: 17 },
+
+  // Account locked panel
+  lockBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 12,
+  },
+  lockTitle: { fontSize: 14, fontWeight: '700', color: '#F87171' },
+  lockBody: { fontSize: 12, color: 'rgba(248, 113, 113, 0.75)', marginTop: 3, lineHeight: 17 },
+  lockTimer: { fontWeight: '900', color: '#F87171', fontVariant: ['tabular-nums'] as any },
 });

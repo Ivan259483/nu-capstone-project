@@ -3,7 +3,7 @@ import type { User } from '@/types';
 import { userStorage, initializeStorage } from '@/lib/storage';
 import { UserService } from '@/lib/user-service';
 import { auth } from '@/config/firebase';
-import { CUSTOMER_ROLE, getSafeUserRole, migrateLegacyUserRole } from '@/lib/roles';
+import { CUSTOMER_ROLE, getSafeUserRole, migrateLegacyUserRole, ADMIN_DASHBOARD_ROLES, getDashboardPathForRole } from '@/lib/roles';
 import {
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
@@ -60,12 +60,13 @@ function clearSessionCache(): void {
 interface AuthContextType {
     user: User | null;
     isLoading: boolean;
-    login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
+    login: (email: string, password: string) => Promise<{ success: boolean; message?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }>;
     signup: (email: string, password: string, name: string) => Promise<{ success: boolean; message?: string }>;
     resetPassword: (email: string) => Promise<{ success: boolean; message?: string }>;
     logout: () => void;
     updateUser: (user: User, options?: { localOnly?: boolean }) => Promise<{ success: boolean; message?: string; offline?: boolean; reason?: 'timeout' | 'network' | 'error' }>;
     setAuthUser: (user: User | null) => void;
+    deleteAccount: (password: string) => Promise<{ success: boolean; message?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -149,6 +150,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 // login() will handle setUser() with the correct role from the backend.
                 // We MUST NOT proceed here or we'll set stale role data and cause
                 // admin users to be redirected to /customer/dashboard.
+                console.log('🔍 [DEBUG-onAuthStateChanged] Entry:', {
+                    email: firebaseUser.email,
+                    loginInProgress: loginInProgressRef.current,
+                    loginResolved: loginResolvedRef.current,
+                    hasToken: !!localStorage.getItem('autospf_token'),
+                });
                 if (loginInProgressRef.current || loginResolvedRef.current) {
                     console.log('⏭️ [AuthContext] Skipping onAuthStateChanged — login() is handling auth');
                     if (loginResolvedRef.current) {
@@ -172,8 +179,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     // GUARD: Skip cache if login() is in progress — it will resolve
                     // the user with fresh backend data including the correct role.
                     const cached = getSessionCache();
+                    console.log('🔍 [DEBUG-onAuth] Session cache:', {
+                        hasCachedData: !!cached,
+                        cachedUid: cached?.user?.id,
+                        firebaseUid: firebaseUser.uid,
+                        cachedRole: cached?.user?.role,
+                        loginResolved: loginResolvedRef.current,
+                    });
                     if (cached && cached.user.id === firebaseUser.uid && !loginResolvedRef.current) {
-                        console.log(`⚡ [AuthContext] Session cache hit — instant restore`);
+                        console.log(`⚡ [AuthContext] Session cache hit — instant restore, role: ${cached.user.role}`);
                         const sanitized = sanitizeUser(cached.user);
                         userStorage.setCurrentUser(sanitized);
                         setUser(cached.user);
@@ -191,6 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                     // ── Fast path: use cached backend user from the login() call ──
                     const cachedBackendUser = localStorage.getItem('autospf_backend_user');
+                    console.log('🔍 [DEBUG-onAuth] Cached backend user:', cachedBackendUser);
                     if (cachedBackendUser) {
                         try {
                             const parsed = JSON.parse(cachedBackendUser);
@@ -200,7 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                                 if (migratedRole) resolvedRole = migratedRole;
                             }
                             if (parsed.name) resolvedName = parsed.name;
-                            console.log(`✅ [AuthContext] Role from cached backend login: ${resolvedRole}`);
+                            console.log(`✅ [DEBUG-onAuth] Role from cached backend login: ${resolvedRole}`);
                             // Clear the cache — it's single-use
                             localStorage.removeItem('autospf_backend_user');
                         } catch { /* ignore malformed cache */ }
@@ -208,22 +223,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                     // ── Primary path: fetch role from MongoDB backend API ──
                     if (!resolvedRole || !foundBackendId) {
+                        const fetchUrl = `${BACKEND_URL}/users?email=${encodeURIComponent(firebaseUser.email || '')}`;
+                        console.log('🌐 [DEBUG-onAuth] Fetching user from backend:', fetchUrl);
                         try {
-                            const resp = await fetch(
-                                `${BACKEND_URL}/users?email=${encodeURIComponent(firebaseUser.email || '')}`,
-                                { signal: AbortSignal.timeout(5000) }
-                            );
+                            const resp = await fetch(fetchUrl, { signal: AbortSignal.timeout(5000) });
+                            console.log('🌐 [DEBUG-onAuth] Backend response status:', resp.status, resp.statusText);
                             if (resp.ok) {
                                 const json = await resp.json();
+                                console.log('🌐 [DEBUG-onAuth] Backend response JSON:', JSON.stringify(json, null, 2));
                                 const found = Array.isArray(json.data)
                                     ? json.data.find((u: any) =>
                                         u.email?.toLowerCase() === firebaseUser.email?.toLowerCase()
                                       )
                                     : json.data;
                                 
+                                console.log('🌐 [DEBUG-onAuth] Found user match:', found ? JSON.stringify({ role: found.role, email: found.email, _id: found._id }) : 'NULL - NO MATCH');
+
                                 if (found) {
                                     foundBackendId = found._id || found.id || foundBackendId;
                                     const migratedRole = migrateLegacyUserRole(found.role);
+                                    console.log('🌐 [DEBUG-onAuth] migrateLegacyUserRole result:', { input: found.role, output: migratedRole });
                                     if (migratedRole) resolvedRole = migratedRole;
                                     if (found.name) resolvedName = found.name;
                                     
@@ -235,19 +254,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                                         lastActive: found.updatedAt || new Date().toISOString()
                                     };
 
-                                    console.log(`✅ [AuthContext] Role from MongoDB API: ${resolvedRole}`);
+                                    console.log(`✅ [DEBUG-onAuth] Role from MongoDB API: ${resolvedRole}`);
                                 }
+                            } else {
+                                const errText = await resp.text();
+                                console.error('❌ [DEBUG-onAuth] Backend returned non-OK:', resp.status, errText);
                             }
                         } catch (backendErr) {
-                            console.warn('⚠️ [AuthContext] Backend role lookup failed:', backendErr);
+                            console.warn('⚠️ [DEBUG-onAuth] Backend role lookup FAILED:', backendErr);
                         }
                     }
 
                     // ── Fallback Path ──
                     if (!resolvedRole) {
+                        console.warn('⚠️ [DEBUG-onAuth] No role resolved! Falling back.', {
+                            existingStoredId: existingStored?.id,
+                            firebaseUid: firebaseUser.uid,
+                            existingStoredRole: existingStored?.role,
+                        });
                          resolvedRole = (existingStored?.id === firebaseUser.uid && existingStored?.role)
                              ? getSafeUserRole(existingStored.role, CUSTOMER_ROLE)
                              : CUSTOMER_ROLE;
+                        console.warn('⚠️ [DEBUG-onAuth] Fallback resolved to:', resolvedRole);
                     }
 
                     const finalRole: import('@/types').UserRole = resolvedRole as import('@/types').UserRole;
@@ -349,7 +377,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [sanitizeUser]);
 
 
-    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; message?: string }> => {
+    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; message?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }> => {
         try {
             // ── CRITICAL: Signal that login() owns the auth flow ──
             // onAuthStateChanged MUST NOT resolve or redirect during this window.
@@ -361,6 +389,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             localStorage.removeItem('autospf_backend_user');
             userStorage.setCurrentUser(null);
 
+            console.log('🚀 [DEBUG-login] Starting login for:', email);
+            console.log('🚀 [DEBUG-login] BACKEND_URL is:', BACKEND_URL);
+
             // ── PARALLEL: Fire Firebase + Backend auth simultaneously ──
             const [firebaseCred, backendResult] = await Promise.allSettled([
                 signInWithEmailAndPassword(auth, email, password),
@@ -370,51 +401,126 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     body: JSON.stringify({ email, password }),
                     signal: AbortSignal.timeout(15000)
                 }).then(async (resp) => {
-                    if (resp.ok) {
-                        return resp.json();
+                    console.log('📡 [DEBUG-login] Raw backend response status:', resp.status, resp.statusText);
+                    const text = await resp.text();
+                    console.log('📡 [DEBUG-login] Raw backend response body:', text);
+                    // Always parse body — never throw. Callers check .status to decide what to do.
+                    try {
+                        return { status: resp.status, ok: resp.ok, body: JSON.parse(text) };
+                    } catch {
+                        return { status: resp.status, ok: resp.ok, body: {} };
                     }
-                    throw new Error(`Backend login failed with status: ${resp.status}`);
                 })
             ]);
 
-            // Firebase MUST succeed
+            console.log('📊 [DEBUG-login] Firebase result:', firebaseCred.status);
+            console.log('📊 [DEBUG-login] Backend result:', backendResult.status);
+
+            // ── Extract backend response body (always available now) ──
+            const backendPayload = backendResult.status === 'fulfilled'
+                ? (backendResult.value as any)
+                : null;
+            const backendStatus = backendPayload?.status ?? 0;
+            const backendBody = backendPayload?.body ?? {};
+
+            // ── Check backend 423 FIRST: account is locked — block regardless of Firebase ──
+            if (backendStatus === 423) {
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                if (firebaseCred.status === 'fulfilled') {
+                    await signOut(auth);
+                }
+                return {
+                    success: false,
+                    message: backendBody.message || 'Account locked due to too many failed attempts.',
+                    data: backendBody.data,
+                };
+            }
+
+            // ── Firebase MUST succeed for normal login flow ──
             if (firebaseCred.status === 'rejected') {
-                throw firebaseCred.reason;
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                // Surface backend remaining-attempts data even when Firebase rejects
+                if (backendStatus === 401 && backendBody.data?.remainingAttempts !== undefined) {
+                    return {
+                        success: false,
+                        message: backendBody.message || 'Invalid credentials.',
+                        data: backendBody.data,
+                    };
+                }
+                // Firebase-only errors (no backend data)
+                const code = firebaseCred.reason?.code || '';
+                let message = firebaseCred.reason?.message || 'Invalid credentials';
+                switch (code) {
+                    case 'auth/too-many-requests':
+                        message = 'Too many login attempts. Please wait a few minutes and try again.';
+                        break;
+                    case 'auth/user-not-found':
+                    case 'auth/wrong-password':
+                    case 'auth/invalid-credential':
+                        message = 'Invalid email or password. Please try again.';
+                        break;
+                    case 'auth/invalid-email':
+                        message = 'Please enter a valid email address.';
+                        break;
+                    case 'auth/user-disabled':
+                        message = 'This account has been disabled. Contact support.';
+                        break;
+                    case 'auth/network-request-failed':
+                        message = 'Network error. Check your internet connection and try again.';
+                        break;
+                }
+                return { success: false, message };
             }
 
             const firebaseUser = firebaseCred.value.user;
 
-            // ── Process backend result ──
-            let backendToken = '';
-            let backendUser: any = null;
-
-            if (backendResult.status === 'fulfilled') {
-                const json = backendResult.value;
-                console.log('📥 [AuthContext] Backend login payload:', json);
-                
-                if (json.data?.token) {
-                    backendToken = json.data.token;
-                    localStorage.setItem('autospf_token', backendToken);
-                    console.log('✅ [AuthContext] Backend JWT stored successfully');
-                }
-                if (json.data?.user) {
-                    backendUser = json.data.user;
-                    console.log('🏷️ [AuthContext] Parsed backend user role:', backendUser.role);
-                }
-            } else {
-                console.warn('⚠️ [AuthContext] Backend login failed:', backendResult.reason);
-                // If backend API fails, they won't be able to use the app at all.
-                // Revert Firebase auth and fail the login to avoid broken state.
+            // ── Backend must be reachable and OK for full login ──
+            if (!backendPayload?.ok) {
+                console.warn('⚠️ [AuthContext] Backend login failed:', backendBody);
                 await signOut(auth);
                 loginInProgressRef.current = false;
                 loginResolvedRef.current = false;
                 return { success: false, message: 'Server is taking too long to respond or backend is unreachable. Please try again.' };
             }
 
+            // ── Process successful backend response ──
+            let backendToken = '';
+            let backendUser: any = null;
+
+            console.log('📥 [DEBUG-login] Full backend JSON:', JSON.stringify(backendBody, null, 2));
+
+            if (backendBody.data?.token) {
+                backendToken = backendBody.data.token;
+                localStorage.setItem('autospf_token', backendToken);
+                const verify = localStorage.getItem('autospf_token');
+                console.log('✅ [DEBUG-login] Token saved to localStorage:', !!verify, 'length:', verify?.length);
+            } else {
+                console.error('❌ [DEBUG-login] NO TOKEN in response!');
+            }
+            if (backendBody.data?.user) {
+                backendUser = backendBody.data.user;
+                console.log('🏷️ [DEBUG-login] Backend user object:', JSON.stringify(backendUser, null, 2));
+            } else {
+                console.error('❌ [DEBUG-login] NO USER in response!');
+            }
+
+
             // ── Build user immediately from backend response ──
             if (backendUser) {
-                const migratedRole = migrateLegacyUserRole(backendUser.role);
+                const rawRole = backendUser.role;
+                const migratedRole = migrateLegacyUserRole(rawRole);
                 const finalRole = migratedRole || CUSTOMER_ROLE;
+
+                console.log('🔄 [DEBUG-login] Role pipeline:', {
+                    rawFromBackend: rawRole,
+                    typeofRaw: typeof rawRole,
+                    afterMigration: migratedRole,
+                    finalRole: finalRole,
+                    isAdminDashboard: ADMIN_DASHBOARD_ROLES.includes(finalRole as any),
+                    dashboardPath: getDashboardPathForRole(finalRole),
+                });
 
                 const userData: User = {
                     id: firebaseUser.uid,
@@ -428,6 +534,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     lastActive: backendUser.updatedAt || new Date().toISOString(),
                     avatar: backendUser.avatar || undefined,
                 };
+                console.log('👤 [DEBUG-login] Final userData being set:', JSON.stringify({ role: userData.role, email: userData.email, name: userData.name }, null, 2));
+
                 const sanitized = sanitizeUser(userData);
                 userStorage.setCurrentUser(sanitized);
                 setSessionCache(userData, backendToken);
@@ -436,9 +544,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 loginResolvedRef.current = true;
                 loginInProgressRef.current = false;
 
-                console.log(`✅ [AuthContext] Login resolved with role: ${finalRole}`);
+                console.log(`✅ [DEBUG-login] About to call setUser() with role: ${finalRole}`);
                 setUser(userData);
                 setIsLoading(false);
+                console.log(`✅ [DEBUG-login] setUser() called. loginResolvedRef=${loginResolvedRef.current}`);
+            } else {
+                console.error('❌ [DEBUG-login] backendUser is null/undefined — this should not happen!');
             }
 
             return { success: true };
@@ -586,6 +697,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
+    const deleteAccount = useCallback(async (password: string): Promise<{ success: boolean; message?: string }> => {
+        const token = localStorage.getItem('autospf_token');
+        if (!token) {
+            return { success: false, message: 'You are not logged in.' };
+        }
+        try {
+            const response = await fetch(`${BACKEND_URL}/auth/account`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({ password }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                return { success: false, message: data.message || 'Failed to delete account.' };
+            }
+
+            // Clear everything locally
+            try { await signOut(auth); } catch { /* ignore */ }
+            localStorage.removeItem('autospf_token');
+            userStorage.setCurrentUser(null);
+            setUser(null);
+            clearSessionCache();
+
+            return { success: true, message: data.message || 'Your account has been permanently deleted.' };
+        } catch (error: any) {
+            console.error('[deleteAccount] error:', error);
+            return { success: false, message: 'Network error. Please try again.' };
+        }
+    }, []);
+
     const updateUser = useCallback(async (
         updatedUser: User,
         options?: { localOnly?: boolean }
@@ -641,8 +787,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         resetPassword,
         logout,
         updateUser,
-        setAuthUser: setUser
-    }), [user, isLoading, login, signup, resetPassword, logout, updateUser]);
+        setAuthUser: setUser,
+        deleteAccount,
+    }), [user, isLoading, login, signup, resetPassword, logout, updateUser, deleteAccount]);
 
     return (
         <AuthContext.Provider value={value}>

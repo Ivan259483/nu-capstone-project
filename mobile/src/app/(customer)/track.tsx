@@ -347,7 +347,7 @@ function TechnicianCard({ detailer }: { detailer: any }) {
   const initials = name.split(' ').map((w: string) => w[0]).join('').substring(0, 2).toUpperCase();
 
   return (
-    <Animated.View entering={FadeInDown.delay(300).springify().damping(20)}>
+    <Animated.View entering={FadeInDown.delay(300).duration(200)}>
       <View style={tc.card}>
         <View style={tc.row}>
           <View style={tc.avatar}>
@@ -450,7 +450,7 @@ function DetailerActivityFeed({ steps }: { steps: any[] }) {
   if (!steps || steps.length === 0) return null;
 
   return (
-    <Animated.View entering={FadeInDown.delay(400).springify().damping(20)}>
+    <Animated.View entering={FadeInDown.delay(400).duration(200)}>
       <Text style={cl.sectionLabel}>SERVICE ACTIVITY</Text>
       <View style={cl.card}>
         {steps.map((step: any, i: number) => {
@@ -458,7 +458,7 @@ function DetailerActivityFeed({ steps }: { steps: any[] }) {
           const isInProgress = step.status === 'in-progress';
 
           return (
-            <Animated.View key={i} entering={FadeInDown.delay(450 + i * 50).springify()} style={cl.row}>
+            <Animated.View key={i} entering={FadeInDown.delay(450 + i * 50).duration(200)} style={cl.row}>
               <View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
                 {isDone ? (
                   <Ionicons name="checkmark-circle" size={16} color={C.textDim} />
@@ -516,7 +516,7 @@ function HistoryCard({ booking, index }: { booking: BookingRecord; index: number
   const displayService = booking.serviceName || booking.serviceType || 'Service';
 
   return (
-    <Animated.View entering={FadeInDown.delay(200 + index * 60).springify()}>
+    <Animated.View entering={FadeInDown.delay(200 + index * 60).duration(200)}>
       <View style={hc.card}>
         <View style={hc.row}>
           <View style={hc.iconWrap}>
@@ -704,7 +704,7 @@ export default function TrackScreen() {
         }
       >
         {/* ─── Header Row ─── */}
-        <Animated.View entering={FadeInDown.delay(80).springify()} style={s.titleRow}>
+        <Animated.View entering={FadeInDown.delay(80).duration(200)} style={s.titleRow}>
           <View>
             <Text style={s.pageTitle}>Service Tracker</Text>
             <Text style={s.pageSub}>
@@ -719,7 +719,7 @@ export default function TrackScreen() {
         ) : !hasActive ? (
           /* ─────── Empty State ─────── */
           <>
-            <Animated.View entering={FadeInDown.delay(150).springify()} style={s.emptyCard}>
+            <Animated.View entering={FadeInDown.delay(150).duration(200)} style={s.emptyCard}>
               <View style={s.emptyIconWrap}>
                 <Ionicons name="car-outline" size={40} color={C.textDim} />
               </View>
@@ -742,7 +742,7 @@ export default function TrackScreen() {
 
             {/* Past History */}
             {pastBookings.length > 0 && (
-              <Animated.View entering={FadeInDown.delay(250).springify()}>
+              <Animated.View entering={FadeInDown.delay(250).duration(200)}>
                 <Text style={s.sectionLabel}>PAST SERVICES</Text>
                 <View style={{ gap: 8 }}>
                   {pastBookings.slice(0, 5).map((b, i) => (
@@ -756,7 +756,7 @@ export default function TrackScreen() {
           /* ─────── Active Tracking ─────── */
           <>
             {/* Progress Card */}
-            <Animated.View entering={FadeInDown.delay(120).springify().damping(20)}>
+            <Animated.View entering={FadeInDown.delay(120).duration(200)}>
               <View style={s.progressCard}>
                 <LinearGradient
                   colors={['rgba(255,107,53,0.08)', 'transparent']}
@@ -821,7 +821,7 @@ export default function TrackScreen() {
             </Animated.View>
 
             {/* Technician */}
-            <Animated.View entering={FadeInDown.delay(200).springify()}>
+            <Animated.View entering={FadeInDown.delay(200).duration(200)}>
               <Text style={s.sectionLabel}>ASSIGNED TECHNICIAN</Text>
               {detailer ? (
                 <TechnicianCard detailer={detailer} />
@@ -834,7 +834,7 @@ export default function TrackScreen() {
             <DetailerActivityFeed steps={detailerSteps} />
 
             {/* Location */}
-            <Animated.View entering={FadeInDown.delay(500).springify()}>
+            <Animated.View entering={FadeInDown.delay(500).duration(200)}>
               <Text style={s.sectionLabel}>SERVICE LOCATION</Text>
               <View style={s.locationCard}>
                 <View style={s.locationRow}>
@@ -851,7 +851,7 @@ export default function TrackScreen() {
             </Animated.View>
 
             {/* Media & Documentation */}
-            <Animated.View entering={FadeInDown.delay(550).springify()}>
+            <Animated.View entering={FadeInDown.delay(550).duration(200)}>
               <Text style={s.sectionLabel}>MEDIA & DOCUMENTATION</Text>
               <View style={s.docCard}>
                 <View style={s.docEmptyContent}>
@@ -865,7 +865,7 @@ export default function TrackScreen() {
             </Animated.View>
 
             {/* Bottom Actions */}
-            <Animated.View entering={FadeInDown.delay(600).springify()} style={s.actionRow}>
+            <Animated.View entering={FadeInDown.delay(600).duration(200)} style={s.actionRow}>
               <TouchableOpacity
                 style={s.actionBtn}
                 activeOpacity={0.85}

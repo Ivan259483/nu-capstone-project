@@ -145,7 +145,7 @@ export default function ScanAnalysisCard({
   }));
 
   return (
-    <Animated.View entering={FadeInDown.springify().damping(18)} style={styles.container}>
+    <Animated.View entering={FadeInDown.duration(200)} style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>

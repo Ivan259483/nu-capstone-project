@@ -80,7 +80,7 @@ export default function StatusTrackerSection() {
   const serviceName = latest ? latest.serviceName : null;
 
   return (
-    <Animated.View entering={FadeInUp.delay(350).springify().damping(18)}>
+    <Animated.View entering={FadeInUp.delay(350).duration(200)}>
       <SectionHeader title="Service Progress" icon="analytics-outline" />
 
       <View style={s.card}>

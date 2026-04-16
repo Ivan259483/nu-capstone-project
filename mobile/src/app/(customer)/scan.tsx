@@ -694,7 +694,7 @@ export default function ScanScreen() {
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
       >
-        <Reanimated.View entering={FadeInDown.springify().damping(18)} style={s.content}>
+        <Reanimated.View entering={FadeInDown.duration(200)} style={s.content}>
 
           {/* ── Hero ──────────────────────────────────────────── */}
           <Reanimated.View entering={FadeIn.duration(600)}>
@@ -731,7 +731,7 @@ export default function ScanScreen() {
           {/* ══════════════════════════════════════════════════════
            * 1 ▸ VEHICLE IMAGE UPLOAD
            * ══════════════════════════════════════════════════════ */}
-          <Reanimated.View entering={FadeInDown.delay(80).springify().damping(18)}>
+          <Reanimated.View entering={FadeInDown.delay(80).duration(200)}>
             <GlassCard style={s.card}>
               <View style={s.sectionHeader}>
                 <View style={s.sectionBadge}><Text style={s.sectionBadgeText}>01</Text></View>
@@ -853,7 +853,7 @@ export default function ScanScreen() {
            * 2 ▸ DETECTED ISSUES + DAMAGE OVERLAYS
            * ══════════════════════════════════════════════════════ */}
           {state.analysis && (
-            <Reanimated.View entering={FadeInDown.delay(100).springify().damping(18)}>
+            <Reanimated.View entering={FadeInDown.delay(100).duration(200)}>
               <GlassCard style={s.card}>
                 <View style={s.sectionHeader}>
                   <View style={s.sectionBadge}><Text style={s.sectionBadgeText}>02</Text></View>
@@ -893,7 +893,7 @@ export default function ScanScreen() {
                   const confPct = Math.round(issue.confidence * 100);
                   const isHighlighted = highlightedIssueId === issue.id;
                   return (
-                    <Reanimated.View key={issue.id} entering={FadeInDown.delay(idx * 60).springify().damping(18)}>
+                    <Reanimated.View key={issue.id} entering={FadeInDown.delay(idx * 60).duration(200)}>
                       <TouchableOpacity
                         style={[
                           s.issueCard,
@@ -956,7 +956,7 @@ export default function ScanScreen() {
            * 3 ▸ RECOMMENDED SERVICES
            * ══════════════════════════════════════════════════════ */}
           {state.analysis && (
-            <Reanimated.View entering={FadeInDown.delay(150).springify().damping(18)}>
+            <Reanimated.View entering={FadeInDown.delay(150).duration(200)}>
               <GlassCard style={s.card}>
                 <View style={s.sectionHeader}>
                   <View style={s.sectionBadge}><Text style={s.sectionBadgeText}>03</Text></View>
@@ -995,7 +995,7 @@ export default function ScanScreen() {
            * 3.5 ▸ ADD-ON SERVICES
            * ══════════════════════════════════════════════════════ */}
           {state.estimate && state.estimate.addOnBreakdown && state.estimate.addOnBreakdown.length === 0 && state.analysis && (
-            <Reanimated.View entering={FadeInDown.delay(175).springify().damping(18)}>
+            <Reanimated.View entering={FadeInDown.delay(175).duration(200)}>
               <GlassCard style={s.card}>
                 <View style={s.sectionHeader}>
                   <View style={s.sectionBadge}><Text style={s.sectionBadgeText}>✦</Text></View>
@@ -1041,7 +1041,7 @@ export default function ScanScreen() {
            * 4 ▸ BEFORE / AFTER COMPARISON (only after analysis)
            * ══════════════════════════════════════════════════════ */}
           {state.analysis && primaryImage && (
-            <Reanimated.View entering={FadeInDown.delay(200).springify().damping(18)}>
+            <Reanimated.View entering={FadeInDown.delay(200).duration(200)}>
               <GlassCard style={s.card}>
                 <View style={s.sectionHeader}>
                   <View style={s.sectionBadge}><Text style={s.sectionBadgeText}>04</Text></View>
@@ -1083,7 +1083,7 @@ export default function ScanScreen() {
            * 5 ▸ 3D + AR VISUALIZATION
            * ══════════════════════════════════════════════════════ */}
           {state.modelStatus !== 'idle' && (
-            <Reanimated.View entering={FadeInDown.delay(250).springify().damping(18)}>
+            <Reanimated.View entering={FadeInDown.delay(250).duration(200)}>
               <GlassCard style={s.card}>
                 <View style={s.sectionHeader}>
                   <View style={s.sectionBadge}><Text style={s.sectionBadgeText}>05</Text></View>
@@ -1107,7 +1107,7 @@ export default function ScanScreen() {
            * 5.5 ▸ AI CONFIDENCE SCORE
            * ══════════════════════════════════════════════════════ */}
           {state.analysis && state.analysis.issues.length > 0 && (
-            <Reanimated.View entering={FadeInDown.delay(275).springify().damping(18)}>
+            <Reanimated.View entering={FadeInDown.delay(275).duration(200)}>
               <GlassCard style={s.card}>
                 <View style={s.sectionHeader}>
                   <View style={s.sectionBadge}><Text style={s.sectionBadgeText}>⚡</Text></View>
@@ -1153,7 +1153,7 @@ export default function ScanScreen() {
            * 6 ▸ COST ESTIMATION
            * ══════════════════════════════════════════════════════ */}
           {state.estimate && (
-            <Reanimated.View entering={FadeInDown.delay(300).springify().damping(18)}>
+            <Reanimated.View entering={FadeInDown.delay(300).duration(200)}>
               <GlassCard style={s.card}>
                 <View style={s.sectionHeader}>
                   <View style={s.sectionBadge}><Text style={s.sectionBadgeText}>06</Text></View>
@@ -1213,7 +1213,7 @@ export default function ScanScreen() {
 
           {/* ── Error State ──────────────────────────────────── */}
           {state.status === 'failed' && state.error && (
-            <Reanimated.View entering={FadeInDown.springify()}>
+            <Reanimated.View entering={FadeInDown.duration(200)}>
               <GlassCard style={[s.card, s.errorCard]}>
                 <Ionicons name="alert-circle-outline" size={26} color={Palette.danger} />
                 <Text style={s.errorTitle}>Analysis Failed</Text>
@@ -1227,7 +1227,7 @@ export default function ScanScreen() {
 
           {/* ── Confirmation Success ─────────────────────────── */}
           {state.confirmation && (
-            <Reanimated.View entering={FadeInUp.springify().damping(16)}>
+            <Reanimated.View entering={FadeInUp.duration(200)}>
               <GlassCard style={[s.card, s.successCard]}>
                 {/* Glow ring */}
                 <View style={s.successGlowWrap}>

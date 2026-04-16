@@ -46,6 +46,7 @@ import { stripeWebhookHandler } from './controllers/payment.controller.js';
 import supplierRoutes from './routes/suppliers.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import aiRoutes from './routes/ai.routes.js';
+import systemRoutes from './routes/system.routes.js';
 
 const app = express();
 
@@ -70,7 +71,27 @@ app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 // X-Content-Type-Options, X-Frame-Options, Content-Security-Policy, etc.
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: false, // Disabled for Vite dev proxy; enable in production
+  // CSP disabled in dev for Vite proxy; enabled in production to block XSS
+  contentSecurityPolicy: config.nodeEnv === 'production' ? {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
+      connectSrc: [
+        "'self'",
+        ...(config.corsOrigin ? (Array.isArray(config.corsOrigin) ? config.corsOrigin : [config.corsOrigin]) : []),
+        "https://api.brevo.com",
+        "https://api.stripe.com",
+        "wss:",
+        "ws:",
+      ],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      frameSrc: ["'self'", "https://js.stripe.com"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  } : false,
 }));
 
 // ── NoSQL Injection Prevention ────────────────────────────────────────
@@ -157,6 +178,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/system', systemRoutes);
 
 // 404 handler
 app.use((req, res) => {

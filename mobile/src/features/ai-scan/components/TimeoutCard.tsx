@@ -54,7 +54,7 @@ export default function TimeoutCard({
   const stepLabel = STEP_LABELS[step] || step;
 
   return (
-    <Animated.View entering={FadeInDown.springify().damping(18)} style={styles.container}>
+    <Animated.View entering={FadeInDown.duration(200)} style={styles.container}>
       {/* Glow border top accent */}
       <View style={styles.accentBar} />
 

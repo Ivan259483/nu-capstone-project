@@ -32,6 +32,12 @@ const productSchema = new mongoose.Schema(
       type: Number,
       default: 5,
     },
+    maxLevel: {
+      type: Number,
+    },
+    unit: {
+      type: String,
+    },
     sku: {
       type: String,
       unique: true,

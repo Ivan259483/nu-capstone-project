@@ -22,7 +22,16 @@ import {
   buildOfflineImageContexts,
   generateOfflineDamages,
 } from '../utils/offlineDamageEngine.utils.js';
-import { analyzeWithGemini, isGeminiAvailable } from '../utils/geminiVision.utils.js';
+import { analyzeWithRoboflow, isRoboflowAvailable } from '../utils/roboflowVision.utils.js';
+
+// ── Module-level Replicate session state ──────────────────────────────────────
+// Set to true once a 402 is received so we skip all subsequent calls this
+// process lifetime, avoiding 1.5 s latency hits per scan/preview request.
+let replicateCreditsExhausted = false;
+
+// Set DISABLE_REPLICATE=true in .env to permanently skip Replicate calls
+// (survives nodemon restarts unlike the runtime flag above).
+const REPLICATE_DISABLED = process.env.DISABLE_REPLICATE === 'true';
 
 
 const MESHY_API_KEY = process.env.MESHY_API_KEY || '';
@@ -513,17 +522,15 @@ const extractTaskId = (payload = {}) => {
 };
 
 const normalizeMeshyStatus = (status) => {
-  const normalized = String(status || '').toLowerCase();
-  if (['succeeded', 'success', 'completed', 'done', 'finished', 'ar_ready'].includes(normalized)) {
+  const normalized = String(status || '').toLowerCase().replace(/_/g, '');
+  // Meshy real API returns uppercase: SUCCEEDED, IN_PROGRESS, FAILED, PENDING
+  if (['succeeded', 'success', 'completed', 'done', 'finished', 'arready'].includes(normalized)) {
     return 'ar_ready';
   }
   if (['failed', 'error', 'cancelled'].includes(normalized)) {
     return 'failed';
   }
-  if (['queued', 'pending', 'processing', 'running', 'in_progress'].includes(normalized)) {
-    return 'processing';
-  }
-  return 'processing';
+  return 'processing'; // IN_PROGRESS, PENDING, QUEUED, etc.
 };
 
 const buildMeshyHeaders = (extra = {}) => ({
@@ -569,6 +576,7 @@ const startMeshyTask = async (files) => {
     should_remesh: true,
     topology: 'triangle',
     target_polycount: 30000,
+    target_formats: ['glb'],  // Required by Meshy V2 API
   };
 
   console.log('[Meshy V2] Starting image-to-3d with payload:', JSON.stringify(jsonPayload, null, 2));
@@ -591,8 +599,9 @@ const startMeshyTask = async (files) => {
 };
 
 const fetchMeshyTask = async (taskId) => {
+  // Meshy GET uses /v1/ path (not /openapi/v2/) for polling
   const response = await axios.get(
-    `${MESHY_API_BASE}/image-to-3d/${taskId}`,
+    `https://api.meshy.ai/v1/image-to-3d/${taskId}`,
     {
       headers: buildMeshyHeaders(),
       timeout: 45000,
@@ -638,7 +647,7 @@ const buildAnalyzeResponse = ({
 };
 
 const createServerRequestId = () =>
-  `srv_scan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  `srv_scan_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
 
 const readHeaderValue = (value) => {
   if (Array.isArray(value)) {
@@ -786,43 +795,44 @@ export const analyzeDamage = async (req, res) => {
         `[AI Analyze][${requestId}] Scan started (images=${req.files.length}, key=${fingerprintShort})`
       );
 
-      // ── Try Gemini Vision AI first ──
-      if (isGeminiAvailable()) {
+      // ── Try Groq Vision AI first (analyzeWithRoboflow now uses Groq internally) ──
+      if (isRoboflowAvailable()) {
         try {
-          console.log(`[AI Analyze][${requestId}] Sending images to Gemini Vision AI...`);
-          const geminiResult = await analyzeWithGemini(req.files, angleHints);
+          console.log(`[AI Analyze][${requestId}] Sending images to Groq Vision AI...`);
+          const aiResult = await analyzeWithRoboflow(req.files, angleHints);
 
-          if (geminiResult.damages.length > 0) {
-            const damages = normalizeDamages(geminiResult.damages, angleHints);
+          if (aiResult.damages.length > 0) {
+            const damages = normalizeDamages(aiResult.damages, angleHints);
             const recommendations = mergeRecommendations(damages, []);
+            const aiSource = aiResult.source || 'groq_vision';
             const data = buildAnalyzeResponse({
               status: 'damage_detected',
-              message: geminiResult.summary || 'AI damage analysis complete.',
+              message: aiResult.summary || 'AI damage analysis complete.',
               damages,
               recommendations,
-              source: 'gemini_vision',
+              source: aiSource,
             });
 
-            console.log(`[AI Analyze][${requestId}] Gemini detected ${damages.length} damage(s)`);
+            console.log(`[AI Analyze][${requestId}] Groq Vision detected ${damages.length} damage(s)`);
             return {
               statusCode: 200,
-              payload: { success: true, data, source: 'gemini_vision' },
+              payload: { success: true, data, source: aiSource },
             };
           }
 
-          if (!geminiResult.vehicle_detected) {
-            console.log(`[AI Analyze][${requestId}] Gemini: no vehicle detected, falling back to offline engine`);
+          if (!aiResult.vehicle_detected) {
+            console.log(`[AI Analyze][${requestId}] Groq Vision: no vehicle detected, falling back to offline engine`);
           } else {
-            console.log(`[AI Analyze][${requestId}] Gemini: no damages found, falling back to offline engine`);
+            console.log(`[AI Analyze][${requestId}] Groq Vision: no damages found, falling back to offline engine`);
           }
-        } catch (geminiError) {
+        } catch (aiError) {
           console.warn(
-            `[AI Analyze][${requestId}] Gemini Vision failed, falling back to offline engine:`,
-            geminiError?.message || geminiError
+            `[AI Analyze][${requestId}] Groq Vision failed, falling back to offline engine:`,
+            aiError?.message || aiError
           );
         }
       } else {
-        console.log(`[AI Analyze][${requestId}] Gemini API key not configured, using offline engine`);
+        console.log(`[AI Analyze][${requestId}] GROQ_API_KEY not configured, using offline engine`);
       }
 
       // ── Offline fallback ──
@@ -889,31 +899,52 @@ export const generate3DModel = async (req, res) => {
       return res.status(400).json({ success: false, status: 'failed', message: validationMessage });
     }
 
-    // Hard-coded free 3D car model (GLB) for capstone demonstration
-    // Uses a realistic car model — the Before/After visual difference is
-    // handled by the frontend via PBR material manipulation (roughness,
-    // clearcoat, exposure). This is how production car configurators work.
-    const CAR_MODEL_GLB = 'https://modelviewer.dev/shared-assets/models/glTF-Sample-Assets/Models/ToyCar/glTF-Binary/ToyCar.glb';
+    const dep = get3DDependencyStatus();
+    if (!dep.available) {
+      return res.status(503).json({
+        success: false,
+        status: 'unavailable',
+        message: dep.message,
+        reason: dep.reason,
+      });
+    }
+
+    console.log('[Meshy] Starting real image-to-3D task...');
+    const taskData = await startMeshyTask(req.files);
+    const taskId = extractTaskId(taskData);
+
+    if (!taskId) {
+      console.error('[Meshy] No task ID returned from Meshy:', JSON.stringify(taskData));
+      return res.status(502).json({
+        success: false,
+        status: 'failed',
+        message: 'Meshy did not return a task ID. Please try again.',
+      });
+    }
+
+    console.log(`[Meshy] Task started successfully. task_id=${taskId}`);
 
     return res.json({
       success: true,
-      status: 'ar_ready',
-      model_url: CAR_MODEL_GLB,
-      repaired_model_url: CAR_MODEL_GLB,
-      message: '3D vehicle model generated successfully.',
+      status: 'processing',
+      task_id: taskId,
+      progress: 0,
+      message: '3D model generation started. Poll /status/:taskId for updates.',
+      source_image_urls: taskData.source_image_urls || [],
     });
 
   } catch (error) {
-    const detail = error?.message || 'Unknown error';
-    console.error('❌ [Generate 3D] Error:', detail);
-    return res.status(500).json({
+    const detail = error?.response?.data || error?.message || 'Unknown error';
+    console.error('❌ [Generate 3D] Meshy API error:', detail);
+    return res.status(502).json({
       success: false,
       status: 'failed',
-      message: 'Failed to start 3D model generation.',
+      message: 'Failed to start 3D model generation via Meshy.',
       detail,
     });
   }
 };
+
 
 export const get3DModelStatus = async (req, res) => {
   try {
@@ -1259,6 +1290,11 @@ const generateDamageMask = (imageWidth, imageHeight, damages) => {
 export const generateRepairPreview = async (req, res) => {
   const startTime = Date.now();
   console.log('🎨 [Repair Preview] Starting AI inpainting...');
+  console.log(
+    `  ↳ DISABLE_REPLICATE=${process.env.DISABLE_REPLICATE} | ` +
+    `REPLICATE_DISABLED const=${REPLICATE_DISABLED} | ` +
+    `replicateCreditsExhausted=${replicateCreditsExhausted}`
+  );
 
   try {
     const { imageUrl, damages, imageWidth, imageHeight } = req.body;
@@ -1284,6 +1320,26 @@ export const generateRepairPreview = async (req, res) => {
         success: false,
         status: 'unavailable',
         message: 'AI repair preview is unavailable. Configure REPLICATE_API_TOKEN to enable.',
+      });
+    }
+
+    // ── Env-var hard disable (persists across restarts) ──
+    if (REPLICATE_DISABLED) {
+      console.log('  ↳ [Repair Preview] DISABLE_REPLICATE=true — returning placeholder instantly.');
+      return res.status(200).json({
+        success: false,
+        status: 'credits_exhausted',
+        message: 'AI repair preview is temporarily disabled. Enable Replicate billing to restore.',
+      });
+    }
+
+    // ── Runtime flag (set after first 402 this session) ──
+    if (replicateCreditsExhausted) {
+      console.log('  ↳ [Repair Preview] Replicate credits exhausted (cached) — returning placeholder.');
+      return res.status(200).json({
+        success: false,
+        status: 'credits_exhausted',
+        message: 'AI repair preview is temporarily unavailable — Replicate credits exhausted.',
       });
     }
 
@@ -1377,9 +1433,10 @@ export const generateRepairPreview = async (req, res) => {
       console.warn('  ⚠️ FLUX Fill Pro failed:', fluxMsg);
       if (fluxError?.response?.status) console.warn('  └╴ HTTP status:', fluxError.response.status, JSON.stringify(fluxError.response.data || {}));
 
-      // ── Billing exhausted — skip fallback (it would also fail) ──
+      // ── Billing exhausted — set flag, skip fallback (it would also fail) ──
       if (isBillingError) {
-        console.warn('  └╴ Replicate credits exhausted. Returning credits_exhausted.');
+        replicateCreditsExhausted = true; // short-circuit all future calls this session
+        console.warn('  └╴ Replicate credits exhausted — flagged for session. Returning credits_exhausted.');
 
         return res.status(200).json({
           success: false,

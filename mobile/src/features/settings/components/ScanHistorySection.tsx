@@ -111,7 +111,7 @@ export default function ScanHistorySection() {
   };
 
   return (
-    <Animated.View entering={FadeInUp.delay(300).springify().damping(18)}>
+    <Animated.View entering={FadeInUp.delay(300).duration(200)}>
       <SectionHeader title="AI Scan History" icon="scan-outline" action="View All" onAction={() => {}} />
       <FlatList
         data={DEMO_SCANS}

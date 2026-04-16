@@ -82,4 +82,13 @@ router.get('/me', authenticate, authController.getCurrentUser);
  */
 router.post('/logout', authenticate, authController.logout);
 
+/**
+ * @route DELETE /api/auth/account
+ * @desc Permanently delete the authenticated user's account
+ *       Deletes Firebase Auth user AND all associated MongoDB records.
+ * @access Private
+ * @body { password: string }
+ */
+router.delete('/account', authenticate, authController.deleteAccount);
+
 export default router;

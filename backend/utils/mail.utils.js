@@ -28,7 +28,7 @@ export const initializeMailer = async () => {
 
     // Create transporter with STRICT Brevo settings
     transporter = nodemailer.createTransport({
-      host: 'smtp-relay.sendinblue.com',  // Strict host
+      host: 'smtp-relay.brevo.com',  // Brevo SMTP relay (updated from sendinblue.com)
       port: 587,                          // Strict port (TLS)
       secure: false,                      // IMPORTANT: false for port 587 (TLS, not SSL)
       auth: {
@@ -46,7 +46,7 @@ export const initializeMailer = async () => {
       const verified = await transporter.verify();
       if (verified) {
         console.log('✅ Brevo SMTP transporter verified successfully');
-        console.log('   Host: smtp-relay.sendinblue.com:587 (TLS)');
+        console.log('   Host: smtp-relay.brevo.com:587 (TLS)');
         console.log('   User:', brevoUser);
       }
     } catch (verifyError) {

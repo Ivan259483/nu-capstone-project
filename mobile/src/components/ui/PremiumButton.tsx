@@ -8,7 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,10 +46,10 @@ export default function PremiumButton({
   }));
 
   const handlePressIn = () => {
-    scale.value = withSpring(0.96, { damping: 15 });
+    scale.value = withTiming(0.96, { duration: 220 });
   };
   const handlePressOut = () => {
-    scale.value = withSpring(1, { damping: 12 });
+    scale.value = withTiming(1, { duration: 220 });
   };
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

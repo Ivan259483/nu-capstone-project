@@ -269,7 +269,7 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
               {messages.map((m, i) => (
                 <Animated.View
                   key={m.id}
-                  entering={FadeInDown.delay(i < 3 ? i * 80 : 0).springify().damping(20)}
+                  entering={FadeInDown.delay(i < 3 ? i * 80 : 0).duration(200)}
                   style={[
                     s.bubbleWrap,
                     m.sender === 'user' ? s.bubbleWrapUser : s.bubbleWrapBot,

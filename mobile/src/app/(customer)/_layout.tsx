@@ -1,6 +1,6 @@
 /**
  * Tab Layout — AutoSPF+ 5-Tab Bottom Navigation
- * Custom glassmorphism tab bar with animated icons and haptic feedback.
+ * Full-width flush tab bar with safe area inset support.
  */
 
 import React from 'react';
@@ -9,33 +9,32 @@ import {
   View,
   TouchableOpacity,
   StyleSheet,
-  Platform,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useAnimatedStyle,
-  withSpring,
   useSharedValue,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useThemeContext';
-import { Palette, BottomTabInset, Glass, Shadows } from '@/constants/theme';
+import { Palette, Glass, Shadows } from '@/constants/theme';
 
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'home',
-  book: 'add-circle', // Assuming book is an action, adding unique flair
+  book: 'add-circle',
   track: 'navigate',
-  scan: 'scan', // Updated for AI Scan aesthetic
-  settings: 'settings', // Premium settings
+  scan: 'scan',
+  settings: 'settings',
 };
 
 const TAB_LABELS: Record<string, string> = {
   index: 'Home',
-  book: 'Schedule',
+  book: 'Book',
   track: 'Tracker',
   scan: 'AI Scan',
-  settings: 'Settings', // Premium settings tab
+  settings: 'Settings',
 };
 
 function TabBarButton({
@@ -55,9 +54,6 @@ function TabBarButton({
   }));
 
   const handlePress = () => {
-    scale.value = withSpring(0.85, { damping: 15 }, () => {
-      scale.value = withSpring(1, { damping: 12 });
-    });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress();
   };
@@ -92,10 +88,10 @@ function TabBarButton({
         >
           {label}
         </Animated.Text>
-        
+
         {/* Active Gold Underline Indicator */}
         {isFocused && (
-          <Animated.View style={styles.activeUnderline} entering={undefined /* Can optionally use layout animation here */} />
+          <Animated.View style={styles.activeUnderline} />
         )}
       </Animated.View>
     </TouchableOpacity>
@@ -104,39 +100,50 @@ function TabBarButton({
 
 function CustomTabBar({ state, navigation }: any) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={styles.tabBarWrapper}>
-      <View style={[styles.tabBarContainer, Shadows.lg]}>
-        <BlurView
-          intensity={Glass.intensity}
-          tint={Glass.tint}
-          style={StyleSheet.absoluteFill}
-        />
-        <View
-          style={[
-             StyleSheet.absoluteFill,
-             { backgroundColor: 'rgba(17, 17, 24, 0.85)' } // Dark premium frosted glass
-          ]}
-        />
-        <View style={styles.tabBarInner}>
-          {state.routes.map((route: any, index: number) => {
-            const isFocused = state.index === index;
-            const onPress = () => {
-              if (!isFocused) {
-                navigation.navigate(route.name);
-              }
-            };
-            return (
-              <TabBarButton
-                key={route.key}
-                route={route.name}
-                isFocused={isFocused}
-                onPress={onPress}
-              />
-            );
-          })}
-        </View>
+    <View
+      style={[
+        styles.tabBarContainer,
+        {
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 60 + insets.bottom,
+          paddingBottom: insets.bottom,
+        },
+      ]}
+    >
+      <BlurView
+        intensity={Glass.intensity}
+        tint={Glass.tint}
+        style={StyleSheet.absoluteFill}
+      />
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: 'rgba(17, 17, 24, 0.85)' },
+        ]}
+      />
+      <View style={styles.tabBarInner}>
+        {state.routes.map((route: any, index: number) => {
+          const isFocused = state.index === index;
+          const onPress = () => {
+            if (!isFocused) {
+              navigation.navigate(route.name);
+            }
+          };
+          return (
+            <TabBarButton
+              key={route.key}
+              route={route.name}
+              isFocused={isFocused}
+              onPress={onPress}
+            />
+          );
+        })}
       </View>
     </View>
   );
@@ -156,7 +163,7 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Home' }} />
-      <Tabs.Screen name="book" options={{ title: 'Schedule' }} />
+      <Tabs.Screen name="book" options={{ title: 'Book' }} />
       <Tabs.Screen name="track" options={{ title: 'Tracker' }} />
       <Tabs.Screen name="scan" options={{ title: 'AI Scan' }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
@@ -165,25 +172,18 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  tabBarWrapper: {
-    position: 'absolute',
-    bottom: Platform.select({ ios: BottomTabInset ? 24 : 16, android: 16 }),
-    left: 24, // Generous 24px horizontal safe zone
-    right: 24,
-  },
   tabBarContainer: {
-    borderRadius: 32, // Floating rounded bar
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(200, 169, 110, 0.15)', // Custom glass border
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(200, 169, 110, 0.15)',
   },
   tabBarInner: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 12,
-    paddingBottom: 12,
-    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingHorizontal: 8,
   },
   tabButton: {
     flex: 1,

@@ -69,7 +69,7 @@ const BookingCard = React.memo(
     const displayPrice = booking.totalPrice || booking.totalAmount || 0;
 
     return (
-      <Animated.View entering={FadeInDown.delay(index * 70).springify().damping(18)}>
+      <Animated.View entering={FadeInDown.delay(index * 70).duration(200)}>
         <TouchableOpacity style={c.card} activeOpacity={0.85} onPress={() => onPress(booking.id as string)}>
           {/* Left accent */}
           <View style={[c.accentBar, { backgroundColor: sc.color }]} />
@@ -315,7 +315,7 @@ export default function AppointmentsScreen() {
       </View>
 
       {/* Stats bar */}
-      <Animated.View entering={FadeInDown.delay(100).springify()} style={s.statsBar}>
+      <Animated.View entering={FadeInDown.delay(100).duration(200)} style={s.statsBar}>
         <View style={s.statItem}>
           <Text style={s.statVal}>{upcoming.length}</Text>
           <Text style={s.statLabel}>Upcoming</Text>
@@ -333,7 +333,7 @@ export default function AppointmentsScreen() {
       </Animated.View>
 
       {/* Tab switcher */}
-      <Animated.View entering={FadeInDown.delay(150).springify()} style={s.tabBar}>
+      <Animated.View entering={FadeInDown.delay(150).duration(200)} style={s.tabBar}>
         {(['upcoming', 'history'] as const).map((tab) => (
           <TouchableOpacity
             key={tab}
@@ -390,7 +390,7 @@ export default function AppointmentsScreen() {
             );
           }
           return (
-            <Animated.View entering={FadeInDown.springify()} style={s.emptyCenter}>
+            <Animated.View entering={FadeInDown.duration(200)} style={s.emptyCenter}>
               <View style={s.emptyIcon}>
                 <Ionicons
                   name={activeTab === 'upcoming' ? 'calendar-outline' : 'time-outline'}

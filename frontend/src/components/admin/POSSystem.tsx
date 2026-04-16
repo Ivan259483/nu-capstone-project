@@ -4,7 +4,8 @@ import {
     Search, Filter, User as UserIcon, Car, Hash, Tag, Percent,
     DollarSign, CreditCard, Banknote, Smartphone, CheckCircle, Printer,
     AlertTriangle, ChevronDown, X, Plus, Minus, Receipt, Clock, Download,
-    TrendingUp, ShoppingBag, BarChart3, Activity, FileText, Monitor, History, Calendar, SplitSquareVertical, PauseCircle, PlayCircle
+    TrendingUp, ShoppingBag, BarChart3, Activity, FileText, Monitor, History, Calendar, SplitSquareVertical, PauseCircle, PlayCircle,
+    Wrench, ClipboardCheck, CarFront, Layers, Play, ShieldCheck, Wallet, Unlock, CalendarCheck, UserCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,10 +17,12 @@ import { formatCurrency } from '@/lib/utils';
 import { POSReceipt, type ReceiptData } from './POSReceipt';
 import { WaiversDocs } from './WaiversDocs';
 import { BillingPanel } from './BillingPanel';
+import { CheckInDialog } from './CheckInDialog';
+import { POSPipelineBoard } from './POSPipelineBoard';
 import type { Booking, Service, User, BusinessSettings } from '@/types';
 import { SERVICE_STAFF_ROLE } from '@/lib/roles';
 
-type POSSubTab = 'pos' | 'waivers' | 'billing';
+type POSSubTab = 'pos' | 'waivers' | 'billing' | 'pipeline';
 
 interface POSSystemProps {
     bookings: Booking[];
@@ -85,6 +88,9 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
     const [showReceipt, setShowReceipt] = useState(false);
     const [historyDateFilter, setHistoryDateFilter] = useState(() => new Date().toISOString().slice(0, 10));
     const [posSubTab, setPosSubTab] = useState<POSSubTab>('pos');
+    const [showCheckInDialog, setShowCheckInDialog] = useState(false);
+    const [checkInBooking, setCheckInBooking] = useState<Booking | null>(null);
+    const [workflowLoading, setWorkflowLoading] = useState<string | null>(null);
 
     // ─── Derived ───────────────────────────────────────────────────────────────────
     const detailers = useMemo(() =>
@@ -95,16 +101,16 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
     const unpaidBookings = useMemo(() =>
         bookings.filter(b =>
             b.paymentStatus !== 'paid' &&
-            (b.status === 'completed' || b.status === 'ready_for_payment') &&
+            ['confirmed', 'assigned', 'received', 'in_progress', 'completed', 'ready_for_payment'].includes(b.status || '') &&
             !(b as any).archived
         ),
         [bookings]
     );
 
-    // ─── Check-In Queue: ONLY show bookings with status 'assigned' (technician assigned, awaiting vehicle arrival)
+    // ─── Check-In Queue: bookings with status 'assigned' or 'confirmed' (awaiting vehicle arrival)
     const checkinQueue = useMemo(() =>
         bookings.filter(b =>
-            b.status === 'assigned' &&
+            (b.status === 'assigned' || b.status === 'confirmed') &&
             b.paymentStatus !== 'paid' &&
             !(b as any).archived
         ),
@@ -295,36 +301,130 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
         }
     }, [heldTransactions]);
 
-    // ─── Check-In Customer ────────────────────────────────────────────────────────
-    const handleCheckIn = async (booking: Booking) => {
-        const bookingId = booking.id || booking._id || '';
+    // ─── Check-In Customer (opens CheckInDialog for signature + down payment) ─────
+    const handleCheckIn = (booking: Booking) => {
+        setCheckInBooking(booking);
+        setShowCheckInDialog(true);
+    };
+
+    const handleCheckInSubmit = async (amount: number, method: string, signature: string) => {
+        if (!checkInBooking) return;
+        const bookingId = checkInBooking.id || checkInBooking._id || '';
         if (!bookingId) return;
         setIsCheckingIn(bookingId);
         try {
-            // Transition: confirmed → received (arrived at shop)
-            const response = await OrderService.updateOrder(bookingId, {
-                status: 'received',
-                customerStatus: 'Queued',
-                receivedAt: new Date().toISOString(),
+            const res = await OrderService.operateCheckIn(bookingId, {
+                paymentMethod: method,
+                downPaymentAmount: amount,
+                signature,
             });
-            if (response.success) {
-                // Also sync to Firestore for real-time updates
-                await OrderService.syncBookingToFirestore({
-                    ...booking,
-                    status: 'received',
-                    customerStatus: 'Queued',
-                    receivedAt: new Date().toISOString(),
-                } as any);
-                toast.success(`${booking.customerName || 'Customer'} checked in successfully!`);
-                onTransactionComplete(); // Refresh data
+            if (res.success) {
+                toast.success(`${checkInBooking.customerName || 'Customer'} checked in! T&C PDF generated.`);
+                setShowCheckInDialog(false);
+                setCheckInBooking(null);
+                onTransactionComplete();
             } else {
-                toast.error(response.message || 'Check-in failed');
+                toast.error(res.message || 'Check-in failed');
             }
         } catch (error: any) {
             console.error('Check-in error:', error);
-            toast.error('Failed to check in customer');
+            toast.error(error?.response?.data?.message || 'Failed to check in customer');
         } finally {
             setIsCheckingIn(null);
+        }
+    };
+
+    // ─── Workflow Action Handlers ──────────────────────────────────────────────────
+    const handleStartService = async (booking: Booking) => {
+        const id = booking.id || booking._id || '';
+        if (!id) return;
+        setWorkflowLoading(id);
+        try {
+            const res = await OrderService.operateStartService(id);
+            if (res.success) {
+                toast.success('Service started! Technician notified.');
+                onTransactionComplete();
+            } else {
+                toast.error(res.message || 'Failed to start service');
+            }
+        } catch (e: any) {
+            toast.error(e?.response?.data?.message || 'Error starting service');
+        } finally {
+            setWorkflowLoading(null);
+        }
+    };
+
+    const handleQCComplete = async (booking: Booking) => {
+        const id = booking.id || booking._id || '';
+        if (!id) return;
+        setWorkflowLoading(id);
+        try {
+            const res = await OrderService.operateQCComplete(id);
+            if (res.success) {
+                toast.success('QC passed! Quality report generated.');
+                onTransactionComplete();
+            } else {
+                toast.error(res.message || 'QC operation failed');
+            }
+        } catch (e: any) {
+            toast.error(e?.response?.data?.message || 'Error completing QC');
+        } finally {
+            setWorkflowLoading(null);
+        }
+    };
+
+    const handleFinalPayment = async (booking: Booking) => {
+        const id = booking.id || booking._id || '';
+        if (!id || !selectedPaymentMethod) return;
+        const remainingAmount = (Number(booking.totalPrice || booking.totalAmount) || 0) - (Number((booking as any).downPaymentAmount) || 0);
+        if (remainingAmount <= 0) {
+            toast.error('No remaining balance to pay.');
+            return;
+        }
+        if (selectedPaymentMethod === 'cash') {
+            const received = Number(cashReceived) || 0;
+            if (received < remainingAmount) {
+                toast.error(`Insufficient amount. Remaining balance: ${formatCurrency(remainingAmount)}`);
+                return;
+            }
+        }
+        setWorkflowLoading(id);
+        try {
+            const res = await OrderService.operateFinalPayment(id, {
+                paymentMethod: selectedPaymentMethod,
+                finalPaymentAmount: remainingAmount,
+            });
+            if (res.success) {
+                toast.success('Payment received! Warranty certificate generated.');
+                onTransactionComplete();
+                resetPOS();
+            } else {
+                toast.error(res.message || 'Payment failed');
+            }
+        } catch (e: any) {
+            toast.error(e?.response?.data?.message || 'Error processing final payment');
+        } finally {
+            setWorkflowLoading(null);
+        }
+    };
+
+    const handleRelease = async (booking: Booking) => {
+        const id = booking.id || booking._id || '';
+        if (!id) return;
+        setWorkflowLoading(id);
+        try {
+            const res = await OrderService.operateRelease(id);
+            if (res.success) {
+                toast.success('Vehicle released to customer!');
+                onTransactionComplete();
+                resetPOS();
+            } else {
+                toast.error(res.message || 'Release failed');
+            }
+        } catch (e: any) {
+            toast.error(e?.response?.data?.message || 'Error releasing vehicle');
+        } finally {
+            setWorkflowLoading(null);
         }
     };
 
@@ -461,9 +561,35 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
         selectedPaymentMethod !== 'cash' || (Number(cashReceived) >= total && total > 0)
     );
 
+    // ─── Workflow Stepper Helpers ──────────────────────────────────────────────────
+    const WORKFLOW_STAGES = [
+        { key: 'confirmed', label: 'Confirmed', icon: CalendarCheck, color: 'blue' },
+        { key: 'received', label: 'Checked-In', icon: UserCheck, color: 'cyan' },
+        { key: 'in_progress', label: 'In Progress', icon: Wrench, color: 'amber' },
+        { key: 'completed', label: 'QC Complete', icon: ClipboardCheck, color: 'purple' },
+        { key: 'paid', label: 'Paid', icon: Wallet, color: 'emerald' },
+        { key: 'released', label: 'Released', icon: CarFront, color: 'green' },
+    ];
+
+    const getStageIndex = (status: string) => {
+        const map: Record<string, number> = {
+            pending: -1, confirmed: 0, assigned: 0,
+            received: 1, in_progress: 2,
+            completed: 3, ready_for_payment: 3,
+            paid: 4, released: 5,
+        };
+        return map[status] ?? -1;
+    };
+
+    const pipelineActiveCount = useMemo(() =>
+        bookings.filter(b => ['confirmed', 'assigned', 'received', 'in_progress', 'completed', 'ready_for_payment', 'paid'].includes(b.status || '') && !(b as any).archived).length,
+        [bookings]
+    );
+
     // ─── Render ────────────────────────────────────────────────────────────────────
     const subTabs: { id: POSSubTab; label: string; icon: any; count: number }[] = [
         { id: 'pos', label: 'POS System', icon: Monitor, count: unpaidBookings.length },
+        { id: 'pipeline', label: 'Pipeline', icon: Layers, count: pipelineActiveCount },
         { id: 'waivers', label: 'Waivers & Docs', icon: FileText, count: bookings.filter(b => !!b.legalCompliance?.waiverSignature).length || 6 },
         { id: 'billing', label: 'Billing', icon: Receipt, count: payments.length },
     ];
@@ -513,6 +639,24 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                         transition={{ duration: 0.2 }}
                     >
                         {POSContent()}
+                    </motion.div>
+                )}
+
+                {posSubTab === 'pipeline' && (
+                    <motion.div
+                        key="pipeline-subtab"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2 }}
+                    >
+                        <POSPipelineBoard
+                            bookings={bookings}
+                            onSelectBooking={(b) => {
+                                handleSelectBooking(b);
+                                setPosSubTab('pos');
+                            }}
+                        />
                     </motion.div>
                 )}
 
@@ -741,19 +885,141 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                         )}
                     </div>
 
-                    {/* Booking Info Bar */}
+                    {/* Booking Info Bar + Workflow Stepper */}
                     <AnimatePresence>
                         {selectedBooking && (
                             <motion.div
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
                                 exit={{ opacity: 0, height: 0 }}
-                                className="flex items-center gap-4 px-4 py-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50 text-[11px]"
+                                className="space-y-3"
                             >
-                                <span className="flex items-center gap-1.5 text-zinc-400"><UserIcon className="w-3.5 h-3.5" />{selectedBooking.customerName}</span>
-                                <span className="text-zinc-700">|</span>
-                                <span className="flex items-center gap-1.5 text-zinc-400"><Car className="w-3.5 h-3.5" />{[selectedBooking.vehicleYear, selectedBooking.vehicleMake, selectedBooking.vehicleModel].filter(Boolean).join(' ') || 'N/A'}</span>
-                                {selectedBooking.vehiclePlate && <><span className="text-zinc-700">|</span><span className="font-mono text-zinc-500">{selectedBooking.vehiclePlate}</span></>}
+                                {/* Info Row */}
+                                <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50 text-[11px]">
+                                    <span className="flex items-center gap-1.5 text-zinc-400"><UserIcon className="w-3.5 h-3.5" />{selectedBooking.customerName}</span>
+                                    <span className="text-zinc-700">|</span>
+                                    <span className="flex items-center gap-1.5 text-zinc-400"><Car className="w-3.5 h-3.5" />{[selectedBooking.vehicleYear, selectedBooking.vehicleMake, selectedBooking.vehicleModel].filter(Boolean).join(' ') || 'N/A'}</span>
+                                    {selectedBooking.vehiclePlate && <><span className="text-zinc-700">|</span><span className="font-mono text-zinc-500">{selectedBooking.vehiclePlate}</span></>}
+                                </div>
+
+                                {/* ═══ WORKFLOW PIPELINE STEPPER ═══ */}
+                                {(() => {
+                                    const currentIdx = getStageIndex(selectedBooking.status || 'pending');
+                                    const isLoading = workflowLoading === (selectedBooking.id || selectedBooking._id);
+                                    const bookingStatus = selectedBooking.status || 'pending';
+
+                                    return (
+                                        <div className="rounded-2xl border border-white/5 bg-black/40 backdrop-blur-md p-4 space-y-4">
+                                            {/* Stepper */}
+                                            <div className="flex items-center justify-between gap-1">
+                                                {WORKFLOW_STAGES.map((stage, idx) => {
+                                                    const StIcon = stage.icon;
+                                                    const isCompleted = idx < currentIdx;
+                                                    const isActive = idx === currentIdx;
+                                                    const colorMap: Record<string, string> = {
+                                                        blue: isActive ? 'bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.4)]' : isCompleted ? 'bg-blue-500/60' : 'bg-zinc-800',
+                                                        cyan: isActive ? 'bg-cyan-500 shadow-[0_0_12px_rgba(6,182,212,0.4)]' : isCompleted ? 'bg-cyan-500/60' : 'bg-zinc-800',
+                                                        amber: isActive ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.4)]' : isCompleted ? 'bg-amber-500/60' : 'bg-zinc-800',
+                                                        purple: isActive ? 'bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.4)]' : isCompleted ? 'bg-purple-500/60' : 'bg-zinc-800',
+                                                        emerald: isActive ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]' : isCompleted ? 'bg-emerald-500/60' : 'bg-zinc-800',
+                                                        green: isActive ? 'bg-green-500 shadow-[0_0_12px_rgba(34,197,94,0.4)]' : isCompleted ? 'bg-green-500/60' : 'bg-zinc-800',
+                                                    };
+
+                                                    return (
+                                                        <div key={stage.key} className="flex items-center gap-1 flex-1">
+                                                            <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                                                                <motion.div
+                                                                    animate={isActive ? { scale: [1, 1.1, 1] } : {}}
+                                                                    transition={{ repeat: isActive ? Infinity : 0, duration: 2 }}
+                                                                    className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-500 ${colorMap[stage.color]}`}
+                                                                >
+                                                                    {isCompleted ? (
+                                                                        <CheckCircle className="w-3.5 h-3.5 text-white" />
+                                                                    ) : (
+                                                                        <StIcon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-zinc-500'}`} />
+                                                                    )}
+                                                                </motion.div>
+                                                                <span className={`text-[9px] font-bold tracking-wider text-center leading-tight ${
+                                                                    isActive ? 'text-white' : isCompleted ? 'text-zinc-400' : 'text-zinc-600'
+                                                                }`}>
+                                                                    {stage.label}
+                                                                </span>
+                                                            </div>
+                                                            {idx < WORKFLOW_STAGES.length - 1 && (
+                                                                <div className={`flex-1 h-[2px] rounded-full transition-all duration-500 self-start mt-[13px] ${isCompleted ? 'bg-gradient-to-r from-white/30 to-white/10' : 'bg-zinc-800'}`} />
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {/* ═══ WORKFLOW ACTION BUTTON ═══ */}
+                                            <div className="flex items-center gap-3 pt-1">
+                                                {(bookingStatus === 'assigned' || bookingStatus === 'confirmed') && (
+                                                    <Button
+                                                        onClick={() => handleCheckIn(selectedBooking)}
+                                                        disabled={isLoading}
+                                                        className="flex-1 h-11 rounded-xl text-xs font-extrabold uppercase tracking-widest gap-2 bg-cyan-600 hover:bg-cyan-500 text-white border-none shadow-[0_4px_20px_rgba(6,182,212,0.3)] hover:shadow-[0_6px_25px_rgba(6,182,212,0.5)] hover:-translate-y-0.5 transition-all"
+                                                    >
+                                                        <ShieldCheck className="w-4 h-4" />
+                                                        Check-In + Down Payment
+                                                    </Button>
+                                                )}
+                                                {bookingStatus === 'received' && (
+                                                    <Button
+                                                        onClick={() => handleStartService(selectedBooking)}
+                                                        disabled={isLoading}
+                                                        className="flex-1 h-11 rounded-xl text-xs font-extrabold uppercase tracking-widest gap-2 bg-amber-600 hover:bg-amber-500 text-white border-none shadow-[0_4px_20px_rgba(245,158,11,0.3)] hover:shadow-[0_6px_25px_rgba(245,158,11,0.5)] hover:-translate-y-0.5 transition-all"
+                                                    >
+                                                        <Play className="w-4 h-4" />
+                                                        Start Service
+                                                    </Button>
+                                                )}
+                                                {bookingStatus === 'in_progress' && (
+                                                    <Button
+                                                        onClick={() => handleQCComplete(selectedBooking)}
+                                                        disabled={isLoading}
+                                                        className="flex-1 h-11 rounded-xl text-xs font-extrabold uppercase tracking-widest gap-2 bg-purple-600 hover:bg-purple-500 text-white border-none shadow-[0_4px_20px_rgba(168,85,247,0.3)] hover:shadow-[0_6px_25px_rgba(168,85,247,0.5)] hover:-translate-y-0.5 transition-all"
+                                                    >
+                                                        <ClipboardCheck className="w-4 h-4" />
+                                                        QC Complete
+                                                    </Button>
+                                                )}
+                                                {(bookingStatus === 'completed') && (
+                                                    <Button
+                                                        onClick={() => handleFinalPayment(selectedBooking)}
+                                                        disabled={isLoading}
+                                                        className="flex-1 h-11 rounded-xl text-xs font-extrabold uppercase tracking-widest gap-2 bg-emerald-600 hover:bg-emerald-500 text-white border-none shadow-[0_4px_20px_rgba(16,185,129,0.3)] hover:shadow-[0_6px_25px_rgba(16,185,129,0.5)] hover:-translate-y-0.5 transition-all"
+                                                    >
+                                                        <Wallet className="w-4 h-4" />
+                                                        Final Payment
+                                                    </Button>
+                                                )}
+                                                {bookingStatus === 'paid' && (
+                                                    <Button
+                                                        onClick={() => handleRelease(selectedBooking)}
+                                                        disabled={isLoading}
+                                                        className="flex-1 h-11 rounded-xl text-xs font-extrabold uppercase tracking-widest gap-2 bg-green-600 hover:bg-green-500 text-white border-none shadow-[0_4px_20px_rgba(34,197,94,0.3)] hover:shadow-[0_6px_25px_rgba(34,197,94,0.5)] hover:-translate-y-0.5 transition-all"
+                                                    >
+                                                        <Unlock className="w-4 h-4" />
+                                                        Release Vehicle
+                                                    </Button>
+                                                )}
+                                                {bookingStatus === 'released' && (
+                                                    <div className="flex-1 h-11 rounded-xl flex items-center justify-center gap-2 bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-bold uppercase tracking-widest">
+                                                        <CheckCircle className="w-4 h-4" />
+                                                        Job Complete — Vehicle Released
+                                                    </div>
+                                                )}
+                                                {isLoading && (
+                                                    <div className="w-8 h-8 flex items-center justify-center">
+                                                        <div className="w-5 h-5 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
                             </motion.div>
                         )}
                     </AnimatePresence>
@@ -1314,6 +1580,20 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                     />
                 )}
             </AnimatePresence>
+
+            {/* ───── Check-In Dialog ───── */}
+            {checkInBooking && (
+                <CheckInDialog
+                    booking={checkInBooking}
+                    isOpen={showCheckInDialog}
+                    onClose={() => {
+                        setShowCheckInDialog(false);
+                        setCheckInBooking(null);
+                    }}
+                    onSubmit={handleCheckInSubmit}
+                    theme="dark"
+                />
+            )}
         </div>
     );
     }

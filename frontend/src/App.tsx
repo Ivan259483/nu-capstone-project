@@ -30,8 +30,12 @@ import {
 
 const queryClient = new QueryClient();
 
+// Apply the site-wide theme (used by public marketing pages, Customer Dashboard, and Admin Dashboard).
+// NOTE: The Detailing Portal uses its own isolated key (autospf_detailer_theme) and NEVER writes
+// to autospf_global_theme, so the marketing site is completely unaffected by the detailer toggle.
 const applyStoredTheme = () => {
     if (typeof document === 'undefined') return;
+    // Only read the global key — intentionally ignoring autospf_detailer_theme
     const storedGlobal = localStorage.getItem('autospf_global_theme');
     const storedLegacy = localStorage.getItem('autospf_theme');
     const theme = storedGlobal === 'light' || storedGlobal === 'dark'
@@ -43,11 +47,8 @@ const applyStoredTheme = () => {
 };
 
 applyStoredTheme();
-window.addEventListener('DOMContentLoaded', applyStoredTheme);
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', applyStoredTheme);
-} else {
-    applyStoredTheme();
 }
 
 // Protected Route Component — shows skeleton loader instead of blocking spinner

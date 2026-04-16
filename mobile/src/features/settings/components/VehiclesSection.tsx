@@ -171,7 +171,7 @@ export default function VehiclesSection({
   const listData = [{ id: '__add__' } as any, ...vehicles];
 
   return (
-    <Animated.View entering={FadeInUp.delay(200).springify().damping(18)}>
+    <Animated.View entering={FadeInUp.delay(200).duration(200)}>
       <SectionHeader title="My Vehicles" icon="car-sport-outline" action="See All" onAction={() => {}} />
       <FlatList
         data={listData}

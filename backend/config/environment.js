@@ -30,11 +30,28 @@ const determineEmailProvider = () => {
   return 'console';
 };
 
+/* ─── Required secrets validation ──────────────────────────────────────
+   These must be set via environment variables before the server starts.
+   A missing secret causes a hard crash so the issue is caught immediately
+   rather than silently degrading security in production.
+   ─────────────────────────────────────────────────────────────────────── */
+const REQUIRED_SECRETS = ['JWT_SECRET', 'ENCRYPTION_KEY'];
+const missingSecrets = REQUIRED_SECRETS.filter((key) => !process.env[key]);
+if (missingSecrets.length > 0) {
+  console.error(
+    '\n🚨 [CONFIG] FATAL: Required secret environment variables are missing:\n' +
+    missingSecrets.map((k) => `   ✗ ${k}`).join('\n') +
+    '\n\n   Add these to your backend/.env file and restart the server.\n' +
+    '   See backend/.env.example for reference.\n'
+  );
+  process.exit(1);
+}
+
 export const config = {
   port: process.env.PORT || 3000,
   nodeEnv: process.env.NODE_ENV || 'development',
   mongodbUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/autospf',
-  jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+  jwtSecret: process.env.JWT_SECRET, // Required — validated above
   corsOrigin: (() => {
     const raw = process.env.CORS_ORIGIN;
     if (!raw) return ['http://localhost:5173', 'http://localhost:3001'];

@@ -78,7 +78,7 @@ export default function NotificationsScreen() {
           </GlassCard>
         }
         renderItem={({ item: n, index: i }) => (
-          <Animated.View entering={FadeInDown.delay(100 + i * 80).springify().damping(16).stiffness(120)}>
+          <Animated.View entering={FadeInDown.delay(100 + i * 80).duration(200)}>
             <GlassCard
               onPress={() => {
                 if (!n.isRead) markAsRead(n.id);

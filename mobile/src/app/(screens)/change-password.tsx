@@ -165,7 +165,7 @@ export default function ChangePasswordScreen() {
         >
           {/* Shield Icon */}
           <Animated.View
-            entering={FadeInDown.delay(100).springify().damping(16).stiffness(120)}
+            entering={FadeInDown.delay(100).duration(200)}
             style={styles.iconArea}
           >
             <LinearGradient
@@ -183,7 +183,7 @@ export default function ChangePasswordScreen() {
           {/* Success State */}
           {success ? (
             <Animated.View
-              entering={FadeInUp.delay(100).springify()}
+              entering={FadeInUp.delay(100).duration(200)}
               style={styles.successContainer}
             >
               <View style={styles.successIcon}>
@@ -197,7 +197,7 @@ export default function ChangePasswordScreen() {
           ) : (
             /* Form */
             <View style={styles.formContainer}>
-              <Animated.View entering={FadeInUp.delay(200).springify().damping(16).stiffness(120)}>
+              <Animated.View entering={FadeInUp.delay(200).duration(200)}>
                 <PremiumInput
                   label="CURRENT PASSWORD"
                   iconName="lock-closed-outline"
@@ -212,7 +212,7 @@ export default function ChangePasswordScreen() {
                 />
               </Animated.View>
 
-              <Animated.View entering={FadeInUp.delay(300).springify().damping(16).stiffness(120)}>
+              <Animated.View entering={FadeInUp.delay(300).duration(200)}>
                 <PremiumInput
                   label="NEW PASSWORD"
                   iconName="key-outline"
@@ -227,7 +227,7 @@ export default function ChangePasswordScreen() {
                 />
               </Animated.View>
 
-              <Animated.View entering={FadeInUp.delay(400).springify().damping(16).stiffness(120)}>
+              <Animated.View entering={FadeInUp.delay(400).duration(200)}>
                 <PremiumInput
                   label="CONFIRM NEW PASSWORD"
                   iconName="checkmark-circle-outline"
@@ -243,7 +243,7 @@ export default function ChangePasswordScreen() {
               </Animated.View>
 
               <Animated.View
-                entering={FadeInUp.delay(500).springify().damping(15).stiffness(100)}
+                entering={FadeInUp.delay(500).duration(200)}
                 style={{ marginTop: 12 }}
               >
                 <PremiumButton
@@ -256,7 +256,7 @@ export default function ChangePasswordScreen() {
 
               {/* Security tip */}
               <Animated.View
-                entering={FadeInUp.delay(600).springify()}
+                entering={FadeInUp.delay(600).duration(200)}
                 style={styles.tipContainer}
               >
                 <Ionicons name="information-circle" size={16} color="#555" />

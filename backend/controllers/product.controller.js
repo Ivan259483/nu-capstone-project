@@ -74,19 +74,54 @@ export const getProductById = async (req, res, next) => {
  */
 export const createProduct = async (req, res, next) => {
   try {
-    const { name, description, price, category, supplier, inventory, minLevel, sku } = req.body;
+    const { name, description, price, category, supplier, inventory, minLevel, maxLevel, unit, sku } = req.body;
 
-    // Prevent Cast to ObjectId errors by setting empty strings to null
     const isValidId = (id) => id && id.length === 24 && /^[0-9a-fA-F]+$/.test(id);
+
+    // Auto-resolve Category
+    let categoryId = null;
+    if (category) {
+      if (typeof category === 'object' && category._id) {
+        categoryId = category._id;
+      } else if (isValidId(category)) {
+        categoryId = category;
+      } else {
+        const Category = (await import('../models/category.model.js')).default;
+        let cat = await Category.findOne({ name: category });
+        if (!cat) {
+          cat = await Category.create({ name: category, slug: category.toLowerCase().replace(/\s+/g, '-') });
+        }
+        categoryId = cat._id;
+      }
+    }
+
+    // Auto-resolve Supplier
+    let supplierId = null;
+    if (supplier) {
+      if (typeof supplier === 'object' && supplier._id) {
+        supplierId = supplier._id;
+      } else if (isValidId(supplier)) {
+        supplierId = supplier;
+      } else {
+        const Supplier = (await import('../models/supplier.model.js')).default;
+        let sup = await Supplier.findOne({ name: supplier });
+        if (!sup) {
+          sup = await Supplier.create({ name: supplier });
+        }
+        supplierId = sup._id;
+      }
+    }
 
     const product = new Product({
       name,
       description,
       price,
-      category: isValidId(category) ? category : null,
-      supplier: isValidId(supplier) ? supplier : null,
+      category: categoryId,
+      supplier: supplierId,
       inventory,
       minLevel,
+      maxLevel,
+      unit,
       sku,
     });
 
@@ -114,19 +149,16 @@ export const createProduct = async (req, res, next) => {
  */
 export const updateProduct = async (req, res, next) => {
   try {
-    // Prevent Cast to ObjectId errors in body
     const isValidId = (id) => id && id.length === 24 && /^[0-9a-fA-F]+$/.test(id);
     const updateData = { ...req.body };
-    console.log(`[BACKEND RECEIVED UPDATE] ID: ${req.params.id}`, req.body);
+    if (process.env.NODE_ENV === 'development') console.log(`[BACKEND RECEIVED UPDATE] ID: ${req.params.id}`, req.body);
 
     // ── Field normalization: accept frontend aliases ──
-    // Frontend InventoryItem uses 'stock' but schema uses 'inventory'
     if (updateData.stock !== undefined && updateData.inventory === undefined) {
       updateData.inventory = updateData.stock;
     }
     delete updateData.stock;
 
-    // Frontend uses 'cost' but schema uses 'price'
     if (updateData.cost !== undefined && updateData.price === undefined) {
       updateData.price = updateData.cost;
     }
@@ -135,17 +167,34 @@ export const updateProduct = async (req, res, next) => {
     // Strip non-schema fields that the frontend may spread
     delete updateData.id;
     delete updateData._id;
-    delete updateData.unit; // Not in schema (informational only)
     delete updateData.image;
     delete updateData.__v;
     
-    if (updateData.category === "") updateData.category = null;
-    else if (updateData.category && !isValidId(updateData.category)) delete updateData.category;
+    // Auto-resolve Category
+    if (updateData.category === "") {
+        updateData.category = null;
+    } else if (updateData.category && !isValidId(updateData.category)) {
+        const Category = (await import('../models/category.model.js')).default;
+        let cat = await Category.findOne({ name: updateData.category });
+        if (!cat) {
+          cat = await Category.create({ name: updateData.category, slug: updateData.category.toLowerCase().replace(/\s+/g, '-') });
+        }
+        updateData.category = cat._id;
+    }
 
-    if (updateData.supplier === "") updateData.supplier = null;
-    else if (updateData.supplier && !isValidId(updateData.supplier)) delete updateData.supplier;
+    // Auto-resolve Supplier
+    if (updateData.supplier === "") {
+        updateData.supplier = null;
+    } else if (updateData.supplier && !isValidId(updateData.supplier)) {
+        const Supplier = (await import('../models/supplier.model.js')).default;
+        let sup = await Supplier.findOne({ name: updateData.supplier });
+        if (!sup) {
+          sup = await Supplier.create({ name: updateData.supplier });
+        }
+        updateData.supplier = sup._id;
+    }
 
-    console.log(`[BACKEND NORMALIZED PAYLOAD]`, updateData);
+    if (process.env.NODE_ENV === 'development') console.log(`[BACKEND NORMALIZED PAYLOAD]`, updateData);
 
     // If updating inventory, validate stock won't go negative
     if (updateData.inventory !== undefined) {
@@ -156,7 +205,7 @@ export const updateProduct = async (req, res, next) => {
           message: 'Product not found',
         });
       }
-      
+
       // Check if new inventory value would be negative
       if (updateData.inventory < 0) {
         return res.status(400).json({
@@ -171,7 +220,7 @@ export const updateProduct = async (req, res, next) => {
       updateData,
       { new: true, runValidators: true }
     );
-    console.log(`[BACKEND DB RESULT]`, product);
+    if (process.env.NODE_ENV === 'development') console.log(`[BACKEND DB RESULT]`, product);
 
     if (!product) {
       return res.status(404).json({
@@ -245,7 +294,7 @@ export const updateProduct = async (req, res, next) => {
       message: 'Product updated successfully',
       data: product,
     };
-    console.log(`[BACKEND SENDING RESPONSE]`, responseData);
+    if (process.env.NODE_ENV === 'development') console.log(`[BACKEND SENDING RESPONSE]`, responseData);
     res.json(responseData);
   } catch (error) {
     next(error);
@@ -299,7 +348,7 @@ export const consumeInventory = async (req, res, next) => {
     // Check for low stock and create notification
     if (product.inventory <= product.minLevel) {
       try {
-        const Notification = (await import ('../models/Notification.js')).default;
+        const Notification = (await import('../models/notification.model.js')).default;
         const existingNotification = await Notification.findOne({
           type: 'inventory',
           'metadata.productId': product._id,

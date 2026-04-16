@@ -1,5 +1,9 @@
-import { apiClient } from '@/services/api/client';
+import { apiClient, cachedGet, invalidateCache, TTL } from '@/services/api/client';
 import type { ApiEnvelope, Vehicle } from '@/services/api/types';
+
+const VEHICLES_URL = '/customers/vehicles';
+// 30-second cache — vehicles change rarely, eliminates re-fetch on every screen focus
+const VEHICLES_TTL = 30_000;
 
 const toVehicle = (raw: any): Vehicle => ({
   id: raw?._id || raw?.id || '',
@@ -14,8 +18,8 @@ const toVehicle = (raw: any): Vehicle => ({
 
 export const vehicleService = {
   async getMyVehicles(): Promise<Vehicle[]> {
-    const response = await apiClient.get<ApiEnvelope<any[]>>('/customers/vehicles');
-    const items = Array.isArray(response.data.data) ? response.data.data : [];
+    const data = await cachedGet<ApiEnvelope<any[]>>(VEHICLES_URL, undefined, VEHICLES_TTL);
+    const items = Array.isArray(data.data) ? data.data : [];
     return items.map(toVehicle);
   },
 
@@ -27,10 +31,12 @@ export const vehicleService = {
     plateNumber: string;
   }): Promise<Vehicle> {
     const response = await apiClient.post<ApiEnvelope<any>>('/customers/vehicles', params);
+    invalidateCache(VEHICLES_URL); // bust cache so next fetch is fresh
     return toVehicle(response.data.data);
   },
 
   async deleteVehicle(vehicleId: string): Promise<void> {
     await apiClient.delete(`/customers/vehicles/${vehicleId}`);
+    invalidateCache(VEHICLES_URL); // bust cache so next fetch is fresh
   },
 };

@@ -54,7 +54,7 @@ const SettingsGroup = ({
   delay?: number;
 }) => (
   <Animated.View
-    entering={FadeInUp.delay(delay).springify().damping(18)}
+    entering={FadeInUp.delay(delay).duration(200)}
     style={s.groupContainer}
   >
     <Text style={s.groupTitle}>{title}</Text>
@@ -260,14 +260,7 @@ export default function SettingsScreen() {
               subtitle="Name, email, and account details"
               onPress={() => nav('/(screens)/edit-profile')}
             />
-            <Div />
-            <SettingsRow
-              iconName="camera-outline"
-              title="Upload Profile Photo"
-              subtitle="Change your avatar image"
-              onPress={handlePickImage}
-            />
-            <Div />
+
             <SettingsRow
               iconName="car-sport-outline"
               title="Saved Vehicles"
@@ -403,7 +396,7 @@ export default function SettingsScreen() {
 
         {/* ═══ Version Footer ═══ */}
         <Animated.View
-          entering={FadeInUp.delay(400).springify().damping(18)}
+          entering={FadeInUp.delay(400).duration(200)}
           style={s.footer}
         >
           <View style={s.footerDivider} />

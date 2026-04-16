@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import User from '../models/user.model.js';
 import Order from '../models/order.model.js';
 import Customer from '../models/customer.model.js';
@@ -105,12 +106,14 @@ export const updateUser = async (req, res, next) => {
       });
     }
 
-    console.log("\n=== UPDATE USER DEBUG LOGS ===");
-    console.log("1. Incoming request:");
-    console.log("   - req.body:", req.body);
-    console.log("   - req.user (parsed from JWT if auth middleware used):", req.user);
-    console.log("   - Requested ID (params):", requestedId);
-    console.log("   - Email from payload:", email);
+    if (process.env.NODE_ENV === 'development') {
+      console.log("\n=== UPDATE USER DEBUG LOGS ===");
+      console.log("1. Incoming request:");
+      console.log("   - req.body:", req.body);
+      console.log("   - req.user:", req.user);
+      console.log("   - Requested ID (params):", requestedId);
+      console.log("   - Email from payload:", email);
+    }
 
     const updatePayload = {};
     if (typeof name !== 'undefined') updatePayload.name = name;
@@ -127,34 +130,32 @@ export const updateUser = async (req, res, next) => {
     const isFirebaseUid = !isObjectId;
 
     if (isObjectId) {
-      console.log(`2a. ID is ObjectId. Finding by _id: ${requestedId}`);
+      if (process.env.NODE_ENV === 'development') console.log(`2a. ID is ObjectId. Finding by _id: ${requestedId}`);
       user = await User.findById(requestedId);
-      console.log(`    -> Result of find by _id:`, user ? 'FOUND' : 'NOT FOUND');
+      if (process.env.NODE_ENV === 'development') console.log(`    -> Result of find by _id:`, user ? 'FOUND' : 'NOT FOUND');
     } else {
-      console.log(`2b. ID is string. Finding by firebaseUid: ${requestedId}`);
+      if (process.env.NODE_ENV === 'development') console.log(`2b. ID is string. Finding by firebaseUid: ${requestedId}`);
       user = await User.findOne({ firebaseUid: requestedId });
-      console.log(`    -> Result of find by firebaseUid:`, user ? 'FOUND' : 'NOT FOUND');
+      if (process.env.NODE_ENV === 'development') console.log(`    -> Result of find by firebaseUid:`, user ? 'FOUND' : 'NOT FOUND');
     }
 
     const requestedRole = typeof role !== 'undefined' ? role : undefined;
 
     // 3. Fallback to Email if not found
     if (!user && email) {
-      console.log(`2c. User not found by ID. Attempting fallback find by email: ${email}`);
+      if (process.env.NODE_ENV === 'development') console.log(`2c. User not found by ID. Attempting fallback find by email: ${email}`);
       user = await User.findOne({ email });
-      console.log(`    -> Result of find by email:`, user ? 'FOUND' : 'NOT FOUND');
+      if (process.env.NODE_ENV === 'development') console.log(`    -> Result of find by email:`, user ? 'FOUND' : 'NOT FOUND');
 
       if (user && isFirebaseUid) {
-        console.log(`3. User found by email! We need to link the Firebase UID.`);
-        console.log(`   - Before linking, firebaseUid is:`, user.firebaseUid);
+        if (process.env.NODE_ENV === 'development') console.log(`3. User found by email! Linking Firebase UID.`);
         updatePayload.firebaseUid = requestedId;
-        console.log(`   - Attaching new firebaseUid to payload:`, requestedId);
       }
     }
 
     // 5. If no user is completely found, create one
     if (!user) {
-      console.log(`5. User entirely missing from DB! Creating new user automatically.`);
+      if (process.env.NODE_ENV === 'development') console.log(`5. User entirely missing from DB! Creating new user automatically.`);
 
       const selfProvisioning = String(requestedId) === String(req.user?.id);
       if (!selfProvisioning) {
@@ -171,11 +172,12 @@ export const updateUser = async (req, res, next) => {
           message: 'You cannot change your own role.',
         });
       }
-      
+
+      // Use cryptographically secure random bytes for the auto-provisioned fallback password
       const newUserData = {
          email: email || `unknown-${Date.now()}@example.com`,
          name: name || (email ? email.split('@')[0] : 'Unknown User'),
-         password: Math.random().toString(36).slice(-10) + 'A1!', // Fallback password
+         password: crypto.randomBytes(16).toString('hex') + 'A1!',
          role: createRole,
          avatar: avatar,
          isVerified: true
@@ -186,9 +188,7 @@ export const updateUser = async (req, res, next) => {
       }
 
       user = await User.create(newUserData);
-      console.log(`   -> New user successfully created:`, user);
-      
-      console.log("=== END UPDATE USER DEBUG LOGS ===\n");
+
       // 6. Ensure API returns success
       return res.json({
         success: true,
@@ -220,15 +220,12 @@ export const updateUser = async (req, res, next) => {
     }
 
     // Execute the actual update on the existing user
-    console.log(`   -> Executing findByIdAndUpdate for _id:`, user._id);
+    if (process.env.NODE_ENV === 'development') console.log(`   -> Executing findByIdAndUpdate for _id:`, user._id);
     const updatedUser = await User.findByIdAndUpdate(
       user._id,
       updatePayload,
       { new: true }
     ).select('-password');
-
-    console.log("4. Final updated user document:", updatedUser);
-    console.log("=== END UPDATE USER DEBUG LOGS ===\n");
 
     // Detect role change
     if (typeof requestedRole !== 'undefined' && requestedRole !== user.role) {

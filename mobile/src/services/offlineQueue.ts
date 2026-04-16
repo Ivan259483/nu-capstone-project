@@ -24,7 +24,9 @@ export const enqueueRequest = async (config: any) => {
       id: Math.random().toString(36).substr(2, 9),
       url: config.url,
       method: config.method,
-      data: config.data ? JSON.parse(config.data) : undefined, // config.data is often stringified
+      data: config.data
+        ? (typeof config.data === 'string' ? JSON.parse(config.data) : config.data)
+        : undefined,
       headers: config.headers,
       timestamp: Date.now(),
     };
@@ -67,10 +69,17 @@ export const processQueue = async () => {
         // Remove from queue upon success
         queue = queue.filter((q) => q.id !== req.id);
         await AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
-      } catch (error) {
-        console.error(`[OfflineQueue] Request ${req.id} failed again during replay:`, error);
-        // Break out out of replay loop if we hit another network constraint
-        break;
+      } catch (error: any) {
+        if (error.response && error.response.status >= 400 && error.response.status < 500) {
+          console.warn(`[OfflineQueue] Request ${req.id} rejected by server with ${error.response.status}. Discarding request.`);
+          // Remove from queue since server explicitly rejected it
+          queue = queue.filter((q) => q.id !== req.id);
+          await AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
+        } else {
+          console.warn(`[OfflineQueue] Request ${req.id} failed again during replay:`, error.message);
+          // Break out of replay loop if we hit another network constraint
+          break;
+        }
       }
     }
   } catch (error) {

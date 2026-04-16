@@ -140,7 +140,7 @@ export default function VerifyScreen() {
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
 
-        <Animated.View entering={FadeInDown.springify().damping(16).stiffness(120)}>
+        <Animated.View entering={FadeInDown.duration(200)}>
           <View style={styles.headerContainer}>
             <Text style={[styles.welcomeText, { color: colors.text }]}>
               Verify Email

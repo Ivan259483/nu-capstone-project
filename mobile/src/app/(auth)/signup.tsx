@@ -183,7 +183,7 @@ export default function SignUpScreen() {
         <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
             
             {/* Premium Back Button */}
-            <Animated.View entering={FadeInDown.delay(50).springify().damping(16).stiffness(120)} style={styles.backButtonContainer}>
+            <Animated.View entering={FadeInDown.delay(50).duration(200)} style={styles.backButtonContainer}>
                  <TouchableOpacity 
                     style={styles.backButton}
                     hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
@@ -197,7 +197,7 @@ export default function SignUpScreen() {
             </Animated.View>
 
             {/* Branding Header Area */}
-            <Animated.View entering={FadeInDown.delay(100).springify().damping(16).stiffness(120)} style={styles.headerContainer}>
+            <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.headerContainer}>
               <Text style={styles.welcomeText}>Create Account</Text>
               <Text style={styles.welcomeSubtext}>Join AutoSPF+ for premium vehicle service.</Text>
             </Animated.View>
@@ -207,7 +207,7 @@ export default function SignUpScreen() {
               {otpStep === 'form' ? (
                 <>
                   {/* Full Name */}
-                  <Animated.View entering={FadeInUp.delay(200).springify().damping(16).stiffness(120)}>
+                  <Animated.View entering={FadeInUp.delay(200).duration(200)}>
                     <PremiumInput
                       label="FULL NAME"
                       iconName="person-outline"
@@ -220,7 +220,7 @@ export default function SignUpScreen() {
                   </Animated.View>
 
                   {/* Email */}
-                  <Animated.View entering={FadeInUp.delay(300).springify().damping(16).stiffness(120)}>
+                  <Animated.View entering={FadeInUp.delay(300).duration(200)}>
                     <PremiumInput
                       label="EMAIL ADDRESS"
                       iconName="mail-outline"
@@ -234,7 +234,7 @@ export default function SignUpScreen() {
                   </Animated.View>
 
                   {/* Password */}
-                  <Animated.View entering={FadeInUp.delay(400).springify().damping(16).stiffness(120)}>
+                  <Animated.View entering={FadeInUp.delay(400).duration(200)}>
                     <PremiumInput
                       label="PASSWORD"
                       iconName="lock-closed-outline"
@@ -247,7 +247,7 @@ export default function SignUpScreen() {
                   </Animated.View>
 
                   {/* Send OTP Button */}
-                  <Animated.View entering={FadeInUp.delay(600).springify().damping(15).stiffness(100)} style={{ marginTop: 40 }}>
+                  <Animated.View entering={FadeInUp.delay(600).duration(200)} style={{ marginTop: 40 }}>
                     <PremiumButton
                       title={loading ? 'SENDING CODE...' : 'CONTINUE'}
                       icon={loading ? undefined : 'arrow-forward-outline'}
@@ -257,7 +257,7 @@ export default function SignUpScreen() {
                   </Animated.View>
                 </>
               ) : (
-                <Animated.View entering={FadeInUp.delay(100).springify().damping(16).stiffness(120)}>
+                <Animated.View entering={FadeInUp.delay(100).duration(200)}>
                   <Text style={styles.otpInstructions}>
                     Enter the 6-digit verification code sent to {email}
                   </Text>
@@ -278,7 +278,7 @@ export default function SignUpScreen() {
                     ))}
                   </View>
 
-                  <Animated.View entering={FadeInUp.delay(300).springify().damping(15).stiffness(100)} style={{ marginTop: 40 }}>
+                  <Animated.View entering={FadeInUp.delay(300).duration(200)} style={{ marginTop: 40 }}>
                     <PremiumButton
                       title={loading ? 'VERIFYING...' : 'VERIFY & REGISTER'}
                       icon={loading ? undefined : 'checkmark-circle-outline'}
@@ -306,7 +306,7 @@ export default function SignUpScreen() {
 
             {/* Footer */}
             <Animated.View
-              entering={FadeInUp.delay(700).springify().damping(16).stiffness(120)}
+              entering={FadeInUp.delay(700).duration(200)}
               style={{
                 flexDirection: 'row',
                 justifyContent: 'center',

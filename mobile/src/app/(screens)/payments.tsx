@@ -119,7 +119,7 @@ export default function PaymentsScreen() {
     const serviceName = t.order?.serviceType || t.order?.orderNumber || t.invoiceId;
 
     return (
-      <Animated.View entering={FadeInDown.delay(100 + i * 60).springify().damping(16).stiffness(120)}>
+      <Animated.View entering={FadeInDown.delay(100 + i * 60).duration(200)}>
         <View
           style={[
             styles.txRow,
@@ -209,7 +209,7 @@ export default function PaymentsScreen() {
             <>
               {/* Total Spent Card */}
               <Animated.View
-                entering={FadeInDown.delay(100).springify().damping(16).stiffness(120)}
+                entering={FadeInDown.delay(100).duration(200)}
               >
                 <LinearGradient
                   colors={[Palette.accent, Palette.accentDark]}

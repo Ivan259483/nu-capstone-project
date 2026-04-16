@@ -56,7 +56,7 @@ export default function ProfileHeader({ profile, isUpdatingAvatar, onPickImage }
     : 'JD';
 
   return (
-    <Animated.View entering={FadeInDown.springify().damping(18).stiffness(140)} style={s.container}>
+    <Animated.View entering={FadeInDown.duration(200)} style={s.container}>
       {/* Avatar with glow ring */}
       <TouchableOpacity onPress={onPickImage} activeOpacity={0.8} style={s.avatarOuter}>
         {/* Animated glow ring */}

@@ -42,7 +42,10 @@ const orderSchema = new mongoose.Schema(
     inventoryDeductedAt: Date,
     customerStatus: {
       type: String,
-      enum: ['received', 'washing', 'detailing', 'ready', 'completed', 'queued', 'in-progress', 'finishing', 'Queued', 'Confirmed', 'In Progress', 'Finishing', 'Ready'],
+      // ⚠️ Bug #4 fix: Removed all capitalized/duplicate enum values.
+      // Only lowercase values are accepted. The normalizeCustomerStatus() helper
+      // in order.controller.js enforces this on all writes.
+      enum: ['received', 'washing', 'detailing', 'queued', 'in-progress', 'finishing', 'ready', 'completed'],
       default: 'received',
     },
     customerStatusUpdatedAt: Date,
@@ -176,10 +179,10 @@ const orderSchema = new mongoose.Schema(
     },
 
     // ═══════ WORKFLOW PIPELINE ═══════
-    workflowStep: { type: Number, default: 0 },
-    workflowCompletedSteps: { type: [Number], default: [] },
-    
-    // Dedicated Mobile Operations State
+    // ⚠️ Workflow unification fix: Removed legacy workflowStep / workflowCompletedSteps
+    // fields that were only used by the web dashboard. The `workflow` sub-document
+    // is now the single canonical source of truth for both web and mobile clients.
+    // Any code referencing order.workflowStep should be updated to order.workflow.currentStep.
     workflow: {
       currentStep: { type: Number, default: 1 },
       completedSteps: { type: [Number], default: [] },

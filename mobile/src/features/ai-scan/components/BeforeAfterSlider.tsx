@@ -17,7 +17,6 @@ import Reanimated, {
   withDelay,
   withRepeat,
   withSequence,
-  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import {
@@ -242,8 +241,8 @@ function SideLabel({
     <Reanimated.View
       entering={
         side === 'left'
-          ? FadeInDown.delay(600).springify().damping(18)
-          : FadeInDown.delay(800).springify().damping(18)
+          ? FadeInDown.delay(300).duration(200)
+          : FadeInDown.delay(400).duration(200)
       }
       style={[lbl.badge, side === 'left' ? lbl.left : lbl.right]}
     >
@@ -273,7 +272,7 @@ function StatsStrip({
   const moderateCt = issues.filter(i => i.severity === 'moderate').length;
 
   return (
-    <Reanimated.View entering={FadeInUp.delay(1000).springify().damping(20)} style={statsS.strip}>
+    <Reanimated.View entering={FadeInUp.delay(600).duration(200)} style={statsS.strip}>
       <View style={statsS.item}>
         <Ionicons name="flag-outline" size={10} color={ACCENT} />
         <Text style={statsS.value}>{issueCount}</Text>
@@ -439,11 +438,7 @@ export default function BeforeAfterSlider({
       sliderX.value = width * 0.85;
       sliderX.value = withDelay(
         400,
-        withSpring(width / 2, {
-          damping: 16,
-          stiffness: 90,
-          mass: 0.8,
-        }, () => {
+        withTiming(width / 2, { duration: 350, easing: Easing.out(Easing.ease) }, () => {
           runOnJS(triggerReveal)();
         }),
       );

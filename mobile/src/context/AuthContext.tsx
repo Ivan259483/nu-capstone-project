@@ -1,14 +1,24 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { auth } from '@/config/firebase';
-import { getApiErrorMessage } from '@/services/api/client';
+import { getApiErrorMessage, apiClient } from '@/services/api/client';
 import { CUSTOMER_ROLE, getSafeUserRole } from '@/services/api/roles';
 import { authService } from '@/services/api/authService';
+import { authStorage } from '@/services/storage/authStorage';
 import type { BackendUser, MobileProfile } from '@/services/api/types';
 
 type AuthResult = {
   success: boolean;
   message?: string;
+  /** Structured data from the backend (e.g., remaining login attempts, lock info) */
+  data?: {
+    remainingAttempts?: number;
+    loginAttempts?: number;
+    maxAttempts?: number;
+    locked?: boolean;
+    lockUntilMs?: number;
+    remainingMinutes?: number;
+  };
 };
 
 type AuthContextType = {
@@ -22,6 +32,7 @@ type AuthContextType = {
   signUp: (fullName: string, email: string, password: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  deleteAccount: (password: string) => Promise<{ success: boolean; message?: string }>;
 };
 
 const AuthContext = createContext<AuthContextType>({
@@ -35,6 +46,7 @@ const AuthContext = createContext<AuthContextType>({
   signUp: async () => ({ success: false }),
   signOut: async () => {},
   refreshProfile: async () => {},
+  deleteAccount: async () => ({ success: false }),
 });
 
 const toProfile = (
@@ -119,10 +131,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       applyState(result.firebaseUser, result.token, result.backendUser);
       return { success: true };
     } catch (error: any) {
-      // Pass the exact backend error exactly backwards to the frontend (e.g. "Account locked")
+      // Extract structured data from backend error response (remaining attempts, lock info)
+      const responseData = error?.response?.data?.data ?? error?.data ?? undefined;
       return {
         success: false,
         message: error.message || getApiErrorMessage(error, 'Sign-in failed.'),
+        data: responseData,
       };
     }
   };
@@ -165,6 +179,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const deleteAccount = async (password: string): Promise<{ success: boolean; message?: string }> => {
+    try {
+      const token = await authStorage.getToken();
+      if (!token) return { success: false, message: 'Not authenticated.' };
+
+      const response = await apiClient.delete('/auth/account', {
+        data: { password },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      // Clear session on success
+      await signOut();
+      return { success: true, message: response.data?.message || 'Account deleted.' };
+    } catch (error: any) {
+      const msg =
+        error?.response?.data?.message ||
+        getApiErrorMessage(error, 'Failed to delete account.');
+      return { success: false, message: msg };
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -178,6 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp,
         signOut,
         refreshProfile,
+        deleteAccount,
       }}
     >
       {children}

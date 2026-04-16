@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MessageCircle, X, Send, User, PhoneCall, Headset } from 'lucide-react';
+import { MessageCircle, X, Send, User, PhoneCall, Headset, Sparkles, ArrowRight, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
@@ -53,18 +53,20 @@ const getSessionId = () => {
 
 /* ─────────────────────── Quick-reply chips ─────────────────────── */
 const QUICK_REPLIES = [
-    'Paint Protection Film',
-    'Ceramic Coating',
-    'Interior Detailing',
-    'Get a Quote',
+    { label: 'Paint Protection Film', icon: '🛡️' },
+    { label: 'Ceramic Coating', icon: '✨' },
+    { label: 'Interior Detailing', icon: '🧽' },
+    { label: 'Get a Quote', icon: '💰' },
 ];
 
 /* ─────────────────────── Framer variants ─────────────────────── */
+const EASE = [0.16, 1, 0.3, 1] as const;
+
 const windowVariants: Variants = {
     hidden: {
         opacity: 0,
-        scale: 0.85,
-        y: 24,
+        scale: 0.92,
+        y: 20,
         originX: 1,
         originY: 1,
     },
@@ -72,19 +74,29 @@ const windowVariants: Variants = {
         opacity: 1,
         scale: 1,
         y: 0,
-        transition: { type: 'spring' as const, stiffness: 320, damping: 28 },
+        transition: { type: 'spring', stiffness: 380, damping: 30 },
     },
     exit: {
         opacity: 0,
-        scale: 0.88,
-        y: 16,
-        transition: { duration: 0.2, ease: 'easeIn' as const },
+        scale: 0.92,
+        y: 14,
+        transition: { duration: 0.18, ease: 'easeIn' },
     },
 };
 
 const msgVariants: Variants = {
     hidden: { opacity: 0, y: 10, scale: 0.97 },
-    visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.25, ease: 'easeOut' as const } },
+    visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.25, ease: 'easeOut' } },
+};
+
+const chipVariants: Variants = {
+    hidden: { opacity: 0, y: 8, scale: 0.9 },
+    visible: (i: number) => ({
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        transition: { duration: 0.35, ease: EASE, delay: 0.15 + i * 0.06 },
+    }),
 };
 
 /* ═══════════════════════════════════════════════════
@@ -106,6 +118,7 @@ export default function ChatWidget({
     const [pendingMessage, setPendingMessage] = useState<string | null>(null);
     const [isSending, setIsSending] = useState(false);
     const [unread, setUnread] = useState(0);
+    const [inputFocused, setInputFocused] = useState(false);
 
     // Keeps full conversation history for Groq context window
     const historyRef = useRef<{ role: 'user' | 'assistant'; content: string }[]>([]);
@@ -128,8 +141,6 @@ export default function ChatWidget({
             } catch { localStorage.removeItem('autospf_chat_lead'); }
         }
     }, []);
-
-    /* ── No server session needed; history managed locally ── */
 
     /* ── Auto-scroll ── */
     useEffect(() => {
@@ -273,77 +284,112 @@ export default function ChatWidget({
                         initial="hidden"
                         animate="visible"
                         exit="exit"
-                        className="w-80 sm:w-96 flex flex-col rounded-2xl overflow-hidden
-                                   bg-[#0B1120]/85 backdrop-blur-2xl
-                                   border border-white/10
-                                   shadow-[0_32px_80px_rgba(0,0,0,0.7)]"
-                        style={{ maxHeight: '520px' }}
+                        className="w-[360px] sm:w-[400px] flex flex-col rounded-3xl overflow-hidden
+                                   border border-white/[0.08]
+                                   shadow-[0_32px_80px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.04)]"
+                        style={{
+                            maxHeight: '560px',
+                            background: 'linear-gradient(180deg, rgba(15,17,25,0.97) 0%, rgba(10,12,18,0.98) 100%)',
+                            backdropFilter: 'blur(40px)',
+                        }}
                     >
                         {/* ── Header ── */}
-                        <div className="flex items-center justify-between px-4 py-3.5 border-b border-white/8
-                                        bg-white/[0.04] shrink-0">
-                            {/* Top highlight */}
-                            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent pointer-events-none" />
+                        <div className="relative flex items-center justify-between px-5 py-4 shrink-0">
+                            {/* Top highlight line */}
+                            <div className="absolute top-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-amber-500/25 to-transparent pointer-events-none" />
+                            {/* Bottom border */}
+                            <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/8 to-transparent pointer-events-none" />
 
                             <div className="flex items-center gap-3">
-                                <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow-md shadow-orange-500/30">
-                                    <Headset className="w-4 h-4 text-white" />
-                                    {/* Green "online" dot */}
-                                    <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#0B1120] shadow-sm" />
+                                {/* Avatar */}
+                                <div className="relative">
+                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                                        <Bot className="w-5 h-5 text-white" />
+                                    </div>
+                                    {/* Pulse ring */}
+                                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-[2.5px] border-[#0f1119]">
+                                        <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-40" />
+                                    </span>
                                 </div>
                                 <div>
-                                    <p className="text-white text-xs font-semibold tracking-tight leading-none mb-0.5">
-                                        AutoSPF+ Assistant
+                                    <p className="text-white text-[13px] font-semibold tracking-tight leading-none mb-1">
+                                        AutoSPF+ AI
                                     </p>
-                                    <p className="text-emerald-400 text-[10px] font-medium">Online</p>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                        <p className="text-emerald-400/80 text-[10px] font-medium">Online now</p>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-1">
-                                <button
-                                    onClick={() => setIsOpen(false)}
-                                    className="w-7 h-7 rounded-full flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all"
-                                    aria-label="Close chat"
-                                >
-                                    <X className="w-3.5 h-3.5" />
-                                </button>
-                            </div>
+                            <motion.button
+                                onClick={() => setIsOpen(false)}
+                                whileHover={{ scale: 1.1, rotate: 90 }}
+                                whileTap={{ scale: 0.9 }}
+                                className="w-8 h-8 rounded-xl flex items-center justify-center text-white/30 hover:text-white
+                                           hover:bg-white/[0.06] transition-all duration-200"
+                                aria-label="Close chat"
+                            >
+                                <X className="w-4 h-4" />
+                            </motion.button>
                         </div>
 
                         {/* ── Message area ── */}
-                        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0"
-                            style={{ maxHeight: '280px' }}>
+                        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4 min-h-0"
+                            style={{
+                                maxHeight: '320px',
+                                scrollbarWidth: 'thin',
+                                scrollbarColor: 'rgba(255,255,255,0.08) transparent',
+                            }}>
 
                             {/* Empty state / welcome */}
                             {messages.length === 0 && (
                                 <>
+                                    {/* Welcome card */}
                                     <motion.div
                                         variants={msgVariants} initial="hidden" animate="visible"
-                                        className="flex items-start gap-2.5"
+                                        className="relative p-4 rounded-2xl overflow-hidden"
+                                        style={{
+                                            background: 'linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(249,115,22,0.04) 100%)',
+                                            border: '1px solid rgba(245,158,11,0.12)',
+                                        }}
                                     >
-                                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shrink-0 mt-0.5">
-                                            <Headset className="w-3.5 h-3.5 text-white" />
-                                        </div>
-                                        <div className="bg-white/[0.07] border border-white/10 rounded-2xl rounded-tl-sm px-3.5 py-2.5 max-w-[85%]">
-                                            <p className="text-white/80 text-xs leading-relaxed">
-                                                Hello! Welcome to <span className="text-orange-400 font-semibold">AutoSPF+</span>. How can I assist you with your vehicle's detailing today?
-                                            </p>
+                                        <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/[0.06] blur-[40px] rounded-full pointer-events-none" />
+                                        <div className="flex items-start gap-3 relative z-10">
+                                            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
+                                                <Sparkles className="w-4 h-4 text-white" />
+                                            </div>
+                                            <div>
+                                                <p className="text-white/90 text-[13px] font-semibold leading-tight mb-1.5">
+                                                    Welcome to AutoSPF+
+                                                </p>
+                                                <p className="text-white/45 text-xs leading-relaxed">
+                                                    I'm your AI detailing assistant. Ask me about PPF, ceramic coating, tinting, or get a personalised quote.
+                                                </p>
+                                            </div>
                                         </div>
                                     </motion.div>
 
                                     {/* Quick-reply chips */}
-                                    <div className="flex flex-wrap gap-1.5 pl-9">
-                                        {QUICK_REPLIES.map(q => (
-                                            <button
-                                                key={q}
-                                                onClick={() => handleSend(q)}
-                                                className="px-2.5 py-1 rounded-full text-[10px] font-medium
-                                                           border border-white/15 text-white/50 hover:border-orange-500/50
-                                                           hover:text-orange-400 hover:bg-orange-500/8
-                                                           transition-all duration-200"
+                                    <div className="flex flex-wrap gap-2 pt-1">
+                                        {QUICK_REPLIES.map((q, i) => (
+                                            <motion.button
+                                                key={q.label}
+                                                custom={i}
+                                                variants={chipVariants}
+                                                initial="hidden"
+                                                animate="visible"
+                                                onClick={() => handleSend(q.label)}
+                                                whileHover={{ scale: 1.04, y: -1 }}
+                                                whileTap={{ scale: 0.97 }}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-medium
+                                                           bg-white/[0.04] border border-white/10 text-white/50
+                                                           hover:border-amber-500/30 hover:text-amber-400 hover:bg-amber-500/[0.06]
+                                                           transition-all duration-250 cursor-pointer"
                                             >
-                                                {q}
-                                            </button>
+                                                <span className="text-xs">{q.icon}</span>
+                                                {q.label}
+                                            </motion.button>
                                         ))}
                                     </div>
                                 </>
@@ -354,16 +400,16 @@ export default function ChatWidget({
                                 <motion.div
                                     key={msg.id}
                                     variants={msgVariants} initial="hidden" animate="visible"
-                                    className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                                    className={`flex items-end gap-2.5 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                                 >
                                     {msg.sender !== 'user' && (
-                                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shrink-0 mb-0.5">
-                                            <Headset className="w-3 h-3 text-white" />
+                                        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shrink-0 mb-0.5 shadow-sm shadow-amber-500/20">
+                                            <Bot className="w-3.5 h-3.5 text-white" />
                                         </div>
                                     )}
-                                    <div className={`max-w-[80%] px-3.5 py-2.5 text-xs leading-relaxed shadow-sm ${msg.sender === 'user'
-                                        ? 'bg-gradient-to-r from-orange-500 to-amber-600 text-white rounded-2xl rounded-br-sm'
-                                        : 'bg-white/[0.07] border border-white/10 text-white/80 rounded-2xl rounded-tl-sm'
+                                    <div className={`max-w-[78%] px-3.5 py-2.5 text-[12.5px] leading-relaxed ${msg.sender === 'user'
+                                        ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-2xl rounded-br-md shadow-md shadow-amber-500/15'
+                                        : 'bg-white/[0.05] border border-white/8 text-white/75 rounded-2xl rounded-tl-md'
                                         }`}>
                                         {msg.message}
                                     </div>
@@ -373,19 +419,19 @@ export default function ChatWidget({
                             {/* Typing indicator */}
                             {isSending && (
                                 <motion.div
-                                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                                    className="flex items-end gap-2"
+                                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                                    className="flex items-end gap-2.5"
                                 >
-                                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shrink-0">
-                                        <Headset className="w-3 h-3 text-white" />
+                                    <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shrink-0 shadow-sm shadow-amber-500/20">
+                                        <Bot className="w-3.5 h-3.5 text-white" />
                                     </div>
-                                    <div className="bg-white/[0.07] border border-white/10 rounded-2xl rounded-tl-sm px-3.5 py-3 flex gap-1">
+                                    <div className="bg-white/[0.05] border border-white/8 rounded-2xl rounded-tl-md px-4 py-3 flex gap-1.5">
                                         {[0, 0.15, 0.3].map((delay, i) => (
                                             <motion.span
                                                 key={i}
-                                                className="w-1.5 h-1.5 rounded-full bg-white/40"
-                                                animate={{ opacity: [0.3, 1, 0.3], y: [0, -3, 0] }}
-                                                transition={{ duration: 0.8, repeat: Infinity, delay }}
+                                                className="w-1.5 h-1.5 rounded-full bg-amber-400/60"
+                                                animate={{ opacity: [0.3, 1, 0.3], y: [0, -4, 0] }}
+                                                transition={{ duration: 0.9, repeat: Infinity, delay }}
                                             />
                                         ))}
                                     </div>
@@ -400,60 +446,85 @@ export default function ChatWidget({
                                 <motion.div
                                     initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
                                     exit={{ opacity: 0, height: 0 }}
-                                    className="border-t border-white/8 px-4 py-3 space-y-2 shrink-0 bg-white/[0.03] overflow-hidden"
+                                    className="border-t border-white/8 px-5 py-4 space-y-3 shrink-0 overflow-hidden"
+                                    style={{ background: 'rgba(255,255,255,0.02)' }}
                                 >
-                                    <p className="text-[11px] text-white/40 uppercase tracking-widest font-medium">Your details</p>
+                                    <p className="text-[11px] text-white/30 uppercase tracking-[0.2em] font-semibold">Your details</p>
                                     <div className="grid grid-cols-2 gap-2">
-                                        <div className="flex items-center gap-2 h-9 rounded-lg border border-white/10 bg-white/5 px-2">
-                                            <User className="w-3.5 h-3.5 text-white/30 shrink-0" />
+                                        <div className="flex items-center gap-2 h-10 rounded-xl border border-white/10 bg-white/[0.03] px-3 focus-within:border-amber-500/30 transition-colors">
+                                            <User className="w-3.5 h-3.5 text-white/25 shrink-0" />
                                             <Input value={leadName} onChange={e => setLeadName(e.target.value)} placeholder="Name"
-                                                className="h-7 border-0 bg-transparent p-0 text-xs text-white placeholder:text-white/25 focus-visible:ring-0" />
+                                                className="h-8 border-0 bg-transparent p-0 text-xs text-white placeholder:text-white/20 focus-visible:ring-0" />
                                         </div>
-                                        <div className="flex items-center gap-2 h-9 rounded-lg border border-white/10 bg-white/5 px-2">
-                                            <PhoneCall className="w-3.5 h-3.5 text-white/30 shrink-0" />
+                                        <div className="flex items-center gap-2 h-10 rounded-xl border border-white/10 bg-white/[0.03] px-3 focus-within:border-amber-500/30 transition-colors">
+                                            <PhoneCall className="w-3.5 h-3.5 text-white/25 shrink-0" />
                                             <Input value={leadPhone} onChange={e => setLeadPhone(e.target.value)} placeholder="Phone"
-                                                className="h-7 border-0 bg-transparent p-0 text-xs text-white placeholder:text-white/25 focus-visible:ring-0" />
+                                                className="h-8 border-0 bg-transparent p-0 text-xs text-white placeholder:text-white/20 focus-visible:ring-0" />
                                         </div>
                                     </div>
-                                    <Button onClick={handleLeadSubmit}
-                                        className="w-full h-8 text-xs rounded-lg bg-gradient-to-r from-orange-500 to-amber-600 text-white font-semibold hover:from-orange-600 hover:to-amber-700">
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        onClick={handleLeadSubmit}
+                                        className="w-full h-9 rounded-xl text-xs font-semibold bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/20
+                                                   hover:from-amber-600 hover:to-orange-700 transition-all cursor-pointer"
+                                    >
                                         Submit Details
-                                    </Button>
+                                    </motion.button>
                                 </motion.div>
                             )}
                         </AnimatePresence>
 
                         {/* ── Input area ── */}
-                        <div className="border-t border-white/8 px-3 py-3 space-y-2 shrink-0 bg-white/[0.02]">
+                        <div className="relative px-4 py-3.5 space-y-2.5 shrink-0">
+                            {/* Top border */}
+                            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/8 to-transparent pointer-events-none" />
+
                             <div className="flex items-center gap-2">
-                                <Input
-                                    ref={inputRef as any}
-                                    value={input}
-                                    onChange={e => setInput(e.target.value)}
-                                    placeholder="Type your message..."
-                                    className="h-9 flex-1 rounded-xl bg-white/5 border border-white/10 text-xs text-white
-                                               placeholder:text-white/25 focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/20
-                                               transition-all"
-                                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                                />
+                                <div className={`flex-1 flex items-center rounded-xl h-10 px-3 border transition-all duration-300
+                                    ${inputFocused
+                                        ? 'border-amber-500/30 bg-white/[0.04] shadow-[0_0_20px_rgba(245,158,11,0.06)]'
+                                        : 'border-white/8 bg-white/[0.03]'
+                                    }`}>
+                                    <Input
+                                        ref={inputRef as any}
+                                        value={input}
+                                        onChange={e => setInput(e.target.value)}
+                                        onFocus={() => setInputFocused(true)}
+                                        onBlur={() => setInputFocused(false)}
+                                        placeholder="Type a message..."
+                                        className="h-8 flex-1 border-0 bg-transparent p-0 text-xs text-white
+                                                   placeholder:text-white/20 focus-visible:ring-0"
+                                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                                    />
+                                </div>
                                 <motion.button
                                     onClick={() => handleSend()} disabled={isSending || !input.trim()}
                                     whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.94 }}
-                                    className="w-9 h-9 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600
-                                               flex items-center justify-center shadow-md shadow-orange-500/25
-                                               disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                    className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600
+                                               flex items-center justify-center
+                                               shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40
+                                               disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none
+                                               transition-all duration-200 cursor-pointer shrink-0"
                                 >
-                                    <Send className="w-3.5 h-3.5 text-white" />
+                                    <Send className="w-4 h-4 text-white" />
                                 </motion.button>
                             </div>
 
-                            <Button variant="outline" onClick={handleHandoff}
-                                className="w-full h-7 rounded-lg border-white/10 text-[10px] text-white/35 hover:text-white/70 hover:bg-white/8 uppercase tracking-widest font-medium transition-all">
+                            <motion.button
+                                onClick={handleHandoff}
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                className="w-full h-7 rounded-lg flex items-center justify-center gap-1.5
+                                           text-[10px] text-white/25 hover:text-white/50 font-medium uppercase tracking-[0.15em]
+                                           hover:bg-white/[0.03] transition-all duration-200 cursor-pointer"
+                            >
+                                <Headset className="w-3 h-3" />
                                 Talk to Human
-                            </Button>
+                            </motion.button>
 
                             {currentUserName && (
-                                <p className="text-[10px] text-white/20 text-center">Signed in as {currentUserName}</p>
+                                <p className="text-[9px] text-white/15 text-center">Signed in as {currentUserName}</p>
                             )}
                         </div>
                     </motion.div>
@@ -461,46 +532,60 @@ export default function ChatWidget({
             </AnimatePresence>
 
             {/* ── Floating trigger button ── */}
-            <motion.button
-                onClick={() => setIsOpen(o => !o)}
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.92 }}
-                className="relative w-14 h-14 rounded-full flex items-center justify-center
-                           bg-gradient-to-r from-orange-500 to-amber-600
-                           shadow-xl shadow-orange-500/40 hover:shadow-orange-500/60
-                           transition-shadow duration-300"
-                aria-label={isOpen ? 'Close chat' : 'Open chat'}
-            >
-                <AnimatePresence mode="wait" initial={false}>
-                    {isOpen ? (
-                        <motion.span key="x"
-                            initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }}
-                            exit={{ rotate: 90, opacity: 0 }} transition={{ duration: 0.18 }}>
-                            <X className="w-5 h-5 text-white" />
-                        </motion.span>
-                    ) : (
-                        <motion.span key="chat"
-                            initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }}
-                            exit={{ rotate: -90, opacity: 0 }} transition={{ duration: 0.18 }}>
-                            <MessageCircle className="w-5 h-5 text-white" />
-                        </motion.span>
-                    )}
-                </AnimatePresence>
+            <div className="relative">
+                {/* Ambient glow behind the button */}
+                <motion.div
+                    className="absolute inset-0 rounded-2xl bg-amber-500/20 blur-xl pointer-events-none"
+                    animate={{
+                        scale: [1, 1.3, 1],
+                        opacity: [0.3, 0.15, 0.3],
+                    }}
+                    transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                />
 
-                {/* Unread badge */}
-                <AnimatePresence>
-                    {!isOpen && unread > 0 && (
-                        <motion.span
-                            key="badge"
-                            initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
-                            className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 border-2 border-[#0B1120]
-                                       text-white text-[10px] font-bold flex items-center justify-center"
-                        >
-                            {unread}
-                        </motion.span>
-                    )}
-                </AnimatePresence>
-            </motion.button>
+                <motion.button
+                    onClick={() => setIsOpen(o => !o)}
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.92 }}
+                    className="relative w-14 h-14 rounded-2xl flex items-center justify-center
+                               bg-gradient-to-br from-amber-500 to-orange-600
+                               shadow-xl shadow-amber-500/30 hover:shadow-amber-500/50
+                               transition-shadow duration-300 cursor-pointer"
+                    aria-label={isOpen ? 'Close chat' : 'Open chat'}
+                >
+                    <AnimatePresence mode="wait" initial={false}>
+                        {isOpen ? (
+                            <motion.span key="x"
+                                initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }}
+                                exit={{ rotate: 90, opacity: 0 }} transition={{ duration: 0.18 }}>
+                                <X className="w-5 h-5 text-white" />
+                            </motion.span>
+                        ) : (
+                            <motion.span key="chat"
+                                initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }}
+                                exit={{ rotate: -90, opacity: 0 }} transition={{ duration: 0.18 }}>
+                                <MessageCircle className="w-5 h-5 text-white" />
+                            </motion.span>
+                        )}
+                    </AnimatePresence>
+
+                    {/* Unread badge */}
+                    <AnimatePresence>
+                        {!isOpen && unread > 0 && (
+                            <motion.span
+                                key="badge"
+                                initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+                                transition={{ type: 'spring', stiffness: 400, damping: 15 }}
+                                className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full
+                                           bg-red-500 border-[2.5px] border-[#0f1119]
+                                           text-white text-[10px] font-bold flex items-center justify-center"
+                            >
+                                {unread}
+                            </motion.span>
+                        )}
+                    </AnimatePresence>
+                </motion.button>
+            </div>
         </div>
     );
 }

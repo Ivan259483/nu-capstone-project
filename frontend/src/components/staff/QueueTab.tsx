@@ -23,21 +23,21 @@ const getJobId = (job: Booking) => (job.id || (job as any)._id) as string;
 const getStatusConfig = (status: string) => {
     switch(status) {
         case 'assigned':
-            return { color: '#a855f7', bg: 'rgba(168, 85, 247, 0.15)', shadow: '0 0 10px rgba(168, 85, 247, 0.4)', label: 'Assigned', icon: <Wrench size={12} /> };
+            return { color: '#6d28d9', bg: 'rgba(109, 40, 217, 0.08)', shadow: 'none', label: 'Assigned', icon: <Wrench size={12} /> };
         case 'in_progress':
-            return { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.15)', shadow: '0 0 10px rgba(59, 130, 246, 0.4)', label: 'In Progress', icon: <Activity size={12} /> };
+            return { color: '#2563eb', bg: 'rgba(37, 99, 235, 0.10)', shadow: 'none', label: 'In Progress', icon: <Activity size={12} /> };
         case 'received':
-            return { color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.15)', shadow: '0 0 10px rgba(139, 92, 246, 0.4)', label: 'Checked In', icon: <Car size={12} /> };
+            return { color: '#7c3aed', bg: 'rgba(124, 58, 237, 0.08)', shadow: 'none', label: 'Checked In', icon: <Car size={12} /> };
         case 'completed':
-            return { color: '#22c55e', bg: 'rgba(34, 197, 94, 0.15)', shadow: '0 0 10px rgba(34, 197, 94, 0.4)', label: 'QC Complete', icon: <ShieldCheck size={12} /> };
+            return { color: '#166534', bg: 'rgba(34, 197, 94, 0.12)', shadow: 'none', label: 'QC Complete', icon: <ShieldCheck size={12} /> };
         case 'paid':
-            return { color: '#eab308', bg: 'rgba(234, 179, 8, 0.15)', shadow: '0 0 10px rgba(234, 179, 8, 0.4)', label: 'Paid', icon: <CheckCircle size={12} /> };
+            return { color: '#a16207', bg: 'rgba(234, 179, 8, 0.10)', shadow: 'none', label: 'Paid', icon: <CheckCircle size={12} /> };
         case 'released':
-            return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)', shadow: '0 0 10px rgba(16, 185, 129, 0.4)', label: 'Released', icon: <CheckCircle size={12} /> };
+            return { color: '#166534', bg: 'rgba(16, 185, 129, 0.10)', shadow: 'none', label: 'Released', icon: <CheckCircle size={12} /> };
         case 'pending':
         case 'confirmed':
         default:
-            return { color: '#f97316', bg: 'rgba(249, 115, 22, 0.15)', shadow: 'none', label: 'Pending / Queued', icon: <Clock size={12} /> };
+            return { color: '#c2410c', bg: 'rgba(249, 115, 22, 0.08)', shadow: 'none', label: 'Pending / Queued', icon: <Clock size={12} /> };
     }
 }
 
@@ -79,18 +79,22 @@ export function QueueTab({
             {/* Quick Metrics Summary */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
                 {[
-                    { label: 'Pending Jobs', value: pendingCount, icon: <Clock color="#f97316" />, border: 'rgba(249, 115, 22, 0.4)' },
-                    { label: 'In Progress', value: progressCount, icon: <Activity color="#3b82f6" />, border: progressCount > 0 ? 'rgba(59, 130, 246, 0.8)' : 'rgba(59, 130, 246, 0.2)' },
-                    { label: 'Ready / Finishing', value: readyCount, icon: <CheckCircle color="#22c55e" />, border: 'rgba(34, 197, 94, 0.4)' },
-                    { label: 'Total Active Queue', value: finalPendingJobs.length, icon: <ClipboardList color="#a1a1aa" />, border: 'rgba(255,255,255,0.1)' }
+                    { label: 'Pending Jobs', value: pendingCount, icon: <Clock color="#c2410c" />, border: '#f97316' },
+                    { label: 'In Progress', value: progressCount, icon: <Activity color="#2563eb" />, border: '#3b82f6' },
+                    { label: 'Ready / Finishing', value: readyCount, icon: <CheckCircle color="#166534" />, border: '#22c55e' },
+                    { label: 'Total Active Queue', value: finalPendingJobs.length, icon: <ClipboardList color="#74777d" />, border: '#9fa3a9' }
                 ].map((metric, i) => (
-                    <motion.div key={i} className="glass-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
-                        style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderLeft: `4px solid ${metric.border}` }}>
+                    <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
+                        style={{ 
+                            padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
+                            borderLeft: `4px solid ${metric.border}`,
+                            background: '#ffffff', borderRadius: 12, boxShadow: '0 2px 8px rgba(6,39,75,0.04)'
+                        }}>
                         <div>
-                            <p style={{ fontSize: 12, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{metric.label}</p>
-                            <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)' }}>{metric.value}</p>
+                            <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 10, color: '#74777d', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4, fontWeight: 700 }}>{metric.label}</p>
+                            <p style={{ fontFamily: "'Manrope', sans-serif", fontSize: '2rem', fontWeight: 800, color: '#191c1e' }}>{metric.value}</p>
                         </div>
-                        <div style={{ padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 12 }}>
+                        <div style={{ padding: 12, background: 'rgba(6,39,75,0.04)', borderRadius: 12 }}>
                             {metric.icon}
                         </div>
                     </motion.div>
@@ -100,17 +104,17 @@ export function QueueTab({
             {/* Main Queue List */}
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '0 8px' }}>
-                    <h3 style={{ fontSize: 18, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Wrench style={{ color: 'var(--accent)', width: 18, height: 18 }} /> 
+                    <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 18, fontWeight: 700, color: '#191c1e', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Wrench style={{ color: '#06274b', width: 18, height: 18 }} /> 
                         Operational Queue
                     </h3>
                 </div>
 
                 {finalPendingJobs.length === 0 ? (
-                    <div className="glass-panel" style={{ padding: 64, textAlign: 'center', border: '1px solid rgba(255,255,255,0.05)' }}>
-                        <ShieldCheck style={{ width: 48, height: 48, color: 'var(--green)', margin: '0 auto 16px', opacity: 0.8 }} />
-                        <h4 style={{ color: 'var(--text)', fontSize: 18, marginBottom: 8 }}>Queue is fully cleared</h4>
-                        <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>All assigned vehicles have been processed. Great job!</p>
+                    <div style={{ padding: 64, textAlign: 'center', background: '#ffffff', borderRadius: 12, boxShadow: '0 2px 8px rgba(6,39,75,0.04)' }}>
+                        <ShieldCheck style={{ width: 48, height: 48, color: '#166534', margin: '0 auto 16px', opacity: 0.8 }} />
+                        <h4 style={{ fontFamily: "'Manrope', sans-serif", color: '#191c1e', fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Queue is fully cleared</h4>
+                        <p style={{ fontFamily: "'Inter', sans-serif", color: '#74777d', fontSize: 14 }}>All assigned vehicles have been processed. Great job!</p>
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -124,41 +128,52 @@ export function QueueTab({
                                     initial={{ opacity: 0, x: -16 }} 
                                     animate={{ opacity: 1, x: 0 }} 
                                     transition={{ delay: idx * 0.05 + 0.2 }}
-                                    whileHover={{ scale: 1.01, backgroundColor: 'rgba(255,255,255,0.03)' }}
+                                    whileHover={{ scale: 1.005 }}
                                     style={{ 
                                         position: 'relative',
-                                        background: isActive ? 'linear-gradient(to right, rgba(20, 20, 20, 0.95), rgba(30, 30, 30, 0.95))' : 'rgba(15, 15, 15, 0.8)',
-                                        border: `1px solid ${isActive ? 'rgba(59, 130, 246, 0.3)' : 'rgba(255,255,255,0.05)'}`,
-                                        borderRadius: 16,
+                                        background: '#ffffff',
+                                        border: 'none',
+                                        borderLeft: isActive ? '3px solid #3b82f6' : '3px solid transparent',
+                                        borderRadius: 12,
                                         padding: '20px 24px',
                                         display: 'grid',
                                         gridTemplateColumns: 'minmax(200px, 1fr) minmax(200px, 1fr) minmax(150px, 1fr) auto',
                                         gap: 20,
                                         alignItems: 'center',
-                                        boxShadow: isActive ? '0 8px 32px rgba(0,0,0,0.4)' : '0 4px 16px rgba(0,0,0,0.2)',
+                                        boxShadow: '0 2px 8px rgba(6,39,75,0.04)',
                                         overflow: 'hidden'
                                     }}
                                 >
-                                    {/* Active Highlight Bar */}
-                                    {isActive && (
-                                        <motion.div 
-                                            animate={{ opacity: [0.5, 1, 0.5] }} 
-                                            transition={{ duration: 2, repeat: Infinity }}
-                                            style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: conf.color, boxShadow: `0 0 10px ${conf.color}` }} 
-                                        />
-                                    )}
+                                    {/* Active Highlight Bar — handled by borderLeft now */}
 
                                     {/* 1. Customer & Status */}
                                     <div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                                            <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{job.customerName}</span>
+                                            {job.customerAvatar ? (
+                                                <img 
+                                                    src={job.customerAvatar} 
+                                                    alt={job.customerName || 'Customer'}
+                                                    style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                                                />
+                                            ) : (
+                                                <div style={{
+                                                    width: 32, height: 32, borderRadius: '50%',
+                                                    background: '#e0e7ee',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, color: '#06274b',
+                                                    flexShrink: 0
+                                                }}>
+                                                    {(job.customerName || 'U').charAt(0).toUpperCase()}
+                                                </div>
+                                            )}
+                                            <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: 16, fontWeight: 700, color: '#191c1e' }}>{job.customerName}</span>
                                         </div>
                                         <span style={{ 
                                             display: 'inline-flex', alignItems: 'center', gap: 6,
-                                            padding: '4px 10px', borderRadius: 20, 
+                                            padding: '4px 12px', borderRadius: 9999, 
                                             background: conf.bg, color: conf.color, 
-                                            fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5,
-                                            boxShadow: conf.shadow
+                                            fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+                                            border: 'none'
                                         }}>
                                             {conf.icon} {conf.label}
                                         </span>
@@ -167,19 +182,19 @@ export function QueueTab({
                                     {/* 2. Vehicle & Service */}
                                     <div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                            <Car size={14} color="var(--text-dim)" />
-                                            <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>{job.vehicleInfo || 'Awaiting Vehicle Details'}</span>
+                                            <Car size={14} color="#9fa3a9" />
+                                            <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#74777d' }}>{job.vehicleInfo || 'Awaiting Vehicle Details'}</span>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <Wrench size={14} color="var(--text-dim)" />
-                                            <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--accent)' }}>{job.serviceName}</span>
+                                            <Wrench size={14} color="#9fa3a9" />
+                                            <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 600, color: '#06274b' }}>{job.serviceName}</span>
                                         </div>
                                     </div>
 
                                     {/* 3. Time Details */}
                                     <div>
-                                        <p style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Ingress Time</p>
-                                        <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 14, color: 'var(--text-muted)' }}>{job.time || 'Schedule Pending'}</p>
+                                        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 10, color: '#9fa3a9', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4, fontWeight: 700 }}>Ingress Time</p>
+                                        <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: '#43474c', fontWeight: 500 }}>{job.time || 'Schedule Pending'}</p>
                                     </div>
 
                                     {/* 4. Action */}
@@ -190,16 +205,16 @@ export function QueueTab({
                                                     whileHover={btnHover} whileTap={btnTap} 
                                                     onClick={() => handleStartJob(job)}
                                                     style={{ 
-                                                        background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)',
-                                                        padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                                                        background: 'transparent', border: '1.5px solid #06274b', color: '#06274b',
+                                                        padding: '10px 20px', borderRadius: 8, fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 600,
                                                         display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer'
                                                     }}>
                                                     <Play size={14} /> Start Workflow
                                                 </motion.button>
                                             ) : (
                                                 <div style={{
-                                                    background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', color: 'var(--text-muted)',
-                                                    padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                                                    background: '#f2f4f6', border: 'none', color: '#74777d',
+                                                    padding: '10px 20px', borderRadius: 8, fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 600,
                                                     display: 'flex', alignItems: 'center', gap: 8, cursor: 'not-allowed'
                                                 }}>
                                                     {job.status === 'assigned' ? 'Awaiting Check-in' : 'Not Ready'}
@@ -211,9 +226,9 @@ export function QueueTab({
                                                 onClick={() => handleStartJob(job)}
                                                 style={{ 
                                                     background: 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none', color: '#fff',
-                                                    padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                                                    padding: '10px 20px', borderRadius: 8, fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 600,
                                                     display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-                                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4)'
+                                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)'
                                                 }}>
                                                 <Play size={14} /> Continue Job
                                             </motion.button>

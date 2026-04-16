@@ -6,7 +6,6 @@ import Animated, {
   withTiming,
   withRepeat,
   withSequence,
-  withSpring,
   withDelay,
   interpolate,
   Easing,
@@ -136,17 +135,17 @@ function StepCircle({
   const sc = useSharedValue(0);
 
   useEffect(() => {
-    sc.value = withDelay(index * 60, withSpring(1, { damping: 13, stiffness: 180, mass: 0.6 }));
+    sc.value = withDelay(index * 60, withTiming(1, { duration: 220 }));
   }, []);
 
   useEffect(() => {
     if (done) {
       sc.value = withSequence(
         withTiming(1.2, { duration: 160, easing: Easing.out(Easing.cubic) }),
-        withSpring(1, { damping: 10, stiffness: 160 })
+        withTiming(1, { duration: 220 })
       );
     } else if (active) {
-      sc.value = withSpring(1.04, { damping: 10, stiffness: 140 });
+      sc.value = withTiming(1.04, { duration: 220 });
     }
   }, [done, active]);
 

@@ -160,7 +160,7 @@ export default function PreferredBranchScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ═══ BRANCH SECTION ═══ */}
-        <Animated.View entering={FadeInDown.delay(100).springify().damping(16)}>
+        <Animated.View entering={FadeInDown.delay(100).duration(200)}>
           <Text style={s.sectionTitle}>SELECT BRANCH</Text>
           <Text style={s.sectionSubtitle}>
             Choose your preferred AutoSPF+ location
@@ -180,7 +180,7 @@ export default function PreferredBranchScreen() {
                 <Animated.View
                   key={branch._id}
                   entering={FadeInUp.delay(150 + index * 60)
-                    .springify()
+                    .duration(200)
                     .damping(16)}
                 >
                   <TouchableOpacity
@@ -241,7 +241,7 @@ export default function PreferredBranchScreen() {
 
         {/* ═══ STAFF SECTION ═══ */}
         <Animated.View
-          entering={FadeInDown.delay(300).springify().damping(16)}
+          entering={FadeInDown.delay(300).duration(200)}
           style={{ marginTop: 32 }}
         >
           <Text style={s.sectionTitle}>PREFERRED TECHNICIAN</Text>
@@ -263,7 +263,7 @@ export default function PreferredBranchScreen() {
                 <Animated.View
                   key={staff.id}
                   entering={FadeInUp.delay(350 + index * 60)
-                    .springify()
+                    .duration(200)
                     .damping(16)}
                 >
                   <TouchableOpacity
@@ -331,7 +331,7 @@ export default function PreferredBranchScreen() {
 
         {/* ═══ SAVE BUTTON ═══ */}
         <Animated.View
-          entering={FadeInUp.delay(500).springify()}
+          entering={FadeInUp.delay(500).duration(200)}
           style={{ marginTop: 32, marginBottom: 40 }}
         >
           <TouchableOpacity

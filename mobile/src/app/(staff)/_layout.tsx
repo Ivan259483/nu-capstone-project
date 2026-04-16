@@ -2,11 +2,13 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { useTheme } from '@/hooks/useThemeContext';
 import { BlurView } from 'expo-blur';
-import { StyleSheet, Platform } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LayoutDashboard, Inbox, ListChecks, CheckSquare, User } from '@/components/ui/Icons';
 
 export default function StaffTabsLayout() {
   const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
@@ -16,13 +18,15 @@ export default function StaffTabsLayout() {
         tabBarInactiveTintColor: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)',
         tabBarStyle: {
           position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 60 + insets.bottom,
+          paddingBottom: insets.bottom,
           backgroundColor: isDark ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)',
           borderTopColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
           borderTopWidth: StyleSheet.hairlineWidth,
           elevation: 0,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 12,
-          paddingTop: 12,
-          height: Platform.OS === 'ios' ? 88 : 68,
         },
         tabBarBackground: () => (
           <BlurView

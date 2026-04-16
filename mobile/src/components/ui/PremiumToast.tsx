@@ -79,7 +79,7 @@ export default function PremiumToast() {
 
   return (
     <Animated.View 
-      entering={FadeInUp.springify().damping(15)}
+      entering={FadeInUp.duration(200)}
       exiting={FadeOutUp.duration(300)}
       style={[
         styles.positionContainer, 

@@ -111,7 +111,7 @@ function Section({
 }) {
   return (
     <Animated.View
-      entering={FadeInUp.delay(delay).springify().damping(18)}
+      entering={FadeInUp.delay(delay).duration(200)}
       style={s.section}
     >
       <Text style={s.sectionTitle}>{title}</Text>
@@ -207,7 +207,7 @@ export default function NotificationPreferencesScreen() {
       >
         {/* ── Description ── */}
         <Animated.View
-          entering={FadeInDown.delay(80).springify()}
+          entering={FadeInDown.delay(80).duration(200)}
           style={s.descBox}
         >
           <Ionicons
@@ -345,7 +345,7 @@ export default function NotificationPreferencesScreen() {
 
         {/* ── Footer info ── */}
         <Animated.View
-          entering={FadeInUp.delay(400).springify()}
+          entering={FadeInUp.delay(400).duration(200)}
           style={s.footerInfo}
         >
           <Ionicons name="shield-checkmark" size={14} color="#3A3A48" />

@@ -4,7 +4,10 @@ import {
   Alert,
   Dimensions,
   Linking,
+  Modal,
   Platform,
+  SafeAreaView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -18,7 +21,6 @@ import Animated, {
   withSequence,
   withTiming,
   withDelay,
-  withSpring,
   Easing,
   FadeIn,
   FadeInDown,
@@ -177,6 +179,153 @@ const getHotspotPosition = (area: string, index: number): string => {
  *  • AR activation bridge
  *  • Bidirectional RN ↔ WebView messaging
  * ══════════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════════
+ * FULL-SCREEN AR HTML — Used for the "View in Your Space" modal
+ *
+ * This renders inside a React Native Modal WebView, which correctly loads
+ * ES modules (unlike SFSafariViewController). The model-viewer AR button
+ * triggers Quick Look on iOS or Scene Viewer on Android natively.
+ * ══════════════════════════════════════════════════════════════════════════════ */
+const buildArHtml = (modelUrl: string): string => {
+  const safeUrl = modelUrl.replace(/'/g, '%27');
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"/>
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      background: radial-gradient(ellipse at 50% 80%, rgba(255,107,53,0.08) 0%, #0A0A0C 60%);
+      overflow: hidden;
+    }
+    model-viewer {
+      width: 100%; height: 100%;
+      --poster-color: transparent;
+      background: transparent;
+      outline: none;
+    }
+    /* AR / Quick Look button */
+    .ar-btn {
+      position: fixed;
+      bottom: max(28px, env(safe-area-inset-bottom, 28px));
+      left: 50%; transform: translateX(-50%);
+      padding: 15px 32px;
+      background: linear-gradient(135deg, #FF6B35 0%, #FF9A6C 100%);
+      border: none; border-radius: 50px;
+      color: #fff;
+      font: 700 15px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0.4px;
+      box-shadow: 0 8px 28px rgba(255,107,53,0.5), 0 2px 8px rgba(0,0,0,0.4);
+      cursor: pointer; z-index: 100;
+      display: flex; align-items: center; gap: 8px;
+      white-space: nowrap;
+    }
+    .ar-btn:active { opacity: 0.85; transform: translateX(-50%) scale(0.96); }
+    .ar-btn svg { width: 18px; height: 18px; fill: none; stroke: #fff; stroke-width: 2; }
+
+    /* Loading overlay */
+    #splash {
+      position: fixed; inset: 0; z-index: 200;
+      background: #0A0A0C;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      transition: opacity 0.5s ease;
+    }
+    #splash.hidden { opacity: 0; pointer-events: none; }
+    .loader-ring {
+      width: 48px; height: 48px;
+      border: 3px solid rgba(255,107,53,0.2);
+      border-top-color: #FF6B35;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader-text {
+      color: rgba(255,255,255,0.5);
+      font: 500 13px/1 -apple-system, sans-serif;
+      letter-spacing: 0.3px;
+    }
+
+    /* Hint overlay */
+    #hint {
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      background: rgba(15,15,18,0.7);
+      border: 1px solid rgba(255,255,255,0.08);
+      backdrop-filter: blur(12px);
+      border-radius: 20px;
+      padding: 6px 14px;
+      color: rgba(255,255,255,0.45);
+      font: 500 11px/1 -apple-system, sans-serif;
+      letter-spacing: 0.3px;
+      z-index: 50;
+      white-space: nowrap;
+      opacity: 1; transition: opacity 1s ease 3s;
+    }
+    #hint.fade { opacity: 0; }
+  </style>
+</head>
+<body>
+
+  <!-- Loading splash -->
+  <div id="splash">
+    <div class="loader-ring"></div>
+    <div class="loader-text">Loading 3D model…</div>
+  </div>
+
+  <!-- Hint -->
+  <div id="hint">Drag to rotate  ·  Pinch to zoom</div>
+
+  <model-viewer
+    id="mv"
+    src='${safeUrl}'
+    alt="AutoSPF+ Vehicle 3D Model"
+    ar
+    ar-modes="webxr scene-viewer quick-look"
+    camera-controls
+    touch-action="pan-y"
+    auto-rotate
+    auto-rotate-delay="2000"
+    rotation-per-second="8deg"
+    shadow-intensity="2"
+    shadow-softness="0.7"
+    environment-image="neutral"
+    exposure="1.1"
+    camera-orbit="25deg 72deg auto"
+    camera-target="0m 0m 0m"
+    min-camera-orbit="auto auto 0.2m"
+    max-camera-orbit="auto auto 3m"
+    field-of-view="38deg"
+    loading="eager"
+  >
+    <button slot="ar-button" class="ar-btn">
+      <svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8l4 2.3v4.4L12 17l-4-2.3V10.3L12 8z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      View in Your Space
+    </button>
+  </model-viewer>
+
+  <script>
+    const mv = document.getElementById('mv');
+    const splash = document.getElementById('splash');
+    const hint = document.getElementById('hint');
+
+    mv.addEventListener('load', () => {
+      splash.classList.add('hidden');
+      // Auto-fade hint after 3s
+      setTimeout(() => hint.classList.add('fade'), 3000);
+    });
+
+    mv.addEventListener('error', () => {
+      splash.querySelector('.loader-text').textContent = 'Failed to load model';
+      splash.querySelector('.loader-ring').style.display = 'none';
+    });
+  </script>
+</body>
+</html>`;
+};
+
 const buildHtml = (
   modelUrl: string,
   _repairedModelUrl: string | null | undefined,
@@ -334,17 +483,17 @@ const buildHtml = (
     touch-action="pan-y"
     auto-rotate
     auto-rotate-delay="2500"
-    rotation-per-second="8deg"
+    rotation-per-second="6deg"
     interaction-prompt="none"
-    shadow-intensity="1.8"
-    shadow-softness="0.6"
-    environment-image="neutral"
-    exposure="0.85"
-    camera-orbit="30deg 70deg 0.45m"
-    camera-target="0m 0.035m 0m"
-    min-camera-orbit="auto auto 0.2m"
-    max-camera-orbit="auto auto 2m"
-    field-of-view="40deg"
+    shadow-intensity="1.5"
+    shadow-softness="0.8"
+    environment-image="legacy"
+    exposure="1.2"
+    camera-orbit="30deg 72deg auto"
+    camera-target="auto"
+    min-camera-orbit="auto auto auto"
+    max-camera-orbit="auto auto auto"
+    field-of-view="38deg"
     loading="eager"
   >
     ${hotspotsHtml}
@@ -364,7 +513,14 @@ const buildHtml = (
       }
     };
 
+    // Single load handler: auto-fit camera + cache materials + notify RN
     viewer.addEventListener('load', async () => {
+      // Auto-fit: reset camera so the full model is visible regardless of scale
+      try {
+        viewer.resetTurntable && viewer.resetTurntable();
+        viewer.jumpCameraToGoal && viewer.jumpCameraToGoal();
+      } catch(e) {}
+
       // Cache original material state for toggling
       try {
         const model = viewer.model;
@@ -388,6 +544,7 @@ const buildHtml = (
       publish({ type: 'MODEL_LOADED' });
       showBadge(currentMode);
     });
+
 
     viewer.addEventListener('error', (e) => {
       publish({ type: 'MODEL_ERROR', detail: e?.message || 'load_failed' });
@@ -417,22 +574,21 @@ const buildHtml = (
         const pbr = mat.pbrMetallicRoughness;
         const orig = originalMaterials[i];
 
-        // Make surface rough & dull (simulates scratches, oxidation, wear)
-        pbr.setRoughnessFactor(Math.min(1.0, (orig.roughness || 0.5) + 0.35));
-        pbr.setMetallicFactor(Math.max(0.0, (orig.metallic || 0.5) - 0.3));
+        // Subtle roughness increase (simulates surface damage)
+        pbr.setRoughnessFactor(Math.min(1.0, (orig.roughness || 0.5) + 0.15));
+        pbr.setMetallicFactor(Math.max(0.0, (orig.metallic || 0.5) - 0.1));
 
-        // Slightly desaturate / darken colors (sun damage, dirt, oxidation)
+        // Very slight desaturation only — keep model recognizable
         const bc = orig.baseColor;
         pbr.setBaseColorFactor([
-          bc[0] * 0.78,
-          bc[1] * 0.75,
-          bc[2] * 0.72,
+          bc[0] * 0.92,
+          bc[1] * 0.90,
+          bc[2] * 0.88,
           bc[3]
         ]);
       }
-      // Lower exposure = dimmer, less pristine
-      viewer.exposure = 0.7;
-      viewer.shadowIntensity = 1.2;
+      viewer.exposure = 1.0;
+      viewer.shadowIntensity = 1.5;
     }
 
     /* ── Material Manipulation: REPAIRED state ── */
@@ -544,101 +700,148 @@ const buildHtml = (
  * ══════════════════════════════════════════════════════════════════════════════ */
 function SequentialLoader({ progress }: { progress: number }) {
   const [phaseIndex, setPhaseIndex] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
 
   // Advance phases based on progress thresholds
   useEffect(() => {
     if (progress >= 80) setPhaseIndex(2);
-    else if (progress >= 40) setPhaseIndex(1);
+    else if (progress >= 35) setPhaseIndex(1);
     else setPhaseIndex(0);
   }, [progress]);
 
-  const shimmer = useSharedValue(0);
+  // Elapsed timer
+  useEffect(() => {
+    const t = setInterval(() => setElapsed(s => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const ring   = useSharedValue(0);
   const breathe = useSharedValue(0);
+  const barAnim = useSharedValue(0);
 
   useEffect(() => {
-    shimmer.value = withRepeat(
-      withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.ease) }),
-      -1, true
+    ring.value = withRepeat(
+      withTiming(1, { duration: 2000, easing: Easing.linear }),
+      -1, false
     );
     breathe.value = withRepeat(
       withSequence(
-        withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0, { duration: 1400, easing: Easing.inOut(Easing.ease) })
+        withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 1600, easing: Easing.inOut(Easing.ease) })
       ),
-      -1, true
+      -1, false
     );
   }, []);
 
+  // Animate bar WIDTH smoothly
+  useEffect(() => {
+    barAnim.value = withTiming(progress, { duration: 600, easing: Easing.out(Easing.ease) });
+  }, [progress]);
+
   const iconStyle = useAnimatedStyle(() => ({
-    opacity: 0.5 + breathe.value * 0.5,
-    transform: [{ scale: 0.92 + breathe.value * 0.08 }, { rotateY: `${shimmer.value * 15}deg` }],
+    opacity: 0.55 + breathe.value * 0.45,
+    transform: [{ scale: 0.94 + breathe.value * 0.06 }],
   }));
 
   const barStyle = useAnimatedStyle(() => ({
-    width: `${progress}%`,
-    opacity: 0.7 + shimmer.value * 0.3,
+    width: `${barAnim.value}%` as any,
+  }));
+
+  const ringStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${ring.value * 360}deg` }],
+    opacity: 0.15 + breathe.value * 0.1,
   }));
 
   const currentPhase = LOADING_PHASES[phaseIndex] || LOADING_PHASES[0];
+  const eta = Math.max(0, Math.round(((100 - progress) / 100) * 180) - elapsed);
+  const etaLabel = eta > 60
+    ? `~${Math.round(eta / 60)}m ${eta % 60}s`
+    : eta > 0 ? `~${eta}s` : 'Almost done…';
 
   return (
-    <View style={s.loaderContainer}>
+    <View style={sl.wrap}>
+
+      {/* Ambient gradient */}
       <LinearGradient
-        colors={['rgba(255,107,53,0.04)', 'transparent', 'rgba(255,107,53,0.02)']}
+        colors={['rgba(255,107,53,0.06)', 'transparent', 'rgba(255,107,53,0.03)']}
         style={StyleSheet.absoluteFill}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
       />
 
-      {/* Phase Icon */}
-      <Animated.View style={[s.loaderIconWrap, iconStyle]}>
-        <Ionicons name={currentPhase.icon as any} size={44} color={ACCENT} />
-      </Animated.View>
+      {/* Spinning ring + icon */}
+      <View style={sl.iconArea}>
+        <Animated.View style={[sl.spinRing, ringStyle]} />
+        <Animated.View style={[sl.iconWrap, iconStyle]}>
+          <Ionicons name={currentPhase.icon as any} size={38} color={ACCENT} />
+        </Animated.View>
+      </View>
 
-      {/* Phase Label */}
+      {/* Phase label */}
       <Animated.Text
-        entering={FadeIn.duration(300)}
+        entering={FadeIn.duration(250)}
         key={currentPhase.phase}
-        style={s.loaderTitle}
+        style={sl.title}
       >
         {currentPhase.label}
       </Animated.Text>
-      <Text style={s.loaderSub}>{currentPhase.sub}</Text>
+      <Text style={sl.sub}>{currentPhase.sub}</Text>
 
-      {/* Progress Bar */}
-      <View style={s.progressTrack}>
-        <Animated.View style={[s.progressFill, barStyle]} />
+      {/* Progress bar */}
+      <View style={sl.barTrack}>
+        <Animated.View style={[sl.barFill, barStyle]}>
+          <LinearGradient
+            colors={[ACCENT, '#FF9A6C']}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          />
+        </Animated.View>
       </View>
-      <Text style={s.progressLabel}>{progress}%</Text>
 
-      {/* Phase Steps */}
-      <View style={s.phaseSteps}>
+      {/* Progress stats row */}
+      <View style={sl.statsRow}>
+        <Text style={sl.pct}>{Math.round(progress)}%</Text>
+        <Text style={sl.eta}>{etaLabel}</Text>
+      </View>
+
+      {/* Phase steps */}
+      <View style={sl.steps}>
         {LOADING_PHASES.map((p, i) => {
-          const done = i < phaseIndex;
+          const done   = i < phaseIndex;
           const active = i === phaseIndex;
           return (
-            <View key={p.phase} style={s.phaseRow}>
-              <View style={[
-                s.phaseDot,
-                done && s.phaseDotDone,
-                active && s.phaseDotActive,
-              ]}>
-                {done && <Ionicons name="checkmark" size={8} color="#fff" />}
+            <View key={p.phase} style={sl.stepRow}>
+              <View style={[sl.dot, done && sl.dotDone, active && sl.dotActive]}>
+                {done
+                  ? <Ionicons name="checkmark" size={9} color="#fff" />
+                  : active
+                    ? <View style={sl.dotPulse} />
+                    : null
+                }
               </View>
-              <Text style={[
-                s.phaseLabel,
-                done && s.phaseLabelDone,
-                active && s.phaseLabelActive,
-              ]}>
+              <Text style={[sl.stepLabel, done && sl.stepDone, active && sl.stepActive]}>
                 {p.label}
               </Text>
+              {active && (
+                <View style={sl.activePill}>
+                  <Text style={sl.activePillText}>IN PROGRESS</Text>
+                </View>
+              )}
             </View>
           );
         })}
       </View>
+
+      {/* Powered by badge */}
+      <View style={sl.badge}>
+        <Ionicons name="sparkles" size={10} color={GOLD} />
+        <Text style={sl.badgeText}>Powered by Meshy AI</Text>
+      </View>
     </View>
   );
 }
+
 
 /* ══════════════════════════════════════════════════════════════════════════════
  *  IDLE STATE — When no model has been generated yet
@@ -703,7 +906,7 @@ function HotspotCard({
 
   return (
     <Animated.View
-      entering={SlideInDown.springify().damping(18).stiffness(140)}
+      entering={SlideInDown.duration(200)}
       exiting={FadeOut.duration(200)}
       style={s.hotspotCardWrap}
     >
@@ -775,6 +978,7 @@ export default function ARRepairViewer({
   const [activeMode, setActiveMode] = useState<VisualMode>('damaged');
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
+  const [showArModal, setShowArModal] = useState(false);
 
   const selectedIssue = useMemo(
     () => issues.find(i => i.id === selectedIssueId) || null,
@@ -844,50 +1048,11 @@ export default function ARRepairViewer({
     setTimeout(() => setTransitioning(false), 900);
   }, [activeMode, transitioning]);
 
-  /* ── AR Launch — Scene Viewer (Android) / Quick Look via Safari (iOS) ── */
-  const triggerAR = useCallback(async () => {
+  /* ── AR Launch — opens full-screen in-app WebView modal (works on iOS + Android) ── */
+  const triggerAR = useCallback(() => {
     if (!modelReady || !modelUrl) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-
-    try {
-      if (Platform.OS === 'ios') {
-        // iOS: Open the backend's AR viewer page in SFSafariViewController
-        // SFSafariViewController is Safari-based, so it supports Quick Look AR
-        const apiOrigin = (process.env.EXPO_PUBLIC_API_URL || 'http://192.168.18.164:3001').replace(/\/+$/, '').replace(/\/api$/, '');
-        const arViewerUrl = `${apiOrigin}/api/ai/ar-viewer?src=${encodeURIComponent(modelUrl)}`;
-
-        await WebBrowser.openBrowserAsync(arViewerUrl, {
-          presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-          controlsColor: '#FF6B35',
-        });
-      } else {
-        // Android: Scene Viewer intent
-        const intentUrl =
-          `intent://arvr.google.com/scene-viewer/1.0?` +
-          `file=${encodeURIComponent(modelUrl)}` +
-          `&mode=ar_preferred` +
-          `&title=${encodeURIComponent('AutoSPF+ AR Repair')}` +
-          `&resizable=true` +
-          `#Intent;scheme=https;` +
-          `package=com.google.android.googlequicksearchbox;` +
-          `action=android.intent.action.VIEW;` +
-          `S.browser_fallback_url=${encodeURIComponent(modelUrl)};end;`;
-        await Linking.openURL(intentUrl);
-      }
-    } catch (err) {
-      // Fallback: open the model URL directly
-      try {
-        await Linking.openURL(modelUrl);
-      } catch {
-        Alert.alert(
-          'AR Not Available',
-          Platform.OS === 'ios'
-            ? 'Unable to open AR viewer. Make sure you are on the same Wi-Fi network as the server.'
-            : 'Install Google Play Services for AR (ARCore) to use this feature.',
-          [{ text: 'OK' }]
-        );
-      }
-    }
+    setShowArModal(true);
   }, [modelReady, modelUrl]);
 
   /* ── WebView Navigation Interceptor (for AR intents & Quick Look) ── */
@@ -926,6 +1091,9 @@ export default function ARRepairViewer({
    *  RENDER
    * ══════════════════════════════════════════════════════════════════════════ */
 
+  /* ── Full-screen AR Modal HTML ── */
+  const arModalHtml = modelUrl ? buildArHtml(modelUrl) : '';
+
   // Idle state — no model generated yet
   if (modelStatus === 'idle') {
     return (
@@ -946,6 +1114,55 @@ export default function ARRepairViewer({
 
   return (
     <View style={s.container}>
+
+      {/* ── FULL-SCREEN AR MODAL ── */}
+      <Modal
+        visible={showArModal}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        statusBarTranslucent
+        onRequestClose={() => setShowArModal(false)}
+      >
+        <View style={s.arModal}>
+          <StatusBar barStyle="light-content" backgroundColor="#0A0A0C" />
+
+          {/* Header */}
+          <View style={s.arModalHeader}>
+            <View>
+              <Text style={s.arModalTitle}>3D Vehicle Viewer</Text>
+              <Text style={s.arModalSub}>Drag to orbit · Pinch to zoom</Text>
+            </View>
+            <TouchableOpacity
+              style={s.arModalClose}
+              onPress={() => setShowArModal(false)}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="close" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Full-screen model-viewer */}
+          <WebView
+            source={{ html: arModalHtml }}
+            style={{ flex: 1, backgroundColor: '#0A0A0C' }}
+            javaScriptEnabled
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            originWhitelist={['*']}
+            scrollEnabled={false}
+            bounces={false}
+            onShouldStartLoadWithRequest={(req) => {
+              const url = req.url;
+              if (url.startsWith('intent://') || url.includes('arvr.google.com')) {
+                Linking.openURL(url).catch(() => {});
+                return false;
+              }
+              return true;
+            }}
+          />
+        </View>
+      </Modal>
+
       {/* ── WebView 3D Viewport ── */}
       <View style={s.viewerWrapper}>
         {htmlContent ? (
@@ -984,7 +1201,7 @@ export default function ARRepairViewer({
       {/* ── MODE TOGGLE (Top) ── */}
       {modelReady && (
         <Animated.View
-          entering={FadeInDown.springify().damping(20)}
+          entering={FadeInDown.duration(200)}
           style={s.topBar}
         >
           <BlurView intensity={50} tint="dark" style={s.segmentWrap}>
@@ -1454,4 +1671,215 @@ const s = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 0.2,
   },
+
+  /* ── Full-screen AR Modal ── */
+  arModal: {
+    flex: 1,
+    backgroundColor: '#0A0A0C',
+  },
+  arModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: Platform.OS === 'ios' ? 56 : (StatusBar.currentHeight || 0) + 16,
+    paddingHorizontal: 20,
+    paddingBottom: 14,
+    backgroundColor: 'rgba(10,10,12,0.95)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  arModalTitle: {
+    color: '#fff',
+    fontFamily: 'Inter_700Bold',
+    fontSize: 16,
+    letterSpacing: 0.2,
+  },
+  arModalSub: {
+    color: 'rgba(255,255,255,0.4)',
+    fontFamily: 'Inter_400Regular',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  arModalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
+
+
+/* ── Sequential Loader Stylesheet ─────────────────────────────────────────── */
+const sl = StyleSheet.create({
+  wrap: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingVertical: 20,
+  },
+
+  /* Icon area */
+  iconArea: {
+    width: 80,
+    height: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  spinRing: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: ACCENT,
+    borderTopColor: 'transparent',
+    borderRightColor: 'transparent',
+  },
+  iconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,107,53,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,107,53,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* Labels */
+  title: {
+    color: '#fff',
+    fontFamily: 'Inter_700Bold',
+    fontSize: 17,
+    letterSpacing: 0.3,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  sub: {
+    color: 'rgba(255,255,255,0.4)',
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 17,
+    marginBottom: 22,
+  },
+
+  /* Progress bar */
+  barTrack: {
+    width: '100%',
+    height: 5,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: '100%',
+    borderRadius: 3,
+    minWidth: 4,
+  },
+
+  /* Stats row */
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: 8,
+    marginBottom: 24,
+  },
+  pct: {
+    color: ACCENT,
+    fontFamily: 'Inter_700Bold',
+    fontSize: 13,
+    letterSpacing: 0.5,
+  },
+  eta: {
+    color: 'rgba(255,255,255,0.3)',
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12,
+  },
+
+  /* Phase steps */
+  steps: {
+    width: '100%',
+    gap: 10,
+    marginBottom: 20,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  dot: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dotDone: {
+    backgroundColor: ACCENT,
+    borderColor: ACCENT,
+  },
+  dotActive: {
+    borderColor: ACCENT,
+    backgroundColor: 'rgba(255,107,53,0.12)',
+  },
+  dotPulse: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: ACCENT,
+  },
+  stepLabel: {
+    flex: 1,
+    color: 'rgba(255,255,255,0.2)',
+    fontFamily: 'Inter_500Medium',
+    fontSize: 13,
+  },
+  stepDone: {
+    color: 'rgba(255,255,255,0.5)',
+  },
+  stepActive: {
+    color: '#fff',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  activePill: {
+    backgroundColor: 'rgba(255,107,53,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,107,53,0.25)',
+    borderRadius: 99,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  activePillText: {
+    color: ACCENT,
+    fontFamily: 'Inter_700Bold',
+    fontSize: 8,
+    letterSpacing: 0.8,
+  },
+
+  /* Powered by badge */
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    opacity: 0.45,
+  },
+  badgeText: {
+    color: GOLD,
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    letterSpacing: 0.3,
+  },
+});
+

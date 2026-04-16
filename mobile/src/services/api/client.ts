@@ -20,6 +20,7 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
+import { enqueueRequest } from '../offlineQueue';
 import { Toast } from '@/components/ui/PremiumToast';
 
 apiClient.interceptors.response.use(
@@ -47,7 +48,6 @@ apiClient.interceptors.response.use(
       const isMutation = ['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase() || '');
       // Make sure we aren't enqueuing a replay of a queue operation itself
       if (isMutation && !(config as any)._isRetry) {
-        const { enqueueRequest } = require('../offlineQueue');
         await enqueueRequest(config);
         Toast.show('You are offline. Request saved and will sync later.', 'warning');
         // Return a mocked success for optimistic UI offline

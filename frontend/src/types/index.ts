@@ -29,6 +29,8 @@ export interface InventoryItem {
     stock: number;
     unit: string;
     minLevel: number;
+    maxLevel?: number;
+    sku?: string;
     cost: number;
     supplier: string;
     supplierId?: string;
@@ -107,6 +109,7 @@ export interface Booking {
     notes?: string;
     // Backend Populated Fields
     customer?: User;
+    customerAvatar?: string;
     items?: { product: InventoryItem; quantity: number }[];
 
     // assignedDetailer moved below with updated type

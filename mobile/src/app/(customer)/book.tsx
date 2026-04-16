@@ -1,10 +1,15 @@
 /**
  * Book Screen — Premium 4-Step Service Booking Wizard
- * McLaren/KTM high-end automotive aesthetic
- * Step 0: Vehicle Selection
- * Step 1: Scheduling & Details
- * Step 2: Pre-Confirmation Warning
- * Step 3: Booking Confirmation
+ * ═══════════════════════════════════════════════════════
+ * "The Kinetic Gallery" Design System
+ * 
+ * Obsidian surfaces · Warm amber accents · Editorial typography
+ * Glassmorphism · Tonal depth · No hard borders
+ * 
+ * Step 0: Vehicle & Customer Info
+ * Step 1: Service & Schedule
+ * Step 2: Review & Payment
+ * Step 3: Final Confirmation
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -14,14 +19,12 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  TextInput,
-  FlatList,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Alert,
-  Modal,
   Image,
+  Dimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -29,14 +32,13 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   FadeInDown,
   FadeInRight,
-  FadeOutLeft,
-  SlideInRight,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+// expo-blur available if needed for future glassmorphism enhancements
 import { useTheme } from '@/hooks/useThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { getApiErrorMessage } from '@/services/api/client';
@@ -53,13 +55,30 @@ import PremiumInput from '@/components/ui/PremiumInput';
 import { Toast } from '@/components/ui/PremiumToast';
 import { Validation } from '@/utils/validation';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Kinetic Gallery Design Tokens ───────────────────────────────────────────
 
-const ACCENT = '#FF6B35';
-const ACCENT_DARK = '#CC5214';
-const BLACK = '#0A0A0A';
-const SURFACE = '#111114';
-const BORDER = '#2A2A30';
+const { width: SCREEN_W } = Dimensions.get('window');
+
+// Surface tiers aligned exactly with global theme.ts colors for UI consistency
+const VOID           = '#040405';   // deepest layer (theme.dark.background)
+const SURFACE_LOW    = '#040405';   // surface_container_lowest
+const SURFACE        = '#0D0D12';   // base surface (theme.dark.card)
+const SURFACE_MID    = '#0D0D12';   // surface_container
+const SURFACE_HIGH   = '#16161D';   // surface_container_high (theme.dark.cardAlt)
+const SURFACE_TOP    = '#27272A';   // surface_container_highest (theme.dark.border)
+const SURFACE_BRIGHT = '#353534';   // hover / subtle interaction
+
+// Brand accents (warm amber — used sparingly)
+const PRIMARY        = '#FFB77D';   // primary
+const PRIMARY_CTR    = '#FF8C00';   // primary_container
+const ON_PRIMARY     = '#4D2600';   // on_primary (dark text on accent)
+
+// Functional tones
+const SECONDARY      = '#C6C6C7';   // secondary text
+const TERTIARY       = '#85CFFF';   // tech/sensor blue
+const MUTED          = '#555555';   // muted elements
+const DIM_TEXT       = '#777777';   // dim body text
+const GHOST          = 'rgba(255,255,255,0.08)'; // ghost border
 
 const TIME_SLOTS = [
   '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM',
@@ -71,119 +90,119 @@ const STEP_LABELS = ['Info', 'Schedule', 'Review', 'Confirm'];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Generate next N days starting from today */
-function generateDays(count = 14): { label: string; dayName: string; dateKey: string; isToday: boolean }[] {
-  const days = [];
-  const today = new Date();
-  const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  for (let i = 0; i < count; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    const dayName = dayNames[d.getDay()];
-    const dateNum = d.getDate();
-    const month = monthNames[d.getMonth()];
-    const year = d.getFullYear();
-    days.push({
-      label: `${dateNum}`,
-      dayName,
-      dateKey: `${month} ${dateNum}, ${year}`,
-      isToday: i === 0,
-    });
-  }
-  return days;
-}
-
-const DAYS = generateDays(21);
+// Month Calendar logic is encapsulated below
 
 // ─── Sub-Components ───────────────────────────────────────────────────────────
 
-/** Progress bar step indicator */
+/** Kinetic Gallery step indicator — floating capsule, tonal dots */
 function StepIndicator({ current }: { current: number }) {
   return (
     <View style={ind.container}>
-      {STEP_LABELS.map((label, i) => {
-        const done = i < current;
-        const active = i === current;
-        return (
-          <React.Fragment key={i}>
-            <View style={ind.item}>
-              <View
-                style={[
-                  ind.dot,
-                  done && ind.dotDone,
-                  active && ind.dotActive,
-                ]}
-              >
-                {done ? (
-                  <Ionicons name="checkmark" size={12} color="#fff" />
-                ) : (
-                  <Text style={[ind.dotNum, active && { color: BLACK }]}>
-                    {i + 1}
-                  </Text>
-                )}
+      <View style={ind.track}>
+        {STEP_LABELS.map((label, i) => {
+          const done = i < current;
+          const active = i === current;
+          return (
+            <React.Fragment key={i}>
+              <View style={ind.item}>
+                <View
+                  style={[
+                    ind.dot,
+                    done && ind.dotDone,
+                    active && ind.dotActive,
+                  ]}
+                >
+                  {done ? (
+                    <Ionicons name="checkmark" size={11} color={ON_PRIMARY} />
+                  ) : (
+                    <Text style={[ind.dotNum, active && { color: ON_PRIMARY }]}>
+                      {i + 1}
+                    </Text>
+                  )}
+                </View>
+                <Text
+                  style={[
+                    ind.label,
+                    active && ind.labelActive,
+                    done && ind.labelDone,
+                  ]}
+                >
+                  {label}
+                </Text>
               </View>
-              <Text
-                style={[
-                  ind.label,
-                  active && ind.labelActive,
-                  done && ind.labelDone,
-                ]}
-              >
-                {label}
-              </Text>
-            </View>
-            {i < STEP_LABELS.length - 1 && (
-              <View style={[ind.line, (done || active) && i < current && ind.lineDone]} />
-            )}
-          </React.Fragment>
-        );
-      })}
+              {i < STEP_LABELS.length - 1 && (
+                <View style={[ind.line, i < current && ind.lineDone]} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 const ind = StyleSheet.create({
   container: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 18,
+    backgroundColor: SURFACE_LOW,
+  },
+  track: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    backgroundColor: SURFACE_MID,
+    borderRadius: 20,
+    paddingHorizontal: 16,
     paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-    backgroundColor: BLACK,
   },
   item: { alignItems: 'center', width: 50 },
   dot: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#1C1C22',
-    borderWidth: 1.5,
-    borderColor: BORDER,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: SURFACE_HIGH,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dotActive: { backgroundColor: ACCENT, borderColor: ACCENT },
-  dotDone: { backgroundColor: ACCENT_DARK, borderColor: ACCENT_DARK },
-  dotNum: { fontSize: 11, fontWeight: '700', color: '#555' },
+  dotActive: {
+    backgroundColor: PRIMARY,
+    ...Platform.select({
+      ios: {
+        shadowColor: PRIMARY,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.6,
+        shadowRadius: 10,
+      },
+      android: { elevation: 4 },
+    }),
+  },
+  dotDone: { backgroundColor: PRIMARY_CTR },
+  dotNum: { fontSize: 11, fontWeight: '700', color: MUTED },
   line: {
     flex: 1,
-    height: 1.5,
-    backgroundColor: BORDER,
-    marginTop: 13, // align visually with the center of the 26px dot
+    height: 2,
+    backgroundColor: SURFACE_HIGH,
+    marginTop: 13,
     marginHorizontal: 4,
+    borderRadius: 1,
   },
-  lineDone: { backgroundColor: ACCENT_DARK },
-  label: { fontSize: 9, fontWeight: '600', color: '#555', marginTop: 5, letterSpacing: 0.5, textAlign: 'center' },
-  labelActive: { color: ACCENT },
-  labelDone: { color: ACCENT_DARK },
+  lineDone: { backgroundColor: PRIMARY_CTR },
+  label: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: MUTED,
+    marginTop: 6,
+    letterSpacing: 0.8,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  labelActive: { color: PRIMARY },
+  labelDone: { color: PRIMARY_CTR },
 });
 
-/** Vehicle card for step 0 */
+/** Vehicle card — tonal depth, no borders, ambient glow on select */
 function VehicleCard({
   vehicle,
   selected,
@@ -210,8 +229,8 @@ function VehicleCard({
     <Animated.View style={animStyle}>
       <TouchableOpacity
         activeOpacity={0.85}
-        onPressIn={() => { scale.value = withSpring(0.97); }}
-        onPressOut={() => { scale.value = withSpring(1); }}
+        onPressIn={() => { scale.value = withTiming(0.97, { duration: 100 }); }}
+        onPressOut={() => { scale.value = withTiming(1, { duration: 150 }); }}
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           onPress();
@@ -223,13 +242,15 @@ function VehicleCard({
       >
         {/* Car icon area */}
         <LinearGradient
-          colors={selected ? [ACCENT, ACCENT_DARK] : ['#2C2C2E', '#1C1C1E']}
+          colors={selected ? [PRIMARY_CTR, PRIMARY] : [SURFACE_HIGH, SURFACE_MID]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={vc.iconBox}
         >
           <Ionicons
             name="car-sport"
             size={24}
-            color={selected ? '#fff' : '#8E8E93'}
+            color={selected ? ON_PRIMARY : MUTED}
           />
         </LinearGradient>
 
@@ -250,7 +271,12 @@ function VehicleCard({
 
         {selected && (
           <View style={vc.checkContainer}>
-            <Ionicons name="checkmark-circle" size={26} color={ACCENT} />
+            <LinearGradient
+              colors={[PRIMARY_CTR, PRIMARY]}
+              style={vc.checkGradient}
+            >
+              <Ionicons name="checkmark" size={14} color={ON_PRIMARY} />
+            </LinearGradient>
           </View>
         )}
       </TouchableOpacity>
@@ -263,96 +289,277 @@ const vc = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
-    backgroundColor: '#1C1C1E', // Dark gray
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#2C2C2E',
+    backgroundColor: SURFACE_MID,
+    borderRadius: 20,
     padding: 16,
     position: 'relative',
   },
   cardSelected: {
-    borderColor: ACCENT,
-    backgroundColor: 'rgba(255,107,53,0.08)',
-    shadowColor: ACCENT,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 5,
+    backgroundColor: 'rgba(255,183,125,0.06)',
+    ...Platform.select({
+      ios: {
+        shadowColor: PRIMARY,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 20,
+      },
+      android: { elevation: 6 },
+    }),
   },
   iconBox: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
+    width: 54,
+    height: 54,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   info: { flex: 1, gap: 6, justifyContent: 'center' },
-  name: { fontSize: 17, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.3 },
+  name: { fontSize: 16, fontWeight: '700', color: '#FFFFFF', letterSpacing: -0.01 * 16 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  swatch: { width: 12, height: 12, borderRadius: 6, borderWidth: 1, borderColor: '#555' },
-  metaText: { fontSize: 13, color: '#A0A0AB', fontWeight: '500' },
-  dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#555' },
-  plate: { fontSize: 13, fontWeight: '600', color: '#A0A0AB', textTransform: 'uppercase', letterSpacing: 0.5 },
+  swatch: { width: 12, height: 12, borderRadius: 6 },
+  metaText: { fontSize: 13, color: SECONDARY, fontWeight: '400' },
+  dot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: MUTED },
+  plate: { fontSize: 13, fontWeight: '500', color: SECONDARY, textTransform: 'uppercase', letterSpacing: 0.05 * 13 },
   checkContainer: {
     position: 'absolute',
-    top: -10,
-    right: -10,
-    backgroundColor: '#000',
+    top: -6,
+    right: -6,
+  },
+  checkGradient: {
+    width: 26,
+    height: 26,
     borderRadius: 13,
-    padding: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 
-/** Date strip day pill */
-function DayPill({
-  day,
-  selected,
-  onPress,
+const MONTH_NAMES_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Month Calendar Grid Component */
+function MonthCalendar({
+  selectedDate,
+  onSelectDate,
 }: {
-  day: { label: string; dayName: string; dateKey: string; isToday: boolean };
-  selected: boolean;
-  onPress: () => void;
+  selectedDate: string | null;
+  onSelectDate: (dateKey: string) => void;
 }) {
+  const { colors } = useTheme();
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+
+  const year = currentMonth.getFullYear();
+  const month = currentMonth.getMonth(); // 0-11
+  const today = new Date();
+
+  const prevMonth = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCurrentMonth(new Date(year, month - 1, 1));
+  };
+  const nextMonth = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCurrentMonth(new Date(year, month + 1, 1));
+  };
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDay = new Date(year, month, 1).getDay(); // Sunday is 0
+  const blanks = firstDay === 0 ? 6 : firstDay - 1; // Start on Monday
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+  const grid = [];
+
+  // Trailing previous month days
+  for (let i = 0; i < blanks; i++) {
+    grid.push({
+      day: daysInPrevMonth - blanks + i + 1,
+      isCurrentMonth: false,
+      dateKey: '',
+      isPast: true,
+    });
+  }
+
+  // Current month days
+  for (let i = 1; i <= daysInMonth; i++) {
+    const isPast = (year < today.getFullYear()) ||
+                   (year === today.getFullYear() && month < today.getMonth()) ||
+                   (year === today.getFullYear() && month === today.getMonth() && i < today.getDate());
+    grid.push({
+      day: i,
+      isCurrentMonth: true,
+      dateKey: `${MONTH_NAMES_SHORT[month]} ${i}, ${year}`,
+      isPast,
+    });
+  }
+
+  // Leading next month days
+  const remaining = 7 - (grid.length % 7);
+  if (remaining < 7) {
+    for (let i = 1; i <= remaining; i++) {
+      grid.push({
+        day: i,
+        isCurrentMonth: false,
+        dateKey: '',
+        isPast: false,
+      });
+    }
+  }
+
   return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.8}
-      style={[dp.pill, selected && dp.pillSelected]}
-    >
-      <Text style={[dp.dayName, selected && dp.textSelected]}>
-        {day.dayName}
-      </Text>
-      <Text style={[dp.dateNum, selected && dp.numSelected]}>
-        {day.label}
-      </Text>
-      {day.isToday && (
-        <View style={[dp.todayDot, selected && dp.todayDotSelected]} />
-      )}
-    </TouchableOpacity>
+    <View style={[cal.container, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, ...Shadows.sm }]}>
+      {/* Header */}
+      <View style={cal.header}>
+        <Text style={cal.monthTitle}>{MONTH_NAMES_FULL[month]} {year}</Text>
+        <View style={cal.arrows}>
+          <TouchableOpacity onPress={prevMonth} style={[cal.arrowBtn, { backgroundColor: colors.cardAlt }]} activeOpacity={0.7} hitSlop={{top:10,bottom:10,left:10,right:10}}>
+            <Ionicons name="chevron-back" size={16} color={SECONDARY} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={nextMonth} style={[cal.arrowBtn, { backgroundColor: colors.cardAlt }]} activeOpacity={0.7} hitSlop={{top:10,bottom:10,left:10,right:10}}>
+            <Ionicons name="chevron-forward" size={16} color={SECONDARY} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Weekdays */}
+      <View style={cal.weekdays}>
+        {WEEKDAYS.map((d) => (
+          <Text key={d} style={cal.weekdayText}>{d}</Text>
+        ))}
+      </View>
+
+      {/* Grid */}
+      <View style={cal.grid}>
+        {grid.map((item, idx) => {
+          const isSelected = item.isCurrentMonth && selectedDate === item.dateKey;
+          const isDisabled = !item.isCurrentMonth || item.isPast;
+
+          return (
+            <TouchableOpacity
+              key={idx}
+              activeOpacity={0.8}
+              disabled={isDisabled}
+              onPress={() => {
+                onSelectDate(item.dateKey);
+                Haptics.selectionAsync();
+              }}
+              style={[
+                cal.dayCell,
+                item.isCurrentMonth && !item.isPast && !isSelected && { backgroundColor: 'rgba(255,183,125,0.03)' },
+                item.isCurrentMonth && !item.isPast && !isSelected && cal.dayCellActiveBorder,
+                isSelected && cal.dayCellSelected,
+              ]}
+            >
+              <Text
+                style={[
+                  cal.dayText,
+                  !item.isCurrentMonth && cal.dayTextHidden,
+                  item.isCurrentMonth && item.isPast && cal.dayTextPast,
+                  isSelected && cal.dayTextSelected,
+                ]}
+              >
+                {item.day}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
-const dp = StyleSheet.create({
-  pill: {
-    width: 50,
-    paddingVertical: 10,
+const cal = StyleSheet.create({
+  container: {
+    borderRadius: BorderRadius.xxl,
+    padding: 24,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: BORDER,
-    backgroundColor: SURFACE,
-    gap: 4,
+    marginBottom: 28,
   },
-  pillSelected: {
-    backgroundColor: ACCENT,
-    borderColor: ACCENT,
+  monthTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: -0.01 * 17,
   },
-  dayName: { fontSize: 9, fontWeight: '700', color: '#666', letterSpacing: 0.8 },
-  dateNum: { fontSize: 18, fontWeight: '800', color: '#bbb' },
-  textSelected: { color: 'rgba(0,0,0,0.7)' },
-  numSelected: { color: BLACK },
-  todayDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: ACCENT },
-  todayDotSelected: { backgroundColor: BLACK },
+  arrows: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  arrowBtn: {
+    padding: 6,
+    borderRadius: Math.round(BorderRadius.sm * 1.5),
+  },
+  weekdays: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingHorizontal: 2,
+  },
+  weekdayText: {
+    width: '14.28%',
+    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: '700',
+    color: MUTED,
+    letterSpacing: 0.5,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: 14,
+  },
+  dayCell: {
+    width: '13%',
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14, // Subtle rounded squares
+    marginHorizontal: '0.64%',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+      },
+    }),
+  },
+  dayCellActiveBorder: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  dayCellSelected: {
+    backgroundColor: PRIMARY,
+    ...Platform.select({
+      ios: {
+        shadowColor: PRIMARY,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+      },
+      android: { elevation: 6 },
+    }),
+  },
+  dayText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  dayTextHidden: {
+    color: SURFACE_HIGH,
+  },
+  dayTextPast: {
+    color: MUTED,
+    fontWeight: '400',
+  },
+  dayTextSelected: {
+    color: ON_PRIMARY,
+    fontWeight: '800',
+  },
 });
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
@@ -644,7 +851,7 @@ export default function BookScreen() {
     ];
 
     return (
-      <View style={[ss.screen, { backgroundColor: BLACK }]}>
+      <View style={[ss.screen, { backgroundColor: SURFACE_LOW }]}>
         <AnimatedHeader />
         <ScrollView
           style={{ flex: 1 }}
@@ -652,58 +859,58 @@ export default function BookScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* ── Success Hero ── */}
-          <Animated.View entering={FadeInDown.springify().damping(16)} style={s4.heroWrap}>
+          <Animated.View entering={FadeInDown.duration(200)} style={s4.heroWrap}>
             <LinearGradient
-              colors={['rgba(255,107,53,0.15)', 'rgba(255,107,53,0.02)', 'transparent']}
+              colors={['rgba(255,140,0,0.12)', 'rgba(255,183,125,0.03)', 'transparent']}
               style={s4.heroBg}
             />
             <View style={s4.heroIconWrap}>
-              <LinearGradient colors={[ACCENT, ACCENT_DARK]} style={s4.heroIcon}>
-                <Ionicons name="checkmark" size={44} color="#fff" />
+              <LinearGradient
+                colors={[PRIMARY_CTR, PRIMARY]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={s4.heroIcon}
+              >
+                <Ionicons name="checkmark" size={44} color={ON_PRIMARY} />
               </LinearGradient>
             </View>
-            <Text style={s4.heroTitle}>Booking Confirmed!</Text>
+            <Text style={s4.heroLabel}>APPOINTMENT CONFIRMED</Text>
+            <Text style={s4.heroTitle}>You're All Set</Text>
             <Text style={s4.heroSub}>
-              Your appointment has been submitted.{'\n'}We'll confirm it shortly.
+              Your booking has been submitted.{'\n'}We'll confirm it shortly.
             </Text>
 
             {/* Booking reference badge */}
             <View style={s4.heroRefBadge}>
-              <Ionicons name="bookmark" size={14} color={ACCENT} />
+              <Ionicons name="bookmark-outline" size={14} color={PRIMARY} />
               <Text style={s4.heroRefText}>{previewBookingRef}</Text>
             </View>
           </Animated.View>
 
           {/* ── Quick Summary Card ── */}
-          <Animated.View entering={FadeInDown.delay(150).springify().damping(16)} style={s4.sectionPad}>
+          <Animated.View entering={FadeInDown.delay(150).duration(200)} style={s4.sectionPad}>
             <View style={s4.quickCard}>
-              <View style={s4.quickRow}>
-                <Ionicons name="car-outline" size={16} color="#666" />
-                <Text style={s4.quickLabel}>Vehicle</Text>
-                <Text style={s4.quickVal} numberOfLines={1}>
-                  {selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : '—'}
-                </Text>
-              </View>
-              <View style={s4.quickDivider} />
-              <View style={s4.quickRow}>
-                <Ionicons name="sparkles-outline" size={16} color="#666" />
-                <Text style={s4.quickLabel}>Service</Text>
-                <Text style={s4.quickVal} numberOfLines={1}>{selectedService?.name || '—'}</Text>
-              </View>
-              <View style={s4.quickDivider} />
-              <View style={s4.quickRow}>
-                <Ionicons name="calendar-outline" size={16} color="#666" />
-                <Text style={s4.quickLabel}>Schedule</Text>
-                <Text style={s4.quickVal}>{selectedDate} • {selectedTime}</Text>
-              </View>
+              {[
+                { icon: 'car-outline', label: 'Vehicle', value: selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : '—' },
+                { icon: 'sparkles-outline', label: 'Service', value: selectedService?.name || '—' },
+                { icon: 'calendar-outline', label: 'Schedule', value: `${selectedDate} • ${selectedTime}` },
+              ].map((item, i, arr) => (
+                <View key={i} style={[s4.quickRow, i < arr.length - 1 && { marginBottom: 16 }]}>
+                  <View style={s4.quickIconWrap}>
+                    <Ionicons name={item.icon as any} size={16} color={PRIMARY} />
+                  </View>
+                  <Text style={s4.quickLabel}>{item.label}</Text>
+                  <Text style={s4.quickVal} numberOfLines={1}>{item.value}</Text>
+                </View>
+              ))}
             </View>
           </Animated.View>
 
           {/* ── Workflow Tracker ── */}
-          <Animated.View entering={FadeInDown.delay(300).springify().damping(16)} style={s4.sectionPad}>
+          <Animated.View entering={FadeInDown.delay(300).duration(200)} style={s4.sectionPad}>
             <View style={s4.trackerHeader}>
               <View style={s4.trackerIconWrap}>
-                <Ionicons name="git-branch" size={14} color={ACCENT} />
+                <Ionicons name="git-branch-outline" size={14} color={PRIMARY} />
               </View>
               <Text style={s4.trackerTitle}>SERVICE WORKFLOW</Text>
             </View>
@@ -715,7 +922,7 @@ export default function BookScreen() {
                 return (
                   <Animated.View
                     key={ws.key}
-                    entering={FadeInDown.delay(350 + idx * 60).springify().damping(18)}
+                    entering={FadeInDown.delay(350 + idx * 60).duration(200)}
                     style={s4.timelineRow}
                   >
                     {/* Connector line */}
@@ -729,8 +936,8 @@ export default function BookScreen() {
                       ]}>
                         <Ionicons
                           name={ws.icon as any}
-                          size={14}
-                          color={ws.active ? '#fff' : '#555'}
+                          size={13}
+                          color={ws.active ? ON_PRIMARY : MUTED}
                         />
                       </View>
                       {!isLast && (
@@ -759,22 +966,35 @@ export default function BookScreen() {
           </Animated.View>
 
           {/* ── Action Buttons ── */}
-          <Animated.View entering={FadeInDown.delay(700).springify().damping(16)} style={s4.sectionPad}>
-            <View style={{ gap: 10 }}>
-              <PremiumButton
-                title="Track My Booking"
-                icon="navigate-outline"
+          <Animated.View entering={FadeInDown.delay(700).duration(200)} style={s4.sectionPad}>
+            <View style={{ gap: 12 }}>
+              <TouchableOpacity
+                activeOpacity={0.88}
                 onPress={() => {
                   reset();
                   router.push('/(customer)/track');
                 }}
-              />
-              <PremiumButton
-                title="Book Another Service"
-                variant="outline"
-                icon="add-circle-outline"
+              >
+                <LinearGradient
+                  colors={[PRIMARY_CTR, PRIMARY]}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={s4.actionGradientBtn}
+                >
+                  <Ionicons name="navigate-outline" size={18} color={ON_PRIMARY} />
+                  <Text style={s4.actionGradientText}>Track My Booking</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.85}
                 onPress={reset}
-              />
+                style={s4.actionOutlineBtn}
+              >
+                <Ionicons name="add-circle-outline" size={18} color={PRIMARY} />
+                <Text style={s4.actionOutlineText}>Book Another Service</Text>
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={s4.dashboardBtn}
                 activeOpacity={0.85}
@@ -783,7 +1003,7 @@ export default function BookScreen() {
                   router.push('/(customer)');
                 }}
               >
-                <Ionicons name="grid-outline" size={16} color="#888" />
+                <Ionicons name="grid-outline" size={16} color={DIM_TEXT} />
                 <Text style={s4.dashboardBtnText}>Go to Dashboard</Text>
               </TouchableOpacity>
             </View>
@@ -797,7 +1017,7 @@ export default function BookScreen() {
   // Main Render
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <View style={[ss.screen, { backgroundColor: BLACK }]}>
+    <View style={[ss.screen, { backgroundColor: SURFACE_LOW }]}>
       <AnimatedHeader />
       <StepIndicator current={step} />
 
@@ -816,27 +1036,23 @@ export default function BookScreen() {
           ═══════════════════════════════════════════════════ */}
           {step === 0 && (
             <Animated.View
-              entering={FadeInDown.springify().damping(18).stiffness(140)}
+              entering={FadeInDown.duration(200)}
               style={ss.stepWrap}
             >
-              {/* Premium Welcome Banner */}
-              <Animated.View entering={FadeInDown.delay(100).springify().damping(14).stiffness(110)} style={ss.compactGreeting}>
-                <View style={ss.greetingHeaderRow}>
-                   <View style={ss.greetingAvatarMini}>
-                     <Text style={ss.greetingAvatarTextMini}>{profile?.full_name ? profile.full_name.substring(0, 2).toUpperCase() : 'JD'}</Text>
-                   </View>
-                   <View style={ss.greetingTextRow}>
-                     <Text style={ss.greetingTextMini}>Good to see you,</Text>
-                     <Text style={ss.greetingName}>{profile?.full_name?.split(' ')[0] || 'Member'}</Text>
-                   </View>
-                </View>
+              {/* ── Editorial Hero Header ── */}
+              <Animated.View entering={FadeInDown.delay(80).duration(200)} style={ss.heroSection}>
+                <Text style={ss.heroLabel}>SCHEDULE EXPERIENCE</Text>
+                <Text style={ss.heroTitle}>Book a{'\n'}Service</Text>
+                <Text style={ss.heroSub}>
+                  Precision care for your vehicle. Select your preferred treatment and timing.
+                </Text>
               </Animated.View>
 
-              {/* ── Section 1: Customer Information ── */}
-              <Animated.View entering={FadeInDown.delay(150).springify().damping(16).stiffness(120)}>
+              {/* ── Customer Information ── */}
+              <Animated.View entering={FadeInDown.delay(150).duration(200)}>
                 <View style={s1.sectionHeader}>
                   <View style={s1.sectionIconWrap}>
-                    <Ionicons name="person" size={14} color={ACCENT} />
+                    <Ionicons name="person-outline" size={14} color={PRIMARY} />
                   </View>
                   <Text style={ss.sectionLabel}>CUSTOMER INFORMATION</Text>
                 </View>
@@ -855,47 +1071,50 @@ export default function BookScreen() {
                     value={contactNumber}
                     editable={false}
                   />
-                  <Text style={{ fontSize: 11, color: '#666', marginTop: 4, textAlign: 'center' }}>
-                    Information is pulled from your profile. You can update this in the Settings tab.
+                  <Text style={ss.profileHint}>
+                    Auto-synced from your profile settings
                   </Text>
                 </View>
               </Animated.View>
 
-              {/* ── Section 2: Vehicle Selection ── */}
-              <Animated.View entering={FadeInDown.delay(250).springify().damping(16).stiffness(120)}>
+              {/* ── Vehicle Selection ── */}
+              <Animated.View entering={FadeInDown.delay(250).duration(200)}>
                 <View style={s1.sectionHeader}>
                   <View style={s1.sectionIconWrap}>
-                    <Ionicons name="car-sport" size={14} color={ACCENT} />
+                    <Ionicons name="car-sport-outline" size={14} color={PRIMARY} />
                   </View>
                   <Text style={ss.sectionLabel}>SELECT VEHICLE</Text>
                 </View>
 
-                {/* Vehicle List */}
                 {vehiclesLoading ? (
                   <View style={ss.loadingBox}>
-                    <ActivityIndicator size="large" color={ACCENT} />
+                    <ActivityIndicator size="large" color={PRIMARY} />
                     <Text style={ss.loadingText}>Loading vehicles…</Text>
                   </View>
                 ) : vehicles.length === 0 ? (
                   <View style={ss.emptyBox}>
-                    <Ionicons name="car-outline" size={48} color="#333" />
+                    <View style={ss.emptyIconWrap}>
+                      <Ionicons name="car-outline" size={32} color={MUTED} />
+                    </View>
                     <Text style={ss.emptyTitle}>No vehicles registered</Text>
                     <Text style={ss.emptySub}>
-                      No vehicles found. Go to Settings and add yours.
+                      Add your vehicle in Settings to get started.
                     </Text>
-                    <PremiumButton 
-                      title="Go to Settings" 
-                      variant="outline" 
-                      style={{ marginTop: 20 }}
-                      onPress={() => router.push('/(screens)/vehicles')} 
-                    />
+                    <TouchableOpacity 
+                      activeOpacity={0.85}
+                      onPress={() => router.push('/(screens)/vehicles')}
+                      style={ss.emptyActionBtn}
+                    >
+                      <Text style={ss.emptyActionText}>Go to Settings</Text>
+                      <Ionicons name="arrow-forward" size={14} color={PRIMARY} />
+                    </TouchableOpacity>
                   </View>
                 ) : (
-                  <View style={{ gap: 10 }}>
+                  <View style={{ gap: 12 }}>
                     {vehicles.map((v, i) => (
                       <Animated.View
                         key={v.id}
-                        entering={FadeInDown.delay(300 + i * 60).springify()}
+                        entering={FadeInDown.delay(300 + i * 60).duration(200)}
                       >
                         <VehicleCard
                           vehicle={v}
@@ -906,17 +1125,25 @@ export default function BookScreen() {
                     ))}
                   </View>
                 )}
-
-
               </Animated.View>
 
-              {/* Next */}
-              <PremiumButton
-                title="Continue"
-                icon="chevron-forward"
-                onPress={goNext}
+              {/* Next Button */}
+              <TouchableOpacity
+                activeOpacity={0.88}
                 disabled={!canProceedStep0}
-              />
+                onPress={goNext}
+                style={{ opacity: canProceedStep0 ? 1 : 0.4 }}
+              >
+                <LinearGradient
+                  colors={[PRIMARY_CTR, PRIMARY]}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={ss.gradientBtn}
+                >
+                  <Text style={ss.gradientBtnText}>Continue</Text>
+                  <Ionicons name="chevron-forward" size={18} color={ON_PRIMARY} />
+                </LinearGradient>
+              </TouchableOpacity>
             </Animated.View>
           )}
 
@@ -925,130 +1152,121 @@ export default function BookScreen() {
           ═══════════════════════════════════════════════════ */}
           {step === 1 && (
             <Animated.View
-              entering={FadeInDown.springify().damping(18).stiffness(140)}
+              entering={FadeInDown.duration(200)}
               style={ss.stepWrap}
             >
               {/* Header */}
-              <View style={ss.stepHeader}>
-                <Text style={ss.stepTitle}>Service & Schedule</Text>
-                <Text style={ss.stepSub}>
-                  Choose your service, preferred date, and time slot.
+              <View style={ss.editorialHeader}>
+                <Text style={ss.editorialLabel}>CONFIGURE APPOINTMENT</Text>
+                <Text style={ss.editorialTitle}>Service &{'\n'}Schedule</Text>
+                <Text style={ss.editorialSub}>
+                  Choose your premium treatment, preferred date, and time slot.
                 </Text>
               </View>
 
-              {/* ── Section 1: Service Selection — 2-col grid ── */}
-              <Animated.View entering={FadeInDown.delay(100).springify().damping(16).stiffness(120)}>
+              {/* ── Service Selection — Horizontal Showcase ── */}
+              <Animated.View entering={FadeInDown.delay(100).duration(200)}>
                 <View style={s1.sectionHeader}>
                   <View style={s1.sectionIconWrap}>
-                    <Ionicons name="sparkles" size={14} color={ACCENT} />
+                    <Ionicons name="sparkles-outline" size={14} color={PRIMARY} />
                   </View>
                   <Text style={ss.sectionLabel}>SELECT SERVICE</Text>
+                  <View style={{ flex: 1 }} />
+                  <Text style={ss.viewAllLabel}>{services.length} available</Text>
                 </View>
 
-                <View style={s2.serviceGrid}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 14, paddingRight: 4 }}
+                  decelerationRate="fast"
+                  snapToInterval={SCREEN_W * 0.52 + 14}
+                >
                   {services.map((s, idx) => {
                     const isSelected = selectedService?.id === s.id;
                     return (
                       <Animated.View
                         key={s.id}
-                        entering={FadeInDown.delay(120 + idx * 50).springify().damping(16)}
-                        style={s2.serviceGridItem}
+                        entering={FadeInRight.delay(80 + idx * 60).duration(200)}
                       >
                         <TouchableOpacity
-                          activeOpacity={0.85}
+                          activeOpacity={0.88}
                           onPress={() => {
                             setSelectedService(s);
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                           }}
                           style={[
-                            s2.serviceCard,
-                            isSelected && s2.serviceCardSelected,
+                            s2.showcaseCard,
+                            isSelected && s2.showcaseCardSelected,
                           ]}
                         >
-                          {/* Icon */}
-                          <View style={[s2.serviceIconBox, isSelected && s2.serviceIconBoxSelected]}>
-                            <Ionicons
-                              name={(s.icon as any) || 'pricetag-outline'}
-                              size={24}
-                              color={isSelected ? '#fff' : '#8E8E93'}
-                            />
-                          </View>
+                          {/* Dark gradient overlay */}
+                          <LinearGradient
+                            colors={['transparent', 'rgba(0,0,0,0.7)', SURFACE_LOW]}
+                            style={s2.showcaseGradient}
+                          />
 
-                          {/* Title + Subtitle */}
-                          <Text style={[s2.serviceName, isSelected && s2.serviceNameSelected]} numberOfLines={1}>
-                            {s.name}
-                          </Text>
-                          <Text style={s2.serviceDesc} numberOfLines={1}>
-                            {s.description || s.duration}
-                          </Text>
-
-                          {/* Price tag */}
-                          <View style={s2.servicePriceRow}>
-                            <Text style={[s2.servicePrice, isSelected && s2.servicePriceSelected]}>
-                              ₱{Number(s.price).toLocaleString()}
-                            </Text>
-                          </View>
-
-                          {/* Selected checkmark */}
-                          {isSelected && (
-                            <View style={s2.serviceCheck}>
-                              <Ionicons name="checkmark-circle" size={20} color={ACCENT} />
+                          {/* Icon at top */}
+                          <View style={s2.showcaseIconRow}>
+                            <View style={[s2.showcaseIconBox, isSelected && s2.showcaseIconBoxSelected]}>
+                              <Ionicons
+                                name={(s.icon as any) || 'pricetag-outline'}
+                                size={22}
+                                color={isSelected ? ON_PRIMARY : SECONDARY}
+                              />
                             </View>
-                          )}
+                            {isSelected && (
+                              <View style={s2.showcaseCheckBadge}>
+                                <Ionicons name="checkmark" size={12} color={ON_PRIMARY} />
+                              </View>
+                            )}
+                          </View>
+
+                          {/* Bottom info — glass overlay */}
+                          <View style={s2.showcaseInfo}>
+                            <Text style={s2.showcaseName} numberOfLines={2}>{s.name}</Text>
+                            <Text style={s2.showcaseDesc} numberOfLines={1}>
+                              {s.description || s.duration}
+                            </Text>
+                            <View style={s2.showcasePriceRow}>
+                              <Text style={[s2.showcasePrice, isSelected && s2.showcasePriceSelected]}>
+                                ₱{Number(s.price).toLocaleString()}
+                              </Text>
+                              <Text style={s2.showcasePriceSuffix}>+</Text>
+                            </View>
+                          </View>
                         </TouchableOpacity>
                       </Animated.View>
                     );
                   })}
-                </View>
+                </ScrollView>
               </Animated.View>
 
-              {/* ── Section 2: Smart Calendar ── */}
-              <Animated.View entering={FadeInDown.delay(300).springify().damping(16).stiffness(120)}>
+              {/* ── Date Selection ── */}
+              <Animated.View entering={FadeInDown.delay(300).duration(200)}>
                 <View style={s1.sectionHeader}>
                   <View style={s1.sectionIconWrap}>
-                    <Ionicons name="calendar" size={14} color={ACCENT} />
+                    <Ionicons name="calendar-outline" size={14} color={PRIMARY} />
                   </View>
-                  <Text style={ss.sectionLabel}>PREFERRED DATE</Text>
+                  <Text style={ss.sectionLabel}>SELECT DATE</Text>
                 </View>
 
-                {/* Horizontal date strip */}
-                <View style={s2.calendarCard}>
-                  <ScrollView
-                    ref={dateScrollRef}
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ gap: 8, paddingVertical: 4, paddingHorizontal: 4 }}
-                  >
-                    {DAYS.map((d) => (
-                      <DayPill
-                        key={d.dateKey}
-                        day={d}
-                        selected={selectedDate === d.dateKey}
-                        onPress={() => {
-                          setSelectedDate(d.dateKey);
-                          Haptics.selectionAsync();
-                        }}
-                      />
-                    ))}
-                  </ScrollView>
-
-                  {/* Selected date badge */}
-                  {selectedDate && (
-                    <View style={s2.dateBadge}>
-                      <Ionicons name="calendar-outline" size={13} color={ACCENT} />
-                      <Text style={s2.dateBadgeText}>{selectedDate}</Text>
-                    </View>
-                  )}
-                </View>
+                <MonthCalendar
+                  selectedDate={selectedDate}
+                  onSelectDate={(val) => {
+                    setSelectedDate(val);
+                    Haptics.selectionAsync();
+                  }}
+                />
 
                 {/* Time slots */}
                 {selectedDate && (
-                  <Animated.View entering={FadeInDown.delay(80).springify().damping(18)}>
-                    <View style={[s1.sectionHeader, { marginTop: 18 }]}>
+                  <Animated.View entering={FadeInDown.delay(80).duration(200)}>
+                    <View style={[s1.sectionHeader, { marginTop: 24 }]}>
                       <View style={s1.sectionIconWrap}>
-                        <Ionicons name="time" size={14} color={ACCENT} />
+                        <Ionicons name="time-outline" size={14} color={PRIMARY} />
                       </View>
-                      <Text style={ss.sectionLabel}>PREFERRED TIME</Text>
+                      <Text style={ss.sectionLabel}>AVAILABLE TIME</Text>
                     </View>
 
                     <View style={s2.timeGrid}>
@@ -1067,9 +1285,18 @@ export default function BookScreen() {
                               isActive && s2.timePillSelected,
                             ]}
                           >
-                            <Text style={[s2.timeText, isActive && s2.timeTextSelected]}>
-                              {t}
-                            </Text>
+                            {isActive ? (
+                              <LinearGradient
+                                colors={[PRIMARY_CTR, PRIMARY]}
+                                start={{ x: 0, y: 0.5 }}
+                                end={{ x: 1, y: 0.5 }}
+                                style={s2.timePillGradient}
+                              >
+                                <Text style={s2.timeTextSelected}>{t}</Text>
+                              </LinearGradient>
+                            ) : (
+                              <Text style={s2.timeText}>{t}</Text>
+                            )}
                           </TouchableOpacity>
                         );
                       })}
@@ -1078,11 +1305,11 @@ export default function BookScreen() {
                 )}
               </Animated.View>
 
-              {/* ── Section 3: Notes ── */}
-              <Animated.View entering={FadeInDown.delay(400).springify().damping(16).stiffness(120)}>
+              {/* ── Notes ── */}
+              <Animated.View entering={FadeInDown.delay(400).duration(200)}>
                 <View style={s1.sectionHeader}>
                   <View style={s1.sectionIconWrap}>
-                    <Ionicons name="document-text" size={14} color={ACCENT} />
+                    <Ionicons name="document-text-outline" size={14} color={PRIMARY} />
                   </View>
                   <Text style={ss.sectionLabel}>NOTES & REQUESTS</Text>
                 </View>
@@ -1102,42 +1329,48 @@ export default function BookScreen() {
 
               {/* Navigation */}
               <View style={ss.btnRow}>
-                <PremiumButton
-                  title="Back"
-                  variant="outline"
-                  onPress={goBack}
-                  style={{ flex: 1 }}
-                  fullWidth={false}
-                />
-                <PremiumButton
-                  title="Continue"
-                  icon="chevron-forward"
-                  onPress={goNext}
+                <TouchableOpacity activeOpacity={0.85} onPress={goBack} style={[ss.outlineBtn, { flex: 1 }]}>
+                  <Text style={ss.outlineBtnText}>Back</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.88}
                   disabled={!canProceedStep1}
-                  style={{ flex: 2 }}
-                  fullWidth={false}
-                />
+                  onPress={goNext}
+                  style={{ flex: 2, opacity: canProceedStep1 ? 1 : 0.4 }}
+                >
+                  <LinearGradient
+                    colors={[PRIMARY_CTR, PRIMARY]}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={ss.gradientBtn}
+                  >
+                    <Text style={ss.gradientBtnText}>Continue</Text>
+                    <Ionicons name="chevron-forward" size={18} color={ON_PRIMARY} />
+                  </LinearGradient>
+                </TouchableOpacity>
               </View>
             </Animated.View>
           )}
+
           {/* ═══════════════════════════════════════════════════
               STEP 2 — REVIEW & PAYMENT PROOF
           ═══════════════════════════════════════════════════ */}
           {step === 2 && (
             <Animated.View
-              entering={FadeInDown.springify().damping(18).stiffness(140)}
+              entering={FadeInDown.duration(200)}
               style={ss.stepWrap}
             >
-              <View style={ss.stepHeader}>
-                <Text style={ss.stepTitle}>Review & Payment</Text>
-                <Text style={ss.stepSub}>Review your booking details and upload payment proof.</Text>
+              <View style={ss.editorialHeader}>
+                <Text style={ss.editorialLabel}>REVIEW DETAILS</Text>
+                <Text style={ss.editorialTitle}>Review &{'\n'}Payment</Text>
+                <Text style={ss.editorialSub}>Verify your booking details and upload payment proof.</Text>
               </View>
 
-              {/* ── Section 1: Booking Summary ── */}
-              <Animated.View entering={FadeInDown.delay(100).springify().damping(16).stiffness(120)}>
+              {/* ── Booking Summary ── */}
+              <Animated.View entering={FadeInDown.delay(100).duration(200)}>
                 <View style={s1.sectionHeader}>
                   <View style={s1.sectionIconWrap}>
-                    <Ionicons name="receipt" size={14} color={ACCENT} />
+                    <Ionicons name="receipt-outline" size={14} color={PRIMARY} />
                   </View>
                   <Text style={ss.sectionLabel}>BOOKING SUMMARY</Text>
                 </View>
@@ -1145,12 +1378,12 @@ export default function BookScreen() {
                 <View style={s3.summaryCard}>
                   {/* Card header band */}
                   <LinearGradient
-                    colors={[ACCENT, ACCENT_DARK]}
+                    colors={[PRIMARY_CTR, PRIMARY]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={s3.summaryHeader}
                   >
-                    <Ionicons name="car-sport" size={16} color="#fff" />
+                    <Ionicons name="car-sport-outline" size={16} color={ON_PRIMARY} />
                     <Text style={s3.summaryHeaderText}>APPOINTMENT DETAILS</Text>
                   </LinearGradient>
 
@@ -1164,32 +1397,26 @@ export default function BookScreen() {
                       { icon: 'calendar-outline', label: 'Date', value: selectedDate || '—' },
                       { icon: 'time-outline', label: 'Time', value: selectedTime || '—' },
                     ].map((item, i) => (
-                      <React.Fragment key={i}>
-                        <View style={s3.summaryRow}>
-                          <View style={s3.summaryRowLeft}>
-                            <Ionicons name={item.icon as any} size={15} color="#666" />
-                            <Text style={s3.summaryLabel}>{item.label}</Text>
-                          </View>
-                          <Text style={s3.summaryValue} numberOfLines={1}>{item.value}</Text>
+                      <View key={i} style={[s3.summaryRow, i > 0 && { marginTop: 14 }]}>
+                        <View style={s3.summaryRowLeft}>
+                          <Ionicons name={item.icon as any} size={15} color={MUTED} />
+                          <Text style={s3.summaryLabel}>{item.label}</Text>
                         </View>
-                        {i < 6 && <View style={s3.summaryDivider} />}
-                      </React.Fragment>
+                        <Text style={s3.summaryValue} numberOfLines={1}>{item.value}</Text>
+                      </View>
                     ))}
 
                     {/* Notes if present */}
                     {notes.trim() !== '' && (
-                      <>
-                        <View style={s3.summaryDivider} />
-                        <View style={[s3.summaryRow, { alignItems: 'flex-start' }]}>
-                          <View style={[s3.summaryRowLeft, { marginTop: 2 }]}>
-                            <Ionicons name="document-text-outline" size={15} color="#666" />
-                            <Text style={s3.summaryLabel}>Notes</Text>
-                          </View>
-                          <Text style={[s3.summaryValue, { flex: 1, textAlign: 'right' }]} numberOfLines={3}>
-                            {notes}
-                          </Text>
+                      <View style={[s3.summaryRow, { alignItems: 'flex-start', marginTop: 14 }]}>
+                        <View style={[s3.summaryRowLeft, { marginTop: 2 }]}>
+                          <Ionicons name="document-text-outline" size={15} color={MUTED} />
+                          <Text style={s3.summaryLabel}>Notes</Text>
                         </View>
-                      </>
+                        <Text style={[s3.summaryValue, { flex: 1, textAlign: 'right' }]} numberOfLines={3}>
+                          {notes}
+                        </Text>
+                      </View>
                     )}
 
                     {/* Total */}
@@ -1203,18 +1430,18 @@ export default function BookScreen() {
                 </View>
               </Animated.View>
 
-              {/* ── Section 2: Booking Reference ── */}
-              <Animated.View entering={FadeInDown.delay(200).springify().damping(16).stiffness(120)}>
+              {/* ── Booking Reference ── */}
+              <Animated.View entering={FadeInDown.delay(200).duration(200)}>
                 <View style={s1.sectionHeader}>
                   <View style={s1.sectionIconWrap}>
-                    <Ionicons name="bookmark" size={14} color={ACCENT} />
+                    <Ionicons name="bookmark-outline" size={14} color={PRIMARY} />
                   </View>
                   <Text style={ss.sectionLabel}>BOOKING REFERENCE</Text>
                 </View>
 
                 <View style={s3.refCard}>
                   <View style={s3.refIconWrap}>
-                    <Ionicons name="qr-code-outline" size={28} color={ACCENT} />
+                    <Ionicons name="qr-code-outline" size={28} color={PRIMARY} />
                   </View>
                   <Text style={s3.refCode}>{previewBookingRef}</Text>
                   <Text style={s3.refHint}>
@@ -1223,19 +1450,18 @@ export default function BookScreen() {
                 </View>
               </Animated.View>
 
-              {/* ── Section 3: GCash Downpayment Upload ── */}
-              <Animated.View entering={FadeInDown.delay(300).springify().damping(16).stiffness(120)}>
+              {/* ── GCash Downpayment Upload ── */}
+              <Animated.View entering={FadeInDown.delay(300).duration(200)}>
                 <View style={s1.sectionHeader}>
                   <View style={s1.sectionIconWrap}>
-                    <Ionicons name="card" size={14} color={ACCENT} />
+                    <Ionicons name="card-outline" size={14} color={PRIMARY} />
                   </View>
                   <Text style={ss.sectionLabel}>GCASH DOWNPAYMENT (OPTIONAL)</Text>
                 </View>
 
                 <View style={s3.uploadCard}>
                   {downpaymentProof ? (
-                    /* Preview uploaded image */
-                    <Animated.View entering={FadeInDown.springify().damping(18)} style={s3.previewWrap}>
+                    <Animated.View entering={FadeInDown.duration(200)} style={s3.previewWrap}>
                       <Image
                         source={{ uri: downpaymentProof }}
                         style={s3.previewImage}
@@ -1259,11 +1485,11 @@ export default function BookScreen() {
                             }
                           }}
                         >
-                          <Ionicons name="swap-horizontal" size={16} color={ACCENT} />
+                          <Ionicons name="swap-horizontal" size={16} color={PRIMARY} />
                           <Text style={s3.previewActionText}>Replace</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                          style={[s3.previewActionBtn, { borderColor: '#FF4444' }]}
+                          style={[s3.previewActionBtn, { backgroundColor: 'rgba(255,68,68,0.08)' }]}
                           activeOpacity={0.8}
                           onPress={() => {
                             setDownpaymentProof(null);
@@ -1276,16 +1502,14 @@ export default function BookScreen() {
                       </View>
                     </Animated.View>
                   ) : (
-                    /* Upload buttons */
                     <View style={s3.uploadContent}>
                       <View style={s3.uploadIconWrap}>
-                        <Ionicons name="cloud-upload-outline" size={36} color="#555" />
+                        <Ionicons name="cloud-upload-outline" size={32} color={MUTED} />
                       </View>
                       <Text style={s3.uploadTitle}>Upload Payment Screenshot</Text>
                       <Text style={s3.uploadSubtitle}>GCash receipt or payment confirmation</Text>
                       <View style={s3.uploadBtnRow}>
                         <TouchableOpacity
-                          style={s3.uploadBtn}
                           activeOpacity={0.85}
                           onPress={async () => {
                             const result = await ImagePicker.launchImageLibraryAsync({
@@ -1301,11 +1525,18 @@ export default function BookScreen() {
                             }
                           }}
                         >
-                          <Ionicons name="images-outline" size={18} color={BLACK} />
-                          <Text style={s3.uploadBtnText}>Gallery</Text>
+                          <LinearGradient
+                            colors={[PRIMARY_CTR, PRIMARY]}
+                            start={{ x: 0, y: 0.5 }}
+                            end={{ x: 1, y: 0.5 }}
+                            style={s3.uploadGradientBtn}
+                          >
+                            <Ionicons name="images-outline" size={16} color={ON_PRIMARY} />
+                            <Text style={s3.uploadGradientText}>Gallery</Text>
+                          </LinearGradient>
                         </TouchableOpacity>
                         <TouchableOpacity
-                          style={[s3.uploadBtn, s3.uploadBtnOutline]}
+                          style={s3.uploadOutlineBtn}
                           activeOpacity={0.85}
                           onPress={async () => {
                             const perms = await ImagePicker.requestCameraPermissionsAsync();
@@ -1325,8 +1556,8 @@ export default function BookScreen() {
                             }
                           }}
                         >
-                          <Ionicons name="camera-outline" size={18} color={ACCENT} />
-                          <Text style={[s3.uploadBtnText, { color: ACCENT }]}>Camera</Text>
+                          <Ionicons name="camera-outline" size={16} color={PRIMARY} />
+                          <Text style={s3.uploadOutlineText}>Camera</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1334,17 +1565,16 @@ export default function BookScreen() {
                 </View>
               </Animated.View>
 
-              {/* ── Section 4: Disclaimer ── */}
-              <Animated.View entering={FadeInDown.delay(400).springify().damping(16).stiffness(120)}>
+              {/* ── Disclaimer ── */}
+              <Animated.View entering={FadeInDown.delay(400).duration(200)}>
                 <View style={s3.disclaimerCard}>
                   <LinearGradient
-                    colors={['rgba(255,107,53,0.10)', 'rgba(255,107,53,0.03)']}
+                    colors={['rgba(255,140,0,0.08)', 'rgba(255,183,125,0.02)']}
                     style={s3.disclaimerGradient}
                   >
                     <View style={{ alignItems: 'center' }}>
-                      <Ionicons name="shield-checkmark" size={28} color={ACCENT} />
+                      <Ionicons name="shield-checkmark-outline" size={28} color={PRIMARY} />
                     </View>
-                    <View style={s3.disclaimerDivider} />
                     {[
                       { icon: 'calendar-outline', text: 'Your booking schedule may be adjusted based on shop availability.' },
                       { icon: 'card-outline', text: 'GCash downpayment is recommended to secure your slot.' },
@@ -1353,7 +1583,7 @@ export default function BookScreen() {
                     ].map((item, i) => (
                       <View key={i} style={s3.disclaimerRow}>
                         <View style={s3.disclaimerRowIcon}>
-                          <Ionicons name={item.icon as any} size={15} color={ACCENT} />
+                          <Ionicons name={item.icon as any} size={14} color={PRIMARY} />
                         </View>
                         <Text style={s3.disclaimerRowText}>{item.text}</Text>
                       </View>
@@ -1364,43 +1594,47 @@ export default function BookScreen() {
 
               {/* Navigation */}
               <View style={ss.btnRow}>
-                <PremiumButton
-                  title="Back"
-                  variant="outline"
-                  onPress={goBack}
-                  style={{ flex: 1 }}
-                  fullWidth={false}
-                />
-                <PremiumButton
-                  title="Proceed"
-                  icon="arrow-forward"
-                  onPress={goNext}
-                  style={{ flex: 2 }}
-                  fullWidth={false}
-                />
+                <TouchableOpacity activeOpacity={0.85} onPress={goBack} style={[ss.outlineBtn, { flex: 1 }]}>
+                  <Text style={ss.outlineBtnText}>Back</Text>
+                </TouchableOpacity>
+                <TouchableOpacity activeOpacity={0.88} onPress={goNext} style={{ flex: 2 }}>
+                  <LinearGradient
+                    colors={[PRIMARY_CTR, PRIMARY]}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={ss.gradientBtn}
+                  >
+                    <Text style={ss.gradientBtnText}>Proceed</Text>
+                    <Ionicons name="arrow-forward" size={18} color={ON_PRIMARY} />
+                  </LinearGradient>
+                </TouchableOpacity>
               </View>
             </Animated.View>
           )}
+
           {/* ═══════════════════════════════════════════════════
               STEP 3 — FINAL CONFIRMATION
           ═══════════════════════════════════════════════════ */}
           {step === 3 && (
             <Animated.View
-              entering={FadeInDown.springify().damping(18).stiffness(140)}
+              entering={FadeInDown.duration(200)}
               style={ss.stepWrap}
             >
               {/* Header */}
-              <View style={ss.stepHeader}>
-                <Text style={[ss.stepTitle, { fontSize: 24 }]}>Confirm Booking</Text>
-                <Text style={ss.stepSub}>
+              <View style={ss.editorialHeader}>
+                <Text style={ss.editorialLabel}>FINALIZE BOOKING</Text>
+                <Text style={[ss.editorialTitle, { fontSize: 32 }]}>Confirm{'\n'}Booking</Text>
+                <Text style={ss.editorialSub}>
                   Your appointment is almost set. Tap confirm to submit.
                 </Text>
               </View>
 
               {/* Booking Reference */}
-              <Animated.View entering={FadeInDown.delay(100).springify().damping(16)}>
+              <Animated.View entering={FadeInDown.delay(100).duration(200)}>
                 <View style={s4.confirmRefCard}>
-                  <Ionicons name="bookmark" size={18} color={ACCENT} />
+                  <View style={s4.confirmRefIconWrap}>
+                    <Ionicons name="bookmark-outline" size={18} color={PRIMARY} />
+                  </View>
                   <View>
                     <Text style={s4.confirmRefLabel}>BOOKING REFERENCE</Text>
                     <Text style={s4.confirmRefCode}>{previewBookingRef}</Text>
@@ -1409,15 +1643,15 @@ export default function BookScreen() {
               </Animated.View>
 
               {/* Compact Summary */}
-              <Animated.View entering={FadeInDown.delay(200).springify().damping(16)}>
+              <Animated.View entering={FadeInDown.delay(200).duration(200)}>
                 <View style={s4.confirmCard}>
                   <LinearGradient
-                    colors={[ACCENT, ACCENT_DARK]}
+                    colors={[PRIMARY_CTR, PRIMARY]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={s4.confirmCardHeader}
                   >
-                    <Ionicons name="car-sport" size={16} color="#fff" />
+                    <Ionicons name="car-sport-outline" size={16} color={ON_PRIMARY} />
                     <Text style={s4.confirmCardHeaderText}>APPOINTMENT DETAILS</Text>
                   </LinearGradient>
 
@@ -1428,14 +1662,11 @@ export default function BookScreen() {
                       { icon: 'sparkles-outline', label: 'Service', value: selectedService?.name || '—' },
                       { icon: 'calendar-outline', label: 'Schedule', value: `${selectedDate} • ${selectedTime}` },
                     ].map((item, i, arr) => (
-                      <React.Fragment key={i}>
-                        <View style={s4.confirmRow}>
-                          <Ionicons name={item.icon as any} size={14} color="#555" />
-                          <Text style={s4.confirmLabel}>{item.label}</Text>
-                          <Text style={s4.confirmVal} numberOfLines={1}>{item.value}</Text>
-                        </View>
-                        {i < arr.length - 1 && <View style={s4.confirmDivider} />}
-                      </React.Fragment>
+                      <View key={i} style={[s4.confirmRow, i > 0 && { marginTop: 14 }]}>
+                        <Ionicons name={item.icon as any} size={14} color={MUTED} />
+                        <Text style={s4.confirmLabel}>{item.label}</Text>
+                        <Text style={s4.confirmVal} numberOfLines={1}>{item.value}</Text>
+                      </View>
                     ))}
 
                     {/* Total */}
@@ -1451,7 +1682,7 @@ export default function BookScreen() {
 
               {/* Downpayment badge */}
               {downpaymentProof && (
-                <Animated.View entering={FadeInDown.delay(250).springify().damping(16)}>
+                <Animated.View entering={FadeInDown.delay(250).duration(200)}>
                   <View style={s4.paymentBadge}>
                     <Ionicons name="checkmark-circle" size={18} color="#34C759" />
                     <Text style={s4.paymentBadgeText}>GCash proof attached</Text>
@@ -1460,40 +1691,47 @@ export default function BookScreen() {
               )}
 
               {/* Notice */}
-              <Animated.View entering={FadeInDown.delay(300).springify().damping(16)}>
+              <Animated.View entering={FadeInDown.delay(300).duration(200)}>
                 <View style={s4.noticeBar}>
-                  <Ionicons name="information-circle" size={18} color={ACCENT} />
+                  <Ionicons name="information-circle-outline" size={18} color={PRIMARY} />
                   <Text style={s4.noticeBarText}>
                     By confirming, you agree to the booking terms. Arrive{' '}
-                    <Text style={{ color: ACCENT, fontWeight: '700' }}>15 min early</Text>.
+                    <Text style={{ color: PRIMARY, fontWeight: '700' }}>15 min early</Text>.
                   </Text>
                 </View>
               </Animated.View>
 
               {/* Actions */}
               <View style={ss.btnRow}>
-                <PremiumButton
-                  title="Back"
-                  variant="outline"
+                <TouchableOpacity
+                  activeOpacity={0.85}
                   onPress={goBack}
-                  style={{ flex: 1 }}
-                  fullWidth={false}
                   disabled={isSubmitting}
-                />
+                  style={[ss.outlineBtn, { flex: 1 }]}
+                >
+                  <Text style={ss.outlineBtnText}>Back</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
                   activeOpacity={0.88}
                   disabled={isSubmitting}
                   onPress={handleConfirm}
-                  style={[s4.confirmBtn, isSubmitting && { opacity: 0.6 }, { flex: 2 }]}
+                  style={{ flex: 2, opacity: isSubmitting ? 0.6 : 1 }}
                 >
-                  {isSubmitting ? (
-                    <ActivityIndicator size="small" color={BLACK} />
-                  ) : (
-                    <>
-                      <Ionicons name="checkmark-circle" size={18} color={BLACK} />
-                      <Text style={s4.confirmBtnText}>Confirm Booking</Text>
-                    </>
-                  )}
+                  <LinearGradient
+                    colors={[PRIMARY_CTR, PRIMARY]}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={ss.gradientBtn}
+                  >
+                    {isSubmitting ? (
+                      <ActivityIndicator size="small" color={ON_PRIMARY} />
+                    ) : (
+                      <>
+                        <Ionicons name="checkmark-circle" size={18} color={ON_PRIMARY} />
+                        <Text style={ss.gradientBtnText}>Confirm Booking</Text>
+                      </>
+                    )}
+                  </LinearGradient>
                 </TouchableOpacity>
               </View>
             </Animated.View>
@@ -1504,581 +1742,592 @@ export default function BookScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// KINETIC GALLERY — STYLE SHEETS
+// ═══════════════════════════════════════════════════════════════════════════════
 
-/** Screen-level */
+/** Screen-level & shared styles */
 const ss = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: BLACK },
+  screen: { flex: 1, backgroundColor: SURFACE_LOW },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: 18, paddingTop: 20 },
-  stepWrap: { gap: 20 },
+  content: { paddingHorizontal: 20, paddingTop: 8 },
+  stepWrap: { gap: 28 },
 
-  stepHeader: { gap: 4, marginBottom: 4 },
-  stepTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: 0.3,
+  // ── Editorial Hero (Step 0) ──
+  heroSection: {
+    paddingTop: 8,
+    paddingBottom: 4,
   },
-  stepSub: { fontSize: 13, color: '#777', lineHeight: 19 },
-
-  // Premium Welcome Banner for Step 0
-  compactGreeting: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 24,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  greetingHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  greetingAvatarMini: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255, 107, 53, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  greetingAvatarTextMini: { color: ACCENT, fontSize: 16, fontWeight: '800' },
-  greetingTextRow: { flex: 1 },
-  greetingTextMini: { fontSize: 13, fontWeight: '600', color: '#A0A0AB', letterSpacing: 0.5 },
-  greetingName: { fontSize: 20, fontWeight: '800', color: '#fff', marginTop: 2 },
-  
-  sectionTitle: {
+  heroLabel: {
     fontSize: 11,
-    fontWeight: '800',
-    color: '#8A8A9A',
-    letterSpacing: 1.5,
+    fontWeight: '600',
+    letterSpacing: 0.05 * 11,
+    color: PRIMARY,
     textTransform: 'uppercase',
-    marginBottom: 14,
-    paddingLeft: 4,
+    marginBottom: 8,
   },
-
-  sectionLabel: {
-    fontSize: 10,
+  heroTitle: {
+    fontSize: 38,
     fontWeight: '700',
-    letterSpacing: 1.5,
-    color: '#555',
+    color: '#FFFFFF',
+    letterSpacing: -0.02 * 38,
+    lineHeight: 42,
     marginBottom: 10,
   },
+  heroSub: {
+    fontSize: 15,
+    color: DIM_TEXT,
+    lineHeight: 22,
+    letterSpacing: 0.01 * 15,
+  },
 
-  inputLabel: { fontSize: 12, fontWeight: '600', color: '#888', marginBottom: 6 },
-  inputWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: SURFACE,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: BORDER,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+  // ── Editorial Header (Steps 1-3) ──
+  editorialHeader: {
+    paddingTop: 8,
+    paddingBottom: 4,
   },
-  textAreaWrap: {
-    alignItems: 'flex-start',
-    paddingVertical: 14,
+  editorialLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.05 * 11,
+    color: PRIMARY,
+    textTransform: 'uppercase',
+    marginBottom: 8,
   },
-  input: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 14,
+  editorialTitle: {
+    fontSize: 34,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: -0.02 * 34,
+    lineHeight: 38,
+    marginBottom: 10,
+  },
+  editorialSub: {
+    fontSize: 15,
+    color: DIM_TEXT,
+    lineHeight: 22,
+    letterSpacing: 0.01 * 15,
+  },
+
+  // ── Section Label ──
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.05 * 10,
+    color: MUTED,
+    textTransform: 'uppercase',
+  },
+
+  viewAllLabel: {
+    fontSize: 11,
     fontWeight: '500',
-  },
-  textArea: {
-    height: 90,
-    textAlignVertical: 'top',
+    color: PRIMARY,
+    letterSpacing: 0.01 * 11,
   },
 
-  selectedDateBadge: {
+  profileHint: {
+    fontSize: 11,
+    color: MUTED,
+    marginTop: 6,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+
+  // ── Gradient Button (Primary CTA) ──
+  gradientBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 10,
-    backgroundColor: 'rgba(255,107,53,0.1)',
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.3)',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 24,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 20 },
+        shadowOpacity: 0.15,
+        shadowRadius: 40,
+      },
+      android: { elevation: 8 },
+    }),
   },
-  selectedDateText: { fontSize: 12, fontWeight: '700', color: ACCENT },
+  gradientBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: ON_PRIMARY,
+    letterSpacing: 0.01 * 15,
+  },
 
-  btnRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  // ── Outline Button (Secondary) ──
+  outlineBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 24,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: SURFACE_MID,
+  },
+  outlineBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: SECONDARY,
+  },
 
-  loadingBox: { alignItems: 'center', paddingVertical: 40, gap: 12 },
-  loadingText: { color: '#666', fontSize: 13 },
+  // ── Button Row ──
+  btnRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
+
+  // ── Loading & Empty ──
+  loadingBox: { alignItems: 'center', paddingVertical: 48, gap: 14 },
+  loadingText: { color: MUTED, fontSize: 13, fontWeight: '500' },
 
   emptyBox: {
     alignItems: 'center',
-    paddingVertical: 32,
-    gap: 8,
-    backgroundColor: SURFACE,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderStyle: 'dashed',
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+    gap: 10,
+    backgroundColor: SURFACE_MID,
+    borderRadius: 24,
   },
-  emptyTitle: { fontSize: 15, fontWeight: '700', color: '#555' },
-  emptySub: { fontSize: 12, color: '#444', textAlign: 'center', paddingHorizontal: 20 },
-
-  addVehicleBtn: {
+  emptyIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: SURFACE_HIGH,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: SECONDARY },
+  emptySub: { fontSize: 13, color: MUTED, textAlign: 'center', lineHeight: 20 },
+  emptyActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(255,107,53,0.1)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,107,53,0.3)',
-    borderStyle: 'solid',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(255,183,125,0.08)',
+    borderRadius: 16,
   },
-  addVehicleText: {
-    flex: 1,
+  emptyActionText: {
     fontSize: 14,
-    fontWeight: '700',
-    color: ACCENT,
+    fontWeight: '600',
+    color: PRIMARY,
   },
 });
 
-/** Step 1 — Service & Schedule premium styles */
+/** Step 1 — Service & Schedule Kinetic Gallery styles */
 const s2 = StyleSheet.create({
-  /* ── 2-Column Service Grid ── */
-  serviceGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  serviceGridItem: {
-    width: '48%',
-  },
-  serviceCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: BORDER,
-    padding: 16,
-    alignItems: 'center',
-    gap: 8,
+  /* ── Horizontal Service Showcase ── */
+  showcaseCard: {
+    width: SCREEN_W * 0.52,
+    height: 220,
+    borderRadius: 24,
+    backgroundColor: SURFACE_MID,
+    overflow: 'hidden',
     position: 'relative',
-    minHeight: 150,
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
   },
-  serviceCardSelected: {
-    borderColor: ACCENT,
-    backgroundColor: 'rgba(255, 107, 53, 0.08)',
+  showcaseCardSelected: {
     ...Platform.select({
       ios: {
-        shadowColor: ACCENT,
-        shadowOffset: { width: 0, height: 0 },
+        shadowColor: PRIMARY,
+        shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.35,
-        shadowRadius: 12,
+        shadowRadius: 24,
       },
-      android: { elevation: 6 },
+      android: { elevation: 8 },
     }),
   },
-  serviceIconBox: {
-    width: 48,
-    height: 48,
+  showcaseGradient: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+  },
+  showcaseIconRow: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  showcaseIconBox: {
+    width: 44,
+    height: 44,
     borderRadius: 14,
+    backgroundColor: SURFACE_HIGH,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1A1A22',
-    borderWidth: 1,
-    borderColor: '#2A2A32',
-    marginBottom: 4,
   },
-  serviceIconBoxSelected: {
-    backgroundColor: ACCENT,
-    borderColor: ACCENT,
+  showcaseIconBoxSelected: {
+    backgroundColor: PRIMARY_CTR,
   },
-  serviceName: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    letterSpacing: 0.2,
+  showcaseCheckBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: PRIMARY,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  serviceNameSelected: {
-    color: '#FFFFFF',
+  showcaseInfo: {
+    padding: 16,
+    gap: 4,
   },
-  serviceDesc: {
-    fontSize: 10,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 14,
-  },
-  servicePriceRow: {
-    marginTop: 2,
-  },
-  servicePrice: {
+  showcaseName: {
     fontSize: 15,
-    fontWeight: '900',
-    color: '#8E8E93',
-    textAlign: 'center',
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: -0.01 * 15,
   },
-  servicePriceSelected: {
-    color: ACCENT,
+  showcaseDesc: {
+    fontSize: 11,
+    color: DIM_TEXT,
+    lineHeight: 15,
   },
-  serviceCheck: {
-    position: 'absolute',
-    top: -6,
-    right: -6,
-    backgroundColor: BLACK,
-    borderRadius: 10,
-    padding: 1,
+  showcasePriceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginTop: 4,
+  },
+  showcasePrice: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: SECONDARY,
+  },
+  showcasePriceSelected: {
+    color: PRIMARY,
+  },
+  showcasePriceSuffix: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: MUTED,
+    marginLeft: 2,
   },
 
   /* ── Calendar Card ── */
   calendarCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 12,
+    backgroundColor: SURFACE_MID,
+    borderRadius: 24,
+    padding: 14,
   },
   dateBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 10,
-    backgroundColor: 'rgba(255, 107, 53, 0.1)',
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    marginTop: 12,
+    backgroundColor: 'rgba(255,183,125,0.08)',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.3)',
   },
   dateBadgeText: {
     fontSize: 12,
-    fontWeight: '700',
-    color: ACCENT,
+    fontWeight: '600',
+    color: PRIMARY,
   },
 
   /* ── Time Grid ── */
   timeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
   },
   timePill: {
     width: '30.5%',
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderWidth: 1.5,
-    borderColor: BORDER,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: SURFACE_MID,
   },
   timePillSelected: {
-    backgroundColor: ACCENT,
-    borderColor: ACCENT,
     ...Platform.select({
       ios: {
-        shadowColor: ACCENT,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.4,
-        shadowRadius: 10,
+        shadowColor: PRIMARY,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
       },
       android: { elevation: 4 },
     }),
   },
+  timePillGradient: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderRadius: 16,
+  },
   timeText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#8E8E93',
+    fontWeight: '500',
+    color: SECONDARY,
+    paddingVertical: 14,
+    textAlign: 'center',
   },
   timeTextSelected: {
-    color: BLACK,
-    fontWeight: '800',
+    color: ON_PRIMARY,
+    fontWeight: '700',
+    fontSize: 13,
   },
 
   /* ── Notes Card ── */
   notesCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 16,
+    backgroundColor: SURFACE_MID,
+    borderRadius: 24,
+    padding: 18,
   },
 });
 
-/** Step 2 — Review & Payment premium styles */
+/** Step 2 — Review & Payment Kinetic Gallery styles */
 const s3 = StyleSheet.create({
   /* ── Summary Card ── */
   summaryCard: {
-    borderRadius: 18,
+    borderRadius: 24,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: SURFACE_MID,
   },
   summaryHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
   },
   summaryHeaderText: {
     fontSize: 11,
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: 1.5,
+    fontWeight: '700',
+    color: ON_PRIMARY,
+    letterSpacing: 0.05 * 11,
   },
   summaryBody: {
-    padding: 16,
-    gap: 0,
+    padding: 20,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
   },
   summaryRowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   summaryLabel: {
     fontSize: 13,
-    color: '#666',
+    color: DIM_TEXT,
+    fontWeight: '400',
   },
   summaryValue: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#ddd',
+    color: '#E0E0E0',
     maxWidth: '55%',
     textAlign: 'right',
-  },
-  summaryDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: '#222',
   },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: 20,
+    paddingTop: 20,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 107, 53, 0.2)',
+    borderTopColor: 'rgba(255,183,125,0.12)',
   },
   totalLabel: {
     fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    color: '#888',
+    fontWeight: '600',
+    letterSpacing: 0.05 * 11,
+    color: MUTED,
   },
   totalValue: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: ACCENT,
+    fontSize: 28,
+    fontWeight: '800',
+    color: PRIMARY,
+    letterSpacing: -0.02 * 28,
   },
 
-  /* ── Booking Reference Card ── */
+  /* ── Booking Reference ── */
   refCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 20,
+    backgroundColor: SURFACE_MID,
+    borderRadius: 24,
+    padding: 24,
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   refIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 107, 53, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.25)',
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,183,125,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
   },
   refCode: {
     fontSize: 22,
-    fontWeight: '900',
-    color: ACCENT,
+    fontWeight: '800',
+    color: PRIMARY,
     letterSpacing: 2,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   refHint: {
-    fontSize: 11,
-    color: '#666',
+    fontSize: 12,
+    color: MUTED,
     textAlign: 'center',
-    lineHeight: 16,
-    maxWidth: 220,
+    lineHeight: 17,
+    maxWidth: 240,
   },
 
-  /* ── Upload Card ── */
+  /* ── Upload ── */
   uploadCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: BORDER,
+    backgroundColor: SURFACE_MID,
+    borderRadius: 24,
     overflow: 'hidden',
   },
   uploadContent: {
-    padding: 24,
+    padding: 28,
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   uploadIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1.5,
-    borderColor: '#2A2A32',
-    borderStyle: 'dashed',
+    width: 68,
+    height: 68,
+    borderRadius: 20,
+    backgroundColor: SURFACE_HIGH,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
   },
   uploadTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#fff',
+    color: '#FFFFFF',
+    letterSpacing: -0.01 * 16,
   },
   uploadSubtitle: {
-    fontSize: 12,
-    color: '#666',
+    fontSize: 13,
+    color: DIM_TEXT,
     marginBottom: 8,
   },
   uploadBtnRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 4,
+    gap: 12,
+    marginTop: 6,
   },
-  uploadBtn: {
+  uploadGradientBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: ACCENT,
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 16,
   },
-  uploadBtnOutline: {
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: ACCENT,
-  },
-  uploadBtnText: {
+  uploadGradientText: {
     fontSize: 13,
     fontWeight: '700',
-    color: BLACK,
+    color: ON_PRIMARY,
+  },
+  uploadOutlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    backgroundColor: SURFACE_HIGH,
+  },
+  uploadOutlineText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: PRIMARY,
   },
 
-  /* ── Image Preview ── */
+  /* ── Preview ── */
   previewWrap: {
-    padding: 12,
-    gap: 10,
+    padding: 14,
+    gap: 12,
   },
   previewImage: {
     width: '100%',
     height: 220,
-    borderRadius: 14,
-    backgroundColor: '#111',
+    borderRadius: 18,
+    backgroundColor: SURFACE,
   },
   previewActions: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 10,
+    gap: 12,
   },
   previewActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: ACCENT,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,183,125,0.06)',
   },
   previewActionText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: ACCENT,
+    fontSize: 13,
+    fontWeight: '600',
+    color: PRIMARY,
   },
 
-  /* ── Disclaimer Card ── */
+  /* ── Disclaimer ── */
   disclaimerCard: {
-    borderRadius: 18,
+    borderRadius: 24,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.2)',
   },
   disclaimerGradient: {
-    padding: 20,
-    gap: 12,
-  },
-  disclaimerDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255, 107, 53, 0.12)',
+    padding: 24,
+    gap: 14,
   },
   disclaimerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
+    gap: 12,
   },
   disclaimerRowIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 107, 53, 0.12)',
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,183,125,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
   disclaimerRowText: {
     flex: 1,
-    fontSize: 12,
-    color: '#aaa',
-    lineHeight: 18,
+    fontSize: 13,
+    color: SECONDARY,
+    lineHeight: 19,
   },
 });
 
 /** Step 3 / Success — Confirmation & Workflow Tracker styles */
 const s4 = StyleSheet.create({
-  /* ══════════════════════════════════════
-     SUCCESS HERO
-  ══════════════════════════════════════ */
+  /* ── SUCCESS HERO ── */
   heroWrap: {
     alignItems: 'center',
-    paddingTop: 32,
-    paddingBottom: 20,
-    paddingHorizontal: 24,
+    paddingTop: 40,
+    paddingBottom: 24,
+    paddingHorizontal: 28,
     position: 'relative',
   },
   heroBg: {
     ...StyleSheet.absoluteFillObject,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
   },
   heroIconWrap: {
-    marginBottom: 16,
+    marginBottom: 20,
     ...Platform.select({
       ios: {
-        shadowColor: ACCENT,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.5,
-        shadowRadius: 24,
+        shadowColor: PRIMARY_CTR,
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.4,
+        shadowRadius: 30,
       },
       android: { elevation: 12 },
     }),
@@ -2090,100 +2339,102 @@ const s4 = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  heroLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.05 * 11,
+    color: PRIMARY,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
   heroTitle: {
-    fontSize: 26,
-    fontWeight: '900',
+    fontSize: 32,
+    fontWeight: '700',
     color: '#fff',
     textAlign: 'center',
-    letterSpacing: 0.3,
-    marginBottom: 4,
+    letterSpacing: -0.02 * 32,
+    marginBottom: 6,
   },
   heroSub: {
     fontSize: 14,
-    color: '#888',
+    color: DIM_TEXT,
     textAlign: 'center',
     lineHeight: 21,
-    marginBottom: 12,
+    marginBottom: 16,
   },
   heroRefBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255, 107, 53, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.35)',
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    gap: 8,
+    backgroundColor: 'rgba(255,183,125,0.08)',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
   heroRefText: {
     fontSize: 15,
-    fontWeight: '800',
-    color: ACCENT,
+    fontWeight: '700',
+    color: PRIMARY,
     letterSpacing: 1.5,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
 
-  /* ══════════════════════════════════════
-     QUICK SUMMARY
-  ══════════════════════════════════════ */
-  sectionPad: { paddingHorizontal: 18, marginTop: 16 },
+  /* ── QUICK SUMMARY ── */
+  sectionPad: { paddingHorizontal: 20, marginTop: 20 },
   quickCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 16,
+    backgroundColor: SURFACE_MID,
+    borderRadius: 24,
+    padding: 20,
   },
   quickRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
+    gap: 12,
   },
-  quickLabel: { fontSize: 13, color: '#666' },
+  quickIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,183,125,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickLabel: { fontSize: 13, color: DIM_TEXT, fontWeight: '400' },
   quickVal: {
     flex: 1,
     fontSize: 13,
     fontWeight: '600',
-    color: '#ddd',
+    color: '#E0E0E0',
     textAlign: 'right',
   },
-  quickDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: '#222',
-  },
 
-  /* ══════════════════════════════════════
-     WORKFLOW TIMELINE TRACKER
-  ══════════════════════════════════════ */
+  /* ── WORKFLOW TIMELINE ── */
   trackerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    gap: 10,
+    marginBottom: 14,
   },
   trackerIconWrap: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 107, 53, 0.12)',
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,183,125,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   trackerTitle: {
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    color: '#666',
+    fontWeight: '700',
+    letterSpacing: 0.05 * 11,
+    color: MUTED,
+    textTransform: 'uppercase',
   },
   trackerCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 16,
-    paddingLeft: 8,
+    backgroundColor: SURFACE_MID,
+    borderRadius: 24,
+    padding: 18,
+    paddingLeft: 10,
   },
   timelineRow: {
     flexDirection: 'row',
@@ -2197,11 +2448,12 @@ const s4 = StyleSheet.create({
   timelineLine: {
     width: 2,
     flex: 1,
-    backgroundColor: '#222',
+    backgroundColor: SURFACE_HIGH,
     minHeight: 10,
+    borderRadius: 1,
   },
   timelineLineActive: {
-    backgroundColor: ACCENT,
+    backgroundColor: PRIMARY_CTR,
   },
   timelineDot: {
     width: 30,
@@ -2212,176 +2464,202 @@ const s4 = StyleSheet.create({
     marginVertical: 2,
   },
   timelineDotActive: {
-    backgroundColor: ACCENT,
+    backgroundColor: PRIMARY_CTR,
     ...Platform.select({
       ios: {
-        shadowColor: ACCENT,
+        shadowColor: PRIMARY_CTR,
         shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 0.5,
-        shadowRadius: 8,
+        shadowRadius: 10,
       },
       android: { elevation: 4 },
     }),
   },
   timelineDotInactive: {
-    backgroundColor: '#1A1A22',
-    borderWidth: 1.5,
-    borderColor: '#2A2A32',
+    backgroundColor: SURFACE_HIGH,
   },
   timelineContent: {
     flex: 1,
-    paddingLeft: 10,
+    paddingLeft: 12,
   },
   timelineLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#555',
+    fontWeight: '500',
+    color: MUTED,
   },
   timelineLabelActive: {
     color: '#fff',
-    fontWeight: '800',
+    fontWeight: '700',
   },
   timelineTs: {
     fontSize: 11,
-    color: '#444',
-    marginTop: 1,
+    color: SURFACE_TOP,
+    marginTop: 2,
   },
   timelineBadge: {
-    backgroundColor: 'rgba(255, 107, 53, 0.15)',
-    borderRadius: 6,
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.3)',
+    backgroundColor: 'rgba(255,183,125,0.1)',
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
   },
   timelineBadgeText: {
     fontSize: 9,
-    fontWeight: '800',
-    color: ACCENT,
-    letterSpacing: 1,
+    fontWeight: '700',
+    color: PRIMARY,
+    letterSpacing: 0.05 * 9,
   },
 
-  /* ══════════════════════════════════════
-     DASHBOARD BUTTON
-  ══════════════════════════════════════ */
+  /* ── ACTION BUTTONS ── */
+  actionGradientBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    borderRadius: 24,
+    paddingVertical: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 20 },
+        shadowOpacity: 0.15,
+        shadowRadius: 40,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  actionGradientText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: ON_PRIMARY,
+  },
+  actionOutlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 16,
+    borderRadius: 24,
+    backgroundColor: SURFACE_MID,
+  },
+  actionOutlineText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: PRIMARY,
+  },
   dashboardBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#2A2A32',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 24,
+    backgroundColor: SURFACE,
   },
   dashboardBtnText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#888',
+    fontWeight: '500',
+    color: DIM_TEXT,
   },
 
-  /* ══════════════════════════════════════
-     CONFIRM STEP (Step 3 wizard)
-  ══════════════════════════════════════ */
+  /* ── CONFIRM STEP (Step 3 wizard) ── */
   confirmRefCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    backgroundColor: 'rgba(255, 107, 53, 0.08)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.25)',
-    padding: 14,
+    gap: 14,
+    backgroundColor: 'rgba(255,183,125,0.06)',
+    borderRadius: 20,
+    padding: 16,
+  },
+  confirmRefIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,183,125,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   confirmRefLabel: {
     fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    color: '#666',
+    fontWeight: '600',
+    letterSpacing: 0.05 * 10,
+    color: MUTED,
+    textTransform: 'uppercase',
   },
   confirmRefCode: {
     fontSize: 18,
-    fontWeight: '900',
-    color: ACCENT,
+    fontWeight: '800',
+    color: PRIMARY,
     letterSpacing: 2,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginTop: 1,
+    marginTop: 2,
   },
   confirmCard: {
-    borderRadius: 18,
+    borderRadius: 24,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: SURFACE_MID,
   },
   confirmCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
   },
   confirmCardHeaderText: {
     fontSize: 11,
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: 1.5,
+    fontWeight: '700',
+    color: ON_PRIMARY,
+    letterSpacing: 0.05 * 11,
   },
   confirmCardBody: {
-    padding: 16,
-    gap: 0,
+    padding: 20,
   },
   confirmRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
+    gap: 10,
   },
   confirmLabel: {
     fontSize: 13,
-    color: '#666',
+    color: DIM_TEXT,
+    fontWeight: '400',
   },
   confirmVal: {
     flex: 1,
     fontSize: 13,
     fontWeight: '600',
-    color: '#ddd',
+    color: '#E0E0E0',
     textAlign: 'right',
-  },
-  confirmDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: '#222',
   },
   confirmTotalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 10,
-    paddingTop: 10,
+    marginTop: 18,
+    paddingTop: 18,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 107, 53, 0.2)',
+    borderTopColor: 'rgba(255,183,125,0.1)',
   },
   confirmTotalLabel: {
     fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    color: '#888',
+    fontWeight: '600',
+    letterSpacing: 0.05 * 11,
+    color: MUTED,
+    textTransform: 'uppercase',
   },
   confirmTotalVal: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: ACCENT,
+    fontSize: 26,
+    fontWeight: '800',
+    color: PRIMARY,
+    letterSpacing: -0.02 * 26,
   },
   paymentBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(52, 199, 89, 0.1)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(52, 199, 89, 0.25)',
-    padding: 12,
+    gap: 10,
+    backgroundColor: 'rgba(52, 199, 89, 0.06)',
+    borderRadius: 16,
+    padding: 14,
   },
   paymentBadgeText: {
     fontSize: 13,
@@ -2390,56 +2668,27 @@ const s4 = StyleSheet.create({
   },
   noticeBar: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
     alignItems: 'flex-start',
-    backgroundColor: 'rgba(255, 107, 53, 0.06)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.18)',
-    padding: 14,
+    backgroundColor: 'rgba(255,183,125,0.04)',
+    borderRadius: 20,
+    padding: 16,
   },
   noticeBarText: {
     flex: 1,
-    fontSize: 12.5,
-    color: '#aaa',
-    lineHeight: 19,
-  },
-  confirmBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: ACCENT,
-    borderRadius: 14,
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    ...Platform.select({
-      ios: {
-        shadowColor: ACCENT,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
-        shadowRadius: 12,
-      },
-      android: { elevation: 6 },
-    }),
-  },
-  confirmBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: BLACK,
-    letterSpacing: 0.3,
+    fontSize: 13,
+    color: SECONDARY,
+    lineHeight: 20,
   },
 });
 
 /** Add Vehicle Form */
 const avf = StyleSheet.create({
   container: {
-    backgroundColor: SURFACE,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: BORDER,
-    padding: 18,
-    gap: 16,
+    backgroundColor: SURFACE_MID,
+    borderRadius: 24,
+    padding: 20,
+    gap: 18,
   },
   header: {
     flexDirection: 'row',
@@ -2448,36 +2697,37 @@ const avf = StyleSheet.create({
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 9,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  headerTitle: { fontSize: 16, fontWeight: '700', color: '#fff', letterSpacing: -0.01 * 16 },
   row: { flexDirection: 'row', gap: 12 },
   fieldHalf: { flex: 1 },
   label: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#888',
+    color: MUTED,
     marginBottom: 6,
-    letterSpacing: 0.5,
+    letterSpacing: 0.05 * 11,
+    textTransform: 'uppercase',
   },
   input: {
-    backgroundColor: '#1A1A22',
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: BORDER,
+    backgroundColor: SURFACE_LOW,
+    borderRadius: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: GHOST,
     paddingHorizontal: 14,
-    paddingVertical: 11,
+    paddingVertical: 12,
     color: '#fff',
     fontSize: 14,
     fontWeight: '500',
   },
   hint: {
     fontSize: 10,
-    color: '#555',
+    color: MUTED,
     marginTop: 5,
     letterSpacing: 0.3,
   },
@@ -2486,59 +2736,46 @@ const avf = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: ACCENT,
-    borderRadius: 12,
-    paddingVertical: 13,
-    marginTop: 2,
-    ...Platform.select({
-      ios: {
-        shadowColor: ACCENT,
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.35,
-        shadowRadius: 10,
-      },
-      android: { elevation: 4 },
-    }),
+    borderRadius: 20,
+    paddingVertical: 14,
+    marginTop: 4,
+    overflow: 'hidden',
   },
   submitText: {
     fontSize: 14,
-    fontWeight: '800',
-    color: BLACK,
-    letterSpacing: 0.3,
+    fontWeight: '700',
+    color: ON_PRIMARY,
+    letterSpacing: 0.01 * 14,
   },
 });
 
-/** Step 0 — Customer & Vehicle Info glassmorphism styles */
+/** Step 0 — Customer & Vehicle glassmorphism */
 const s1 = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    gap: 10,
+    marginBottom: 14,
   },
   sectionIconWrap: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 107, 53, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.25)',
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,183,125,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   glassCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.2)',
-    padding: 18,
-    gap: 14,
+    backgroundColor: SURFACE_MID,
+    borderRadius: 24,
+    padding: 20,
+    gap: 16,
     ...Platform.select({
       ios: {
-        shadowColor: ACCENT,
-        shadowOffset: { width: 0, height: 4 },
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.08,
-        shadowRadius: 16,
+        shadowRadius: 24,
       },
       android: { elevation: 2 },
     }),
