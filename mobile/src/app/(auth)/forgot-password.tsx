@@ -2,271 +2,396 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   Alert,
   StyleSheet,
+  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { sendPasswordResetEmail } from 'firebase/auth';
 
-import { auth } from '@/config/firebase';
 import { Palette } from '@/constants/theme';
 import PremiumInput from '@/components/ui/PremiumInput';
 import PremiumButton from '@/components/ui/PremiumButton';
 import { Validation } from '@/utils/validation';
+import { authService } from '@/services/api/authService';
+import { apiClient, getApiErrorMessage } from '@/services/api/client';
+
+type Step = 'email' | 'otp' | 'newPassword' | 'success';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
-  
+
+  const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [confirmError, setConfirmError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
-  const triggerHapticSelection = () => {
-    if (Platform.OS !== 'web') Haptics.selectionAsync();
+  const otpRefs = React.useRef<(TextInput | null)[]>([]);
+
+  const haptic = (type: 'light' | 'success' | 'error' = 'light') => {
+    if (Platform.OS === 'web') return;
+    if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    else if (type === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    else Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  const triggerHapticSuccess = () => {
-    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  };
+  function startCountdown() {
+    setCountdown(60);
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) { clearInterval(timer); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+  }
 
-  async function handleResetPassword() {
+  // ── Step 1: Send OTP ─────────────────────────────────────────────────────────
+  async function handleSendOtp() {
     setEmailError('');
-    if (!email) {
-      setEmailError('Email is required');
-      return;
-    } else if (!Validation.isValidEmail(email)) {
-      setEmailError('Please enter a valid email address');
-      return;
-    }
+    if (!email) { setEmailError('Email is required'); return; }
+    if (!Validation.isValidEmail(email)) { setEmailError('Please enter a valid email address'); return; }
 
     setLoading(true);
-    triggerHapticSelection();
-
+    haptic();
     try {
-      await sendPasswordResetEmail(auth, email.trim());
-      setSubmitted(true);
-      triggerHapticSuccess();
-    } catch (error: any) {
-      const msg = error?.code === 'auth/user-not-found' 
-        ? 'If this email is registered, a reset link will be sent.' 
-        : error?.message || 'Failed to send reset email';
-      
-      // Even if user not found, for security we often show success to prevent enumeration,
-      // but Firebase returns user-not-found explicitly if protection isn't enabled.
-      // We will handle it gracefully.
-      if (error?.code === 'auth/user-not-found') {
-        setSubmitted(true);
-        triggerHapticSuccess();
+      const res = await apiClient.post('/auth/forgot-password', { email: email.trim() });
+      if (res.data?.success) {
+        haptic('success');
+        setStep('otp');
+        startCountdown();
       } else {
-        Alert.alert('Reset Failed', msg, [{ text: 'OK' }]);
+        throw new Error(res.data?.message || 'Unable to send reset code.');
       }
+    } catch (err: any) {
+      haptic('error');
+      Alert.alert('Error', getApiErrorMessage(err, 'Failed to send reset code.'));
     } finally {
       setLoading(false);
     }
   }
 
+  // ── Step 2: Verify OTP ────────────────────────────────────────────────────────
+  async function handleVerifyOtp() {
+    const code = otp.join('');
+    if (code.length < 6) { Alert.alert('Invalid', 'Please enter the full 6-digit code.'); return; }
+
+    setLoading(true);
+    haptic();
+    try {
+      const res = await apiClient.post('/auth/verify-otp', { email: email.trim(), otp: code });
+      if (res.data?.success) {
+        haptic('success');
+        setStep('newPassword');
+      } else {
+        throw new Error(res.data?.message || 'Incorrect code. Please try again.');
+      }
+    } catch (err: any) {
+      haptic('error');
+      Alert.alert('Verification Failed', getApiErrorMessage(err));
+      setOtp(['', '', '', '', '', '']);
+      otpRefs.current[0]?.focus();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── Step 3: Set new password ──────────────────────────────────────────────────
+  async function handleResetPassword() {
+    setPasswordError('');
+    setConfirmError('');
+
+    if (!newPassword) { setPasswordError('Password is required'); return; }
+    if (!Validation.isStrongPassword(newPassword)) {
+      setPasswordError('Must be 8+ chars with upper, lower & number');
+      return;
+    }
+    if (newPassword !== confirmPassword) { setConfirmError('Passwords do not match'); return; }
+
+    setLoading(true);
+    haptic();
+    try {
+      const res = await apiClient.post('/auth/reset-password', {
+        email: email.trim(),
+        otp: otp.join(''),
+        newPassword,
+      });
+      if (res.data?.success) {
+        haptic('success');
+        // Also trigger Firebase password reset so Firebase Auth stays in sync
+        await authService.syncFirebasePasswordReset(email.trim());
+        setStep('success');
+      } else {
+        throw new Error(res.data?.message || 'Failed to reset password.');
+      }
+    } catch (err: any) {
+      haptic('error');
+      Alert.alert('Reset Failed', getApiErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── OTP input helpers ─────────────────────────────────────────────────────────
+  function handleOtpChange(text: string, index: number) {
+    const digit = text.replace(/[^0-9]/g, '');
+    const next = [...otp];
+    if (digit.length > 1) {
+      const chars = digit.slice(0, 6).split('');
+      chars.forEach((c, i) => { if (i < 6) next[i] = c; });
+      setOtp(next);
+      otpRefs.current[Math.min(chars.length, 5)]?.focus();
+      return;
+    }
+    next[index] = digit;
+    setOtp(next);
+    if (digit && index < 5) otpRefs.current[index + 1]?.focus();
+  }
+
+  function handleOtpKeyPress(key: string, index: number) {
+    if (key === 'Backspace' && !otp[index] && index > 0) {
+      const next = [...otp];
+      next[index - 1] = '';
+      setOtp(next);
+      otpRefs.current[index - 1]?.focus();
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      {/* Ambient Backgrounds */}
-      <View style={styles.ambientBackground}>
-        <LinearGradient
-          colors={['rgba(249, 115, 22, 0.1)', 'transparent']}
-          style={styles.ambientTopGlow}
-        />
-        <LinearGradient
-          colors={['transparent', 'rgba(249, 115, 22, 0.05)']}
-          style={styles.ambientBottomFade}
-        />
+      <View style={StyleSheet.absoluteFillObject}>
+        <LinearGradient colors={['rgba(249,115,22,0.1)', 'transparent']} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 300 }} />
       </View>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 32 }}
-      >
-        {/* Back Button */}
-        <Animated.View entering={FadeInDown.delay(50).duration(200)} style={styles.backButtonContainer}>
-             <TouchableOpacity 
-                style={styles.backButton}
-                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                onPress={() => {
-                   triggerHapticSelection();
-                   router.back();
-                }}
-             >
-                <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
-             </TouchableOpacity>
-        </Animated.View>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
 
-        {/* Header */}
-        <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.headerContainer}>
-          <View style={styles.iconWrapper}>
-            <Ionicons name="lock-closed-outline" size={32} color={Palette.accent} />
-          </View>
-          <Text style={styles.title}>Reset Password</Text>
-          <Text style={styles.subtitle}>
-            Enter your email address and we'll send you a link to securely reset your password.
-          </Text>
-        </Animated.View>
-
-        {/* Form or Success State */}
-        {!submitted ? (
-          <View style={styles.formContainer}>
-            <Animated.View entering={FadeInUp.delay(200).duration(200)}>
-              <PremiumInput
-                label="EMAIL ADDRESS"
-                iconName="mail-outline"
-                placeholder="Ex. johndoe@company.com"
-                value={email}
-                onChangeText={(t: string) => { setEmail(t); setEmailError(''); }}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                error={emailError}
-              />
-            </Animated.View>
-
-            <Animated.View entering={FadeInUp.delay(300).duration(200)} style={{ marginTop: 40 }}>
-              <PremiumButton
-                title={loading ? 'SENDING LINK...' : 'SEND RESET LINK'}
-                icon={loading ? undefined : 'paper-plane-outline'}
-                onPress={handleResetPassword}
-                disabled={loading}
-              />
-            </Animated.View>
-          </View>
-        ) : (
-          <Animated.View entering={FadeInUp.delay(100).duration(200)} style={styles.successContainer}>
-            <View style={styles.successIconWrapper}>
-              <Ionicons name="mail-unread-outline" size={48} color={Palette.accent} />
-            </View>
-            <Text style={styles.successTitle}>Check your inbox</Text>
-            <Text style={styles.successMessage}>
-              If an account exists for <Text style={{ color: '#FFF', fontWeight: '600' }}>{email}</Text>, we have sent a secure password reset link.
-            </Text>
-            
-            <View style={{ marginTop: 40, width: '100%' }}>
-              <PremiumButton
-                title="BACK TO LOGIN"
-                onPress={() => {
-                  triggerHapticSelection();
-                  router.push('/(auth)/login');
-                }}
-              />
-            </View>
+          {/* Back button */}
+          <Animated.View entering={FadeInDown.delay(50).duration(200)} style={styles.backBtn}>
+            <TouchableOpacity style={styles.backBtnInner} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }} onPress={() => router.back()}>
+              <Ionicons name="chevron-back" size={24} color="#FFF" />
+            </TouchableOpacity>
           </Animated.View>
-        )}
+
+          {/* ── STEP: email ── */}
+          {step === 'email' && (
+            <>
+              <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.header}>
+                <View style={styles.iconBox}>
+                  <Ionicons name="lock-closed-outline" size={32} color={Palette.accent} />
+                </View>
+                <Text style={styles.title}>Reset Password</Text>
+                <Text style={styles.subtitle}>Enter your email and we'll send a verification code to reset your password.</Text>
+              </Animated.View>
+
+              <Animated.View entering={FadeInUp.delay(200).duration(200)}>
+                <PremiumInput
+                  label="EMAIL ADDRESS"
+                  iconName="mail-outline"
+                  placeholder="name@example.com"
+                  value={email}
+                  onChangeText={(t: string) => { setEmail(t); setEmailError(''); }}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  error={emailError}
+                />
+              </Animated.View>
+
+              <Animated.View entering={FadeInUp.delay(300).duration(200)} style={{ marginTop: 32 }}>
+                <PremiumButton
+                  title={loading ? 'SENDING CODE...' : 'SEND RESET CODE'}
+                  icon={loading ? undefined : 'paper-plane-outline'}
+                  onPress={handleSendOtp}
+                  disabled={loading}
+                />
+              </Animated.View>
+            </>
+          )}
+
+          {/* ── STEP: otp ── */}
+          {step === 'otp' && (
+            <>
+              <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.header}>
+                <View style={styles.iconBox}>
+                  <Ionicons name="shield-checkmark-outline" size={32} color={Palette.accent} />
+                </View>
+                <Text style={styles.title}>Enter Code</Text>
+                <Text style={styles.subtitle}>
+                  We sent a 6-digit code to{'\n'}
+                  <Text style={{ color: '#FFF', fontWeight: '700' }}>{email}</Text>
+                </Text>
+              </Animated.View>
+
+              <Animated.View entering={FadeInUp.delay(200).duration(200)}>
+                <View style={styles.otpRow}>
+                  {otp.map((digit, i) => (
+                    <TextInput
+                      key={i}
+                      ref={r => { otpRefs.current[i] = r; }}
+                      style={[styles.otpBox, digit && styles.otpBoxFilled]}
+                      value={digit}
+                      onChangeText={t => handleOtpChange(t, i)}
+                      onKeyPress={({ nativeEvent }) => handleOtpKeyPress(nativeEvent.key, i)}
+                      keyboardType="number-pad"
+                      maxLength={i === 0 ? 6 : 1}
+                      textContentType="oneTimeCode"
+                      autoFocus={i === 0}
+                      selectTextOnFocus
+                    />
+                  ))}
+                </View>
+              </Animated.View>
+
+              <Animated.View entering={FadeInUp.delay(300).duration(200)} style={{ marginTop: 32 }}>
+                <PremiumButton
+                  title={loading ? 'VERIFYING...' : 'VERIFY CODE'}
+                  icon={loading ? undefined : 'checkmark-circle-outline'}
+                  onPress={handleVerifyOtp}
+                  disabled={loading || otp.join('').length < 6}
+                />
+              </Animated.View>
+
+              <View style={{ alignItems: 'center', marginTop: 20 }}>
+                {countdown > 0 ? (
+                  <Text style={{ color: '#555', fontSize: 13 }}>
+                    Resend in <Text style={{ color: Palette.accent, fontWeight: '700' }}>{countdown}s</Text>
+                  </Text>
+                ) : (
+                  <TouchableOpacity disabled={loading} onPress={handleSendOtp}>
+                    <Text style={{ color: Palette.accent, fontSize: 14, fontWeight: '700' }}>Resend Code</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </>
+          )}
+
+          {/* ── STEP: newPassword ── */}
+          {step === 'newPassword' && (
+            <>
+              <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.header}>
+                <View style={styles.iconBox}>
+                  <Ionicons name="key-outline" size={32} color={Palette.accent} />
+                </View>
+                <Text style={styles.title}>New Password</Text>
+                <Text style={styles.subtitle}>Choose a strong password for your account.</Text>
+              </Animated.View>
+
+              <Animated.View entering={FadeInUp.delay(200).duration(200)}>
+                <PremiumInput
+                  label="NEW PASSWORD"
+                  iconName="lock-closed-outline"
+                  placeholder="Min. 8 chars, 1 upper, 1 lower, 1 number"
+                  value={newPassword}
+                  onChangeText={(t: string) => { setNewPassword(t); setPasswordError(''); }}
+                  isPassword
+                  error={passwordError}
+                />
+              </Animated.View>
+
+              <Animated.View entering={FadeInUp.delay(280).duration(200)} style={{ marginTop: 12 }}>
+                <PremiumInput
+                  label="CONFIRM PASSWORD"
+                  iconName="lock-closed-outline"
+                  placeholder="Re-enter your new password"
+                  value={confirmPassword}
+                  onChangeText={(t: string) => { setConfirmPassword(t); setConfirmError(''); }}
+                  isPassword
+                  error={confirmError}
+                />
+              </Animated.View>
+
+              <Animated.View entering={FadeInUp.delay(360).duration(200)} style={{ marginTop: 32 }}>
+                <PremiumButton
+                  title={loading ? 'SAVING...' : 'RESET PASSWORD'}
+                  icon={loading ? undefined : 'checkmark-done-outline'}
+                  onPress={handleResetPassword}
+                  disabled={loading}
+                />
+              </Animated.View>
+            </>
+          )}
+
+          {/* ── STEP: success ── */}
+          {step === 'success' && (
+            <Animated.View entering={FadeInUp.delay(100).duration(300)} style={styles.successCard}>
+              <View style={styles.successIcon}>
+                <Ionicons name="checkmark-circle-outline" size={52} color={Palette.accent} />
+              </View>
+              <Text style={styles.successTitle}>Password Reset!</Text>
+              <Text style={styles.successSub}>
+                Your password has been updated successfully.{'\n\n'}
+                <Text style={{ color: '#f59e0b', fontWeight: '700' }}>Action Required: </Text>
+                We also sent a <Text style={{ color: '#FFF', fontWeight: '600' }}>Firebase reset link</Text> to your email. Click it to finish syncing your login, then sign in with your new password.
+              </Text>
+              <View style={{ marginTop: 32, width: '100%' }}>
+                <PremiumButton
+                  title="BACK TO LOGIN"
+                  icon="log-in-outline"
+                  onPress={() => router.replace('/(auth)/login')}
+                />
+              </View>
+            </Animated.View>
+          )}
+
+        </ScrollView>
       </KeyboardAvoidingView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#050505',
+  container: { flex: 1, backgroundColor: '#050505' },
+  scroll: { paddingHorizontal: 28, paddingTop: 140, paddingBottom: 60, flexGrow: 1 },
+  backBtn: { position: 'absolute', top: 60, left: 20, zIndex: 10 },
+  backBtnInner: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center', alignItems: 'center',
   },
-  ambientBackground: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 0,
+  header: { alignItems: 'center', marginBottom: 36 },
+  iconBox: {
+    width: 68, height: 68, borderRadius: 20,
+    backgroundColor: 'rgba(249,115,22,0.1)',
+    borderWidth: 1, borderColor: 'rgba(249,115,22,0.2)',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 20,
   },
-  ambientTopGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 300,
-    opacity: 0.8,
+  title: { fontSize: 30, fontWeight: '800', color: '#FFF', letterSpacing: -0.5, marginBottom: 10 },
+  subtitle: { fontSize: 14, color: '#8A8A9A', textAlign: 'center', lineHeight: 22 },
+
+  otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 8 },
+  otpBox: {
+    width: 48, height: 58, borderRadius: 12,
+    backgroundColor: '#111', borderWidth: 2, borderColor: '#2a2a2a',
+    color: '#FFF', fontSize: 24, fontWeight: '700', textAlign: 'center',
   },
-  ambientBottomFade: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 200,
-    opacity: 0.6,
+  otpBoxFilled: { borderColor: Palette.accent, backgroundColor: 'rgba(249,115,22,0.06)' },
+
+  successCard: {
+    alignItems: 'center', padding: 28,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
   },
-  backButtonContainer: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    zIndex: 10,
+  successIcon: {
+    width: 88, height: 88, borderRadius: 44,
+    backgroundColor: 'rgba(249,115,22,0.1)',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 20,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  headerContainer: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  iconWrapper: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: 'rgba(249, 115, 22, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(249, 115, 22, 0.2)',
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -0.5,
-    marginBottom: 12,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: '#8A8A9A',
-    textAlign: 'center',
-    lineHeight: 22,
-    paddingHorizontal: 10,
-  },
-  formContainer: {
-    width: '100%',
-  },
-  successContainer: {
-    alignItems: 'center',
-    padding: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  successIconWrapper: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(249, 115, 22, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  successTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 12,
-  },
-  successMessage: {
-    fontSize: 15,
-    color: '#8A8A9A',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
+  successTitle: { fontSize: 24, fontWeight: '800', color: '#FFF', marginBottom: 10 },
+  successSub: { fontSize: 14, color: '#8A8A9A', textAlign: 'center', lineHeight: 22 },
 });

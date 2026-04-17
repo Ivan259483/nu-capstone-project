@@ -6,7 +6,6 @@ import Product from '../models/product.model.js';
 import Notification from '../models/notification.model.js';
 import { getIO } from '../utils/socket.utils.js';
 
-const GROQ_API_KEY = (process.env.GROQ_API_KEY || '').trim();
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 const QUOTE_INTENT_REGEX = /(quote|price|cost|how much|pricing|estimate)/i;
@@ -133,6 +132,7 @@ const buildAvailabilityHints = (message = '', products = []) => {
 };
 
 const callOpenAI = async (messages) => {
+  const GROQ_API_KEY = (process.env.GROQ_API_KEY || '').trim();
   if (!GROQ_API_KEY) {
     return 'The AI assistant is not configured yet. Please set GROQ_API_KEY on the server.';
   }
@@ -158,7 +158,6 @@ const callOpenAI = async (messages) => {
 };
 
 const processMessage = async ({ sessionId, message, user, context = null, allowQuote = false, skipUserSave = false }) => {
-  console.log('API KEY LOADED:', !!GROQ_API_KEY, '| MODEL:', GROQ_MODEL);
 
   const trimmed = (message || '').trim();
   if (!sessionId || !trimmed) {

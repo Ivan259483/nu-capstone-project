@@ -19,15 +19,12 @@ import { initSocket, initChangeStreams } from './utils/socket.utils.js';
 import { cleanupExpiredReservations } from './utils/inventory.utils.js';
 
 // ============================================
-// BREVO CONFIGURATION VERIFICATION
+// RESEND EMAIL CONFIGURATION
 // ============================================
-console.log('\n🔐 Brevo Configuration Loaded:');
-console.log('Brevo Config Loaded:', !!process.env.BREVO_API_KEY);
-console.log('  ✓ BREVO_SMTP_USER:', !!process.env.BREVO_SMTP_USER ? 'Present (' + (process.env.BREVO_SMTP_USER || '').substring(0, 15) + '...)' : '❌ MISSING');
-console.log('  ✓ BREVO_SMTP_PASSWORD:', !!process.env.BREVO_SMTP_PASSWORD ? 'Present (***hidden***)' : '❌ MISSING');
-console.log('  ✓ BREVO_API_KEY:', !!process.env.BREVO_API_KEY ? 'Present (***hidden***)' : '❌ MISSING');
-console.log('  ✓ EMAIL_FROM_ADDRESS:', config.emailFromAddress);
+console.log('\n📧 Email Configuration:');
 console.log('  ✓ EMAIL_PROVIDER:', config.emailProvider);
+console.log('  ✓ RESEND_API_KEY:', !!process.env.RESEND_API_KEY ? 'Present (***hidden***)' : '❌ MISSING');
+console.log('  ✓ EMAIL_FROM_ADDRESS:', config.emailFromAddress);
 
 // Import routes
 import authRoutes from './routes/auth.routes.js';
@@ -199,14 +196,14 @@ const startServer = async () => {
     console.log('✅ MongoDB connected successfully');
     await migrateLegacyUserRoles();
 
-    // Initialize Brevo SMTP mailer
-    console.log('\n📧 Initializing Brevo SMTP mailer...');
+    // Initialize Resend mailer
+    console.log('\n📧 Initializing Resend mailer...');
     try {
       await initializeMailer();
-      console.log('✅ Brevo SMTP mailer initialized and verified\n');
+      console.log('✅ Resend mailer initialized\n');
     } catch (mailerError) {
       console.error('❌ Failed to initialize mailer:', mailerError.message);
-      console.error('   OTP emails will not be sent. Please check Brevo credentials.\n');
+      console.error('   OTP emails will not be sent. Please check RESEND_API_KEY.\n');
     }
 
     // Create HTTP server and attach Socket.io

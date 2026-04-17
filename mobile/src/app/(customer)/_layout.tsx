@@ -20,6 +20,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useThemeContext';
 import { Palette, Glass, Shadows } from '@/constants/theme';
+import AskAiFab from '@/components/ui/AskAiFab';
 
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'home',
@@ -153,21 +154,26 @@ export default function TabLayout() {
   const { colors } = useTheme();
 
   return (
-    <Tabs
-      tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: { display: 'none' },
-        sceneStyle: { backgroundColor: colors.background },
-        freezeOnBlur: true,
-      }}
-    >
-      <Tabs.Screen name="index" options={{ title: 'Home' }} />
-      <Tabs.Screen name="book" options={{ title: 'Book' }} />
-      <Tabs.Screen name="track" options={{ title: 'Tracker' }} />
-      <Tabs.Screen name="scan" options={{ title: 'AI Scan' }} />
-      <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
-    </Tabs>
+    <View style={{ flex: 1 }}>
+      <Tabs
+        tabBar={(props) => <CustomTabBar {...props} />}
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: { display: 'none' },
+          sceneStyle: { backgroundColor: colors.background },
+          freezeOnBlur: true,
+        }}
+      >
+        <Tabs.Screen name="index" options={{ title: 'Home' }} />
+        <Tabs.Screen name="book" options={{ title: 'Book' }} />
+        <Tabs.Screen name="track" options={{ title: 'Tracker' }} />
+        <Tabs.Screen name="scan" options={{ title: 'AI Scan' }} />
+        <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
+      </Tabs>
+
+      {/* Floating Ask AI button — appears on all customer tabs */}
+      <AskAiFab />
+    </View>
   );
 }
 

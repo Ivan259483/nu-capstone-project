@@ -219,7 +219,7 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
         {/* ── Header ── */}
         <LinearGradient
           colors={['#0E0E14', '#0A0A10']}
-          style={[s.header, { paddingTop: insets.top + 8 }]}
+          style={[s.header, { paddingTop: 12 }]}
         >
           <TouchableOpacity onPress={onClose} style={s.backBtn}>
             <Ionicons name="arrow-back" size={18} color="#fff" />

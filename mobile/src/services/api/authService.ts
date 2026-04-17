@@ -4,10 +4,12 @@ import {
   signOut as firebaseSignOut,
   updateProfile,
   updatePassword,
+  sendPasswordResetEmail as firebaseSendPasswordReset,
   reauthenticateWithCredential,
   EmailAuthProvider,
-  type User as FirebaseUser,
 } from 'firebase/auth';
+import type { User as FirebaseUser } from 'firebase/auth';
+import { chatbotService } from '@/services/api/chatbotService';
 import { auth } from '@/config/firebase';
 import { apiClient, getApiErrorMessage } from '@/services/api/client';
 import type { ApiEnvelope, BackendUser, UserRole } from '@/services/api/types';
@@ -198,7 +200,6 @@ export const authService = {
       const credentials = await signInWithEmailAndPassword(auth, email, password);
       firebaseUser = credentials.user;
     } catch (firebaseError: any) {
-      // Translate Firebase errors (like auth/too-many-requests) to user-friendly messages
       throw new Error(getFirebaseAuthErrorMessage(firebaseError));
     }
 
@@ -298,6 +299,8 @@ export const authService = {
       // Ignore backend logout failures; local sign-out still proceeds.
     }
 
+    // Clear AI chat session so the next user starts fresh
+    await chatbotService.clearSession();
     await firebaseSignOut(auth);
     await authStorage.clearAll();
   },
@@ -310,6 +313,20 @@ export const authService = {
     const syncedUser = normalizeBackendUser(response.data.data, firebaseUser.uid);
     await persistSession(await authStorage.getToken() || '', syncedUser);
     return syncedUser;
+  },
+
+  /**
+   * Sends a Firebase password reset email — used after a successful OTP
+   * password reset to also sync Firebase Auth with the new password.
+   */
+  async syncFirebasePasswordReset(email: string): Promise<void> {
+    try {
+      await firebaseSendPasswordReset(auth, email);
+      console.log('[Auth] Firebase password reset email sent to', email);
+    } catch (err) {
+      // Non-fatal — user can still log in via backend recovery path
+      console.warn('[Auth] Firebase password reset sync failed:', err);
+    }
   },
 
   async reauthenticateAndUpdatePassword(firebaseUser: FirebaseUser, currentPw: string, newPw: string): Promise<void> {

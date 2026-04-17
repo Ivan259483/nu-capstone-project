@@ -3,7 +3,7 @@ import OTP from '../models/oTP.model.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { config } from '../config/environment.js';
-import { sendOtpEmail } from '../utils/mail.utils.js'; // Use new strict Brevo mailer
+import { sendOtpEmail, sendWelcomeEmail, sendPasswordResetEmail } from '../utils/mail.utils.js'; // Resend mailer
 import mockOtpStore from '../utils/mockOtpStore.utils.js';
 import { getInvalidUserRoleMessage, isValidUserRole } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
@@ -42,57 +42,59 @@ export const sendOtp = async (req, res, next) => {
       });
     }
 
-    // Generate 6-digit OTP code
-    const otp = generateOTP(config.otpLength);
     console.log(`\n📨 [OTP REQUEST] Email: ${email}`);
-    // ⚠️ Bug #1 fix: Never log OTP in production — only print in development for debugging
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`   Generated OTP: ${otp}`);
-    }
 
-    // Delete previous OTP for this email if exists (cleanup)
-    await OTP.deleteMany({ email });
-
-    // Create OTP record in MongoDB
-    const otpRecord = new OTP({
+    // ── Idempotency: Reuse an unexpired OTP if one already exists ──────────────
+    // This prevents the mobile OfflineQueue from invalidating the OTP by
+    // replaying the same send-otp request multiple times before the user enters it.
+    const existingOtp = await OTP.findOne({
       email,
-      otp,
-      expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
-      attempts: 0,
-      maxAttempts: 5,
       verified: false,
+      expiresAt: { $gt: new Date() },
     });
 
-    // Save OTP to database
-    await otpRecord.save();
-    console.log(`✅ OTP saved to MongoDB`);
-    console.log(`   Email: ${email}`);
-    console.log(`   Expires in: ${config.otpExpiry} seconds`);
+    let otp;
+    if (existingOtp) {
+      // Reuse existing valid OTP — just resend the same code
+      otp = existingOtp.otp;
+      console.log(`   ♻️ Reusing existing OTP (still valid for ${Math.round((existingOtp.expiresAt - Date.now()) / 1000)}s)`);
+    } else {
+      // Generate a fresh OTP and save it
+      otp = generateOTP(config.otpLength);
+      await OTP.deleteMany({ email }); // clean up any expired/used records
 
-    // Send OTP email via Brevo SMTP
-    console.log(`\n� Sending OTP email via Brevo SMTP...`);
+      const otpRecord = new OTP({
+        email,
+        otp,
+        expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
+        attempts: 0,
+        maxAttempts: 5,
+        verified: false,
+      });
+      await otpRecord.save();
+      console.log(`   ✅ New OTP generated & saved (expires in ${config.otpExpiry}s)`);
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`   🔑 OTP Code: ${otp}`);
+    }
+
+    // Send OTP email via Resend
+    console.log(`\n📧 Sending OTP email via Resend...`);
     const emailResult = await sendOtpEmail(email, otp);
 
     if (!emailResult.success) {
-      // Delete OTP from MongoDB if email failed
-      await OTP.deleteOne({ email });
+      // Only delete the OTP record if WE just created it (not a reused one)
+      if (!existingOtp) await OTP.deleteOne({ email });
 
       console.error(`\n❌ OTP Email Failed:`);
       console.error(`   Email: ${email}`);
       console.error(`   Error: ${emailResult.error}`);
-      console.error(`   Code: ${emailResult.code}`);
-      console.error(`   Response Code: ${emailResult.responseCode}`);
-      console.error(`   Server Response: ${emailResult.response}`);
 
       return res.status(500).json({
         success: false,
         message: 'Failed to send OTP. Please try again.',
         error: emailResult.error,
-        details: {
-          code: emailResult.code,
-          responseCode: emailResult.responseCode,
-          response: emailResult.response,
-        }
       });
     }
 
@@ -458,6 +460,11 @@ export const register = async (req, res, next) => {
       await OTP.deleteOne({ email });
     }
 
+    // Send welcome email (non-blocking — don't fail registration if it fails)
+    sendWelcomeEmail(email, name).catch(err =>
+      console.warn('⚠️ Welcome email failed (non-fatal):', err.message)
+    );
+
     // Generate JWT token
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
@@ -751,7 +758,7 @@ export const socialLogin = async (req, res, next) => {
     }
 
     if (!user) {
-      if (provider === 'password' || provider === 'firebase') {
+      if (provider === 'password') {
         return res.status(404).json({
           success: false,
           message: 'Account not found. Please create an account.',

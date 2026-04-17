@@ -421,7 +421,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 ? (backendResult.value as any)
                 : null;
             const backendStatus = backendPayload?.status ?? 0;
-            const backendBody = backendPayload?.body ?? {};
+            let backendBody = backendPayload?.body ?? {};
 
             // ── Check backend 423 FIRST: account is locked — block regardless of Firebase ──
             if (backendStatus === 423) {
@@ -478,11 +478,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             // ── Backend must be reachable and OK for full login ──
             if (!backendPayload?.ok) {
-                console.warn('⚠️ [AuthContext] Backend login failed:', backendBody);
-                await signOut(auth);
-                loginInProgressRef.current = false;
-                loginResolvedRef.current = false;
-                return { success: false, message: 'Server is taking too long to respond or backend is unreachable. Please try again.' };
+                console.warn('⚠️ [AuthContext] Backend login failed, attempting auto-sync via social-login...');
+
+                // Firebase auth succeeded → user is real. Try social-login to auto-create MongoDB user.
+                try {
+                    const syncResp = await fetch(`${BACKEND_URL}/auth/social-login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email: firebaseUser.email,
+                            name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+                            provider: 'firebase',
+                            providerId: firebaseUser.uid,
+                        }),
+                        signal: AbortSignal.timeout(10000),
+                    });
+                    const syncJson = await syncResp.json().catch(() => ({}));
+
+                    if (syncResp.ok && syncJson?.success) {
+                        console.log('✅ [AuthContext] Auto-sync succeeded via social-login');
+                        backendBody = syncJson;
+                        // Fall through to process successful response below
+                    } else {
+                        console.error('❌ [AuthContext] Auto-sync also failed:', syncJson);
+                        await signOut(auth);
+                        loginInProgressRef.current = false;
+                        loginResolvedRef.current = false;
+                        return {
+                            success: false,
+                            message: syncJson?.message || backendBody?.message || 'Login failed. Please try again.',
+                        };
+                    }
+                } catch (syncError) {
+                    console.error('❌ [AuthContext] Auto-sync error:', syncError);
+                    await signOut(auth);
+                    loginInProgressRef.current = false;
+                    loginResolvedRef.current = false;
+                    return {
+                        success: false,
+                        message: 'Server is taking too long to respond. Please try again.',
+                    };
+                }
             }
 
             // ── Process successful backend response ──

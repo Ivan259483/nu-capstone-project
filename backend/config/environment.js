@@ -15,15 +15,14 @@ const determineEmailProvider = () => {
   // If explicitly set, use it
   if (providedProvider) return providedProvider;
   
+  // Check for Resend credentials
+  if (process.env.RESEND_API_KEY) return 'resend';
+  
   // Check for Brevo credentials
-  if (process.env.BREVO_SMTP_USER && process.env.BREVO_SMTP_PASSWORD) {
-    return 'brevo';
-  }
+  if (process.env.BREVO_SMTP_USER && process.env.BREVO_SMTP_PASSWORD) return 'brevo';
   
   // Check for Gmail credentials
-  if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-    return 'gmail';
-  }
+  if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) return 'gmail';
   
   // Default to console mode for development
   console.log('⚠️ No email credentials configured - defaulting to console mode');
@@ -64,16 +63,10 @@ export const config = {
   // Email Configuration
   emailProvider: determineEmailProvider(),
   emailFromName: process.env.EMAIL_FROM_NAME || 'AutoSPF+',
-  emailFromAddress: process.env.EMAIL_FROM_ADDRESS || 'noreply@autospf.com',
+  emailFromAddress: process.env.EMAIL_FROM_ADDRESS || 'onboarding@resend.dev',
 
-  // Brevo (Sendinblue) Configuration
-  brevoSmtpUser: process.env.BREVO_SMTP_USER || '',
-  brevoSmtpPassword: process.env.BREVO_SMTP_PASSWORD || '',
-  brevoApiKey: process.env.BREVO_API_KEY || '', // For advanced features
-
-  // Gmail Configuration (Fallback)
-  emailUser: process.env.EMAIL_USER || '',
-  emailPassword: process.env.EMAIL_PASSWORD || '',
+  // Resend Configuration
+  resendApiKey: process.env.RESEND_API_KEY || '',
 
   // Generic SMTP Configuration (Alternative)
   smtpHost: process.env.SMTP_HOST || 'smtp.gmail.com',

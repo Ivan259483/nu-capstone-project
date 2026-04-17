@@ -10,7 +10,7 @@ const isDevelopment = import.meta.env.MODE === 'development';
 
 export const getBaseApiUrl = () => {
     if (isDevelopment) return '/api';
-    let url = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+    let url = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
     return url.replace(/\/+$/, ''); // Strip trailing slashes safely
 };
 
@@ -29,7 +29,7 @@ export const getBackendSocketUrl = () => {
     if (isDevelopment) return '/';
     const backendUrl = import.meta.env.VITE_BACKEND_URL
         || (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') : '')
-        || 'http://localhost:3001';
+        || 'http://localhost:3000';
     return backendUrl;
 };
 
