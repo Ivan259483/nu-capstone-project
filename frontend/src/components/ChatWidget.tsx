@@ -7,20 +7,6 @@ import api from '@/lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 
-/* ─────────────────────── Groq config ─────────────────────── */
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
-const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
-
-const SYSTEM_PROMPT =
-    'You are the AutoSPF+ AI Assistant. Your tone is elite, professional, and helpful. ' +
-    'You are an expert in Paint Protection Film (PPF), Ceramic Coating, Interior & Exterior Detailing, ' +
-    'Nano Ceramic Tint, Car Foil, and Window Tints. ' +
-    'Our shop is located in Las Piñas City, Metro Manila (Marcos Alvarez Ave.). ' +
-    'If asked about price or quotes, politely direct the customer to leave their contact details ' +
-    'or use the Book Now button for a personalised quote. ' +
-    'Keep replies under 80 words unless more detail is genuinely needed. Do NOT use emojis.';
-
 /* ─────────────────────── Types ─────────────────────── */
 interface ChatMessage {
     id: string;
@@ -120,8 +106,6 @@ export default function ChatWidget({
     const [unread, setUnread] = useState(0);
     const [inputFocused, setInputFocused] = useState(false);
 
-    // Keeps full conversation history for Groq context window
-    const historyRef = useRef<{ role: 'user' | 'assistant'; content: string }[]>([]);
     const endRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -158,59 +142,33 @@ export default function ChatWidget({
     /* ─── Send helpers ─── */
     const appendMessage = (msg: ChatMessage) => setMessages(prev => [...prev, msg]);
 
-    /* ── Groq request ── */
+    /* ── Send via backend (same pipeline as mobile) ── */
     const sendMessage = async (content: string) => {
-        if (!GROQ_API_KEY) {
-            appendMessage({
-                id: `assistant-${Date.now()}`, sender: 'assistant',
-                message: 'The AI assistant is not configured. Please add VITE_GROQ_API_KEY to your .env.local file and restart the dev server.',
-            });
-            return;
-        }
-
-        // Append user turn to persistent history
-        historyRef.current.push({ role: 'user', content });
-
-        let response: Response;
+        let data: any;
         try {
-            response = await fetch(GROQ_ENDPOINT, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${GROQ_API_KEY}`,
-                },
-                body: JSON.stringify({
-                    model: GROQ_MODEL,
-                    messages: [
-                        { role: 'system', content: SYSTEM_PROMPT },
-                        ...historyRef.current,
-                    ],
-                    max_tokens: 256,
-                    temperature: 0.65,
-                }),
+            const res = await api.post('/chat/message', {
+                sessionId,
+                message: content,
             });
+            data = res.data;
         } catch (networkErr) {
-            console.error('[ChatWidget] Network error reaching Groq:', networkErr);
-            // Remove the user turn we just pushed since it won't have a reply
-            historyRef.current.pop();
+            console.error('[ChatWidget] Network error:', networkErr);
             throw new Error('Network error');
         }
 
-        if (!response.ok) {
-            const errBody = await response.text();
-            console.error(`[ChatWidget] Groq ${response.status}:`, errBody);
-            historyRef.current.pop();
-            throw new Error(`Groq API error ${response.status}`);
-        }
-
-        const data = await response.json();
-        const reply = data.choices?.[0]?.message?.content?.trim() ?? 'Sorry, I could not generate a response.';
-
-        // Append assistant turn to persistent history
-        historyRef.current.push({ role: 'assistant', content: reply });
+        const reply = data?.reply || 'Sorry, I could not generate a response.';
 
         appendMessage({ id: `assistant-${Date.now()}`, sender: 'assistant', message: reply });
         setUnread(prev => isOpen ? 0 : prev + 1);
+
+        // Handle action chips or booking redirects from backend
+        if (data?.action?.type === 'open_booking' && onOpenBooking) {
+            onOpenBooking({ name: data.action.name, serviceName: data.action.serviceName });
+        }
+        if (data?.leadRequired) {
+            setLeadRequired(true);
+            setPendingMessage(content);
+        }
     };
 
     const handleSend = async (overrideText?: string) => {
