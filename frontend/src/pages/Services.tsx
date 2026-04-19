@@ -431,7 +431,7 @@ function LuxuryCard({ pkg, index, vehicleType }: { pkg: SPFPackage; index: numbe
                 <div className="px-5 sm:px-7 pb-6 mt-auto pt-3">
                     <Link to={`/booking?pkg=${pkg.key}`}>
                         <motion.button
-                            whileHover={{ scale: 1.03, brightness: 1.15 }}
+                            whileHover={{ scale: 1.03 }}
                             whileTap={{ scale: 0.97 }}
                             className="w-full h-[52px] rounded-xl font-bold text-[13px] flex items-center justify-center gap-2 transition-all duration-300 ease-in-out group/btn cursor-pointer relative overflow-hidden hover:brightness-110"
                             style={{
