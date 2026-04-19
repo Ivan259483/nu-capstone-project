@@ -1,4 +1,4 @@
-const DEFAULT_API_ORIGIN = 'https://your-api-url.com';
+const DEFAULT_API_ORIGIN = 'https://nu-capstone-project-production.up.railway.app';
 
 const rawApiUrl = (process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_ORIGIN).trim();
 const sanitizedApiUrl = rawApiUrl.replace(/\/+$/, '');
