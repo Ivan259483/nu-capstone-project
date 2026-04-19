@@ -6,6 +6,9 @@ export const USER_ROLES = Object.freeze([
   'inventory',
   'sales',
   'service_staff',
+  'staff_quality_checker',
+  'staff_inventory',
+  'technician',
   'customer',
 ]);
 
@@ -82,10 +85,20 @@ export const SUPPLIER_MANAGER_ROLES = Object.freeze([
 export const SERVICE_OPERATION_ROLES = Object.freeze([
   'administrator',
   'service_staff',
+  'staff_quality_checker',
+  'staff_inventory',
+  'technician',
 ]);
 
 export const SERVICE_STAFF_ROLES = Object.freeze([
   'service_staff',
+]);
+
+export const STAFF_ROLES = Object.freeze([
+  'service_staff',
+  'staff_quality_checker',
+  'staff_inventory',
+  'technician',
 ]);
 
 export const CUSTOMER_ROLES = Object.freeze([
@@ -101,11 +114,14 @@ export const NOTIFICATION_RECIPIENT_ROLES = Object.freeze([
 export const USER_MANAGEMENT_SCOPE = Object.freeze({
   administrator: Object.freeze([...USER_ROLES]),
   office_admin: Object.freeze(USER_ROLES.filter((role) => role !== 'administrator')),
-  operation_manager: Object.freeze(['service_staff']),
-  hr: Object.freeze(['service_staff', 'inventory', 'sales']),
+  operation_manager: Object.freeze(['service_staff', 'staff_quality_checker', 'staff_inventory', 'technician']),
+  hr: Object.freeze(['service_staff', 'staff_quality_checker', 'staff_inventory', 'technician', 'inventory', 'sales']),
   inventory: Object.freeze([]),
   sales: Object.freeze([]),
   service_staff: Object.freeze([]),
+  staff_quality_checker: Object.freeze([]),
+  staff_inventory: Object.freeze([]),
+  technician: Object.freeze([]),
   customer: Object.freeze([]),
 });
 
@@ -123,6 +139,7 @@ const POS_MANAGER_ROLE_SET = new Set(POS_MANAGER_ROLES);
 const SERVICE_CATALOG_ROLE_SET = new Set(SERVICE_CATALOG_ROLES);
 const SERVICE_OPERATION_ROLE_SET = new Set(SERVICE_OPERATION_ROLES);
 const SERVICE_STAFF_ROLE_SET = new Set(SERVICE_STAFF_ROLES);
+const STAFF_ROLE_SET = new Set(STAFF_ROLES);
 const NOTIFICATION_RECIPIENT_ROLE_SET = new Set(NOTIFICATION_RECIPIENT_ROLES);
 
 export const isValidUserRole = (role) => typeof role === 'string' && USER_ROLE_SET.has(role.toLowerCase());
@@ -152,6 +169,8 @@ export const isServiceCatalogRole = (role) => typeof role === 'string' && SERVIC
 export const isServiceOperationRole = (role) => typeof role === 'string' && SERVICE_OPERATION_ROLE_SET.has(role.toLowerCase());
 
 export const isServiceStaffRole = (role) => typeof role === 'string' && SERVICE_STAFF_ROLE_SET.has(role.toLowerCase());
+
+export const isStaffRole = (role) => typeof role === 'string' && STAFF_ROLE_SET.has(role.toLowerCase());
 
 export const isCustomerRole = (role) => typeof role === 'string' && role.toLowerCase() === 'customer';
 
