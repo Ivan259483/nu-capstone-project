@@ -2,7 +2,10 @@
 builder = "NIXPACKS"
 buildCommand = "npm install"
 
-[build.nixpacks]
+# Install system libraries required by the 'canvas' native addon (node-canvas).
+# cairo/pango are needed for canvas to compile. Must be under [phases.setup].
+# See: https://nixpacks.com/docs/configuration/file#apt-packages
+[phases.setup]
 aptPkgs = ["build-essential", "libcairo2-dev", "libpango1.0-dev", "libjpeg-dev", "libgif-dev", "librsvg2-dev", "pkg-config", "python3"]
 
 [deploy]
