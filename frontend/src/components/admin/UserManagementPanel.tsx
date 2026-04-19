@@ -410,7 +410,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
                                 <SelectValue placeholder="Select a role" />
                             </SelectTrigger>
                             <SelectContent className={theme === 'light' ? 'bg-white' : 'bg-[#18181b] border-white/10'} position="popper">
-                                {['Admin Roles', 'Operational Roles', 'Customer Access'].map((group, index) => (
+                                {['Admin Roles', 'Operational Roles', 'Staff & Technicians', 'Customer Access'].map((group, index) => (
                                   <React.Fragment key={group}>
                                     {index > 0 && <SelectSeparator className={`${theme === 'light' ? 'bg-gray-100' : 'bg-white/5'}`} />}
                                     <SelectGroup>

@@ -24,6 +24,7 @@ import {
     ADMIN_DASHBOARD_ROLES,
     CUSTOMER_ROLE,
     SERVICE_STAFF_ROLE,
+    STAFF_ROLES,
     USER_ROLES,
     getDashboardPathForRole,
 } from "@/lib/roles";
@@ -153,7 +154,7 @@ function AppRoutes() {
                 <Route
                     path="/detailer/dashboard"
                     element={
-                        <ProtectedRoute allowedRoles={[SERVICE_STAFF_ROLE]}>
+                        <ProtectedRoute allowedRoles={STAFF_ROLES}>
                             <DetailerDashboard />
                         </ProtectedRoute>
                     }

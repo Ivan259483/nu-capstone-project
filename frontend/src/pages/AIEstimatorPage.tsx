@@ -2,6 +2,11 @@
  * AIEstimatorPage.tsx
  * Upload → Damage Scan → AR Results flow for Capstone Defense demo.
  * Flow: (1) Upload damage photo → (2) local rule-based scan animation → (3) AR + Damage Report
+ *
+ * Supports two rendering modes:
+ *  - Standalone (default export): full-page dark layout with router navigation.
+ *  - Embedded (named export AIEstimatorEmbed): no page wrapper, no router crash,
+ *    safe for rendering inside a dashboard tab panel.
  */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -21,6 +26,14 @@ import {
     getDefaultDamageArea,
     type WebScanAngle,
 } from '@/lib/offlineDamageEngine';
+
+// ── Props (embedded mode) ──────────────────────────────────────────────────────
+interface AIEstimatorProps {
+    /** When true: no full-page wrapper; safe to embed in dashboard tabs. */
+    embedded?: boolean;
+    /** Called in embedded mode instead of navigating to /booking */
+    onBookingRequest?: () => void;
+}
 
 // ── Data ───────────────────────────────────────────────────────────────────────
 const MOCK_DAMAGE_ITEMS = [
@@ -61,7 +74,7 @@ const fadeUp: Variants = {
 };
 
 // ── Component ──────────────────────────────────────────────────────────────────
-export default function AIEstimatorPage() {
+function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProps) {
     const navigate = useNavigate();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [scanStage, setScanStage] = useState<'idle' | 'scanning' | 'done'>('idle');
@@ -185,8 +198,16 @@ export default function AIEstimatorPage() {
                 ? 'Medium'
                 : 'Low';
 
+    const handleBooking = () => {
+        if (embedded && onBookingRequest) {
+            onBookingRequest();
+        } else {
+            navigate('/booking');
+        }
+    };
+
     return (
-        <div className="min-h-screen bg-black text-white">
+        <div className={embedded ? 'text-white' : 'min-h-screen bg-black text-white'}>
 
             {/* ── Hero Header ───────────────────────────────────────────────── */}
             <div className="relative overflow-hidden border-b border-white/5 bg-gradient-to-b from-indigo-950/40 via-zinc-950 to-black">
@@ -650,10 +671,10 @@ export default function AIEstimatorPage() {
                                     </div>
                                     <div className="px-6 py-4 bg-black/20 border-t border-white/5 flex flex-col gap-2">
                                         <Button
-                                            onClick={() => navigate('/booking')}
+                                            onClick={handleBooking}
                                             className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl h-11 font-semibold gap-2 shadow-lg shadow-indigo-900/30"
                                         >
-                                            Book Recommended Services
+                                            {embedded ? 'Share Estimate with Customer' : 'Book Recommended Services'}
                                             <ArrowRight className="w-4 h-4" />
                                         </Button>
                                         <Button
@@ -724,4 +745,16 @@ export default function AIEstimatorPage() {
             `}</style>
         </div>
     );
+}
+
+// ── Exports ────────────────────────────────────────────────────────────────────
+/** Standalone full-page route component (used by React Router) */
+export default function AIEstimatorPage() {
+    return <AIEstimatorCore />;
+}
+
+/** Embedded mode — safe to render inside any dashboard tab.
+ *  No page wrapper, no router crash, works within DetailerDashboard. */
+export function AIEstimatorEmbed({ onBookingRequest }: { onBookingRequest?: () => void } = {}) {
+    return <AIEstimatorCore embedded onBookingRequest={onBookingRequest} />;
 }

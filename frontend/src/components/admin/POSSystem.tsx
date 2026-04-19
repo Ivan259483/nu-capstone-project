@@ -590,7 +590,6 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
     const subTabs: { id: POSSubTab; label: string; icon: any; count: number }[] = [
         { id: 'pos', label: 'POS System', icon: Monitor, count: unpaidBookings.length },
         { id: 'pipeline', label: 'Pipeline', icon: Layers, count: pipelineActiveCount },
-        { id: 'waivers', label: 'Waivers & Docs', icon: FileText, count: bookings.filter(b => !!b.legalCompliance?.waiverSignature).length || 6 },
         { id: 'billing', label: 'Billing', icon: Receipt, count: payments.length },
     ];
 
@@ -660,17 +659,7 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                     </motion.div>
                 )}
 
-                {posSubTab === 'waivers' && (
-                    <motion.div
-                        key="waivers-subtab"
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        transition={{ duration: 0.2 }}
-                    >
-                        <WaiversDocs bookings={bookings} />
-                    </motion.div>
-                )}
+
 
                 {posSubTab === 'billing' && (
                     <motion.div

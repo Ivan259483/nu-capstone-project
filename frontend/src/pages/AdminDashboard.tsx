@@ -45,6 +45,7 @@ import { UserService } from '@/lib/user-service';
 import { SupplierService } from '@/lib/supplier-service';
 import { InventoryService } from '@/lib/inventory-service-api';
 import { DetailService } from '@/lib/detail-service-api';
+import { AIEstimatorEmbed } from '@/pages/AIEstimatorPage';
 import { PaymentService } from '@/lib/payment-service';
 import { SystemService } from '@/lib/system-service';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
@@ -77,6 +78,10 @@ import {
     isStaffManagerRole,
     isSupplierManagerRole,
     isSupplierViewRole,
+    isWaiverAccessRole,
+    isAppointmentViewRole,
+    isUserRegistrationRole,
+    isAIEstimatorRole,
 } from '@/lib/roles';
 import {
     Popover,
@@ -157,6 +162,7 @@ type TabType =
     | 'pos'
     | 'appointments'
     | 'waivers'
+    | 'ai_estimator'
     | 'profile'
     | 'landing';
 
@@ -176,9 +182,13 @@ export default function AdminDashboard() {
     const canAccessSupplierModule = isSupplierManagerRole(user?.role);
     const canViewSupplierData = isSupplierViewRole(user?.role);
     const canAccessLanding = FULL_ADMIN_ROLES.includes(getSafeUserRole(user?.role));
-    const needsUserDirectory = canAccessUsers || canAccessBookings || canAccessPOS;
+    const canAccessWaivers = isWaiverAccessRole(user?.role);
+    const canAccessAppointments = isAppointmentViewRole(user?.role);
+    const canRegisterUsers = isUserRegistrationRole(user?.role);
+    const canAccessAIEstimator = isAIEstimatorRole(user?.role);
+    const needsUserDirectory = canAccessUsers || canAccessBookings || canAccessPOS || canRegisterUsers;
     const needsServiceCatalogData = canAccessPricing || canAccessPOS;
-    const needsBookingsData = canAccessBookings || canAccessPOS;
+    const needsBookingsData = canAccessBookings || canAccessPOS || canAccessAppointments;
     const needsAnalyticsData = canAccessBookings || canAccessPOS;
 
     // Realtime Database Sync
@@ -223,7 +233,7 @@ export default function AdminDashboard() {
 
 
 
-    const validTabs: TabType[] = ['inventory', 'users', 'suppliers', 'pricing', 'activity', 'settings', 'bookings', 'pos', 'appointments', 'waivers', 'profile', 'landing'];
+    const validTabs: TabType[] = ['inventory', 'users', 'suppliers', 'pricing', 'activity', 'settings', 'bookings', 'pos', 'appointments', 'waivers', 'ai_estimator', 'profile', 'landing'];
     const [activeTab, setActiveTab] = useState<TabType>(() => {
         const hash = window.location.hash.replace('#', '');
         return validTabs.includes(hash as TabType) ? (hash as TabType) : 'inventory';
@@ -2013,21 +2023,30 @@ export default function AdminDashboard() {
             { id: 'suppliers' as TabType, label: 'Suppliers', icon: ShoppingCart },
             { id: 'pricing' as TabType, label: 'Pricing', icon: PhilippinePeso },
             { id: 'activity' as TabType, label: 'Activity Logs', icon: Activity },
+            { id: 'waivers' as TabType, label: 'Waivers & Docs', icon: FileText },
+            { id: 'appointments' as TabType, label: 'Appointments', icon: Calendar },
+            { id: 'ai_estimator' as TabType, label: 'AI Damage Detection', icon: Zap },
         ];
 
         switch (safeRole) {
             case 'administrator':
-                return allAdminTabs;
+                // Exclude 'appointments' — bookings tab already shows the full SmartCalendar
+                return allAdminTabs.filter(tab => tab.id !== 'appointments');
             case 'office_admin':
-                return allAdminTabs.filter(tab => ['users', 'settings', 'profile'].includes(tab.id));
+                // Office Admin: AI Estimator + Waivers only (per spec)
+                return allAdminTabs.filter(tab => ['ai_estimator', 'waivers'].includes(tab.id));
             case 'operation_manager':
-                return allAdminTabs.filter(tab => ['bookings', 'users', 'activity', 'profile'].includes(tab.id));
+                // Operation Manager: User Reg, Inventory, AI Estimator, Waivers, Bookings — NO appointments
+                return allAdminTabs.filter(tab => ['users', 'inventory', 'bookings', 'waivers', 'ai_estimator', 'activity'].includes(tab.id));
             case 'hr':
-                return allAdminTabs.filter(tab => ['users', 'profile'].includes(tab.id));
+                // HR: User Reg, User Management, Appointments (staff availability/schedule)
+                return allAdminTabs.filter(tab => ['users', 'appointments'].includes(tab.id));
             case 'inventory':
-                return allAdminTabs.filter(tab => ['inventory', 'profile'].includes(tab.id));
+                // Inventory Staff: Inventory only
+                return allAdminTabs.filter(tab => ['inventory'].includes(tab.id));
             case 'sales':
-                return allAdminTabs.filter(tab => ['pos', 'activity', 'profile'].includes(tab.id));
+                // Sales: User Reg, Appointments (smart calendar), not shown - chatbot handled elsewhere
+                return allAdminTabs.filter(tab => ['users', 'appointments', 'pos'].includes(tab.id));
             default:
                 return [];
         }
@@ -2040,7 +2059,8 @@ export default function AdminDashboard() {
         if (tabs.length > 0 && !isSystemTab && !tabs.some(t => t.id === activeTab)) {
             setActiveTab(tabs[0].id);
         }
-    }, [tabs, activeTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.role]);
 
 
     const getActivityIcon = (type: ActivityLog['type']) => {
@@ -2111,8 +2131,10 @@ export default function AdminDashboard() {
                         )
                     })}
 
-                    <div className="nav-section mt-2">Operations</div>
-                    {tabs.filter(t => ['suppliers', 'pricing', 'activity'].includes(t.id)).map(tab => {
+                    {tabs.some(t => ['suppliers', 'pricing', 'activity', 'waivers', 'appointments', 'ai_estimator'].includes(t.id)) && (
+                        <div className="nav-section mt-2">Operations</div>
+                    )}
+                    {tabs.filter(t => ['suppliers', 'pricing', 'activity', 'waivers', 'appointments', 'ai_estimator'].includes(t.id)).map(tab => {
                         const isActive = activeTab === tab.id;
                         return (
                             <button key={tab.id} title={sidebarCollapsed ? tab.label : undefined} className={`nav-item ${isActive ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
@@ -2640,7 +2662,7 @@ export default function AdminDashboard() {
                         })()}
 
 
-                        {canAccessBookings && (activeTab === 'bookings' || activeTab === 'appointments') && (
+                        {(canAccessBookings || canAccessAppointments) && (activeTab === 'bookings' || activeTab === 'appointments') && (
                             <motion.div key="bookings" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="flex flex-col w-full h-[calc(100vh-180px)] min-h-[600px]">
                                 <SmartCalendar
                                     bookings={safeBookings}
@@ -2665,9 +2687,15 @@ export default function AdminDashboard() {
                             </motion.div>
                         )}
 
-                        {canAccessBookings && activeTab === 'waivers' && (
+                        {canAccessWaivers && activeTab === 'waivers' && (
                             <motion.div key="waivers" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="w-full">
                                 <WaiversDocs bookings={safeBookings} />
+                            </motion.div>
+                        )}
+
+                        {activeTab === 'ai_estimator' && (
+                            <motion.div key="ai_estimator" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="w-full">
+                                <AIEstimatorEmbed />
                             </motion.div>
                         )}
 
@@ -2685,7 +2713,7 @@ export default function AdminDashboard() {
                         )}
 
 
-                        {activeTab === 'users' && canAccessUsers && (
+                        {activeTab === 'users' && (canAccessUsers || canRegisterUsers) && (
                             <UserManagementPanel theme={theme} users={users} loadData={loadData} currentUserRole={user?.role} />
                         )}
 

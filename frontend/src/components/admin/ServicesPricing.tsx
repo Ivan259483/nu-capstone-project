@@ -2,8 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Search, Plus, Edit, Trash2, LayoutGrid, List, ToggleLeft, ToggleRight,
-    ChevronDown, Eye, EyeOff, TrendingUp, DollarSign, Package, Star,
-    AlertTriangle, X
+    Eye, EyeOff, AlertTriangle, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +31,16 @@ const CATEGORIES: { id: FilterCategory; label: string }[] = [
     { id: 'Premium', label: 'Premium' },
 ];
 
+const VEHICLE_TYPES = [
+    { key: 'hatchback', label: 'Hatchback' },
+    { key: 'sedan', label: 'Sedan' },
+    { key: 'midsized', label: 'Midsized' },
+    { key: 'suv', label: 'SUV' },
+    { key: 'pickup', label: 'Pick Up' },
+    { key: 'largesuv', label: 'Large SUV' },
+    { key: 'highend', label: 'High-end' },
+];
+
 const getCategoryColor = (cat: string) => {
     switch (cat) {
         case 'Exterior': return { bg: 'bg-blue-500/15', text: 'text-blue-400', border: 'border-blue-500/25' };
@@ -42,12 +51,6 @@ const getCategoryColor = (cat: string) => {
         default: return { bg: 'bg-zinc-500/15', text: 'text-zinc-400', border: 'border-zinc-500/25' };
     }
 };
-
-const computeMemberPrice = (s: Service) =>
-    s.memberPrice != null ? s.memberPrice : Math.round(s.basePrice * 0.85);
-
-const computeDiscount = (s: Service) =>
-    s.basePrice - computeMemberPrice(s);
 
 export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
     const [searchQuery, setSearchQuery] = useState('');
@@ -61,7 +64,9 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
     const [formName, setFormName] = useState('');
     const [formCategory, setFormCategory] = useState('Exterior');
     const [formDuration, setFormDuration] = useState('');
-    const [formPrice, setFormPrice] = useState('');
+    const [formPrices, setFormPrices] = useState<Record<string, string>>({
+        hatchback: '', sedan: '', midsized: '', suv: '', pickup: '', largesuv: '', highend: ''
+    });
     const [formPublished, setFormPublished] = useState(true);
     const [saving, setSaving] = useState(false);
 
@@ -87,11 +92,23 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
         const active = services.filter(s => s.status === 'Active');
         const inactive = services.filter(s => s.status === 'Inactive');
         const categories = new Set(services.map(s => s.category));
-        const avgPrice = active.length > 0
-            ? Math.round(active.reduce((a, s) => a + s.basePrice, 0) / active.length)
+        
+        let validPrices: number[] = [];
+        services.forEach(s => {
+            if (s.prices) {
+                Object.values(s.prices).forEach(p => {
+                    if (p && typeof p === 'number') validPrices.push(p);
+                });
+            } else if (s.basePrice) {
+                 validPrices.push(s.basePrice);
+            }
+        });
+        
+        const avgPrice = validPrices.length > 0
+            ? Math.round(validPrices.reduce((a, b) => a + b, 0) / validPrices.length)
             : 0;
+            
         const mostBooked = [...services].sort((a, b) => (b.bookingCount || 0) - (a.bookingCount || 0))[0];
-        const maxBookings = services.reduce((max, s) => Math.max(max, s.bookingCount || 0), 0);
 
         return {
             total: services.length,
@@ -100,7 +117,6 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
             inactive: inactive.length,
             avgPrice,
             mostBooked,
-            maxBookings,
         };
     }, [services]);
 
@@ -109,7 +125,9 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
         setFormName('');
         setFormCategory('Exterior');
         setFormDuration('');
-        setFormPrice('');
+        setFormPrices({
+            hatchback: '', sedan: '', midsized: '', suv: '', pickup: '', largesuv: '', highend: ''
+        });
         setFormPublished(true);
         setIsEditing(false);
         setEditingId(null);
@@ -123,29 +141,61 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
     const openEditModal = (s: Service) => {
         setFormName(s.name);
         setFormCategory(s.category);
-        setFormDuration(s.duration);
-        setFormPrice(String(s.basePrice));
+        setFormDuration(s.duration || '');
+        
+        // Handle potentially missing prices object
+        const prices: Record<string, number> = s.prices || {};
+        setFormPrices({
+            hatchback: prices.hatchback !== undefined && prices.hatchback !== null ? String(prices.hatchback) : '',
+            sedan: prices.sedan !== undefined && prices.sedan !== null ? String(prices.sedan) : '',
+            midsized: prices.midsized !== undefined && prices.midsized !== null ? String(prices.midsized) : '',
+            suv: prices.suv !== undefined && prices.suv !== null ? String(prices.suv) : '',
+            pickup: prices.pickup !== undefined && prices.pickup !== null ? String(prices.pickup) : '',
+            largesuv: prices.largesuv !== undefined && prices.largesuv !== null ? String(prices.largesuv) : '',
+            highend: prices.highend !== undefined && prices.highend !== null ? String(prices.highend) : ''
+        });
         setFormPublished(s.isPublished !== false);
         setIsEditing(true);
         setEditingId(s.id);
         setShowModal(true);
     };
 
+    const handlePriceChange = (key: string, value: string) => {
+        setFormPrices(prev => ({ ...prev, [key]: value }));
+    };
+
     const handleSave = async () => {
-        if (!formName || !formCategory || !formDuration || !formPrice) {
-            toast.error('Please fill in all required fields');
+        if (!formName || !formCategory) {
+            toast.error('Please fill in required fields (Name and Category)');
             return;
         }
         setSaving(true);
         try {
+            // Convert to numbers or null
+            const pricesPayload: any = {};
+            let minPrice = Infinity;
+            
+            VEHICLE_TYPES.forEach(vt => {
+                const val = formPrices[vt.key];
+                if (val && !isNaN(parseFloat(val))) {
+                    const numVal = parseFloat(val);
+                    pricesPayload[vt.key] = numVal;
+                    if (numVal < minPrice) minPrice = numVal;
+                } else {
+                    pricesPayload[vt.key] = null;
+                }
+            });
+            
             const payload = {
                 name: formName,
                 category: formCategory,
                 duration: formDuration,
-                basePrice: parseFloat(formPrice),
+                prices: pricesPayload,
+                basePrice: minPrice !== Infinity ? minPrice : 0, // Keep as fallback
                 isPublished: formPublished,
                 status: 'Active',
             };
+            
             let res;
             if (isEditing && editingId) {
                 res = await DetailService.updateService(editingId, payload);
@@ -180,18 +230,6 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
         }
     };
 
-    const handleTogglePublished = async (s: Service) => {
-        try {
-            const res = await DetailService.updateService(s.id, { isPublished: !s.isPublished });
-            if (res.success) {
-                toast.success(`${s.name} ${!s.isPublished ? 'published' : 'unpublished'}`);
-                onRefresh();
-            }
-        } catch (err: any) {
-            toast.error('Failed to toggle visibility');
-        }
-    };
-
     const handleDeleteConfirm = async () => {
         if (!deleteTarget) return;
         setDeleting(true);
@@ -211,9 +249,21 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
         }
     };
 
-    // ─── Popularity bar width ──────────────────────────────────────────────────
-    const popularityWidth = (count: number) =>
-        stats.maxBookings > 0 ? Math.max(8, (count / stats.maxBookings) * 100) : 8;
+    const getPriceDisplay = (s: Service, key: string) => {
+        const val = s.prices?.[key as keyof typeof s.prices];
+        return (val !== undefined && val !== null) ? formatCurrency(val) : '—';
+    };
+
+    const getPriceRange = (s: Service) => {
+        if (!s.prices) return formatCurrency(s.basePrice || 0);
+        
+        const validPrices = Object.values(s.prices).filter(p => p !== null && p !== undefined) as number[];
+        if (validPrices.length === 0) return formatCurrency(s.basePrice || 0);
+        
+        const min = Math.min(...validPrices);
+        const max = Math.max(...validPrices);
+        return min === max ? formatCurrency(min) : `${formatCurrency(min)} - ${formatCurrency(max)}`;
+    };
 
     return (
         <div className="space-y-5">
@@ -221,7 +271,7 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-white">Services & Pricing</h1>
-                    <p className="text-[12px] text-zinc-500 mt-0.5">Manage service catalog → changes sync automatically to POS</p>
+                    <p className="text-[12px] text-zinc-500 mt-0.5">Manage specific vehicle prices for the catalog</p>
                 </div>
                 <Button
                     onClick={openAddModal}
@@ -236,9 +286,9 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                     { label: 'TOTAL SERVICES', value: stats.total, sub: `across ${stats.categoriesCount} categories`, color: 'text-white' },
-                    { label: 'ACTIVE SERVICES', value: stats.active, sub: stats.inactive > 0 ? `${stats.inactive} currently disabled` : 'All services active', color: stats.inactive > 0 ? 'text-orange-400' : 'text-emerald-400' },
-                    { label: 'AVG PRICE', value: formatCurrency(stats.avgPrice), sub: 'per service', color: 'text-white', isString: true },
-                    { label: 'MOST BOOKED', value: stats.mostBooked?.name || '—', sub: stats.mostBooked ? `${stats.mostBooked.bookingCount || 0} bookings this month` : 'No data yet', color: 'text-orange-400', isString: true },
+                    { label: 'ACTIVE SERVICES', value: stats.active, sub: stats.inactive > 0 ? `${stats.inactive} inactive` : 'All active', color: stats.inactive > 0 ? 'text-orange-400' : 'text-emerald-400' },
+                    { label: 'AVG EST. PRICE', value: formatCurrency(stats.avgPrice), sub: 'across all tiers', color: 'text-white', isString: true },
+                    { label: 'MOST BOOKED', value: stats.mostBooked?.name || '—', sub: stats.mostBooked ? `${stats.mostBooked.bookingCount || 0} bookings` : 'No data yet', color: 'text-orange-400', isString: true },
                 ].map((stat, i) => (
                     <motion.div
                         key={stat.label}
@@ -302,20 +352,16 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
                             <thead>
                                 <tr className="border-b border-zinc-800/60">
                                     <th className="text-left text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5 pl-5">Service</th>
-                                    <th className="text-center text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5">Duration</th>
-                                    <th className="text-right text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5">Regular</th>
-                                    <th className="text-right text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5">Member Price</th>
-                                    <th className="text-center text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5">Popularity</th>
+                                    {VEHICLE_TYPES.map(vt => (
+                                        <th key={vt.key} className="text-center text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5">{vt.label}</th>
+                                    ))}
                                     <th className="text-center text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5">Status</th>
-                                    <th className="text-center text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5">Updated</th>
                                     <th className="text-center text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5 pr-5">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-800/40">
                                 {filteredServices.map((s, idx) => {
                                     const catColor = getCategoryColor(s.category);
-                                    const mPrice = computeMemberPrice(s);
-                                    const discount = computeDiscount(s);
                                     return (
                                         <motion.tr
                                             key={s.id}
@@ -327,7 +373,7 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
                                             {/* Service name + category */}
                                             <td className="py-3.5 pl-5">
                                                 <div>
-                                                    <span className="text-[13px] font-semibold text-white">{s.name}</span>
+                                                    <span className="text-[13px] font-semibold text-white whitespace-nowrap">{s.name}</span>
                                                     <div className="mt-1">
                                                         <Badge className={`text-[9px] font-bold px-2 py-0.5 ${catColor.bg} ${catColor.text} border ${catColor.border} rounded-md`}>
                                                             {s.category}
@@ -335,29 +381,14 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
                                                     </div>
                                                 </div>
                                             </td>
-                                            {/* Duration */}
-                                            <td className="py-3.5 text-center text-[12px] text-zinc-400">{s.duration}</td>
-                                            {/* Regular price */}
-                                            <td className="py-3.5 text-right text-[13px] font-bold text-white">{formatCurrency(s.basePrice)}</td>
-                                            {/* Member price */}
-                                            <td className="py-3.5 text-right">
-                                                <span className="text-[13px] font-bold text-emerald-400">{formatCurrency(mPrice)}</span>
-                                                <p className="text-[10px] text-emerald-400/60 mt-0.5">-{formatCurrency(discount)}</p>
-                                            </td>
-                                            {/* Popularity */}
-                                            <td className="py-3.5">
-                                                <div className="flex items-center justify-center gap-2">
-                                                    <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                                                        <motion.div
-                                                            initial={{ width: 0 }}
-                                                            animate={{ width: `${popularityWidth(s.bookingCount || 0)}%` }}
-                                                            transition={{ duration: 0.6, delay: idx * 0.05 }}
-                                                            className="h-full bg-gradient-to-r from-[#E87C2F] to-amber-500 rounded-full"
-                                                        />
-                                                    </div>
-                                                    <span className="text-[11px] text-zinc-500 font-medium w-6 text-right">{s.bookingCount || 0}</span>
-                                                </div>
-                                            </td>
+                                            
+                                            {/* Vehicle Prices */}
+                                            {VEHICLE_TYPES.map(vt => (
+                                                <td key={vt.key} className="py-3.5 text-center text-[11px] font-medium text-zinc-400">
+                                                    {getPriceDisplay(s, vt.key)}
+                                                </td>
+                                            ))}
+
                                             {/* Status toggle */}
                                             <td className="py-3.5 text-center">
                                                 <button
@@ -366,18 +397,11 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
                                                     title={s.status === 'Active' ? 'Click to deactivate' : 'Click to activate'}
                                                 >
                                                     {s.status === 'Active' ? (
-                                                        <ToggleRight className="w-7 h-7 text-emerald-400" />
+                                                        <ToggleRight className="w-6 h-6 text-emerald-400" />
                                                     ) : (
-                                                        <ToggleLeft className="w-7 h-7 text-zinc-600" />
+                                                        <ToggleLeft className="w-6 h-6 text-zinc-600" />
                                                     )}
                                                 </button>
-                                            </td>
-                                            {/* Updated */}
-                                            <td className="py-3.5 text-center text-[11px] text-zinc-500">
-                                                {s.lastUpdatedAt || s.updatedAt
-                                                    ? new Date(s.lastUpdatedAt || s.updatedAt || '').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                                                    : '—'
-                                                }
                                             </td>
                                             {/* Actions */}
                                             <td className="py-3.5 pr-5 text-center">
@@ -403,7 +427,7 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
                                 })}
                                 {filteredServices.length === 0 && (
                                     <tr>
-                                        <td colSpan={8} className="py-12 text-center text-zinc-500 text-sm">
+                                        <td colSpan={10} className="py-12 text-center text-zinc-500 text-sm">
                                             No services found
                                         </td>
                                     </tr>
@@ -419,7 +443,6 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {filteredServices.map((s, idx) => {
                         const catColor = getCategoryColor(s.category);
-                        const mPrice = computeMemberPrice(s);
                         return (
                             <motion.div
                                 key={s.id}
@@ -446,21 +469,8 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
                                     </div>
                                 </div>
 
-                                <div className="flex items-end gap-2 mb-3">
-                                    <span className="text-2xl font-bold text-white">{formatCurrency(s.basePrice)}</span>
-                                    <span className="text-[12px] text-emerald-400 font-semibold mb-0.5">
-                                        Member: {formatCurrency(mPrice)}
-                                    </span>
-                                </div>
-
-                                <div className="flex items-center gap-2 mb-4">
-                                    <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                                        <div
-                                            className="h-full bg-gradient-to-r from-[#E87C2F] to-amber-500 rounded-full transition-all"
-                                            style={{ width: `${popularityWidth(s.bookingCount || 0)}%` }}
-                                        />
-                                    </div>
-                                    <span className="text-[10px] text-zinc-500 font-medium">{s.bookingCount || 0} booked</span>
+                                <div className="flex items-end gap-2 mb-4">
+                                    <span className="text-xl font-bold text-white">{getPriceRange(s)}</span>
                                 </div>
 
                                 <div className="flex items-center gap-2 mt-auto pt-3 border-t border-zinc-800/40">
@@ -502,7 +512,7 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto"
                         onClick={() => setShowModal(false)}
                     >
                         <motion.div
@@ -510,66 +520,82 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.95, opacity: 0 }}
                             onClick={e => e.stopPropagation()}
-                            className="w-full max-w-md bg-[#121214] border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden"
+                            className="w-full max-w-2xl bg-[#121214] border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden my-auto"
                         >
-                            <div className="px-6 pt-6 pb-4 border-b border-zinc-800/60 flex items-center justify-between">
-                                <h3 className="text-lg font-bold text-white">{isEditing ? 'Edit Service' : 'Add New Service'}</h3>
+                            <div className="px-6 pt-6 pb-4 border-b border-zinc-800/60 flex items-center justify-between sticky top-0 bg-[#121214] z-10">
+                                <h3 className="text-lg font-bold text-white">{isEditing ? 'Edit Service & Pricing' : 'Add New Service & Pricing'}</h3>
                                 <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all">
                                     <X className="w-4 h-4" />
                                 </button>
                             </div>
-                            <div className="p-6 space-y-4">
-                                <div>
-                                    <Label className="text-zinc-400 text-[11px] uppercase tracking-wider">Service Name</Label>
-                                    <Input
-                                        value={formName}
-                                        onChange={e => setFormName(e.target.value)}
-                                        className="mt-1.5 bg-zinc-900 border-zinc-800 text-white"
-                                        placeholder="e.g., Full Detailing"
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
+                            
+                            <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+                                {/* Basic Info Section */}
+                                <div className="space-y-4">
                                     <div>
-                                        <Label className="text-zinc-400 text-[11px] uppercase tracking-wider">Category</Label>
-                                        <Select value={formCategory} onValueChange={setFormCategory}>
-                                            <SelectTrigger className="mt-1.5 bg-zinc-900 border-zinc-800 text-white">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent className="bg-[#121214] border-zinc-800">
-                                                {['Exterior', 'Interior', 'Complete', 'Engine', 'Premium'].map(c => (
-                                                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div>
-                                        <Label className="text-zinc-400 text-[11px] uppercase tracking-wider">Duration</Label>
+                                        <Label className="text-zinc-400 text-[11px] uppercase tracking-wider">Service Name</Label>
                                         <Input
-                                            value={formDuration}
-                                            onChange={e => setFormDuration(e.target.value)}
+                                            value={formName}
+                                            onChange={e => setFormName(e.target.value)}
                                             className="mt-1.5 bg-zinc-900 border-zinc-800 text-white"
-                                            placeholder="e.g., 2-3 hrs"
+                                            placeholder="e.g., Full Detailing"
                                         />
                                     </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <Label className="text-zinc-400 text-[11px] uppercase tracking-wider">Category</Label>
+                                            <Select value={formCategory} onValueChange={setFormCategory}>
+                                                <SelectTrigger className="mt-1.5 bg-zinc-900 border-zinc-800 text-white">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent className="bg-[#121214] border-zinc-800">
+                                                    {['Exterior', 'Interior', 'Complete', 'Engine', 'Premium'].map(c => (
+                                                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div>
+                                            <Label className="text-zinc-400 text-[11px] uppercase tracking-wider">Duration</Label>
+                                            <Input
+                                                value={formDuration}
+                                                onChange={e => setFormDuration(e.target.value)}
+                                                className="mt-1.5 bg-zinc-900 border-zinc-800 text-white"
+                                                placeholder="e.g., 2-3 hrs"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
+                                
+                                <div className="h-px bg-zinc-800/60" />
+                                
+                                {/* Pricing Grid Section */}
                                 <div>
-                                    <Label className="text-zinc-400 text-[11px] uppercase tracking-wider">Base Price (₱)</Label>
-                                    <div className="relative mt-1.5">
-                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500">₱</span>
-                                        <Input
-                                            type="number"
-                                            step="0.01"
-                                            value={formPrice}
-                                            onChange={e => setFormPrice(e.target.value)}
-                                            className="pl-7 bg-zinc-900 border-zinc-800 text-white"
-                                        />
+                                    <h4 className="text-[13px] font-semibold text-white mb-1">Per-Vehicle Pricing</h4>
+                                    <p className="text-[11px] text-zinc-500 mb-4">Set prices for specific vehicle categories. Leave blank if not applicable.</p>
+                                    
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                        {VEHICLE_TYPES.map(vt => (
+                                            <div key={vt.key}>
+                                                <Label className="text-zinc-400 text-[11px] truncate tracking-wider">{vt.label}</Label>
+                                                <div className="relative mt-1.5">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500">₱</span>
+                                                    <Input
+                                                        type="number"
+                                                        step="0.01"
+                                                        value={formPrices[vt.key]}
+                                                        onChange={e => handlePriceChange(vt.key, e.target.value)}
+                                                        className="pl-7 bg-zinc-900 border-zinc-800 text-white font-mono text-xs"
+                                                        placeholder="—"
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                    {formPrice && (
-                                        <p className="text-[10px] text-emerald-400/60 mt-1">
-                                            Member price (auto): {formatCurrency(Math.round(parseFloat(formPrice) * 0.85))}
-                                        </p>
-                                    )}
                                 </div>
+                                
+                                <div className="h-px bg-zinc-800/60" />
+
                                 <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/40">
                                     <div>
                                         <p className="text-[12px] font-medium text-white">Published to customers</p>
@@ -583,6 +609,9 @@ export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
                                         )}
                                     </button>
                                 </div>
+                            </div>
+                            
+                            <div className="px-6 py-4 border-t border-zinc-800/60 bg-[#121214] sticky bottom-0 z-10">
                                 <Button
                                     onClick={handleSave}
                                     disabled={saving}

@@ -385,11 +385,28 @@ export default function BookingPage() {
                 {/* ── Hero ── */}
                 <div className="bk-hero">
                     <div className="bk-hero-badge">
-                        <Calendar size={14} />
-                        EXPRESS BOOKING
+                        <Calendar size={12} />
+                        RESERVE YOUR APPOINTMENT
                     </div>
-                    <h1>{t("booking.title") || "Schedule Your Detail"}</h1>
-                    <p>Premium automotive care — one booking away</p>
+                    <h1>Book a Service</h1>
+                    <p>Premium automotive care — one appointment away</p>
+                    <div className="bk-hero-trust">
+                        <div className="bk-hero-trust-item">
+                            <Shield size={13} />
+                            Certified Technicians
+                        </div>
+                        <div className="bk-hero-trust-dot" />
+                        <div className="bk-hero-trust-item">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                            4.9 / 5 Customer Rating
+                        </div>
+                        <div className="bk-hero-trust-dot" />
+                        <div className="bk-hero-trust-item">
+                            <CheckCircle size={13} />
+                            Satisfaction Guarantee
+                        </div>
+                    </div>
+                    <div className="bk-hero-line" />
                 </div>
 
                 {/* ── Body ── */}

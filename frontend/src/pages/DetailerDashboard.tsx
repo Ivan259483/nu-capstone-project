@@ -7,7 +7,7 @@ import {
     Clock, CheckCircle, Play, AlertTriangle, Plus, Bell, Activity,
     Mic, Zap, Timer, Gauge, Wifi, TrendingUp, BarChart3, Sparkles,
     ChevronRight, ChevronLeft, Eye, Settings, Menu, X, LayoutDashboard, User,
-    Shield, Volume2, Info, Hash, Sun, Moon, BadgeHelp
+    Shield, Volume2, Info, Hash, Sun, Moon, BadgeHelp, Monitor, ScanLine, Receipt
 } from 'lucide-react';
 import { DashboardTab } from '@/components/staff/DashboardTab';
 import { QueueTab } from '@/components/staff/QueueTab';
@@ -43,7 +43,7 @@ import { NotificationService, type SystemNotification } from '@/lib/notification
 import InspectionCapture from '@/components/InspectionCapture';
 import WarrantyReceiptModal from '@/components/staff/WarrantyReceiptModal';
 import api from '@/lib/api';
-import { SERVICE_STAFF_ROLE } from '@/lib/roles';
+import { SERVICE_STAFF_ROLE, isStaffQCRole, isStaffInventoryRole, isTechnicianRole } from '@/lib/roles';
 import {
     Popover,
     PopoverContent,
@@ -51,9 +51,11 @@ import {
 } from "@/components/ui/popover";
 import type { Booking, InventoryItem, InventoryUsage, CustomerNote } from '@/types';
 import WorkflowOrchestrator from '@/components/staff/workflow/WorkflowOrchestrator';
+import { StaffPOSView } from '@/components/staff/StaffPOSView';
+import { AIEstimatorEmbed } from '@/pages/AIEstimatorPage';
 import './DetailerDashboard.css';
 
-type TabType = 'dashboard' | 'queue' | 'schedule' | 'inventory' | 'records' | 'progress' | 'activity' | 'photos' | 'notes' | 'settings' | 'history';
+type TabType = 'dashboard' | 'queue' | 'schedule' | 'inventory' | 'records' | 'progress' | 'activity' | 'photos' | 'notes' | 'settings' | 'history' | 'pos' | 'voice_assistant' | 'ai_damage_detection';
 
 const LOW_STOCK_THRESHOLD = 10;
 const normalizeBookingId = (id?: string) => (id ? String(id).replace(/^#/, '') : '');
@@ -1191,13 +1193,45 @@ export default function DetailerDashboard() {
     // Calculate purely unstarted/pending jobs
     const totalPending = safeJobs.filter(j => j.status?.toLowerCase() === 'pending').length;
 
-    const sidebarNavItems = [
-        { id: 'dashboard' as TabType, label: "Today's Jobs", icon: LayoutDashboard, badge: finalPendingJobs.length > 0 ? finalPendingJobs.length : undefined },
-        { id: 'schedule' as TabType, label: "Schedule", icon: Calendar, badge: totalPending > 0 ? totalPending : undefined, badgeDanger: true },
-        { id: 'history' as TabType, label: 'History', icon: ClipboardList },
-        { id: 'inventory' as TabType, label: 'Inventory', icon: Package },
-        { id: 'settings' as TabType, label: 'Settings', icon: Settings },
-    ];
+    // ── Role-aware tab configuration ──────────────────────────────────
+    const getTabsForRole = (): { id: TabType; label: string; icon: any; badge?: number; badgeDanger?: boolean }[] => {
+        const role = user?.role;
+
+        if (isStaffQCRole(role)) {
+            // Quality Checker: Job queue dashboard + POS receipts
+            return [
+                { id: 'dashboard', label: "Today's Jobs", icon: LayoutDashboard, badge: finalPendingJobs.length > 0 ? finalPendingJobs.length : undefined },
+                { id: 'pos', label: 'POS / Receipts', icon: Monitor },
+            ];
+        }
+
+        if (isStaffInventoryRole(role)) {
+            // Inventory Staff: inventory management only
+            return [
+                { id: 'inventory', label: 'Inventory', icon: Package },
+            ];
+        }
+
+        if (isTechnicianRole(role)) {
+            // Technician: voice assistant, AI damage detection, inventory
+            return [
+                { id: 'voice_assistant', label: 'Voice Assistant', icon: Mic },
+                { id: 'ai_damage_detection', label: 'AI Scan & AR', icon: Zap },
+                { id: 'inventory', label: 'Inventory', icon: Package },
+            ];
+        }
+
+        // Default: legacy service_staff — full dashboard
+        return [
+            { id: 'dashboard', label: "Today's Jobs", icon: LayoutDashboard, badge: finalPendingJobs.length > 0 ? finalPendingJobs.length : undefined },
+            { id: 'schedule', label: 'Schedule', icon: Calendar, badge: totalPending > 0 ? totalPending : undefined, badgeDanger: true },
+            { id: 'history', label: 'History', icon: ClipboardList },
+            { id: 'inventory', label: 'Inventory', icon: Package },
+            { id: 'settings', label: 'Settings', icon: Settings },
+        ];
+    };
+
+    const sidebarNavItems = getTabsForRole();
 
     const handleToggleNotifSound = () => {
         const next = !notifSound;
@@ -1503,6 +1537,58 @@ export default function DetailerDashboard() {
                                     handleSaveNote={handleSaveNote}
                                     customerNotes={customerNotes}
                                 />
+                            )}
+
+                            {/* ── Quality Checker: POS / Receipts panel ── */}
+                            {activeTab === 'pos' && <StaffPOSView />}
+
+                            {/* ── Technician: Voice Assistant panel ── */}
+                            {activeTab === 'voice_assistant' && (
+                                <motion.div key="voice_assistant" variants={pageVariants} initial="initial" animate="animate" exit="exit"
+                                    style={{ padding: '32px 24px' }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                                        <div style={{ width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg,#8b5cf6,#a78bfa)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <Mic style={{ width: 22, height: 22, color: '#fff' }} />
+                                        </div>
+                                        <div>
+                                            <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Voice-Activated Assistant</h2>
+                                            <p style={{ fontSize: 13, opacity: 0.55, margin: 0 }}>Hands-free job updates, inventory checks, and task progress</p>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'grid', gap: 12 }}>
+                                        {[
+                                            { icon: Mic, label: 'Hands-Free Job Updates', desc: 'Dictate job status transitions without touching the screen.' },
+                                            { icon: Package, label: 'Voice Inventory Check', desc: 'Ask stock levels and log chemical usage by voice.' },
+                                            { icon: CheckCircle, label: 'Task Progress Reporting', desc: 'Mark checklist items and complete stages via voice commands.' },
+                                            { icon: Bell, label: 'Next Job Notifications', desc: 'Receive spoken alerts when a new job is assigned to you.' },
+                                        ].map(({ icon: Icon, label, desc }) => (
+                                            <div key={label} style={{ padding: '16px 20px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--bg-surface)', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                                                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(139,92,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                    <Icon style={{ width: 18, height: 18, color: '#8b5cf6' }} />
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 3 }}>{label}</div>
+                                                    <div style={{ fontSize: 12, opacity: 0.55 }}>{desc}</div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </motion.div>
+                            )}
+
+                            {/* ── Technician: AI Damage Detection & AR panel ── */}
+                            {activeTab === 'ai_damage_detection' && (
+                                <motion.div
+                                    key="ai_damage_detection"
+                                    variants={pageVariants}
+                                    initial="initial"
+                                    animate="animate"
+                                    exit="exit"
+                                    style={{ background: '#000', borderRadius: 16, overflow: 'hidden' }}
+                                >
+                                    <AIEstimatorEmbed />
+                                </motion.div>
                             )}
                         </AnimatePresence>
                     </div>

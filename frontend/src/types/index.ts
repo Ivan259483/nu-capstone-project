@@ -58,7 +58,8 @@ export interface Service {
     description?: string;
     category: 'Exterior' | 'Interior' | 'Complete' | 'Engine' | 'Premium' | 'Basic' | 'Standard';
     duration: string;
-    basePrice: number;
+    basePrice?: number;
+    prices?: Record<'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largesuv' | 'highend', number | null>;
     memberPrice?: number | null;
     recipe?: Array<{
         product?: string;

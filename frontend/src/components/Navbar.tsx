@@ -38,8 +38,8 @@ export default function Navbar() {
                 className={cn(
                     "fixed top-0 left-0 right-0 z-50 transition-all duration-500",
                     scrolled
-                        ? "glass border-b border-gold/20 py-3"
-                        : "bg-transparent py-5"
+                        ? "glass border-b border-gold/20 py-2"
+                        : "bg-transparent py-3"
                 )}
             >
                 <div className="container max-w-7xl mx-auto px-6 flex items-center justify-between relative">
@@ -51,7 +51,7 @@ export default function Navbar() {
                         <img 
                             src="/images/autospf-logo.png" 
                             alt="AutoSPF+" 
-                            className="h-12 md:h-16 object-contain"
+                            className="h-10 md:h-14 object-contain"
                         />
                     </Link>
 
