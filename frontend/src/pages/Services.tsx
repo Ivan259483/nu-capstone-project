@@ -18,31 +18,32 @@ import { cn } from "@/lib/utils";
 export type VehicleType = "hatchback" | "sedan" | "midsized" | "suv" | "pickup" | "largesuv" | "highend";
 
 /* ── Framer Variants ── */
-const EASE = [0.16, 1, 0.3, 1] as const;
+const EASE = [0.25, 0.46, 0.45, 0.94] as const;
 
 const fadeUp: Variants = {
-    hidden: { opacity: 0, y: 40 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: EASE } },
+    hidden: { opacity: 0, y: 24 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
 };
 
 const stagger: Variants = {
     hidden: {},
-    visible: { transition: { staggerChildren: 0.12, delayChildren: 0.05 } },
+    visible: { transition: { staggerChildren: 0.07, delayChildren: 0.0 } },
 };
 
+// Used only on initial page load — stagger per-card
 const cardVariant: Variants = {
-    hidden: { opacity: 0, y: 50, scale: 0.95 },
+    hidden: { opacity: 0, y: 28, scale: 0.98 },
     visible: (i: number) => ({
         opacity: 1,
         y: 0,
         scale: 1,
-        transition: { duration: 0.6, ease: EASE, delay: i * 0.1 },
+        transition: { duration: 0.4, ease: EASE, delay: i * 0.06 },
     }),
 };
 
 const priceFlip: Variants = {
-    exit: { opacity: 0, y: -20, scale: 0.9, transition: { duration: 0.2 } },
-    enter: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.35, ease: EASE } },
+    exit: { opacity: 0, y: -10, scale: 0.94, transition: { duration: 0.12 } },
+    enter: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.22, ease: EASE } },
 };
 
 const shimmer: Variants = {
@@ -564,8 +565,8 @@ export default function Services() {
                 {/* Vehicle type label */}
                 <motion.p
                     key={vehicleType}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1, transition: { duration: 0.2 } }}
                     className="text-center text-[11px] text-white/25 font-medium uppercase tracking-[0.3em] mt-4"
                 >
                     Showing prices for {vehicleOptions.find(v => v.type === vehicleType)?.label} vehicles
@@ -583,10 +584,9 @@ export default function Services() {
                 <div className="w-full max-w-[1400px] mx-auto px-4 lg:px-8 relative z-10">
                     <motion.div
                         key={vehicleType}
-                        variants={stagger}
-                        initial="hidden"
-                        whileInView="visible"
-                        viewport={{ once: true, margin: "-40px" }}
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.22, ease: EASE }}
                         className="flex flex-wrap justify-center items-stretch gap-5 lg:gap-6"
                     >
                         {spfPackages.map((pkg, i) => (

@@ -52,10 +52,10 @@ const counterPop: Variants = {
 
 /* ── Data ── */
 const team = [
-    { name: "Ivan Wong", role: "Head Detailer & Founder", years: "4 yrs", src: "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=400" },
-    { name: "Earl Francis Jeremiah", role: "Service Advisor", years: "8 yrs", src: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=400" },
-    { name: "Natalie Joy Tugade", role: "Ceramic Coating Specialist", years: "9 yrs", src: "https://images.unsplash.com/photo-1615554851859-9941a5dcec4a?auto=format&fit=crop&q=80&w=400" },
-    { name: "Ivan Christian", role: "Interior Detail Technician", years: "7 yrs", src: "https://images.unsplash.com/photo-1506803682981-6e718a9dd3ee?auto=format&fit=crop&q=80&w=400" },
+    { name: "Ivan Wong", role: "Head Detailer & Founder", years: "4 yrs", src: "/images/ivan-wong.jpg" },
+    { name: "Earl Francis Jeremiah", role: "Service Advisor", years: "8 yrs", src: "/images/earl-nabong.jpg" },
+    { name: "Natalie Joy Tugade", role: "Ceramic Coating Specialist", years: "9 yrs", src: "/images/natalie-tugade.jpg" },
+    { name: "Ivan Christian", role: "Interior Detail Technician", years: "7 yrs", src: "/images/ivan-christian.jpg" },
 ];
 
 const values = [
