@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
     Shield, Sparkles, Crown, Zap, Star, BadgeCheck,
-    CheckCircle2, ArrowRight, Car, Truck, CarFront,
+    ArrowRight, Car, Truck, CarFront,
+    Check, Gem, Award, ChevronRight, Layers, Timer, Users, Trophy,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useInView, useMotionValue, useTransform, animate } from "framer-motion";
 import type { Variants } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
 import PageLayout from "@/components/PageLayout";
@@ -17,101 +18,94 @@ import { cn } from "@/lib/utils";
 ═══════════════════════════════════════ */
 export type VehicleType = "hatchback" | "sedan" | "midsized" | "suv" | "pickup" | "largesuv" | "highend";
 
-/* ── Framer Variants ── */
-const EASE = [0.25, 0.46, 0.45, 0.94] as const;
+const EASE = [0.16, 1, 0.3, 1] as const;
 
 const fadeUp: Variants = {
-    hidden: { opacity: 0, y: 24 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
+    hidden: { opacity: 0, y: 30 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: EASE } },
 };
 
 const stagger: Variants = {
     hidden: {},
-    visible: { transition: { staggerChildren: 0.07, delayChildren: 0.0 } },
-};
-
-// Used only on initial page load — stagger per-card
-const cardVariant: Variants = {
-    hidden: { opacity: 0, y: 28, scale: 0.98 },
-    visible: (i: number) => ({
-        opacity: 1,
-        y: 0,
-        scale: 1,
-        transition: { duration: 0.4, ease: EASE, delay: i * 0.06 },
-    }),
+    visible: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
 };
 
 const priceFlip: Variants = {
-    exit: { opacity: 0, y: -10, scale: 0.94, transition: { duration: 0.12 } },
-    enter: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.22, ease: EASE } },
-};
-
-const shimmer: Variants = {
-    hidden: { x: "-100%" },
-    visible: {
-        x: "200%",
-        transition: { duration: 2.5, repeat: Infinity, repeatDelay: 4, ease: "linear" },
-    },
+    exit: { opacity: 0, y: -8, scale: 0.96, transition: { duration: 0.1 } },
+    enter: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.2, ease: EASE } },
 };
 
 /* ═══════════════════════════════════════
-   Real Pricing Data — SPF Graphene Coating
+   Animated Counter Component
+═══════════════════════════════════════ */
+function AnimatedCounter({ value, suffix = "", duration = 2 }: { value: number; suffix?: string; duration?: number }) {
+    const ref = useRef<HTMLSpanElement>(null);
+    const isInView = useInView(ref, { once: true, margin: "-50px" });
+    const count = useMotionValue(0);
+    const rounded = useTransform(count, (v) => Math.round(v).toLocaleString());
+
+    useEffect(() => {
+        if (isInView) {
+            animate(count, value, { duration, ease: "easeOut" });
+        }
+    }, [isInView, value, count, duration]);
+
+    return (
+        <span ref={ref}>
+            <motion.span>{rounded}</motion.span>
+            {suffix}
+        </span>
+    );
+}
+
+/* ═══════════════════════════════════════
+   Pricing Data
 ═══════════════════════════════════════ */
 type PriceMap = Record<VehicleType, number | null>;
-type TintPriceMap = Record<VehicleType, number | null>;
 
 interface SPFPackage {
     key: string;
     label: string;
     years: string;
+    yearsNum: number;
     badge: string;
-    badgeColor: string;
     tier: string;
-    tierColor: string;
-    tierBg: string;
-    glowColor: string;
+    accentFrom: string;
+    accentTo: string;
+    accentMid: string;
     prices: PriceMap;
-    tintPrices: TintPriceMap;
+    tintPrices: PriceMap;
     originalPriceMultiplier: number;
     features: string[];
+    highlighted: string[];
     popular: boolean;
     flagship: boolean;
     icon: typeof Shield;
+    tagline: string;
 }
 
 const spfPackages: SPFPackage[] = [
     {
-        key: "spf80",
-        label: "SPF 80",
-        years: "3 Years",
-        badge: "SPECIAL OFFER",
-        badgeColor: "from-orange-500 to-red-500",
-        tier: "Essential",
-        tierColor: "from-sky-400 to-cyan-500",
-        tierBg: "bg-sky-500/10 text-sky-400 border-sky-500/20",
-        glowColor: "rgba(14,165,233,0.12)",
-        prices: { hatchback: 7499, sedan: 7999, midsized: 7999, suv: 8999, pickup: 8499, largesuv: 12999, highend: null },
-        tintPrices: { hatchback: 13499, sedan: 13499, midsized: 14499, suv: 15999, pickup: 14499, largesuv: 20999, highend: null },
+        key: "spf80", label: "SPF 80", years: "3 Years", yearsNum: 3,
+        badge: "SPECIAL OFFER", tier: "Essential",
+        accentFrom: "#38bdf8", accentTo: "#0284c7", accentMid: "#0ea5e9",
+        tagline: "Perfect entry-level protection",
+        prices: { hatchback: 7499, sedan: 7999, midsized: 7999, suv: 8999, pickup: 8499, largesuv: 12999, highend: 14999 },
+        tintPrices: { hatchback: 13499, sedan: 13499, midsized: 14499, suv: 15999, pickup: 14499, largesuv: 20999, highend: 22999 },
         originalPriceMultiplier: 2,
         features: [
             "3 Layers Graphene Ceramic Coating (Canada)",
             "Graphene Sealant",
             "FREE 1 visit Signature AUTOSPF Carwash",
         ],
-        popular: false,
-        flagship: false,
-        icon: Sparkles,
+        highlighted: [],
+        popular: false, flagship: false, icon: Sparkles,
     },
     {
-        key: "spf89",
-        label: "SPF 89",
-        years: "5 Years",
-        badge: "RECOMMENDED",
-        badgeColor: "from-amber-400 to-orange-500",
-        tier: "Advanced",
-        tierColor: "from-emerald-400 to-teal-500",
-        tierBg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-        glowColor: "rgba(16,185,129,0.12)",
+        key: "spf89", label: "SPF 89", years: "5 Years", yearsNum: 5,
+        badge: "RECOMMENDED", tier: "Advanced",
+        accentFrom: "#34d399", accentTo: "#059669", accentMid: "#10b981",
+        tagline: "Our most chosen package",
         prices: { hatchback: 8999, sedan: 9999, midsized: 10999, suv: 11999, pickup: 10999, largesuv: 14999, highend: 17999 },
         tintPrices: { hatchback: 14999, sedan: 15999, midsized: 17499, suv: 18999, pickup: 17499, largesuv: 22999, highend: 23999 },
         originalPriceMultiplier: 2,
@@ -120,20 +114,14 @@ const spfPackages: SPFPackage[] = [
             "Graphene Sealant",
             "FREE 1 visit Reboost/Maintenance (save ₱1,500)",
         ],
-        popular: true,
-        flagship: false,
-        icon: Shield,
+        highlighted: ["4 Layers"],
+        popular: true, flagship: false, icon: Shield,
     },
     {
-        key: "spf99",
-        label: "SPF 99",
-        years: "10 Years",
-        badge: "50% OFF PROMO",
-        badgeColor: "from-violet-500 to-purple-600",
-        tier: "Premium",
-        tierColor: "from-amber-400 to-orange-500",
-        tierBg: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-        glowColor: "rgba(245,158,11,0.15)",
+        key: "spf99", label: "SPF 99", years: "10 Years", yearsNum: 10,
+        badge: "50% OFF PROMO", tier: "Premium",
+        accentFrom: "#fbbf24", accentTo: "#d97706", accentMid: "#f59e0b",
+        tagline: "Maximum protection, best price-to-value",
         prices: { hatchback: 13999, sedan: 13999, midsized: 15999, suv: 16999, pickup: 15999, largesuv: 19999, highend: 22999 },
         tintPrices: { hatchback: 19999, sedan: 19999, midsized: 22499, suv: 23999, pickup: 22499, largesuv: 27999, highend: 28999 },
         originalPriceMultiplier: 2,
@@ -142,301 +130,339 @@ const spfPackages: SPFPackage[] = [
             "FREE Full Recoat After 5 Years",
             "FREE 2 visits Reboost/Maintenance (save ₱3,000)",
         ],
-        popular: false,
-        flagship: false,
-        icon: Shield,
+        highlighted: ["SONAX Profiline CC EVO", "Full Recoat"],
+        popular: false, flagship: false, icon: Star,
     },
     {
-        key: "spf101",
-        label: "SPF 101",
-        years: "10 Years",
-        badge: "ALL-IN PACKAGE",
-        badgeColor: "from-amber-300 via-yellow-400 to-orange-500",
-        tier: "Flagship",
-        tierColor: "from-amber-300 via-yellow-400 to-orange-500",
-        tierBg: "bg-gradient-to-r from-amber-500/15 to-orange-500/15 text-amber-400 border-amber-500/25",
-        glowColor: "rgba(212,175,55,0.18)",
+        key: "spf101", label: "SPF 101", years: "10 Years", yearsNum: 10,
+        badge: "ALL-IN PACKAGE", tier: "Ultimate",
+        accentFrom: "#c084fc", accentTo: "#7c3aed", accentMid: "#a78bfa",
+        tagline: "The complete transformation experience",
         prices: { hatchback: 39999, sedan: 39999, midsized: 46999, suv: 46999, pickup: 46999, largesuv: 49999, highend: 49999 },
         tintPrices: { hatchback: null, sedan: null, midsized: null, suv: null, pickup: null, largesuv: null, highend: null },
         originalPriceMultiplier: 2,
         features: [
-            "Paint Protection Film PPF (Hood, Bumper, Mirrors & More)",
+            "Paint Protection Film PPF (Hood, Front Bumper, Side Mirrors, Stepsils, Door Bowls, Headlight & Taillight)",
             "4 Layers SONAX Profiline CC EVO (Germany)",
             "FREE 5 visits Reboost/Maintenance (save ₱7,500)",
             "FREE Full Recoat After 5 Years",
             "Nano Ceramic Window Tint (Full Wrap — Any Shade)",
             "FREE Undercoating (Rust Proofing)",
         ],
-        popular: false,
-        flagship: true,
-        icon: Crown,
+        highlighted: ["PPF", "SONAX", "Nano Ceramic Window Tint", "Undercoating"],
+        popular: false, flagship: true, icon: Crown,
     },
 ];
 
 /* ═══════════════════════════════════════
-   ServiceCard — Premium SPF Package Card
+   LUXURY CARD COMPONENT
 ═══════════════════════════════════════ */
-function ServiceCard({
-    pkg,
-    index,
-    vehicleType,
-}: {
-    pkg: SPFPackage;
-    index: number;
-    vehicleType: VehicleType;
-}) {
+function LuxuryCard({ pkg, index, vehicleType }: { pkg: SPFPackage; index: number; vehicleType: VehicleType }) {
     const { t } = useLanguage();
     const Icon = pkg.icon;
-    const [isHovered, setIsHovered] = useState(false);
+    const [hovered, setHovered] = useState(false);
 
     const price = pkg.prices[vehicleType];
     const tintPrice = pkg.tintPrices[vehicleType];
     const originalPrice = price ? price * pkg.originalPriceMultiplier : null;
-
-    // If package is not available for this vehicle type, don't render it
     if (price === null) return null;
+
     const isFlagship = pkg.flagship;
     const isPopular = pkg.popular;
+    const isHighlighted = isPopular || isFlagship;
 
     return (
         <motion.div
             custom={index}
-            variants={cardVariant}
-            whileHover={{ y: -12, transition: { duration: 0.35, ease: EASE } }}
-            onHoverStart={() => setIsHovered(true)}
-            onHoverEnd={() => setIsHovered(false)}
+            initial={{ opacity: 0, y: 40, scale: 0.97 }}
+            whileInView={{ opacity: 1, y: 0, scale: 1 }}
+            viewport={{ once: true, margin: "-30px" }}
+            transition={{ duration: 0.6, ease: EASE, delay: index * 0.08 }}
+            whileHover={{ y: -14, transition: { duration: 0.35, ease: EASE } }}
+            onHoverStart={() => setHovered(true)}
+            onHoverEnd={() => setHovered(false)}
             className={cn(
-                "group relative flex flex-col rounded-3xl overflow-hidden transition-all duration-500 w-full sm:w-[320px] lg:w-[300px] xl:w-[280px] 2xl:w-[310px] shrink-0",
-                isFlagship
-                    ? ""
-                    : "",
-                isPopular || isFlagship
-                    ? "ring-1 ring-amber-500/30 shadow-2xl shadow-amber-500/10"
-                    : "ring-1 ring-white/[0.07]"
+                "group relative flex flex-col rounded-[24px] overflow-hidden w-full transition-all duration-500",
+                isHighlighted && "lg:scale-[1.03] z-10"
             )}
-            style={{
-                background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%)",
-                backdropFilter: "blur(12px)",
-            }}
+            style={{ willChange: "transform" }}
         >
-            {/* ── Animated border glow ── */}
+            {/* ── Animated outer glow ring ── */}
             <motion.div
-                className="absolute inset-0 rounded-3xl pointer-events-none"
+                className="absolute -inset-[1.5px] rounded-[25px] z-0 pointer-events-none"
                 animate={{
-                    boxShadow: isHovered
-                        ? `0 0 40px ${pkg.glowColor}, inset 0 1px 0 rgba(255,255,255,0.08)`
-                        : `0 0 0px transparent, inset 0 1px 0 rgba(255,255,255,0.04)`,
+                    opacity: hovered ? 1 : isHighlighted ? 0.6 : 0,
+                    background: `linear-gradient(135deg, ${pkg.accentFrom}60 0%, transparent 40%, ${pkg.accentTo}40 70%, transparent 100%)`,
                 }}
-                transition={{ duration: 0.4, ease: EASE }}
+                transition={{ duration: 0.5 }}
             />
 
-            {/* ── Shimmer effect on hover ── */}
-            <div className="absolute inset-0 overflow-hidden rounded-3xl pointer-events-none">
-                <motion.div
-                    className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/[0.04] to-transparent skew-x-[-20deg]"
-                    variants={shimmer}
-                    initial="hidden"
-                    animate={isHovered ? "visible" : "hidden"}
-                />
-            </div>
-
-            {/* ── Badge strip ── */}
-            <div className="relative">
-                <div
-                    className={cn(
-                        "flex items-center justify-center gap-2 py-2.5 text-[11px] font-bold uppercase tracking-[0.25em]",
-                        isFlagship
-                            ? "bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-orange-500/20 text-amber-400"
-                            : isPopular
-                            ? "bg-gradient-to-r from-emerald-500/15 to-teal-500/15 text-emerald-400"
-                            : "bg-gradient-to-r from-orange-500/15 to-red-500/10 text-orange-400"
-                    )}
-                >
-                    {isFlagship ? (
-                        <Crown className="w-3.5 h-3.5" />
-                    ) : isPopular ? (
-                        <Star className="w-3.5 h-3.5 fill-current" />
-                    ) : (
-                        <Zap className="w-3.5 h-3.5" />
-                    )}
-                    {pkg.badge}
-                </div>
-                <div className="h-px bg-gradient-to-r from-transparent via-amber-500/40 to-transparent" />
-            </div>
-
-            {/* ── Card Header ── */}
-            <div className="relative px-7 pt-7 pb-4 flex flex-col items-center text-center">
-                {/* SPF Label + Duration */}
-                <div className="flex items-center justify-center gap-2 mb-4">
-                    <span
-                        className={cn(
-                            "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border",
-                            pkg.tierBg
-                        )}
-                    >
-                        <Zap className="w-2.5 h-2.5" />
-                        {pkg.tier}
-                    </span>
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-white/5 border border-white/10 text-white/50">
-                        <Shield className="w-2.5 h-2.5" />
-                        {pkg.years} Protection
-                    </span>
-                </div>
-
-                {/* Icon + Title */}
-                <div className="flex flex-col items-center gap-3 mb-5">
+            {/* ── Card Face ── */}
+            <div
+                className="relative z-10 rounded-[24px] flex flex-col h-full overflow-hidden"
+                style={{
+                    background: `linear-gradient(170deg, 
+                        ${hovered ? pkg.accentFrom + "12" : pkg.accentFrom + "08"} 0%, 
+                        rgba(12,17,29,0.97) 35%, 
+                        rgba(8,12,24,0.99) 100%)`,
+                    border: `1px solid ${hovered ? pkg.accentFrom + "45" : isHighlighted ? pkg.accentFrom + "30" : "rgba(255,255,255,0.08)"}`,
+                    transition: "all 0.5s ease",
+                }}
+            >
+                {/* ── Gradient accent bar ── */}
+                <div className="h-[3px] w-full relative overflow-hidden">
                     <motion.div
-                        className={cn(
-                            "w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 border transition-all duration-500",
-                            isHovered
-                                ? `bg-gradient-to-br ${pkg.tierColor} border-transparent shadow-lg`
-                                : "bg-white/[0.05] border-white/10"
-                        )}
-                        animate={isHovered ? { rotate: [0, -5, 5, 0], scale: 1.05 } : { rotate: 0, scale: 1 }}
-                        transition={{ duration: 0.5, ease: EASE }}
+                        className="absolute inset-0"
+                        style={{ background: `linear-gradient(90deg, ${pkg.accentFrom}, ${pkg.accentMid}, ${pkg.accentTo})` }}
+                        initial={{ scaleX: 0 }}
+                        whileInView={{ scaleX: 1 }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 1, delay: index * 0.12, ease: EASE }}
+                    />
+                    {/* Moving shimmer on gradient bar */}
+                    <motion.div
+                        className="absolute inset-0 w-1/3 bg-gradient-to-r from-transparent via-white/40 to-transparent"
+                        animate={{ x: ["-100%", "400%"] }}
+                        transition={{ duration: 3, repeat: Infinity, repeatDelay: 5, ease: "easeInOut" }}
+                    />
+                </div>
+
+                {/* ── Header: Badge + Year ── */}
+                <div className="px-7 pt-6 pb-0 flex items-center justify-between">
+                    <motion.span
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        whileInView={{ opacity: 1, scale: 1 }}
+                        viewport={{ once: true }}
+                        transition={{ delay: 0.3 + index * 0.08, type: "spring", stiffness: 300 }}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-[6px] rounded-full text-[9px] font-black uppercase tracking-[0.25em]"
+                        style={{
+                            background: `linear-gradient(135deg, ${pkg.accentFrom}20, ${pkg.accentTo}10)`,
+                            border: `1px solid ${pkg.accentFrom}30`,
+                            color: pkg.accentFrom,
+                        }}
                     >
-                        <Icon
-                            className={cn(
-                                "w-6 h-6 transition-colors duration-300",
-                                isHovered ? "text-white" : "text-white/50"
-                            )}
-                        />
-                    </motion.div>
-                    <div className="w-full">
-                        <h3 className="text-xl font-black text-white group-hover:text-amber-400 transition-colors duration-300 leading-tight tracking-tight">
-                            {pkg.label}
-                        </h3>
-                        <p className="text-xs text-white/30 mt-1 leading-relaxed">
-                            Graphene Ceramic Coating — {pkg.years} Protection
-                        </p>
+                        {isFlagship ? <Crown className="w-3 h-3" /> : isPopular ? <Star className="w-3 h-3 fill-current" /> : <Zap className="w-3 h-3" />}
+                        {pkg.badge}
+                    </motion.span>
+
+                    <div className="flex items-center gap-1.5 px-3 py-[5px] rounded-full bg-white/[0.04] border border-white/[0.06]">
+                        <Shield className="w-2.5 h-2.5 text-white/30" />
+                        <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/30">
+                            {pkg.years}
+                        </span>
                     </div>
                 </div>
 
-                {/* ── Price Display ── */}
-                <div className="flex items-baseline justify-center gap-3 mb-1 w-full">
-                    <span className="text-[11px] text-white/25 uppercase tracking-wider font-medium">
-                        {t("services.startingAt")}
-                    </span>
-                    {/* Original (crossed out) price */}
-                    <span className="text-sm text-white/25 line-through font-medium">
-                        ₱{originalPrice?.toLocaleString()}
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-bold uppercase tracking-wider">
-                        50% off
-                    </span>
+                {/* ── Icon + Title Block ── */}
+                <div className="px-7 pt-6 pb-5 flex flex-col items-center text-center">
+                    {/* Animated Icon */}
+                    <motion.div
+                        className="relative w-[72px] h-[72px] rounded-[20px] flex items-center justify-center mb-5"
+                        animate={hovered ? { rotate: [0, -4, 4, 0], scale: 1.06 } : { rotate: 0, scale: 1 }}
+                        transition={{ duration: 0.5 }}
+                        style={{
+                            background: `linear-gradient(145deg, ${pkg.accentFrom}, ${pkg.accentTo})`,
+                            boxShadow: hovered
+                                ? `0 12px 40px ${pkg.accentFrom}40, 0 0 0 1px ${pkg.accentFrom}20`
+                                : `0 6px 25px ${pkg.accentFrom}20`,
+                            transition: "box-shadow 0.5s ease",
+                        }}
+                    >
+                        <Icon className="w-8 h-8 text-white relative z-10" />
+                        {/* Inner shine */}
+                        <div className="absolute inset-0 rounded-[20px] bg-gradient-to-tr from-white/25 via-transparent to-transparent" />
+                        {/* Pulse ring */}
+                        {isHighlighted && (
+                            <motion.div
+                                className="absolute -inset-2 rounded-[24px] border pointer-events-none"
+                                style={{ borderColor: pkg.accentFrom + "20" }}
+                                animate={{ scale: [1, 1.15, 1], opacity: [0.3, 0, 0.3] }}
+                                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                            />
+                        )}
+                    </motion.div>
+
+                    {/* Title */}
+                    <h3
+                        className="text-2xl font-black tracking-tight mb-1.5 transition-all duration-500"
+                        style={{
+                            color: hovered ? pkg.accentFrom : "#ffffff",
+                        }}
+                    >
+                        {pkg.label}
+                    </h3>
+                    <p className="text-[11px] text-white/25 font-medium tracking-wide italic">
+                        {pkg.tagline}
+                    </p>
                 </div>
-                <div className="flex justify-center mb-2 w-full mt-1">
-                    <AnimatePresence mode="wait">
-                        <motion.span
-                            key={price}
-                            variants={priceFlip}
-                            initial="exit"
-                            animate="enter"
-                            exit="exit"
-                            className={cn(
-                                "relative text-4xl font-black tracking-tight inline-block",
-                                isFlagship || isPopular
-                                    ? "text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500"
-                                    : "text-white"
-                            )}
-                        >
-                            <span className="text-white/40 text-lg font-medium absolute -left-4 bottom-1.5 leading-none">₱</span>
-                            {price?.toLocaleString()}
-                            <span className="text-white/20 text-sm font-medium absolute -right-7 bottom-1.5 leading-none">.00</span>
-                        </motion.span>
-                    </AnimatePresence>
-                </div>
-                {/* Tint bundle price */}
-                {tintPrice && (
-                    <div className="flex items-center justify-center gap-2 mb-4 w-full">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-400/60">
-                            + Nano Ceramic Window Tint
-                        </span>
-                        <AnimatePresence mode="wait">
+
+                {/* ── Price Block ── */}
+                <div className="mx-6 rounded-2xl p-5 mb-5 relative overflow-hidden"
+                    style={{
+                        background: `linear-gradient(135deg, ${pkg.accentFrom}08, ${pkg.accentTo}04, rgba(0,0,0,0.2))`,
+                        border: `1px solid ${pkg.accentFrom}15`,
+                    }}
+                >
+                    {/* Subtle mesh behind price */}
+                    <div className="absolute inset-0 opacity-[0.03]"
+                        style={{
+                            backgroundImage: `radial-gradient(circle at 20% 50%, ${pkg.accentFrom} 1px, transparent 1px), radial-gradient(circle at 80% 50%, ${pkg.accentTo} 1px, transparent 1px)`,
+                            backgroundSize: "20px 20px",
+                        }}
+                    />
+
+                    <div className="relative z-10">
+                        {/* Original price + discount */}
+                        <div className="flex items-center justify-center gap-2.5 mb-2">
+                            <span className="text-[10px] text-white/20 uppercase tracking-[0.15em] font-medium">
+                                {t("services.startingAt")}
+                            </span>
+                            <span className="text-xs text-white/20 line-through font-medium">
+                                ₱{originalPrice?.toLocaleString()}
+                            </span>
                             <motion.span
-                                key={tintPrice}
+                                initial={{ scale: 0.9 }}
+                                whileInView={{ scale: 1 }}
+                                viewport={{ once: true }}
+                                className="text-[9px] px-2 py-[3px] rounded-full font-black uppercase tracking-wider"
+                                style={{
+                                    background: `linear-gradient(135deg, #ef4444, #dc2626)`,
+                                    color: "#fff",
+                                    boxShadow: "0 2px 8px rgba(239,68,68,0.3)",
+                                }}
+                            >
+                                50% OFF
+                            </motion.span>
+                        </div>
+
+                        {/* Main price */}
+                        <AnimatePresence mode="wait">
+                            <motion.div
+                                key={price}
                                 variants={priceFlip}
                                 initial="exit"
                                 animate="enter"
                                 exit="exit"
-                                className="text-sm font-bold text-amber-400/80"
+                                className="flex items-baseline justify-center gap-0.5"
                             >
-                                ₱{tintPrice.toLocaleString()}
-                            </motion.span>
+                                <span className="text-base font-medium text-white/25">₱</span>
+                                <span
+                                    className="text-[44px] font-black tracking-tight leading-none"
+                                    style={{
+                                        backgroundImage: `linear-gradient(135deg, ${pkg.accentFrom}, ${pkg.accentMid}, ${pkg.accentTo})`,
+                                        WebkitBackgroundClip: "text",
+                                        WebkitTextFillColor: "transparent",
+                                    }}
+                                >
+                                    {price?.toLocaleString()}
+                                </span>
+                                <span className="text-sm font-medium text-white/15 self-end mb-1">.00</span>
+                            </motion.div>
                         </AnimatePresence>
-                    </div>
-                )}
-            </div>
 
-            {/* ── Divider ── */}
-            <div className="mx-7 h-px shrink-0 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-
-            {/* ── Features ── */}
-            <div className="px-7 py-6 flex-1">
-                <ul className="space-y-3">
-                    {pkg.features.map((feat, i) => (
-                        <motion.li
-                            key={feat}
-                            className="flex items-start gap-3 text-sm text-white/50 group-hover:text-white/65 transition-colors duration-300"
-                            initial={{ opacity: 0, x: -10 }}
-                            whileInView={{ opacity: 1, x: 0 }}
-                            viewport={{ once: true }}
-                            transition={{ delay: 0.3 + i * 0.05, duration: 0.4, ease: EASE }}
-                        >
-                            <div
-                                className={cn(
-                                    "w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5 transition-all duration-300",
-                                    isHovered
-                                        ? "bg-amber-500/15 border border-amber-500/30"
-                                        : "bg-white/5 border border-white/10"
-                                )}
-                            >
-                                <CheckCircle2
-                                    className={cn(
-                                        "w-3 h-3 transition-colors duration-300",
-                                        isHovered ? "text-amber-400" : "text-white/30"
-                                    )}
-                                />
+                        {/* Tint bundle */}
+                        {tintPrice && (
+                            <div className="flex items-center justify-center gap-2 mt-3 pt-3 border-t" style={{ borderColor: pkg.accentFrom + "10" }}>
+                                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: pkg.accentFrom + "70" }}>
+                                    + Nano Ceramic Window Tint
+                                </span>
+                                <AnimatePresence mode="wait">
+                                    <motion.span key={tintPrice} variants={priceFlip} initial="exit" animate="enter" exit="exit"
+                                        className="text-sm font-bold" style={{ color: pkg.accentFrom }}>
+                                        ₱{tintPrice.toLocaleString()}
+                                    </motion.span>
+                                </AnimatePresence>
                             </div>
-                            <span className="font-medium text-[13px] leading-snug">{feat}</span>
-                        </motion.li>
-                    ))}
-                </ul>
-            </div>
-
-            {/* ── CTA Button ── */}
-            <div className="px-7 pb-7 mt-auto shrink-0">
-                <Link to={`/booking?pkg=${pkg.key}`}>
-                    <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        className={cn(
-                            "w-full h-12 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all duration-300 group/btn cursor-pointer",
-                            isFlagship || isPopular
-                                ? "bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 hover:from-amber-600 hover:to-orange-700"
-                                : "bg-white/[0.06] text-white/70 hover:text-white border border-white/10 hover:border-amber-500/30 hover:bg-amber-500/[0.08]"
                         )}
-                    >
-                        {t("services.bookNow")}
-                        <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
-                    </motion.button>
-                </Link>
-            </div>
+                    </div>
+                </div>
 
-            {/* ── Corner accent ── */}
-            <div
-                className={cn(
-                    "absolute top-0 right-0 w-40 h-40 rounded-full blur-[80px] pointer-events-none transition-opacity duration-500",
-                    isHovered ? "opacity-100" : "opacity-0"
-                )}
-                style={{ background: pkg.glowColor }}
-            />
+                {/* ── Features ── */}
+                <div className="px-7 pb-4 flex-1">
+                    <div className="text-[9px] font-bold uppercase tracking-[0.25em] text-white/15 mb-4">What's included</div>
+                    <ul className="space-y-3">
+                        {pkg.features.map((feat, i) => {
+                            const isHighlightedFeat = pkg.highlighted.some(h => feat.includes(h));
+                            return (
+                                <motion.li
+                                    key={feat}
+                                    className="flex items-start gap-3"
+                                    initial={{ opacity: 0, x: -12 }}
+                                    whileInView={{ opacity: 1, x: 0 }}
+                                    viewport={{ once: true }}
+                                    transition={{ delay: 0.3 + i * 0.06, duration: 0.4, ease: EASE }}
+                                >
+                                    <div
+                                        className="w-5 h-5 rounded-lg flex items-center justify-center shrink-0 mt-0.5 transition-all duration-300"
+                                        style={{
+                                            background: hovered || isHighlightedFeat ? `${pkg.accentFrom}18` : "rgba(255,255,255,0.04)",
+                                            border: `1px solid ${hovered || isHighlightedFeat ? pkg.accentFrom + "35" : "rgba(255,255,255,0.06)"}`,
+                                        }}
+                                    >
+                                        <Check className="w-3 h-3 transition-colors duration-300"
+                                            style={{ color: hovered || isHighlightedFeat ? pkg.accentFrom : "rgba(255,255,255,0.25)" }}
+                                        />
+                                    </div>
+                                    <span className={cn(
+                                        "text-[13px] font-medium leading-snug transition-colors duration-300",
+                                        isHighlightedFeat ? "text-white/70" : "text-white/40",
+                                        "group-hover:text-white/60",
+                                    )}>
+                                        {feat}
+                                    </span>
+                                </motion.li>
+                            );
+                        })}
+                    </ul>
+                </div>
+
+                {/* ── CTA ── */}
+                <div className="px-7 pb-7 mt-auto">
+                    <Link to={`/booking?pkg=${pkg.key}`}>
+                        <motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.97 }}
+                            className="w-full h-[52px] rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all duration-400 group/btn cursor-pointer relative overflow-hidden"
+                            style={{
+                                background: isHighlighted
+                                    ? `linear-gradient(135deg, ${pkg.accentFrom}, ${pkg.accentTo})`
+                                    : "rgba(255,255,255,0.05)",
+                                color: isHighlighted ? "#fff" : "rgba(255,255,255,0.6)",
+                                border: isHighlighted ? "none" : `1px solid rgba(255,255,255,0.08)`,
+                                boxShadow: isHighlighted ? `0 10px 35px ${pkg.accentFrom}30` : "none",
+                                letterSpacing: "0.05em",
+                            }}
+                        >
+                            {/* Animated shimmer */}
+                            <span className="absolute inset-0 -translate-x-full group-hover/btn:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+                            <span className="relative z-10 uppercase tracking-wider">{t("services.bookNow")}</span>
+                            <ArrowRight className="w-4 h-4 relative z-10 group-hover/btn:translate-x-1.5 transition-transform duration-300" />
+                        </motion.button>
+                    </Link>
+                </div>
+
+                {/* ── Ambient card glow ── */}
+                <div
+                    className="absolute top-0 right-0 w-56 h-56 rounded-full blur-[100px] pointer-events-none transition-opacity duration-700"
+                    style={{
+                        background: `radial-gradient(circle, ${pkg.accentFrom}${hovered ? "18" : "08"}, transparent)`,
+                        opacity: hovered ? 1 : 0.5,
+                    }}
+                />
+                <div
+                    className="absolute bottom-0 left-0 w-40 h-40 rounded-full blur-[80px] pointer-events-none transition-opacity duration-700"
+                    style={{
+                        background: `radial-gradient(circle, ${pkg.accentTo}${hovered ? "12" : "04"}, transparent)`,
+                        opacity: hovered ? 1 : 0.3,
+                    }}
+                />
+            </div>
         </motion.div>
     );
 }
 
 /* ═══════════════════════════════════════
-   Add-ons Section
+   ADD-ONS DATA
 ═══════════════════════════════════════ */
 const addOns: { name: string; prices: Record<VehicleType, string> }[] = [
     { name: "Undercoating", prices: { hatchback: "₱6,000", sedan: "₱6,500", midsized: "₱7,000", suv: "₱7,500", pickup: "₱7,500", largesuv: "₱9,000", highend: "₱8,000" } },
@@ -448,75 +474,113 @@ const addOns: { name: string; prices: Record<VehicleType, string> }[] = [
 ];
 
 /* ═══════════════════════════════════════
-   Main Page Component
+   MAIN PAGE
 ═══════════════════════════════════════ */
 export default function Services() {
     const { t } = useLanguage();
     const [vehicleType, setVehicleType] = useState<VehicleType>("sedan");
 
-    const vehicleOptions: { type: VehicleType; label: string; icon: React.ElementType; desc: string }[] = [
-        { type: "hatchback", label: "Hatchback", icon: CarFront, desc: "Small Car" },
-        { type: "sedan", label: "Sedan", icon: Car, desc: "Standard" },
-        { type: "midsized", label: "Midsized", icon: Car, desc: "Mid SUV" },
-        { type: "suv", label: "SUV", icon: Truck, desc: "Large" },
-        { type: "pickup", label: "Pick Up", icon: Truck, desc: "Truck" },
-        { type: "largesuv", label: "Large SUV / Van", icon: Truck, desc: "Full-Size" },
-        { type: "highend", label: "Highend Sedan", icon: Crown, desc: "Luxury" },
+    const vehicleOptions: { type: VehicleType; label: string; icon: React.ElementType }[] = [
+        { type: "hatchback", label: "Hatchback", icon: CarFront },
+        { type: "sedan", label: "Sedan", icon: Car },
+        { type: "midsized", label: "Midsized", icon: Car },
+        { type: "suv", label: "SUV", icon: Truck },
+        { type: "pickup", label: "Pick Up", icon: Truck },
+        { type: "largesuv", label: "Large SUV / Van", icon: Truck },
+        { type: "highend", label: "Highend Sedan", icon: Crown },
     ];
 
     return (
         <PageLayout>
             {/* ══════════════════════════════════
-                HERO SECTION
+                CINEMATIC HERO
             ══════════════════════════════════ */}
-            <section className="relative pt-36 pb-24 overflow-hidden">
-                <div className="absolute inset-0 bg-hero-pattern" />
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background" />
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-amber-500/[0.06] blur-[150px] rounded-full pointer-events-none" />
+            <section className="relative pt-32 pb-20 overflow-hidden">
+                {/* Rich gradient background */}
+                <div className="absolute inset-0" style={{
+                    background: `
+                        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(245,158,11,0.08) 0%, transparent 50%),
+                        radial-gradient(ellipse 60% 40% at 70% 10%, rgba(139,92,246,0.06) 0%, transparent 50%),
+                        radial-gradient(ellipse 60% 40% at 30% 20%, rgba(59,130,246,0.05) 0%, transparent 50%),
+                        linear-gradient(180deg, #06080f 0%, #0a0f1c 50%, #080c18 100%)
+                    `
+                }} />
 
-                <div className="container max-w-5xl mx-auto px-6 relative z-10 text-center">
-                    <motion.div
-                        variants={stagger}
-                        initial="hidden"
-                        animate="visible"
-                    >
-                        {/* Badge */}
-                        <motion.div
-                            variants={fadeUp}
-                            className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-white/[0.04] border border-white/10 text-[11px] font-bold uppercase tracking-[0.3em] text-amber-400/80 mb-6 backdrop-blur-sm"
+                {/* Animated gradient mesh */}
+                <motion.div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] pointer-events-none"
+                    animate={{ rotate: [0, 3, -3, 0] }}
+                    transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+                >
+                    <div className="absolute top-10 left-1/4 w-72 h-72 bg-amber-500/[0.06] blur-[120px] rounded-full" />
+                    <div className="absolute top-20 right-1/4 w-56 h-56 bg-violet-500/[0.05] blur-[100px] rounded-full" />
+                    <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-80 h-40 bg-sky-500/[0.04] blur-[100px] rounded-full" />
+                </motion.div>
+
+                {/* Grid pattern overlay */}
+                <div className="absolute inset-0 opacity-[0.02]" style={{
+                    backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+                    backgroundSize: "60px 60px",
+                }} />
+
+                <div className="container max-w-6xl mx-auto px-6 relative z-10 text-center">
+                    <motion.div variants={stagger} initial="hidden" animate="visible">
+                        {/* Prestige badge */}
+                        <motion.div variants={fadeUp}
+                            className="inline-flex items-center gap-3 px-6 py-2.5 rounded-full mb-8 backdrop-blur-md"
+                            style={{
+                                background: "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(234,88,12,0.06))",
+                                border: "1px solid rgba(245,158,11,0.2)",
+                                boxShadow: "0 4px 20px rgba(245,158,11,0.08)",
+                            }}
                         >
-                            <BadgeCheck className="w-3.5 h-3.5" />
-                            Graphene Ceramic Coating
+                            <motion.div animate={{ rotate: [0, 360] }} transition={{ duration: 8, repeat: Infinity, ease: "linear" }}>
+                                <Gem className="w-4 h-4 text-amber-400" />
+                            </motion.div>
+                            <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-amber-400/90">
+                                Premium Ceramic Coating
+                            </span>
                         </motion.div>
 
-                        {/* Headline */}
-                        <motion.h1
-                            variants={fadeUp}
-                            className="text-5xl sm:text-6xl lg:text-7xl font-serif font-medium text-white tracking-tight mb-5 leading-[1.05]"
+                        {/* Main headline */}
+                        <motion.h1 variants={fadeUp}
+                            className="text-5xl sm:text-6xl lg:text-[76px] font-serif font-medium text-white tracking-tight mb-6 leading-[1.05]"
                         >
-                            Premium Vehicle{" "}
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">
-                                Protection
+                            Unmatched Vehicle{" "}
+                            <br className="hidden sm:block" />
+                            <span className="relative inline-block">
+                                <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-orange-400 to-amber-500 italic">
+                                    Protection
+                                </span>
+                                {/* Underline accent */}
+                                <motion.div
+                                    className="absolute -bottom-2 left-0 right-0 h-[2px] rounded-full"
+                                    style={{ background: "linear-gradient(90deg, transparent, #f59e0b, transparent)" }}
+                                    initial={{ scaleX: 0 }}
+                                    animate={{ scaleX: 1 }}
+                                    transition={{ duration: 1, delay: 0.6, ease: EASE }}
+                                />
                             </span>
                         </motion.h1>
 
                         {/* Subtitle */}
-                        <motion.p
-                            variants={fadeUp}
-                            className="text-white/35 text-base md:text-lg max-w-2xl mx-auto font-light leading-relaxed"
+                        <motion.p variants={fadeUp}
+                            className="text-white/40 text-lg md:text-xl max-w-2xl mx-auto font-light leading-relaxed mb-10"
                         >
-                            Industry-leading graphene ceramic coating packages with up to 10 years of protection.
-                            Select your vehicle category below for accurate pricing.
+                            Industry-leading graphene ceramic coating with up to{" "}
+                            <span className="text-amber-400/60 font-medium">10 years of protection</span>.
+                            Select your vehicle for accurate pricing.
                         </motion.p>
 
                         {/* Trust badges */}
-                        <motion.div
-                            variants={fadeUp}
-                            className="flex items-center justify-center gap-6 mt-8"
-                        >
-                            {["SONAX Germany", "PPF Certified", "Vinyl Frog"].map((brand) => (
-                                <span key={brand} className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20 px-3 py-1.5 rounded-full border border-white/5">
-                                    {brand}
+                        <motion.div variants={fadeUp} className="flex flex-wrap items-center justify-center gap-4">
+                            {[
+                                { label: "SONAX Germany", icon: Award, color: "#f59e0b" },
+                                { label: "PPF Certified", icon: Shield, color: "#3b82f6" },
+                                { label: "Vinyl Frog", icon: Gem, color: "#10b981" },
+                            ].map(({ label, icon: TIcon, color }) => (
+                                <span key={label} className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.15em] text-white/30 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] hover:border-white/[0.12] transition-all duration-300">
+                                    <TIcon className="w-3.5 h-3.5" style={{ color: color + "80" }} />
+                                    {label}
                                 </span>
                             ))}
                         </motion.div>
@@ -527,16 +591,55 @@ export default function Services() {
             </section>
 
             {/* ══════════════════════════════════
-                VEHICLE SELECTOR — 5 Categories
+                STATS COUNTER BAR
             ══════════════════════════════════ */}
-            <section className="relative py-8 z-20">
+            <section className="relative py-10 z-20" style={{ background: "linear-gradient(180deg, #080c18 0%, #0a0f1c 100%)" }}>
+                <div className="container max-w-5xl mx-auto px-6">
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 0.6 }}
+                        className="grid grid-cols-2 sm:grid-cols-4 gap-6 py-6 px-8 rounded-2xl"
+                        style={{
+                            background: "linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))",
+                            border: "1px solid rgba(255,255,255,0.06)",
+                            backdropFilter: "blur(12px)",
+                        }}
+                    >
+                        {[
+                            { value: 5000, suffix: "+", label: "Vehicles Protected", icon: Car, color: "#3b82f6" },
+                            { value: 10, suffix: " Yrs", label: "Max Protection", icon: Shield, color: "#f59e0b" },
+                            { value: 100, suffix: "%", label: "Satisfaction Rate", icon: Trophy, color: "#10b981" },
+                            { value: 8, suffix: "+", label: "Years Experience", icon: Timer, color: "#a78bfa" },
+                        ].map(({ value, suffix, label, icon: SIcon, color }) => (
+                            <div key={label} className="text-center">
+                                <div className="flex items-center justify-center gap-2 mb-1.5">
+                                    <SIcon className="w-4 h-4" style={{ color: color + "80" }} />
+                                    <span className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                                        <AnimatedCounter value={value} suffix={suffix} />
+                                    </span>
+                                </div>
+                                <span className="text-[10px] text-white/25 font-bold uppercase tracking-[0.2em]">{label}</span>
+                            </div>
+                        ))}
+                    </motion.div>
+                </div>
+            </section>
+
+            {/* ══════════════════════════════════
+                VEHICLE SELECTOR
+            ══════════════════════════════════ */}
+            <section className="relative py-6 z-20" style={{ background: "#0a0f1c" }}>
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6, delay: 0.4, ease: EASE }}
-                    className="flex justify-center px-6"
+                    transition={{ duration: 0.6, delay: 0.3, ease: EASE }}
+                    className="flex justify-center px-4"
                 >
-                    <div className="inline-flex flex-wrap justify-center p-1.5 bg-white/[0.03] backdrop-blur-xl rounded-2xl border border-white/8 gap-1.5">
+                    <div className="inline-flex flex-wrap justify-center p-2 rounded-2xl gap-1.5"
+                        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", backdropFilter: "blur(16px)" }}
+                    >
                         {vehicleOptions.map((opt) => {
                             const VIcon = opt.icon;
                             const isActive = vehicleType === opt.type;
@@ -544,74 +647,79 @@ export default function Services() {
                                 <motion.button
                                     key={opt.type}
                                     onClick={() => setVehicleType(opt.type)}
-                                    whileHover={{ scale: isActive ? 1 : 1.03 }}
-                                    whileTap={{ scale: 0.97 }}
+                                    whileHover={{ scale: isActive ? 1 : 1.04 }}
+                                    whileTap={{ scale: 0.96 }}
                                     className={cn(
                                         "flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 relative overflow-hidden",
-                                        isActive
-                                            ? "bg-gradient-gold text-primary-foreground shadow-lg shadow-amber-500/25 ring-1 ring-amber-500/50"
-                                            : "glass-subtle border border-white/5 text-white/50 hover:text-white/80 hover:bg-white/5"
+                                        !isActive && "text-white/35 hover:text-white/60 hover:bg-white/[0.04]"
                                     )}
+                                    style={isActive ? {
+                                        background: "linear-gradient(135deg, #f59e0b, #ea580c)",
+                                        color: "#fff",
+                                        boxShadow: "0 6px 25px rgba(245,158,11,0.35)",
+                                    } : {}}
                                 >
-                                    <VIcon className="w-4 h-4" />
-                                    <span className="hidden sm:inline">{opt.label}</span>
-                                    <span className="sm:hidden text-xs">{opt.label.split(" ")[0]}</span>
+                                    {isActive && (
+                                        <motion.div
+                                            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
+                                            initial={{ x: "-100%" }}
+                                            animate={{ x: "100%" }}
+                                            transition={{ duration: 1.5, repeat: Infinity, repeatDelay: 3 }}
+                                        />
+                                    )}
+                                    <VIcon className="w-4 h-4 relative z-10" />
+                                    <span className="hidden sm:inline relative z-10">{opt.label}</span>
+                                    <span className="sm:hidden text-xs relative z-10">{opt.label.split(" ")[0]}</span>
                                 </motion.button>
                             );
                         })}
                     </div>
                 </motion.div>
 
-                {/* Vehicle type label */}
-                <motion.p
-                    key={vehicleType}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1, transition: { duration: 0.2 } }}
-                    className="text-center text-[11px] text-white/25 font-medium uppercase tracking-[0.3em] mt-4"
+                <motion.p key={vehicleType}
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0, transition: { duration: 0.25 } }}
+                    className="text-center text-[11px] text-white/20 font-medium uppercase tracking-[0.3em] mt-4"
                 >
-                    Showing prices for {vehicleOptions.find(v => v.type === vehicleType)?.label} vehicles
+                    Showing prices for{" "}
+                    <span className="text-amber-400/50 font-bold">{vehicleOptions.find(v => v.type === vehicleType)?.label}</span>
+                    {" "}vehicles
                 </motion.p>
             </section>
 
             {/* ══════════════════════════════════
-                SPF PACKAGE CARDS
+                LUXURY PRICING CARDS
             ══════════════════════════════════ */}
-            <section className="relative pt-4 pb-20 overflow-hidden">
-                {/* Ambient blobs */}
-                <div className="absolute top-40 left-0 w-[500px] h-[500px] bg-indigo-500/[0.03] blur-[150px] rounded-full pointer-events-none" />
-                <div className="absolute bottom-20 right-0 w-[400px] h-[400px] bg-amber-500/[0.04] blur-[120px] rounded-full pointer-events-none" />
-
-                <div className="w-full max-w-[1400px] mx-auto px-4 lg:px-8 relative z-10">
+            <section className="relative pt-8 pb-28 overflow-hidden" style={{
+                background: `
+                    radial-gradient(ellipse 70% 50% at 50% 30%, rgba(245,158,11,0.03) 0%, transparent 60%),
+                    radial-gradient(ellipse 50% 40% at 20% 60%, rgba(59,130,246,0.03) 0%, transparent 50%),
+                    radial-gradient(ellipse 50% 40% at 80% 70%, rgba(139,92,246,0.03) 0%, transparent 50%),
+                    linear-gradient(180deg, #0a0f1c 0%, #080c18 100%)
+                `
+            }}>
+                <div className="w-full max-w-[1440px] mx-auto px-4 lg:px-10 relative z-10">
                     <motion.div
                         key={vehicleType}
                         initial={{ opacity: 0, y: 16 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.22, ease: EASE }}
-                        className="flex flex-wrap justify-center items-stretch gap-5 lg:gap-6"
+                        transition={{ duration: 0.25, ease: EASE }}
+                        className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 lg:gap-5 items-start"
                     >
                         {spfPackages.map((pkg, i) => (
-                            <ServiceCard
-                                key={pkg.key}
-                                pkg={pkg}
-                                index={i}
-                                vehicleType={vehicleType}
-                            />
+                            <LuxuryCard key={pkg.key} pkg={pkg} index={i} vehicleType={vehicleType} />
                         ))}
                     </motion.div>
 
-                    {/* ── Comparison note ── */}
-                    <motion.div
-                        variants={fadeUp}
-                        initial="hidden"
-                        whileInView="visible"
-                        viewport={{ once: true }}
-                        className="text-center mt-14"
-                    >
-                        <div className="inline-flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/[0.03] border border-white/8 backdrop-blur-sm">
+                    {/* Note */}
+                    <motion.div variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}
+                        className="text-center mt-16">
+                        <div className="inline-flex items-center gap-3 px-7 py-3.5 rounded-2xl backdrop-blur-sm"
+                            style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
                             <BadgeCheck className="w-4 h-4 text-amber-400/60" />
                             <p className="text-xs text-white/30 font-medium">
-                                All prices include VAT &bull; 50% OFF limited promo &bull;{" "}
-                                <span className="text-amber-400/60">Satisfaction guaranteed</span>
+                                All prices include VAT &bull; 50% OFF currently active &bull;{" "}
+                                <span className="text-amber-400/60 font-semibold">Satisfaction guaranteed</span>
                             </p>
                         </div>
                     </motion.div>
@@ -619,51 +727,38 @@ export default function Services() {
             </section>
 
             {/* ══════════════════════════════════
-                ADD-ONS TABLE
+                ADD-ONS
             ══════════════════════════════════ */}
-            <section className="relative py-16 overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-500/[0.02] to-transparent" />
+            <section className="relative py-20 overflow-hidden" style={{ background: "#080c18" }}>
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-500/[0.015] to-transparent" />
                 <div className="container max-w-4xl mx-auto px-6 relative z-10">
-                    <motion.div
-                        initial={{ opacity: 0, y: 30 }}
-                        whileInView={{ opacity: 1, y: 0 }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.7 }}
-                        className="text-center mb-10"
-                    >
-                        <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3 tracking-tight">
-                            Add-On Services
+                    <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+                        transition={{ duration: 0.7 }} className="text-center mb-12">
+                        <h2 className="text-3xl sm:text-4xl font-serif font-medium text-white mb-3">
+                            Add-On{" "}
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">Services</span>
                         </h2>
-                        <p className="text-white/30 text-sm max-w-lg mx-auto">
-                            Enhance your protection package with additional services
+                        <p className="text-white/25 text-sm max-w-lg mx-auto font-light">
+                            Enhance your protection package with additional premium services
                         </p>
                     </motion.div>
 
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        whileInView={{ opacity: 1, y: 0 }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.7, delay: 0.1 }}
-                        className="rounded-2xl overflow-hidden ring-1 ring-white/10"
-                        style={{
-                            background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%)",
-                            backdropFilter: "blur(12px)",
-                        }}
+                    <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+                        transition={{ duration: 0.7, delay: 0.1 }} className="rounded-2xl overflow-hidden"
+                        style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.01) 100%)", border: "1px solid rgba(255,255,255,0.07)", backdropFilter: "blur(12px)" }}
                     >
                         {addOns.map((addon, i) => (
-                            <div
-                                key={addon.name}
-                                className={cn(
-                                    "flex items-center justify-between px-6 py-4 group hover:bg-white/[0.03] transition-colors duration-300",
-                                    i < addOns.length - 1 && "border-b border-white/5"
-                                )}
-                            >
-                                <span className="text-sm font-semibold text-white/70 group-hover:text-white transition-colors">
-                                    {addon.name}
-                                </span>
-                                <span className="text-sm font-bold text-amber-400/80">
-                                    {addon.prices[vehicleType]}
-                                </span>
+                            <div key={addon.name}
+                                className={cn("flex items-center justify-between px-7 py-5 group hover:bg-white/[0.03] transition-all duration-300",
+                                    i < addOns.length - 1 && "border-b border-white/[0.04]"
+                                )}>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-7 h-7 rounded-lg bg-amber-500/[0.08] border border-amber-500/15 flex items-center justify-center">
+                                        <Layers className="w-3.5 h-3.5 text-amber-400/50 group-hover:text-amber-400/80 transition-colors" />
+                                    </div>
+                                    <span className="text-sm font-semibold text-white/60 group-hover:text-white/80 transition-colors">{addon.name}</span>
+                                </div>
+                                <span className="text-sm font-bold text-amber-400/70 group-hover:text-amber-400 transition-colors">{addon.prices[vehicleType]}</span>
                             </div>
                         ))}
                     </motion.div>
@@ -673,69 +768,50 @@ export default function Services() {
             {/* ══════════════════════════════════
                 FREE INCLUSIONS
             ══════════════════════════════════ */}
-            <section className="relative py-20 overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-red-500/[0.02] to-transparent" />
+            <section className="relative py-24 overflow-hidden" style={{
+                background: `
+                    radial-gradient(ellipse 60% 40% at 50% 50%, rgba(16,185,129,0.04) 0%, transparent 60%),
+                    linear-gradient(180deg, #080c18 0%, #0a0f1c 100%)
+                `
+            }}>
                 <div className="container max-w-5xl mx-auto px-6 relative z-10">
-                    <motion.div
-                        initial={{ opacity: 0, y: 30 }}
-                        whileInView={{ opacity: 1, y: 0 }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.7 }}
-                        className="text-center mb-12"
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            whileInView={{ scale: 1, opacity: 1 }}
-                            viewport={{ once: true }}
-                            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-red-500/10 border border-red-500/20 text-xs font-bold uppercase tracking-[0.2em] text-red-400 mb-5"
+                    <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+                        transition={{ duration: 0.7 }} className="text-center mb-14">
+                        <motion.div initial={{ scale: 0.9, opacity: 0 }} whileInView={{ scale: 1, opacity: 1 }} viewport={{ once: true }}
+                            className="inline-flex items-center gap-2 px-5 py-2 rounded-full mb-6"
+                            style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.18)" }}
                         >
-                            <Zap className="w-3 h-3" />
-                            All Packages Include
+                            <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="text-[11px] font-bold uppercase tracking-[0.25em] text-emerald-400/90">Complimentary</span>
                         </motion.div>
-                        <h2 className="text-3xl sm:text-4xl font-bold text-white mb-3 tracking-tight">
+                        <h2 className="text-3xl sm:text-4xl font-serif font-medium text-white mb-3">
                             FREE{" "}
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-orange-500">
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-500 italic">
                                 Inclusions
                             </span>
                         </h2>
-                        <p className="text-white/30 text-sm max-w-lg mx-auto">
-                            Every SPF package comes with these premium services at no extra cost
+                        <p className="text-white/25 text-sm max-w-lg mx-auto font-light">
+                            Every SPF package includes these premium treatments at no extra cost
                         </p>
                     </motion.div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                         {[
-                            "Paint Decontamination",
-                            "Multi-Stage Paint Correction",
-                            "Acid Rain Removal",
-                            "Asphalt Removal",
-                            "Premium Wash",
-                            "Light Scratch Removal",
-                            "SwirlMarks Removal",
-                            "Bac2zero",
-                            "Gloss Enhancement",
-                            "Trim Restoration",
-                            "Matte Enhancement",
-                            "Degrimming",
-                            "Headlight/Taillight Coating",
-                            "Glass Coating",
-                            "Trims Coating",
+                            "Paint Decontamination", "Multi-Stage Paint Correction", "Acid Rain Removal",
+                            "Asphalt Removal", "Premium Wash", "Light Scratch Removal",
+                            "SwirlMarks Removal", "Bac2zero", "Gloss Enhancement",
+                            "Trim Restoration", "Matte Enhancement", "Degrimming",
+                            "Headlight/Taillight Coating", "Glass Coating", "Trims Coating",
                             "Mags/Wheels Coating",
                         ].map((item, i) => (
-                            <motion.div
-                                key={item}
-                                initial={{ opacity: 0, x: -15 }}
-                                whileInView={{ opacity: 1, x: 0 }}
-                                viewport={{ once: true }}
-                                transition={{ duration: 0.4, delay: i * 0.03 }}
-                                className="flex items-center gap-3 px-4 py-3.5 rounded-xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] hover:border-red-500/15 transition-all duration-300 group"
-                            >
-                                <div className="w-6 h-6 rounded-md bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
-                                    <Zap className="w-3 h-3 text-red-400 group-hover:text-red-300 transition-colors" />
+                            <motion.div key={item}
+                                initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+                                transition={{ duration: 0.35, delay: i * 0.025 }}
+                                className="flex items-center gap-3 px-5 py-4 rounded-xl bg-white/[0.025] border border-white/[0.05] hover:bg-emerald-500/[0.06] hover:border-emerald-500/20 transition-all duration-300 group cursor-default">
+                                <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/15 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-500/20 transition-colors">
+                                    <Check className="w-3 h-3 text-emerald-400/60 group-hover:text-emerald-400 transition-colors" />
                                 </div>
-                                <span className="text-sm font-medium text-white/60 group-hover:text-white/80 transition-colors">
-                                    {item}
-                                </span>
+                                <span className="text-[13px] font-medium text-white/45 group-hover:text-white/70 transition-colors">{item}</span>
                             </motion.div>
                         ))}
                     </div>
@@ -743,54 +819,40 @@ export default function Services() {
             </section>
 
             {/* ══════════════════════════════════
-                PPF PAINT PROTECTION FILM PRICELIST
+                PPF PRICELIST
             ══════════════════════════════════ */}
-            <section className="relative py-20 overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-500/[0.015] to-transparent" />
+            <section className="relative py-24 overflow-hidden" style={{ background: "#080c18" }}>
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-500/[0.012] to-transparent" />
                 <div className="container max-w-5xl mx-auto px-6 relative z-10">
-                    <motion.div
-                        initial={{ opacity: 0, y: 30 }}
-                        whileInView={{ opacity: 1, y: 0 }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.7 }}
-                        className="text-center mb-12"
-                    >
-                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-xs font-bold uppercase tracking-[0.2em] text-amber-400/80 mb-5">
-                            <Shield className="w-3.5 h-3.5" />
-                            Paint Protection Film
+                    <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+                        transition={{ duration: 0.7 }} className="text-center mb-12">
+                        <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full mb-6"
+                            style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)" }}>
+                            <Shield className="w-3.5 h-3.5 text-amber-400/80" />
+                            <span className="text-[11px] font-bold uppercase tracking-[0.25em] text-amber-400/80">Paint Protection Film</span>
                         </div>
-                        <h2 className="text-3xl sm:text-4xl font-bold text-white mb-3 tracking-tight">
+                        <h2 className="text-3xl sm:text-4xl font-serif font-medium text-white mb-3">
                             PPF{" "}
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500">
-                                Pricelist
-                            </span>
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">Pricelist</span>
                         </h2>
-                        <p className="text-white/30 text-sm max-w-lg mx-auto">
+                        <p className="text-white/25 text-sm max-w-lg mx-auto font-light">
                             Full-body Paint Protection Film — All TPU PPF Material
                         </p>
                     </motion.div>
 
-                    {/* PPF Table */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        whileInView={{ opacity: 1, y: 0 }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.7, delay: 0.1 }}
-                        className="rounded-2xl overflow-hidden ring-1 ring-white/10"
-                        style={{
-                            background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%)",
-                            backdropFilter: "blur(12px)",
-                        }}
+                    <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+                        transition={{ duration: 0.7, delay: 0.1 }} className="rounded-2xl overflow-hidden"
+                        style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.01) 100%)", border: "1px solid rgba(255,255,255,0.07)", backdropFilter: "blur(12px)" }}
                     >
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                                 <thead>
-                                    <tr className="border-b border-white/10">
-                                        <th className="text-left px-5 py-4 text-xs font-bold uppercase tracking-widest text-amber-400/80">Vehicle</th>
-                                        <th className="text-center px-4 py-4 text-xs font-bold uppercase tracking-widest text-white/40">CEO PPF</th>
-                                        <th className="text-center px-4 py-4 text-xs font-bold uppercase tracking-widest text-white/40">XPEL</th>
-                                        <th className="text-center px-4 py-4 text-xs font-bold uppercase tracking-widest text-white/40">Vinyl Frog</th>
-                                        <th className="text-center px-4 py-4 text-xs font-bold uppercase tracking-widest text-amber-400/60">ZIVENT</th>
+                                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                                        <th className="text-left px-6 py-5 text-xs font-bold uppercase tracking-widest text-amber-400/70">Vehicle</th>
+                                        <th className="text-center px-4 py-5 text-xs font-bold uppercase tracking-widest text-white/30">CEO PPF</th>
+                                        <th className="text-center px-4 py-5 text-xs font-bold uppercase tracking-widest text-white/30">XPEL</th>
+                                        <th className="text-center px-4 py-5 text-xs font-bold uppercase tracking-widest text-white/30">Vinyl Frog</th>
+                                        <th className="text-center px-4 py-5 text-xs font-bold uppercase tracking-widest text-amber-400/60">ZIVENT</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -801,17 +863,12 @@ export default function Services() {
                                         { vehicle: "Full-Size SUV", prices: ["₱100,000", "₱110,000", "₱130,000", "₱160,000"] },
                                     ].map((row, i) => (
                                         <tr key={row.vehicle} className={cn(
-                                            "group hover:bg-white/[0.03] transition-colors duration-300",
-                                            i < 3 && "border-b border-white/5"
+                                            "group hover:bg-white/[0.025] transition-colors duration-300",
+                                            i < 3 && "border-b border-white/[0.04]"
                                         )}>
-                                            <td className="px-5 py-4 font-semibold text-white/70 group-hover:text-white transition-colors">{row.vehicle}</td>
-                                            {row.prices.map((price, j) => (
-                                                <td key={j} className={cn(
-                                                    "text-center px-4 py-4 font-bold",
-                                                    j === 3 ? "text-amber-400/80" : "text-white/50"
-                                                )}>
-                                                    {price}
-                                                </td>
+                                            <td className="px-6 py-4.5 font-semibold text-white/60 group-hover:text-white transition-colors">{row.vehicle}</td>
+                                            {row.prices.map((p, j) => (
+                                                <td key={j} className={cn("text-center px-4 py-4.5 font-bold transition-colors", j === 3 ? "text-amber-400/70 group-hover:text-amber-400" : "text-white/40 group-hover:text-white/60")}>{p}</td>
                                             ))}
                                         </tr>
                                     ))}
@@ -819,34 +876,28 @@ export default function Services() {
                             </table>
                         </div>
 
-                        {/* PPF Specs */}
-                        <div className="border-t border-white/8 px-5 py-4">
-                            <div className="text-[10px] font-bold uppercase tracking-widest text-white/20 mb-3">Specifications</div>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-2 text-xs">
+                        <div className="border-t border-white/[0.06] px-6 py-5">
+                            <div className="text-[9px] font-bold uppercase tracking-[0.25em] text-white/15 mb-3">Specifications</div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-2.5 text-xs">
                                 {[
-                                    { label: "Warranty", values: ["5 Yrs", "5 Yrs", "6 Yrs", "10 Yrs"] },
-                                    { label: "Thickness", values: ["7.5 mils", "7.5 mils", "8.0 mils", "8.5 mils"] },
-                                    { label: "Free Panel Replacement", values: ["2 panels", "2 panels", "2 panels", "2 panels"] },
+                                    { label: "Warranty", values: "5 / 5 / 6 / 10 Yrs" },
+                                    { label: "Thickness", values: "7.5 / 7.5 / 8.0 / 8.5 mils" },
+                                    { label: "Free Panel Replacement", values: "2 panels each" },
                                 ].map((spec) => (
                                     <div key={spec.label} className="flex items-center gap-2">
-                                        <span className="text-white/30 font-medium">{spec.label}:</span>
-                                        <span className="text-white/50 font-semibold">{spec.values.join(" / ")}</span>
+                                        <span className="text-white/20 font-medium">{spec.label}:</span>
+                                        <span className="text-white/40 font-semibold">{spec.values}</span>
                                     </div>
                                 ))}
                             </div>
                         </div>
                     </motion.div>
 
-                    {/* Trust badges */}
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        whileInView={{ opacity: 1 }}
-                        viewport={{ once: true }}
+                    <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}
                         transition={{ duration: 0.5, delay: 0.3 }}
-                        className="flex items-center justify-center gap-8 mt-10"
-                    >
+                        className="flex flex-wrap items-center justify-center gap-6 mt-10">
                         {["PPF — Paint Protection Film", "SONAX — Made in Germany", "Vinyl Frog"].map((brand) => (
-                            <span key={brand} className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/15 px-3 py-1.5 rounded-full border border-white/5">
+                            <span key={brand} className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/12 px-4 py-2 rounded-full border border-white/[0.04]">
                                 {brand}
                             </span>
                         ))}
