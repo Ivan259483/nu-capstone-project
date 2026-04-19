@@ -63,15 +63,23 @@ async function registerForPushNotificationsAsync() {
   return token;
 }
 
-export const usePushNotifications = () => {
+export const usePushNotifications = (session?: string | null) => {
   const [expoPushToken, setExpoPushToken] = useState<string | undefined>('');
   const responseListener = useRef<any>(null);
 
   useEffect(() => {
-    // Only register if we have a token
+    // Only register push token when we have an active session
+    if (!session) return;
+
     const setupToken = async () => {
+      // Small delay to ensure auth token is fully persisted to storage
+      await new Promise((r) => setTimeout(r, 500));
+
       const jwtUserToken = await authStorage.getToken();
-      if (!jwtUserToken) return;
+      if (!jwtUserToken) {
+        console.warn('[PUSH] Session exists but no JWT token in storage yet — skipping push registration');
+        return;
+      }
 
       const token = await registerForPushNotificationsAsync();
       setExpoPushToken(token);
@@ -81,8 +89,14 @@ export const usePushNotifications = () => {
         try {
           await apiClient.post('/users/push-token', { token });
           console.log(`[PUSH] Token registered securely with AutoSPF+ Backend: ${token}`);
-        } catch (error) {
-          console.warn('[PUSH] Failed to submit push token to backend:', error);
+        } catch (error: any) {
+          // If we get a 401, the token is likely expired — don't crash, just log
+          const status = error?.response?.status;
+          if (status === 401) {
+            console.warn('[PUSH] Auth token expired during push registration — will retry on next session change');
+          } else {
+            console.warn('[PUSH] Failed to submit push token to backend:', error?.message || error);
+          }
         }
       }
     };
@@ -99,7 +113,7 @@ export const usePushNotifications = () => {
         responseListener.current.remove();
       }
     };
-  }, []);
+  }, [session]); // Re-run when auth session changes (login/logout)
 
   return { expoPushToken };
 };
