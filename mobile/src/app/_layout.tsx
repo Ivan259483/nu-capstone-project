@@ -166,10 +166,12 @@ NetInfo.addEventListener((state: any) => {
 });
 
 function GlobalWatchers({ children }: { children: React.ReactNode }) {
+  const { session } = useAuth();
   // Initiates socket connection natively based on user role
   useRealtimeSync();
   // Initializes expo push tokens and device registration 
-  usePushNotifications();
+  // Passes session so registration only fires after login completes
+  usePushNotifications(session);
 
   return <>{children}</>;
 }

@@ -13,8 +13,21 @@
  */
 
 import axios from 'axios';
-import { createCanvas, loadImage } from 'canvas';
 import OpenAI from 'openai';
+
+// ── Canvas (native C++ addon) — graceful import ──────────────────────────────
+// canvas requires system-level cairo/pango libs. If unavailable (e.g. Railway
+// without apt packages), we skip image resizing and send raw buffers to Groq.
+let createCanvas = null;
+let loadImage = null;
+try {
+  const canvasModule = await import('canvas');
+  createCanvas = canvasModule.createCanvas;
+  loadImage = canvasModule.loadImage;
+  console.log('[VisionAI] ✅ canvas module loaded — image resizing enabled');
+} catch (canvasErr) {
+  console.warn('[VisionAI] ⚠️  canvas module unavailable — image resizing disabled:', canvasErr.message);
+}
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const MAX_IMAGE_WIDTH      = 1024;   // Resize before sending to any vision API
@@ -46,6 +59,15 @@ const ROBOFLOW_ENDPOINT  =
 // ── Image resize + base64 encode ───────────────────────────────────────────────
 const resizeAndEncode = async (file) => {
   try {
+    // If canvas module is unavailable, skip resizing and send raw buffer
+    if (!loadImage || !createCanvas) {
+      console.log(
+        `[VisionAI] 🖼️  Canvas unavailable — sending raw buffer ` +
+        `(${(file.size / 1024).toFixed(0)} KB)`
+      );
+      return { base64: file.buffer.toString('base64'), width: 1024, height: 768 };
+    }
+
     const img   = await loadImage(file.buffer);
     const origW = img.width;
     const origH = img.height;

@@ -3,7 +3,16 @@ dotenv.config();
 
 import axios from 'axios';
 import { createHash } from 'crypto';
-import { createCanvas } from 'canvas';
+
+// canvas is a native C++ addon (requires cairo). Graceful import to prevent
+// crashing the entire controller if system libs are missing on Railway.
+let createCanvas = null;
+try {
+  const canvasModule = await import('canvas');
+  createCanvas = canvasModule.createCanvas;
+} catch (_) {
+  console.warn('[AI Controller] ⚠️  canvas module unavailable — mask generation disabled');
+}
 import Replicate from 'replicate';
 import AIServiceRequest from '../models/aIServiceRequest.model.js';
 import {
@@ -1254,6 +1263,9 @@ const downloadImage = async (url) => {
  * Each damage zone is expanded by 20% for natural edge blending.
  */
 const generateDamageMask = (imageWidth, imageHeight, damages) => {
+  if (!createCanvas) {
+    throw new Error('canvas module unavailable — cannot generate damage mask');
+  }
   const canvas = createCanvas(imageWidth, imageHeight);
   const ctx = canvas.getContext('2d');
 

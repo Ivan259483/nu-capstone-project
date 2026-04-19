@@ -63,7 +63,7 @@ async function registerForPushNotificationsAsync() {
   return token;
 }
 
-export const usePushNotifications = (session?: string | null) => {
+export const usePushNotifications = (session?: unknown) => {
   const [expoPushToken, setExpoPushToken] = useState<string | undefined>('');
   const responseListener = useRef<any>(null);
 

@@ -2,6 +2,9 @@
 builder = "NIXPACKS"
 buildCommand = "npm install"
 
+[build.nixpacks]
+aptPkgs = ["build-essential", "libcairo2-dev", "libpango1.0-dev", "libjpeg-dev", "libgif-dev", "librsvg2-dev", "pkg-config", "python3"]
+
 [deploy]
 startCommand = "node server.js"
 restartPolicyType = "ON_FAILURE"
