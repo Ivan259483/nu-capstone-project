@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Reanimated, { FadeIn, FadeInDown, FadeInUp, interpolate, useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useAnimatedScrollHandler } from 'react-native-reanimated';
+import { useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
@@ -215,6 +216,17 @@ export default function ScanScreen() {
   const workflowLockRef = useRef(false);
   const lastWorkflowTapAtRef = useRef(0);
 
+  // Full-reset stale workflow state when scan tab is focused and no workflow
+  // is running. RESET_FULL clears images too — prevents isUploadComplete
+  // staying true from a previous session and showing a phantom 3/6 counter.
+  useFocusEffect(
+    useCallback(() => {
+      if (!workflowLockRef.current) {
+        dispatch({ type: 'RESET_FULL' });
+      }
+    }, [])
+  );
+
   const primaryImage = useMemo(() => state.images[0]?.uri || null, [state.images]);
   const uploadedCount = state.images.filter(Boolean).length;
   const canAnalyze = uploadedCount >= 1;
@@ -304,7 +316,7 @@ export default function ScanScreen() {
     if (result.canceled || result.assets.length === 0) return;
 
     // We replace the entire images array so we only hold one primary image
-    const image = normalizeAssetToImageInput(result.assets[0], 'front-driver-side');
+    const image = normalizeAssetToImageInput(result.assets[0], 'front');
     dispatch({ type: 'SET_IMAGES', payload: [image] });
   };
 
@@ -769,7 +781,7 @@ export default function ScanScreen() {
                   {/* Primary image large preview */}
                   <TouchableOpacity
                     style={[s.primaryPreview, isWorkflowRunning && { opacity: 0.9, borderColor: T.amberGlow, borderWidth: 1 }]}
-                    onPress={() => !isWorkflowRunning && showImageActions('front-driver-side')}
+                    onPress={() => !isWorkflowRunning && showImageActions('front')}
                     activeOpacity={0.85}
                     disabled={isWorkflowRunning}
                   >
@@ -1839,4 +1851,3 @@ const s = StyleSheet.create({
   },
   confirmBtnText: { color: '#fff', fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
 });
-

@@ -27,7 +27,7 @@ const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   book: 'add-circle',
   track: 'navigate',
   scan: 'scan',
-  settings: 'settings',
+  settings: 'person',
 };
 
 const TAB_LABELS: Record<string, string> = {
@@ -35,7 +35,7 @@ const TAB_LABELS: Record<string, string> = {
   book: 'Book',
   track: 'Tracker',
   scan: 'AI Scan',
-  settings: 'Settings',
+  settings: 'Profile',
 };
 
 function TabBarButton({
@@ -168,7 +168,7 @@ export default function TabLayout() {
         <Tabs.Screen name="book" options={{ title: 'Book' }} />
         <Tabs.Screen name="track" options={{ title: 'Tracker' }} />
         <Tabs.Screen name="scan" options={{ title: 'AI Scan' }} />
-        <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
+        <Tabs.Screen name="settings" options={{ title: 'Profile' }} />
       </Tabs>
 
       {/* Floating Ask AI button — appears on all customer tabs */}

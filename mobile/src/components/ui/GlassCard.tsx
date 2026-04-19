@@ -8,6 +8,7 @@ import { View, StyleSheet, ViewStyle, StyleProp, Pressable } from 'react-native'
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
+  withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/hooks/useThemeContext';

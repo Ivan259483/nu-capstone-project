@@ -31,7 +31,6 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   FadeInDown,
-  FadeInRight,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -84,6 +83,106 @@ const TIME_SLOTS = [
   '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM',
   '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM',
   '4:00 PM', '5:00 PM',
+];
+
+// ─── SPF Package Definitions — mirrors Services.tsx exactly ──────────────────
+type VehicleTypeKey = 'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largesuv' | 'highend';
+
+interface SPFPackage {
+  key: string;
+  label: string;
+  years: string;
+  badge: string;
+  badgeColor: string;   // accent hex
+  tier: string;
+  prices: Record<VehicleTypeKey, number | null>;
+  tintPrices: Record<VehicleTypeKey, number | null>;
+  features: string[];
+  popular: boolean;
+  flagship: boolean;
+}
+
+const SPF_PACKAGES: SPFPackage[] = [
+  {
+    key: 'spf80',
+    label: 'SPF 80',
+    years: '3 Years',
+    badge: 'SPECIAL OFFER',
+    badgeColor: '#F97316',
+    tier: 'Essential',
+    prices:     { hatchback: 7499, sedan: 7999, midsized: 7999, suv: 8999, pickup: 8499, largesuv: 12999, highend: null },
+    tintPrices: { hatchback: 13499, sedan: 13499, midsized: 14499, suv: 15999, pickup: 14499, largesuv: 20999, highend: null },
+    features: [
+      '3 Layers Graphene Ceramic Coating (Canada)',
+      'Graphene Sealant',
+      'FREE 1 visit Signature AUTOSPF Carwash',
+    ],
+    popular: false,
+    flagship: false,
+  },
+  {
+    key: 'spf89',
+    label: 'SPF 89',
+    years: '5 Years',
+    badge: 'RECOMMENDED',
+    badgeColor: '#10B981',
+    tier: 'Advanced',
+    prices:     { hatchback: 8999, sedan: 9999, midsized: 10999, suv: 11999, pickup: 10999, largesuv: 14999, highend: 17999 },
+    tintPrices: { hatchback: 14999, sedan: 15999, midsized: 17499, suv: 18999, pickup: 17499, largesuv: 22999, highend: 23999 },
+    features: [
+      '4 Layers Graphene Ceramic Coating (Canada)',
+      'Graphene Sealant',
+      'FREE 1 visit Reboost/Maintenance (save ₱1,500)',
+    ],
+    popular: true,
+    flagship: false,
+  },
+  {
+    key: 'spf99',
+    label: 'SPF 99',
+    years: '10 Years',
+    badge: '50% OFF PROMO',
+    badgeColor: '#A855F7',
+    tier: 'Premium',
+    prices:     { hatchback: 13999, sedan: 13999, midsized: 15999, suv: 16999, pickup: 15999, largesuv: 19999, highend: 22999 },
+    tintPrices: { hatchback: 19999, sedan: 19999, midsized: 22499, suv: 23999, pickup: 22499, largesuv: 27999, highend: 28999 },
+    features: [
+      '4 Layers SONAX Profiline CC EVO (Germany)',
+      'FREE Full Recoat After 5 Years',
+      'FREE 2 visits Reboost/Maintenance (save ₱3,000)',
+    ],
+    popular: false,
+    flagship: false,
+  },
+  {
+    key: 'spf101',
+    label: 'SPF 101',
+    years: '10 Years',
+    badge: 'ALL-IN PACKAGE',
+    badgeColor: '#F59E0B',
+    tier: 'Flagship',
+    prices:     { hatchback: 39999, sedan: 39999, midsized: 46999, suv: 46999, pickup: 46999, largesuv: 49999, highend: 49999 },
+    tintPrices: { hatchback: null, sedan: null, midsized: null, suv: null, pickup: null, largesuv: null, highend: null },
+    features: [
+      'Paint Protection Film PPF (Hood, Bumper, Mirrors & More)',
+      '4 Layers SONAX Profiline CC EVO (Germany)',
+      'FREE 5 visits Reboost/Maintenance (save ₱7,500)',
+      'FREE Full Recoat After 5 Years',
+      'Nano Ceramic Window Tint (Full Wrap — Any Shade)',
+    ],
+    popular: false,
+    flagship: true,
+  },
+];
+
+const VEHICLE_OPTIONS: { key: VehicleTypeKey; label: string; icon: string }[] = [
+  { key: 'hatchback', label: 'Hatchback',       icon: 'car-outline' },
+  { key: 'sedan',     label: 'Sedan',            icon: 'car-sport-outline' },
+  { key: 'midsized',  label: 'Midsized',         icon: 'car-sport-outline' },
+  { key: 'suv',       label: 'SUV',              icon: 'car-outline' },
+  { key: 'pickup',    label: 'Pick Up',          icon: 'car-outline' },
+  { key: 'largesuv',  label: 'Large SUV / Van',  icon: 'bus-outline' },
+  { key: 'highend',   label: 'Highend Sedan',    icon: 'diamond-outline' },
 ];
 
 const STEP_LABELS = ['Info', 'Schedule', 'Review', 'Confirm'];
@@ -581,6 +680,11 @@ export default function BookScreen() {
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
 
+  // Step 1 — Vehicle type for pricing
+  const [vehicleType, setVehicleType] = useState<VehicleTypeKey>('sedan');
+  // Which SPF package is selected (key)
+  const [selectedPkg, setSelectedPkg] = useState<string | null>(null);
+
   // Step 1 — Schedule & Details
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
@@ -790,7 +894,10 @@ export default function BookScreen() {
 
   // ── Confirm Booking ──
   const handleConfirm = async () => {
-    if (!selectedService || !selectedDate || !selectedTime) return;
+    const effectivePkg = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
+    const effectivePrice = effectivePkg ? effectivePkg.prices[vehicleType] : selectedService?.price;
+    const effectiveName = selectedService?.name || effectivePkg?.label || '';
+    if (!effectiveName || !selectedDate || !selectedTime) return;
     setIsSubmitting(true);
 
     try {
@@ -803,12 +910,13 @@ export default function BookScreen() {
         vehicleMake: selectedVehicle?.make,
         vehicleModel: selectedVehicle?.model,
         vehicleColor: selectedVehicle?.color,
-        serviceType: selectedService?.name,
+        serviceType: effectiveName,
+        vehicleCategory: vehicleType,
         date: selectedDate,
         time: selectedTime,
       });
       await bookingService.createBooking({
-        service: selectedService,
+        service: selectedService || { id: selectedPkg!, name: effectiveName, price: effectivePrice!, tag: 'Premium', description: '', icon: 'sparkles-outline', duration: '' },
         date: selectedDate,
         time: selectedTime,
         customerName: customerName.trim(),
@@ -833,7 +941,7 @@ export default function BookScreen() {
 
   // ── Computed ──
   const canProceedStep0 = !!selectedVehicle && customerName.trim().length >= 2 && contactNumber.trim().length > 0;
-  const canProceedStep1 = !!selectedService && !!selectedDate && !!selectedTime;
+  const canProceedStep1 = (!!selectedService || !!selectedPkg) && !!selectedDate && !!selectedTime;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Success screen
@@ -892,7 +1000,7 @@ export default function BookScreen() {
             <View style={s4.quickCard}>
               {[
                 { icon: 'car-outline', label: 'Vehicle', value: selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : '—' },
-                { icon: 'sparkles-outline', label: 'Service', value: selectedService?.name || '—' },
+                { icon: 'sparkles-outline', label: 'Service', value: selectedService?.name || (selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg)?.label || '—' : '—') + (selectedPkg ? ` (${VEHICLE_OPTIONS.find(v => v.key === vehicleType)?.label})` : '') },
                 { icon: 'calendar-outline', label: 'Schedule', value: `${selectedDate} • ${selectedTime}` },
               ].map((item, i, arr) => (
                 <View key={i} style={[s4.quickRow, i < arr.length - 1 && { marginBottom: 16 }]}>
@@ -1164,82 +1272,183 @@ export default function BookScreen() {
                 </Text>
               </View>
 
-              {/* ── Service Selection — Horizontal Showcase ── */}
-              <Animated.View entering={FadeInDown.delay(100).duration(200)}>
+              {/* ── Vehicle Type Selector ── */}
+              <Animated.View entering={FadeInDown.delay(80).duration(200)}>
+                <View style={s1.sectionHeader}>
+                  <View style={s1.sectionIconWrap}>
+                    <Ionicons name="car-outline" size={14} color={PRIMARY} />
+                  </View>
+                  <Text style={ss.sectionLabel}>VEHICLE TYPE</Text>
+                </View>
+
+                {/* Chip row — 2 rows of 3-4 */}
+                <View style={s2.vehicleChipGrid}>
+                  {VEHICLE_OPTIONS.map((opt) => {
+                    const active = vehicleType === opt.key;
+                    return (
+                      <TouchableOpacity
+                        key={opt.key}
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setVehicleType(opt.key);
+                          setSelectedPkg(null);
+                          Haptics.selectionAsync();
+                        }}
+                        style={[
+                          s2.vehicleChip,
+                          active && s2.vehicleChipActive,
+                        ]}
+                      >
+                        <Ionicons
+                          name={opt.icon as any}
+                          size={14}
+                          color={active ? ON_PRIMARY : MUTED}
+                        />
+                        <Text style={[s2.vehicleChipText, active && s2.vehicleChipTextActive]}>
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={s2.vehicleTypeCaption}>
+                  Showing prices for {VEHICLE_OPTIONS.find(v => v.key === vehicleType)?.label} vehicles
+                </Text>
+              </Animated.View>
+
+              {/* ── SPF Package Cards — per vehicle type ── */}
+              <Animated.View entering={FadeInDown.delay(140).duration(200)}>
                 <View style={s1.sectionHeader}>
                   <View style={s1.sectionIconWrap}>
                     <Ionicons name="sparkles-outline" size={14} color={PRIMARY} />
                   </View>
-                  <Text style={ss.sectionLabel}>SELECT SERVICE</Text>
-                  <View style={{ flex: 1 }} />
-                  <Text style={ss.viewAllLabel}>{services.length} available</Text>
+                  <Text style={ss.sectionLabel}>SELECT PACKAGE</Text>
                 </View>
 
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 14, paddingRight: 4 }}
-                  decelerationRate="fast"
-                  snapToInterval={SCREEN_W * 0.52 + 14}
-                >
-                  {services.map((s, idx) => {
-                    const isSelected = selectedService?.id === s.id;
+                <View style={{ gap: 14 }}>
+                  {SPF_PACKAGES.map((pkg, idx) => {
+                    const price = pkg.prices[vehicleType];
+                    if (price === null) return null; // not for this vehicle
+                    const tintPrice = pkg.tintPrices[vehicleType];
+                    const originalPrice = price * 2;
+                    const isSelected = selectedPkg === pkg.key;
+                    const accentColor = pkg.badgeColor;
+                    const accentBg = `${accentColor}1A`; // 10% opacity
+
                     return (
                       <Animated.View
-                        key={s.id}
-                        entering={FadeInRight.delay(80 + idx * 60).duration(200)}
+                        key={pkg.key}
+                        entering={FadeInDown.delay(60 + idx * 70).duration(200)}
                       >
                         <TouchableOpacity
                           activeOpacity={0.88}
                           onPress={() => {
-                            setSelectedService(s);
+                            setSelectedPkg(pkg.key);
+                            // Also set selectedService to the matching DB service (or create a virtual one)
+                            const matched = services.find(sv =>
+                              sv.name.toLowerCase().includes(pkg.label.toLowerCase())
+                            ) || (services.length > 0 ? services[0] : null);
+                            if (matched) {
+                              // Override price with vehicle-specific price
+                              setSelectedService({ ...matched, price });
+                            }
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                           }}
                           style={[
-                            s2.showcaseCard,
-                            isSelected && s2.showcaseCardSelected,
+                            s2.pricingCard,
+                            isSelected && {
+                              borderColor: accentColor,
+                              borderWidth: 1.5,
+                            },
                           ]}
                         >
-                          {/* Dark gradient overlay */}
-                          <LinearGradient
-                            colors={['transparent', 'rgba(0,0,0,0.7)', SURFACE_LOW]}
-                            style={s2.showcaseGradient}
-                          />
+                          {/* Top accent bar */}
+                          <View style={[s2.pricingAccentBar, { backgroundColor: accentColor }]} />
 
-                          {/* Icon at top */}
-                          <View style={s2.showcaseIconRow}>
-                            <View style={[s2.showcaseIconBox, isSelected && s2.showcaseIconBoxSelected]}>
-                              <Ionicons
-                                name={(s.icon as any) || 'pricetag-outline'}
-                                size={22}
-                                color={isSelected ? ON_PRIMARY : SECONDARY}
-                              />
-                            </View>
-                            {isSelected && (
-                              <View style={s2.showcaseCheckBadge}>
-                                <Ionicons name="checkmark" size={12} color={ON_PRIMARY} />
+                          {/* Badge row */}
+                          <View style={[s2.pkgBadgeRow, { backgroundColor: `${accentColor}22` }]}>
+                            <Ionicons
+                              name={pkg.flagship ? 'trophy-outline' : pkg.popular ? 'star-outline' : 'flash-outline'}
+                              size={11}
+                              color={accentColor}
+                            />
+                            <Text style={[s2.pkgBadgeText, { color: accentColor }]}>
+                              {pkg.badge}
+                            </Text>
+                            {pkg.popular && (
+                              <View style={[s2.popularPill, { backgroundColor: `${accentColor}33` }]}>
+                                <Text style={[s2.popularPillText, { color: accentColor }]}>BEST SELLER</Text>
                               </View>
                             )}
                           </View>
 
-                          {/* Bottom info — glass overlay */}
-                          <View style={s2.showcaseInfo}>
-                            <Text style={s2.showcaseName} numberOfLines={2}>{s.name}</Text>
-                            <Text style={s2.showcaseDesc} numberOfLines={1}>
-                              {s.description || s.duration}
-                            </Text>
-                            <View style={s2.showcasePriceRow}>
-                              <Text style={[s2.showcasePrice, isSelected && s2.showcasePriceSelected]}>
-                                ₱{Number(s.price).toLocaleString()}
-                              </Text>
-                              <Text style={s2.showcasePriceSuffix}>+</Text>
+                          {/* Header row */}
+                          <View style={s2.pricingHeader}>
+                            <View style={{ flex: 1, gap: 4 }}>
+                              <View style={[s2.categoryBadge, { backgroundColor: `${accentColor}22`, borderColor: `${accentColor}66` }]}>
+                                <Text style={[s2.categoryBadgeText, { color: accentColor }]}>
+                                  {pkg.tier.toUpperCase()} · {pkg.years} Protection
+                                </Text>
+                              </View>
+                              <Text style={s2.pricingName}>{pkg.label}</Text>
+                              <Text style={s2.pricingDuration}>Graphene Ceramic Coating — {pkg.years}</Text>
                             </View>
+
+                            {isSelected ? (
+                              <LinearGradient
+                                colors={[accentColor + 'CC', accentColor]}
+                                style={s2.pricingCheckBadge}
+                              >
+                                <Ionicons name="checkmark" size={16} color="#fff" />
+                              </LinearGradient>
+                            ) : (
+                              <View style={s2.pricingCheckEmpty} />
+                            )}
+                          </View>
+
+                          {/* Price */}
+                          <View style={s2.pricingPriceRow}>
+                            <View style={s2.priceOriginalRow}>
+                              <Text style={s2.pricingPriceLabel}>STARTING AT</Text>
+                              <View style={s2.originalPriceBadge}>
+                                <Text style={s2.originalPriceText}>₱{originalPrice.toLocaleString()}</Text>
+                                <View style={[s2.discountPill, { backgroundColor: '#EF444422' }]}>
+                                  <Text style={s2.discountText}>50% OFF</Text>
+                                </View>
+                              </View>
+                            </View>
+                            <Text style={[
+                              s2.pricingPrice,
+                              (pkg.flagship || pkg.popular) && { color: accentColor },
+                              isSelected && { color: accentColor },
+                            ]}>
+                              ₱{price.toLocaleString()}
+                            </Text>
+                            {tintPrice && (
+                              <Text style={s2.tintBundleText}>
+                                + Nano Ceramic Window Tint  ₱{tintPrice.toLocaleString()}
+                              </Text>
+                            )}
+                          </View>
+
+                          {/* Divider */}
+                          <View style={s2.pricingDivider} />
+
+                          {/* Features */}
+                          <View style={{ gap: 10, paddingBottom: 20 }}>
+                            {pkg.features.map((feat, fi) => (
+                              <View key={fi} style={s2.featureRow}>
+                                <View style={[s2.featureDot, { backgroundColor: accentColor }]} />
+                                <Text style={s2.featureText}>{feat}</Text>
+                              </View>
+                            ))}
                           </View>
                         </TouchableOpacity>
                       </Animated.View>
                     );
                   })}
-                </ScrollView>
+                </View>
               </Animated.View>
 
               {/* ── Date Selection ── */}
@@ -1919,92 +2128,236 @@ const ss = StyleSheet.create({
 
 /** Step 1 — Service & Schedule Kinetic Gallery styles */
 const s2 = StyleSheet.create({
-  /* ── Horizontal Service Showcase ── */
-  showcaseCard: {
-    width: SCREEN_W * 0.52,
-    height: 220,
+  /* ── Vertical Pricing Cards (mirrors website) ── */
+  pricingCard: {
     borderRadius: 24,
     backgroundColor: SURFACE_MID,
     overflow: 'hidden',
-    position: 'relative',
-    justifyContent: 'flex-end',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.18,
+        shadowRadius: 16,
+      },
+      android: { elevation: 4 },
+    }),
   },
-  showcaseCardSelected: {
+  pricingAccentBar: {
+    height: 4,
+    width: '100%',
+  },
+  pricingHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    padding: 20,
+    paddingBottom: 12,
+  },
+  categoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  categoryBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  pricingName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: -0.01 * 18,
+  },
+  pricingDuration: {
+    fontSize: 12,
+    color: MUTED,
+    fontWeight: '400',
+  },
+  pricingCheckBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+    flexShrink: 0,
+  },
+  pricingCheckEmpty: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.10)',
+    marginTop: 2,
+    flexShrink: 0,
+  },
+  pricingPriceRow: {
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    gap: 3,
+  },
+  pricingPriceLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: MUTED,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  pricingPrice: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.02 * 32,
+  },
+  pricingPriceSub: {
+    fontSize: 10,
+    color: MUTED,
+    fontStyle: 'italic',
+  },
+  pricingDivider: {
+    height: 1,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 20,
+  },
+  featureDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    flexShrink: 0,
+  },
+  featureText: {
+    fontSize: 13,
+    color: DIM_TEXT,
+    lineHeight: 18,
+    flex: 1,
+  },
+
+  /* ── Vehicle Type Chips ── */
+  vehicleChipGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  vehicleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: SURFACE_MID,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  vehicleChipActive: {
+    backgroundColor: PRIMARY,
+    borderColor: PRIMARY,
     ...Platform.select({
       ios: {
         shadowColor: PRIMARY,
-        shadowOffset: { width: 0, height: 8 },
+        shadowOffset: { width: 0, height: 3 },
         shadowOpacity: 0.35,
-        shadowRadius: 24,
+        shadowRadius: 8,
       },
-      android: { elevation: 8 },
+      android: { elevation: 4 },
     }),
   },
-  showcaseGradient: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-  },
-  showcaseIconRow: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  showcaseIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: SURFACE_HIGH,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  showcaseIconBoxSelected: {
-    backgroundColor: PRIMARY_CTR,
-  },
-  showcaseCheckBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: PRIMARY,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  showcaseInfo: {
-    padding: 16,
-    gap: 4,
-  },
-  showcaseName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: -0.01 * 15,
-  },
-  showcaseDesc: {
-    fontSize: 11,
-    color: DIM_TEXT,
-    lineHeight: 15,
-  },
-  showcasePriceRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginTop: 4,
-  },
-  showcasePrice: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: SECONDARY,
-  },
-  showcasePriceSelected: {
-    color: PRIMARY,
-  },
-  showcasePriceSuffix: {
-    fontSize: 14,
+  vehicleChipText: {
+    fontSize: 12,
     fontWeight: '600',
     color: MUTED,
-    marginLeft: 2,
+  },
+  vehicleChipTextActive: {
+    color: ON_PRIMARY,
+    fontWeight: '700',
+  },
+  vehicleTypeCaption: {
+    fontSize: 10,
+    color: MUTED,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 8,
+    letterSpacing: 0.4,
+  },
+
+  /* ── Package Badge Row ── */
+  pkgBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  pkgBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    flex: 1,
+  },
+  popularPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  popularPillText: {
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+
+  /* ── Price — original + discount ── */
+  priceOriginalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  originalPriceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  originalPriceText: {
+    fontSize: 11,
+    color: MUTED,
+    textDecorationLine: 'line-through',
+  },
+  discountPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  discountText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#EF4444',
+    letterSpacing: 0.4,
+  },
+  tintBundleText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: PRIMARY,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
 
   /* ── Calendar Card ── */
@@ -2077,6 +2430,9 @@ const s2 = StyleSheet.create({
     borderRadius: 24,
     padding: 18,
   },
+
+  /* legacy spacer used below features list */
+  _featureSpacer: { height: 20 },
 });
 
 /** Step 2 — Review & Payment Kinetic Gallery styles */

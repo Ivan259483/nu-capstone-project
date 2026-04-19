@@ -211,8 +211,6 @@ export default function AdminDashboard() {
 
     // Theme State
     const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-        const globalTheme = localStorage.getItem('autospf_global_theme');
-        if (globalTheme === 'light' || globalTheme === 'dark') return globalTheme;
         const stored = localStorage.getItem('autospf_theme');
         if (stored === 'light' || stored === 'dark') return stored;
         return 'dark';
@@ -224,11 +222,9 @@ export default function AdminDashboard() {
     }, []);
 
     useEffect(() => {
-        document.documentElement.classList.toggle('light', theme === 'light');
-        document.documentElement.classList.toggle('dark', theme === 'dark');
+        // Only persist the admin's preference — do NOT touch document.documentElement
+        // The admin shell scopes its own theme via .admin-root.dark-theme / .light-theme
         localStorage.setItem('autospf_theme', theme);
-        localStorage.setItem('autospf_global_theme', theme);
-        document.documentElement.style.colorScheme = theme;
     }, [theme]);
 
 
@@ -1964,7 +1960,6 @@ export default function AdminDashboard() {
                     if (res.data?.membershipDiscount !== undefined) localStorage.setItem('autospf_membership_discount', String(res.data.membershipDiscount));
                     if (res.data?.inventoryThreshold !== undefined) localStorage.setItem('autospf_inventory_threshold', String(res.data.inventoryThreshold));
                     if (res.data?.systemTheme) {
-                        localStorage.setItem('autospf_global_theme', res.data.systemTheme);
                         localStorage.setItem('autospf_theme', res.data.systemTheme);
                         setTheme(res.data.systemTheme);
                     }

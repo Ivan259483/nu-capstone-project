@@ -40,10 +40,7 @@ apiClient.interceptors.response.use(
       return apiClient(config);
     }
 
-    if (error.response?.status === 401) {
-      Toast.show('Session expired. Please log in again.', 'error');
-      await authStorage.clearToken();
-    } else if (!error.response && error.message === 'Network Error') {
+    if (!error.response && error.message === 'Network Error') {
       // ── Offline Queue Integration ────────────────────────────────
       const isMutation = ['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase() || '');
       // Make sure we aren't enqueuing a replay of a queue operation itself

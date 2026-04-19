@@ -40,6 +40,7 @@ export const initialScanWorkflowState: ScanWorkflowState = {
 
 type ScanWorkflowAction =
   | { type: 'RESET' }
+  | { type: 'RESET_FULL' }
   | { type: 'SET_IMAGES'; payload: VehicleImageInput[] }
   | { type: 'UPSERT_IMAGE'; payload: VehicleImageInput }
   | { type: 'REMOVE_IMAGE'; payload: { angle: VehicleImageInput['angle'] } }
@@ -87,6 +88,9 @@ export const scanWorkflowReducer = (
         ...initialScanWorkflowState,
         images: state.images,
       };
+
+    case 'RESET_FULL':
+      return { ...initialScanWorkflowState };
 
     case 'SET_IMAGES':
       return {

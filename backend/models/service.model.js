@@ -14,11 +14,20 @@ const serviceSchema = new mongoose.Schema(
     duration: String,
     basePrice: {
       type: Number,
-      required: true,
+      required: false, // Legacy or fallback price
+    },
+    prices: {
+      hatchback: { type: Number, default: null },
+      sedan: { type: Number, default: null },
+      midsized: { type: Number, default: null },
+      suv: { type: Number, default: null },
+      pickup: { type: Number, default: null },
+      largesuv: { type: Number, default: null },
+      highend: { type: Number, default: null },
     },
     memberPrice: {
       type: Number,
-      default: null, // null = auto-compute (basePrice * 0.85)
+      default: null, // null = auto-compute (e.g. basePrice or prices * 0.85)
     },
     recipe: {
       type: [

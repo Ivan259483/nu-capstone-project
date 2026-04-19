@@ -6,8 +6,9 @@
  *   import { ThemeToggle } from '@/components/ui/ThemeToggle';
  *   <ThemeToggle />
  *
- * Reads/writes localStorage key "autospf_global_theme" — the same key
- * App.tsx uses on startup — so theme persists across all pages and roles.
+ * Persists to localStorage key "autospf_theme".
+ * Dashboard components read this key to scope their own theme.
+ * This toggle does NOT mutate <html> — theme is scoped to dashboard wrappers.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -17,35 +18,20 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 function getInitialTheme(): 'dark' | 'light' {
     if (typeof window === 'undefined') return 'dark';
-    // Primary key used by App.tsx on startup
-    const primary = localStorage.getItem('autospf_global_theme');
-    if (primary === 'light' || primary === 'dark') return primary;
-    // Legacy fallback
-    const legacy = localStorage.getItem('autospf_theme') || localStorage.getItem('theme');
-    if (legacy === 'light') return 'light';
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    const stored = localStorage.getItem('autospf_theme');
+    if (stored === 'light' || stored === 'dark') return stored;
+    return 'dark';
 }
 
 /**
- * Syncs BOTH class systems used in this project:
- *  - Tailwind dark mode  → adds/removes `dark` on <html>
- *  - Admin Dashboard CSS → adds/removes `light` on <html>  (:root.light selectors)
- * Both systems are kept in sync so every page responds correctly.
+ * Persist the theme preference to localStorage only.
+ * Does NOT touch document.documentElement — dashboard wrappers handle their own scoping.
+ * Dispatches a custom event so the hosting dashboard can react in real-time.
  */
 function applyTheme(theme: 'dark' | 'light') {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-        root.classList.add('dark');
-        root.classList.remove('light');
-    } else {
-        root.classList.remove('dark');
-        root.classList.add('light');
-    }
-    // Write to the key App.tsx reads on startup (persists across page reloads)
-    localStorage.setItem('autospf_global_theme', theme);
-    // Keep legacy keys in sync
     localStorage.setItem('autospf_theme', theme);
-    localStorage.setItem('theme', theme);
+    // Dispatch event so hosting dashboard (AdminDashboard, etc.) can sync state
+    window.dispatchEvent(new CustomEvent('autospf-theme-change', { detail: { theme } }));
 }
 
 /* ──────────────────────── SVGs ───────────────────────── */

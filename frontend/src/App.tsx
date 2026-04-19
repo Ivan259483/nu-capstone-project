@@ -31,26 +31,20 @@ import {
 
 const queryClient = new QueryClient();
 
-// Apply the site-wide theme (used by public marketing pages, Customer Dashboard, and Admin Dashboard).
-// NOTE: The Detailing Portal uses its own isolated key (autospf_detailer_theme) and NEVER writes
-// to autospf_global_theme, so the marketing site is completely unaffected by the detailer toggle.
-const applyStoredTheme = () => {
+// Public pages use the :root CSS variables in index.css for their premium dark aesthetic.
+// Dashboard-specific themes are scoped inside their own wrapper components (admin-root, detailer-root).
+// We intentionally do NOT apply any stored theme to <html> here — that caused the bug where
+// logging in as any user would flip the public site to system dark mode unexpectedly.
+const cleanGlobalTheme = () => {
     if (typeof document === 'undefined') return;
-    // Only read the global key — intentionally ignoring autospf_detailer_theme
-    const storedGlobal = localStorage.getItem('autospf_global_theme');
-    const storedLegacy = localStorage.getItem('autospf_theme');
-    const theme = storedGlobal === 'light' || storedGlobal === 'dark'
-        ? storedGlobal
-        : (storedLegacy === 'light' ? 'light' : 'dark');
+    // Remove any stale dark/light classes that dashboards may have leaked onto <html>
     document.documentElement.classList.remove('light', 'dark');
-    document.documentElement.classList.add(theme);
-    document.documentElement.style.colorScheme = theme;
+    document.documentElement.style.removeProperty('color-scheme');
+    // Clean up the global theme key so it can't affect future page loads
+    localStorage.removeItem('autospf_global_theme');
 };
 
-applyStoredTheme();
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', applyStoredTheme);
-}
+cleanGlobalTheme();
 
 // Protected Route Component — shows skeleton loader instead of blocking spinner
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
