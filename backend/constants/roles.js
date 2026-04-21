@@ -46,16 +46,19 @@ export const REPORTING_ROLES = Object.freeze([
   'administrator',
   'operation_manager',
   'sales',
+  'hr',   // HR monitors staff activity logs per capstone spec
 ]);
 
 export const USER_MANAGEMENT_ROLES = Object.freeze([
   'administrator',
   'office_admin',
+  'operation_manager',
   'hr',
 ]);
 
 export const INVENTORY_MANAGER_ROLES = Object.freeze([
   'administrator',
+  'operation_manager',
   'inventory',
 ]);
 
@@ -114,6 +117,7 @@ export const NOTIFICATION_RECIPIENT_ROLES = Object.freeze([
 export const USER_MANAGEMENT_SCOPE = Object.freeze({
   administrator: Object.freeze([...USER_ROLES]),
   office_admin: Object.freeze(USER_ROLES.filter((role) => role !== 'administrator')),
+  // Operations Manager can manage staff & technician accounts per capstone spec
   operation_manager: Object.freeze(['service_staff', 'staff_quality_checker', 'staff_inventory', 'technician']),
   hr: Object.freeze(['service_staff', 'staff_quality_checker', 'staff_inventory', 'technician', 'inventory', 'sales']),
   inventory: Object.freeze([]),

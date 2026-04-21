@@ -41,14 +41,15 @@ export const SETTINGS_MANAGER_ROLES: UserRole[] = [
 export const STAFF_MANAGER_ROLES: UserRole[] = [
   'administrator',
   'office_admin',
-  'operation_manager',
   'hr',
+  'sales',    // Cashier can view customer accounts & service history (read-only)
 ];
 
 export const REPORTING_ROLES: UserRole[] = [
   'administrator',
   'operation_manager',
   'sales',
+  'hr',           // HR monitors staff activity via activity reports
 ];
 
 export const USER_MANAGEMENT_ROLES: UserRole[] = [
@@ -60,7 +61,6 @@ export const USER_MANAGEMENT_ROLES: UserRole[] = [
 
 export const INVENTORY_MANAGER_ROLES: UserRole[] = [
   'administrator',
-  'operation_manager',
   'inventory',
 ];
 
@@ -71,6 +71,7 @@ export const SUPPLIER_VIEW_ROLES: UserRole[] = [
 
 export const SUPPLIER_MANAGER_ROLES: UserRole[] = [
   'administrator',
+  'inventory',
 ];
 
 export const SERVICE_CATALOG_ROLES: UserRole[] = [
@@ -90,36 +91,36 @@ export const POS_MANAGER_ROLES: UserRole[] = [
 // Roles that can view/manage digital waivers & legal records
 export const WAIVER_ACCESS_ROLES: UserRole[] = [
   'administrator',
-  'office_admin',
   'operation_manager',
 ];
 
 // Roles that can view the booking appointment calendar (read + manual adjust)
 export const APPOINTMENT_VIEW_ROLES: UserRole[] = [
   'administrator',
-  'hr',
-  'sales',
 ];
 
 // Roles that can create/register new user accounts
 export const USER_REGISTRATION_ROLES: UserRole[] = [
   'administrator',
-  'operation_manager',
+  'office_admin',
   'hr',
-  'sales',
 ];
 
 // Roles that can access the AI Damage Detection & Cost Estimator
+// Per spec: Technicians, Quality Checker, and Operations Manager all use AI damage detection
 export const AI_ESTIMATOR_ROLES: UserRole[] = [
   'administrator',
-  'office_admin',
   'operation_manager',
+  'staff_quality_checker',
+  'technician',
 ];
 
-// Roles that can access AI Chatbot
+// Roles that can access AI Chatbot (admin management + customer-facing staff)
 export const AI_CHATBOT_ROLES: UserRole[] = [
   'administrator',
   'sales',
+  'staff_quality_checker',
+  'technician',
 ];
 
 export const SERVICE_STAFF_ROLE: UserRole = 'service_staff';
@@ -158,9 +159,9 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   office_admin: 'Office Admin',
   operation_manager: 'Operation Manager',
   hr: 'HR',
-  inventory: 'Inventory (Legacy)',
-  sales: 'Sales',
-  service_staff: 'Service Staff (Legacy)',
+  inventory: 'Inventory Management',
+  sales: 'Sales / Cashier',
+  service_staff: 'Service Staff',
   staff_quality_checker: 'Staff - Quality Checker',
   staff_inventory: 'Staff - Inventory',
   technician: 'Technician',
@@ -217,6 +218,7 @@ const AI_CHATBOT_ROLE_SET = new Set<string>(AI_CHATBOT_ROLES);
 const USER_MANAGEMENT_SCOPE: Record<UserRole, UserRole[]> = {
   administrator: [...USER_ROLES],
   office_admin: USER_ROLES.filter(role => role !== 'administrator'),
+  // Operations Manager can manage staff & technician schedules/accounts per spec
   operation_manager: [SERVICE_STAFF_ROLE, STAFF_QC_ROLE, STAFF_INVENTORY_ROLE, TECHNICIAN_ROLE],
   hr: [SERVICE_STAFF_ROLE, STAFF_QC_ROLE, STAFF_INVENTORY_ROLE, TECHNICIAN_ROLE, 'inventory', 'sales'],
   inventory: [],

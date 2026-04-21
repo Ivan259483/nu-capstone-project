@@ -17,6 +17,8 @@ import CustomerDashboard from "./pages/CustomerDashboard";
 import DetailerDashboard from "./pages/DetailerDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import ScanPreviewPage from "./pages/ScanPreviewPage";
+import CreateStaffAccountPage from "./pages/admin/CreateStaffAccountPage";
+import AccountRequestsPage from "./pages/admin/AccountRequestsPage";
 import ChatWidget from "./components/ChatWidget";
 import Navbar from "./components/Navbar";
 import AIEstimatorPage from "./pages/AIEstimatorPage";
@@ -48,10 +50,18 @@ cleanGlobalTheme();
 
 // Protected Route Component — shows skeleton loader instead of blocking spinner
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
-    const { user, isLoading } = useAuth();
+    // isFirebaseAuthReady: true once Firebase's onAuthStateChanged has fired and
+    // resolved (either a session was found or confirmed absent). We MUST NOT
+    // redirect unauthenticated users until this is true, otherwise a brief window
+    // where user=null but auth is still initialising causes a redirect loop:
+    // navigate('/dashboard') → ProtectedRoute sees user=null → redirects to /login
+    // → Login sees user (from useEffect post-setUser) → redirects to /dashboard → loop.
+    const { user, isLoading, isFirebaseAuthReady } = useAuth();
     const location = useLocation();
 
-    if (isLoading && !user) {
+    // Show skeleton while Firebase is initialising OR during any loading phase.
+    // This is the key guard: do NOT make routing decisions until auth is confirmed.
+    if (!isFirebaseAuthReady || isLoading) {
         return (
             <div className="min-h-screen flex bg-[#0a0e1a]">
                 {/* Skeleton sidebar */}
@@ -164,6 +174,15 @@ function AppRoutes() {
                 {/* Backward compatibility for old routes */}
                 <Route path="/customer" element={<Navigate to="/customer/dashboard" replace />} />
                 <Route path="/detailer" element={<Navigate to="/detailer/dashboard" replace />} />
+                <Route
+                    path="/admin/create-staff"
+                    element={<CreateStaffAccountPage />}
+                />
+                <Route
+                    path="/admin/account-requests"
+                    element={<AccountRequestsPage />}
+                />
+                {/* Backward compatibility for old routes */}
                 <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

@@ -7,7 +7,7 @@ import {
   CUSTOMER_ROLES,
   FULL_ADMIN_ROLES,
   SERVICE_OPERATION_ROLES,
-  SERVICE_STAFF_ROLES,
+  STAFF_ROLES,
   SUPPLIER_MANAGER_ROLES,
 } from '../constants/roles.js';
 
@@ -48,7 +48,7 @@ router.get('/jobs/active', orderController.getActiveJobs);
  * @desc Get orders assigned to current detailer
  * @access Private
  */
-router.get('/detailer/my-orders', authorize(...SERVICE_STAFF_ROLES), orderController.getDetailerOrders);
+router.get('/detailer/my-orders', authorize(...STAFF_ROLES), orderController.getDetailerOrders);
 
 /**
  * @route POST /api/orders/cleanup-stale
@@ -76,7 +76,7 @@ router.post('/:id/inspection', authorize(...SERVICE_OPERATION_ROLES), orderContr
  * @desc Auto-generate and download Waiver PDF
  * @access Private
  */
-router.get('/:id/waiver-pdf', authorize(...CUSTOMER_ROLES, ...SERVICE_STAFF_ROLES, ...FULL_ADMIN_ROLES), orderController.getWaiverPdf);
+router.get('/:id/waiver-pdf', authorize(...CUSTOMER_ROLES, ...STAFF_ROLES, ...FULL_ADMIN_ROLES), orderController.getWaiverPdf);
 
 /**
  * @route POST /api/orders/:id/waiver-reminder

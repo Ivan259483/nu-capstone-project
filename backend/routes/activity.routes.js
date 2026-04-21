@@ -1,7 +1,7 @@
 import express from 'express';
 import * as activityController from '../controllers/activity.controller.js';
 import { authenticate, authorize } from '../middleware/auth.middleware.js';
-import { FULL_ADMIN_ROLES, REPORTING_ROLES, ADMIN_DASHBOARD_ROLES, SERVICE_STAFF_ROLES } from '../constants/roles.js';
+import { FULL_ADMIN_ROLES, REPORTING_ROLES, ADMIN_DASHBOARD_ROLES, STAFF_ROLES } from '../constants/roles.js';
 
 const router = express.Router();
 
@@ -10,7 +10,7 @@ const router = express.Router();
  * @desc Get activity logs with filters
  * @access Private - Admin dashboard and Service Staff roles
  */
-router.get('/', authenticate, authorize(...ADMIN_DASHBOARD_ROLES, ...SERVICE_STAFF_ROLES), activityController.getActivityLogs);
+router.get('/', authenticate, authorize(...ADMIN_DASHBOARD_ROLES, ...STAFF_ROLES), activityController.getActivityLogs);
 
 /**
  * @route GET /api/activity/stats

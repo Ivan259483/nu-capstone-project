@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search,
@@ -22,7 +22,8 @@ import {
   Wrench,
   ShoppingBag,
   ClipboardList,
-  Shield
+  Shield,
+  WifiOff
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -31,7 +32,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel, SelectSeparator } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
@@ -69,9 +70,11 @@ interface UserManagementPanelProps {
   users: User[];
   loadData: () => void;
   currentUserRole?: string;
+  /** The MongoDB _id (or Firebase UID) of the currently logged-in admin. Used to prevent self-deletion. */
+  currentUserId?: string;
 }
 
-export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme, users, loadData, currentUserRole }) => {
+export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme, users, loadData, currentUserRole, currentUserId }) => {
   // State
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all');
@@ -80,6 +83,14 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
   
   // Sheet state
   const [selectedUserDetails, setSelectedUserDetails] = useState<User | null>(null);
+
+  // Delete confirmation dialog state
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingDeleteName, setPendingDeleteName] = useState<string>('');
+  const [pendingDeleteRole, setPendingDeleteRole] = useState<string | undefined>(undefined);
+  const [isBulkDelete, setIsBulkDelete] = useState(false);
 
   // Modal State
   const [showUserModal, setShowUserModal] = useState(false);
@@ -98,9 +109,55 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const userAvatarInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Live Status Polling ──────────────────────────────────────────────────
+  /** Local snapshot refreshed by the 10 s polling loop. */
+  const [localUsers, setLocalUsers] = useState<User[] | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [secondsAgo, setSecondsAgo]  = useState(0);
+  const [pollError, setPollError]    = useState(false);
+
+  /** Core poll: fetches the users endpoint and stores a local snapshot. */
+  const pollUsers = useCallback(async () => {
+    try {
+      const result = await UserService.getAllUsers();
+      if (result?.success && Array.isArray(result.data)) {
+        setLocalUsers(result.data);
+        setPollError(false);
+        setLastUpdated(new Date());
+        setSecondsAgo(0);
+      }
+    } catch {
+      setPollError(true);
+    }
+  }, []);
+
+  // Run immediately on mount, then every 10 seconds.
+  useEffect(() => {
+    pollUsers();
+    const id = setInterval(pollUsers, 10_000);
+    return () => clearInterval(id);
+  }, [pollUsers]);
+
+  // Keep localUsers in sync when parent CRUD operations call loadData().
+  useEffect(() => {
+    setLocalUsers(users);
+  }, [users]);
+
+  // Counts up the "X seconds ago" label every second after a successful poll.
+  useEffect(() => {
+    if (!lastUpdated) return;
+    const id = setInterval(() => {
+      setSecondsAgo(Math.floor((Date.now() - lastUpdated.getTime()) / 1000));
+    }, 1_000);
+    return () => clearInterval(id);
+  }, [lastUpdated]);
+
+  // Active data source: polled snapshot if available, otherwise the parent prop.
+  const displayUsers = localUsers ?? users;
+
   // Computed data
   const filteredUsers = useMemo(() => {
-    return users.filter(u => {
+    return displayUsers.filter(u => {
       const term = searchTerm.toLowerCase();
       const normalizedRole = getSafeUserRole(u.role, CUSTOMER_ROLE);
       const matchesSearch = !term || 
@@ -117,15 +174,15 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
       
       return matchesSearch && matchesRole && matchesStatus;
     });
-  }, [users, searchTerm, roleFilter, statusFilter]);
+  }, [displayUsers, searchTerm, roleFilter, statusFilter]);
 
   const stats = useMemo(() => {
-    const total = users.length;
+    const total = displayUsers.length;
     let active = 0;
     let staff = 0;
     let locked = 0;
 
-    users.forEach(u => {
+    displayUsers.forEach(u => {
       const role = getSafeUserRole(u.role, CUSTOMER_ROLE);
       if (role !== CUSTOMER_ROLE) staff++;
       
@@ -135,7 +192,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
     });
 
     return { total, active, staff, locked };
-  }, [users]);
+  }, [displayUsers]);
 
   // Permission Logic
   const canManageUser = (targetRole: string | undefined) => {
@@ -147,8 +204,12 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
   // Bulk actions logic
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
-      // Only select users that can be managed
-      setSelectedUsers(filteredUsers.filter(u => canManageUser(u.role)).map(u => u.id));
+      // Only select users that can be managed, and never select the current user
+      setSelectedUsers(
+        filteredUsers
+          .filter(u => canManageUser(u.role) && u.id !== currentUserId)
+          .map(u => u.id)
+      );
     } else {
       setSelectedUsers([]);
     }
@@ -293,35 +354,101 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
     }
   };
 
-  const handleDeleteUser = async (id: string, name: string, role: string | undefined) => {
+  // Open delete confirmation dialog
+  const openDeleteConfirm = (id: string, name: string, role: string | undefined) => {
     if (!canManageUser(role)) {
         toast.error('Insufficient permissions to delete this user role.');
         return;
     }
-    const confirmStr = prompt(`Type DELETE to confirm removal of user: ${name}`);
-    if (confirmStr === 'DELETE') {
-        const loadingToast = toast.loading('Deleting user...');
+    setPendingDeleteId(id);
+    setPendingDeleteName(name);
+    setPendingDeleteRole(role);
+    setIsBulkDelete(false);
+    setDeleteConfirmText('');
+    setDeleteConfirmOpen(true);
+  };
+
+  // Execute confirmed delete
+  const executeDelete = async () => {
+    if (deleteConfirmText !== 'DELETE') return;
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmText('');
+
+    if (isBulkDelete) {
+      // Silently exclude the current user — the backend blocks self-deletion
+      const idsToDelete = selectedUsers.filter(id => id !== currentUserId);
+      const selfExcluded = idsToDelete.length < selectedUsers.length;
+
+      if (idsToDelete.length === 0) {
+        toast.warning('No users to delete (you cannot delete your own account).');
+        setSelectedUsers([]);
+        return;
+      }
+
+      const loadingToast = toast.loading(`Deleting ${idsToDelete.length} user${idsToDelete.length !== 1 ? 's' : ''}...`);
+      let successCount = 0;
+      let failCount = 0;
+      for (const id of idsToDelete) {
         try {
-            let response = await UserService.deleteUser(id);
-            if (response?.success) {
-                toast.success('User deleted successfully', { id: loadingToast });
-                setSelectedUsers(prev => prev.filter(uId => uId !== id));
-                loadData();
-            } else {
-                toast.error(response?.message || 'Failed to delete user', { id: loadingToast });
-            }
-        } catch (error) {
-            toast.error('Error deleting user', { id: loadingToast });
+          const resp = await UserService.deleteUser(id);
+          if (resp?.success) {
+            successCount++;
+          } else {
+            failCount++;
+            console.warn('Failed to delete user', id, resp?.message);
+          }
+        } catch (err) {
+          failCount++;
+          console.error('Error deleting user', id, err);
         }
+      }
+
+      if (successCount > 0) {
+        const suffix = selfExcluded ? ' (your own account was skipped)' : '';
+        toast.success(`Deleted ${successCount} user${successCount !== 1 ? 's' : ''}${suffix}`, { id: loadingToast });
+      } else {
+        toast.error(`Failed to delete users`, { id: loadingToast });
+      }
+      if (failCount > 0 && successCount > 0) {
+        toast.warning(`${failCount} user${failCount !== 1 ? 's' : ''} could not be deleted.`);
+      }
+
+      setSelectedUsers([]);
+      loadData();
+    } else if (pendingDeleteId) {
+      const loadingToast = toast.loading('Deleting user...');
+      try {
+        const response = await UserService.deleteUser(pendingDeleteId);
+        if (response?.success) {
+          toast.success('User deleted successfully', { id: loadingToast });
+          setSelectedUsers(prev => prev.filter(uId => uId !== pendingDeleteId));
+          loadData();
+        } else {
+          toast.error(response?.message || 'Failed to delete user', { id: loadingToast });
+        }
+      } catch {
+        toast.error('Error deleting user');
+      }
     }
+    setPendingDeleteId(null);
+    setPendingDeleteName('');
+    setPendingDeleteRole(undefined);
+  };
+
+  const handleDeleteUser = (id: string, name: string, role: string | undefined) => {
+    openDeleteConfirm(id, name, role);
   };
 
   const handleBulkAction = async (action: 'activate' | 'suspend' | 'delete') => {
     if (selectedUsers.length === 0) return;
     
     if (action === 'delete') {
-      const confirmStr = prompt(`Type DELETE to confirm removal of ${selectedUsers.length} users.`);
-      if (confirmStr !== 'DELETE') return;
+      setIsBulkDelete(true);
+      setPendingDeleteName(`${selectedUsers.length} users`);
+      setPendingDeleteId(null);
+      setDeleteConfirmText('');
+      setDeleteConfirmOpen(true);
+      return;
     }
     
     const loadingToast = toast.loading(`Processing bulk ${action}...`);
@@ -329,12 +456,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
       // Since no bulk API is known, iterate over selection
       let successCount = 0;
       for (const id of selectedUsers) {
-        let resp;
-        if (action === 'delete') {
-          resp = await UserService.deleteUser(id);
-        } else {
-          resp = await UserService.updateUser(id, { status: action === 'activate' ? 'active' : 'suspended' });
-        }
+        const resp = await UserService.updateUser(id, { status: action === 'activate' ? 'active' : 'suspended' });
         if (resp?.success) successCount++;
       }
       toast.success(`Successfully processed ${successCount} users`, { id: loadingToast });
@@ -353,6 +475,66 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
 
   return (
     <motion.div key="users" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="w-full">
+
+      {/* ── Connection-lost warning banner ── */}
+      <AnimatePresence>
+        {pollError && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -8, height: 0 }}
+            transition={{ duration: 0.25 }}
+            className="flex items-center gap-2.5 px-4 py-2.5 mb-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium overflow-hidden"
+          >
+            <WifiOff className="w-3.5 h-3.5 shrink-0" />
+            Connection lost — retrying...
+            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Delete Confirmation Dialog ── */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={(open) => { setDeleteConfirmOpen(open); if (!open) setDeleteConfirmText(''); }}>
+        <DialogContent className="bg-zinc-900 border border-zinc-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-400 flex items-center gap-2">
+              <Trash2 className="w-5 h-5" /> Confirm Deletion
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400 mt-1">
+              You are about to permanently delete <span className="text-white font-semibold">{pendingDeleteName}</span>. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-3">
+            <p className="text-sm text-zinc-400">Type <span className="font-mono font-bold text-red-400">DELETE</span> to confirm:</p>
+            <input
+              autoFocus
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && deleteConfirmText === 'DELETE') executeDelete(); }}
+              placeholder="Type DELETE here"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-600 text-white placeholder:text-zinc-500 focus:outline-none focus:border-red-500 font-mono text-sm"
+            />
+            <div className="flex gap-3 pt-1">
+              <Button
+                variant="outline"
+                className="flex-1 border-zinc-600 text-zinc-300 hover:bg-zinc-800"
+                onClick={() => { setDeleteConfirmOpen(false); setDeleteConfirmText(''); }}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold disabled:opacity-40"
+                disabled={deleteConfirmText !== 'DELETE'}
+                onClick={executeDelete}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-6">
         <div>
@@ -482,12 +664,12 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
       </div>
 
       {/* Analytics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
         {[
-          { label: 'Total Users', value: stats.total },
-          { label: 'Active Status', value: stats.active },
-          { label: 'Staff Accounts', value: stats.staff },
-          { label: 'Suspended', value: stats.locked },
+          { label: 'Total Users',    value: stats.total,  live: false },
+          { label: 'Active Status',  value: stats.active, live: true  },
+          { label: 'Staff Accounts', value: stats.staff,  live: false },
+          { label: 'Suspended',      value: stats.locked, live: false },
         ].map((stat, i) => (
           <motion.div
             key={i}
@@ -496,7 +678,15 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
             transition={{ duration: 0.3, delay: i * 0.05 }}
           >
             <div className="bg-[#111113] border border-white/5 rounded-xl p-5 hover:border-white/10 transition-colors">
-              <p className="text-zinc-500 text-[11px] font-semibold tracking-wider uppercase mb-1.5">{stat.label}</p>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <p className="text-zinc-500 text-[11px] font-semibold tracking-wider uppercase">{stat.label}</p>
+                {stat.live && (
+                  <span className="relative flex items-center ml-0.5" title="Live data">
+                    <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                  </span>
+                )}
+              </div>
               <div className="h-8">
                 <AnimatePresence mode="wait">
                   <motion.p
@@ -514,6 +704,18 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
             </div>
           </motion.div>
         ))}
+      </div>
+
+      {/* Last updated timestamp */}
+      <div className="flex items-center gap-2 mb-5">
+        {!pollError && lastUpdated && (
+          <p className="text-[11px] text-zinc-600">
+            Last updated: {secondsAgo === 0 ? 'just now' : `${secondsAgo}s ago`}
+          </p>
+        )}
+        {!pollError && !lastUpdated && (
+          <p className="text-[11px] text-zinc-600 animate-pulse">Connecting to live feed...</p>
+        )}
       </div>
 
       {/* Toolbar & Filters */}
@@ -671,10 +873,19 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
                         </Badge>
                       </td>
                       <td className="px-4 py-3 align-middle">
-                        <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm bg-${statusColor}-500/10 border border-${statusColor}-500/20 text-${statusColor}-400 text-[10px] font-medium tracking-wider uppercase transition-colors duration-500`}>
-                            <span className={`w-1 h-1 rounded-full bg-${statusColor}-400 transition-colors duration-500`} />
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={`${u.id}-${status}`}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.25 }}
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm bg-${statusColor}-500/10 border border-${statusColor}-500/20 text-${statusColor}-400 text-[10px] font-medium tracking-wider uppercase`}
+                          >
+                            <span className={`w-1 h-1 rounded-full bg-${statusColor}-400`} />
                             {status}
-                        </div>
+                          </motion.div>
+                        </AnimatePresence>
                       </td>
                       <td className="px-4 py-3 align-middle">
                         <div className="flex flex-col relative h-5">

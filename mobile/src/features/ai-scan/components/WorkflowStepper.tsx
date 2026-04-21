@@ -108,10 +108,10 @@ const TOKENS = {
   overlay: 'rgba(13,13,15,0.78)',
 } as const;
 
-const NODE_SIZE = 30;
-const ACTIVE_RING_SIZE = 42;
-const TRACK_HEIGHT = 3;
-const DIGIT_HEIGHT = 16;
+const NODE_SIZE = 44;
+const ACTIVE_RING_SIZE = 58;
+const TRACK_HEIGHT = 5;
+const DIGIT_HEIGHT = 22;
 const MOUNT_STAGGER = 80;
 const ACTIVE_RAIL_FILL = 0.62;
 const CHECK_PATH = 'M3.5 8.7 L6.6 11.6 L12.5 5.6';
@@ -478,13 +478,13 @@ function CheckmarkStroke({
   }));
 
   return (
-    <Svg width={16} height={16} viewBox="0 0 16 16">
+    <Svg width={22} height={22} viewBox="0 0 16 16">
       <AnimatedPath
         animatedProps={animatedProps}
         d={CHECK_PATH}
         fill="none"
         stroke="#FFFFFF"
-        strokeWidth={2.2}
+        strokeWidth={2.5}
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeDasharray={CHECK_PATH_LENGTH}
@@ -550,7 +550,7 @@ function ActiveArc({
           r="18"
           fill="none"
           stroke="url(#workflowArc)"
-          strokeWidth={2.5}
+          strokeWidth={3}
           strokeLinecap="round"
           strokeDasharray="44 120"
         />
@@ -1043,7 +1043,7 @@ function StepNode({
             ]}
           >
             <Animated.View style={[styles.nodeIconWrap, iconStyle]}>
-              <Ionicons name={step.icon} size={14} color={iconColor} />
+              <Ionicons name={step.icon} size={20} color={iconColor} />
             </Animated.View>
             <Animated.View pointerEvents="none" style={[styles.nodeCheckWrap, checkStyle]}>
               <CheckmarkStroke completed={state.completed} reducedMotion={reducedMotion} />
@@ -1206,22 +1206,22 @@ export default function WorkflowStepper({
 const styles = StyleSheet.create({
   cardFrame: {
     position: 'relative',
-    marginBottom: 2,
+    marginBottom: 6,
   },
 
   outerBloom: {
     position: 'absolute',
     top: 12,
-    left: 18,
-    right: 18,
-    bottom: -8,
+    left: 14,
+    right: 14,
+    bottom: -10,
     borderRadius: 28,
     backgroundColor: TOKENS.accentGlow,
-    opacity: 0.16,
+    opacity: 0.20,
     shadowColor: TOKENS.accent,
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.18,
-    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 22 },
+    shadowOpacity: 0.22,
+    shadowRadius: 36,
   },
 
   cardShell: {
@@ -1230,9 +1230,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: TOKENS.accentBorder,
     backgroundColor: TOKENS.background,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 18,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 24,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.36,
@@ -1252,7 +1252,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 18,
+    marginBottom: 22,
   },
 
   headerMeta: {
@@ -1261,30 +1261,30 @@ const styles = StyleSheet.create({
   },
 
   headerDot: {
-    width: 7,
-    height: 7,
+    width: 9,
+    height: 9,
     borderRadius: 999,
     marginRight: 10,
     backgroundColor: TOKENS.accent,
     shadowColor: TOKENS.accent,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.7,
-    shadowRadius: 8,
+    shadowRadius: 10,
   },
 
   headerTitle: {
     color: TOKENS.labelBright,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
-    letterSpacing: 0.28,
+    letterSpacing: 0.32,
     fontFamily: HEADER_FONT_FAMILY,
   },
 
   counterPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: 'rgba(255, 77, 28, 0.22)',
@@ -1300,7 +1300,7 @@ const styles = StyleSheet.create({
   counterDigit: {
     height: DIGIT_HEIGHT,
     color: TOKENS.accent,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '800',
     lineHeight: DIGIT_HEIGHT,
     textAlign: 'center',
@@ -1311,14 +1311,14 @@ const styles = StyleSheet.create({
     marginLeft: 5,
     marginRight: 4,
     color: 'rgba(255,255,255,0.58)',
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '700',
     fontFamily: BODY_FONT_FAMILY,
   },
 
   counterTotal: {
     color: TOKENS.labelBright,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
     fontFamily: BODY_FONT_FAMILY,
   },
@@ -1345,7 +1345,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: '50%',
     width: '100%',
-    top: 21 - TRACK_HEIGHT / 2,
+    top: 29 - TRACK_HEIGHT / 2,
     height: TRACK_HEIGHT,
     zIndex: 0,
   },
@@ -1407,9 +1407,9 @@ const styles = StyleSheet.create({
 
   nodeGlow: {
     position: 'absolute',
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
   },
 
   nodeRing: {
@@ -1454,20 +1454,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: '50%',
     top: '50%',
-    width: 3.5,
-    height: 3.5,
+    width: 4.5,
+    height: 4.5,
     borderRadius: 999,
-    marginLeft: -1.75,
-    marginTop: -1.75,
+    marginLeft: -2.25,
+    marginTop: -2.25,
     backgroundColor: '#FFD6CA',
   },
 
   stepLabel: {
-    marginTop: 10,
-    fontSize: 10,
-    lineHeight: 12,
+    marginTop: 12,
+    fontSize: 11,
+    lineHeight: 14,
     textAlign: 'center',
-    letterSpacing: 0.72,
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
     fontFamily: BODY_FONT_FAMILY,
   },

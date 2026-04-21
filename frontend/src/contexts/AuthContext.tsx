@@ -1,3 +1,4 @@
+// @refresh reset
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { User } from '@/types';
 import { userStorage, initializeStorage } from '@/lib/storage';
@@ -60,7 +61,9 @@ function clearSessionCache(): void {
 interface AuthContextType {
     user: User | null;
     isLoading: boolean;
-    login: (email: string, password: string) => Promise<{ success: boolean; message?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }>;
+    /** True once Firebase's onAuthStateChanged has fired at least once and resolved. */
+    isFirebaseAuthReady: boolean;
+    login: (email: string, password: string) => Promise<{ success: boolean; role?: string; message?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }>;
     signup: (email: string, password: string, name: string) => Promise<{ success: boolean; message?: string }>;
     resetPassword: (email: string) => Promise<{ success: boolean; message?: string }>;
     logout: () => void;
@@ -69,7 +72,7 @@ interface AuthContextType {
     deleteAccount: (password: string) => Promise<{ success: boolean; message?: string }>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const AVATAR_STORAGE_PREFIX = 'autospf_avatar_';
 const stripAvatarMetadata = (value: string) => value.replace(/^data:image\/\w+;base64,/, '');
 const isLikelyBase64Image = (value: string) =>
@@ -78,6 +81,9 @@ const isLikelyBase64Image = (value: string) =>
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    // True once Firebase's onAuthStateChanged has fired at least once.
+    // Login.tsx uses this to avoid redirecting on stale localStorage data.
+    const [isFirebaseAuthReady, setIsFirebaseAuthReady] = useState(false);
     const pendingAvatarRef = useRef<{ id: string; avatar: string } | null>(null);
     // Track whether login() already resolved the user to avoid double-fetch in onAuthStateChanged
     const loginResolvedRef = useRef(false);
@@ -124,21 +130,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         initializeStorage();
-        const storedUser = userStorage.getCurrentUser();
-        if (storedUser) {
-            const normalizedStoredUser: User = {
-                ...storedUser,
-                role: getSafeUserRole(storedUser.role, CUSTOMER_ROLE),
-            };
-            // Restore avatar from its dedicated storage so the UI can render it immediately
-            const savedAvatar = localStorage.getItem(`${AVATAR_STORAGE_PREFIX}${normalizedStoredUser.id}`);
-            if (savedAvatar && !normalizedStoredUser.avatar) {
-               normalizedStoredUser.avatar = savedAvatar.startsWith('data:') ? savedAvatar : `data:image/jpeg;base64,${savedAvatar}`;
-            }
-            const sanitized = sanitizeUser(normalizedStoredUser);
-            userStorage.setCurrentUser(sanitized);
-            setUser(normalizedStoredUser);
-        }
+        // NOTE: We intentionally do NOT call setUser() here from localStorage.
+        // Previously, pre-populating user before onAuthStateChanged caused a race:
+        // onAuthStateChanged would hit the session cache and immediately drop isLoading
+        // to false while user was already set — triggering a redirect on /login even
+        // for users who explicitly navigated there to log in as someone else.
+        // The stored user data is still used as a hint inside onAuthStateChanged below.
 
         // Listen for Firebase Auth state changes.
         // Role is resolved from the cached backend login response (fastest),
@@ -162,6 +159,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         loginResolvedRef.current = false;
                     }
                     setIsLoading(false);
+                    setIsFirebaseAuthReady(true);
                     return;
                 }
 
@@ -195,6 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             localStorage.setItem('autospf_token', cached.token);
                         }
                         setIsLoading(false);
+                        setIsFirebaseAuthReady(true);
 
                         // Background refresh: silently update from backend
                         queueMicrotask(() => {
@@ -316,6 +315,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     // Don't wipe existing user state on error
                 } finally {
                     setIsLoading(false);
+                    setIsFirebaseAuthReady(true);
                 }
             } else {
                 console.log('ℹ️ [AuthContext] Firebase User signed out.');
@@ -325,6 +325,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 localStorage.removeItem('autospf_backend_user');
                 clearSessionCache();
                 setIsLoading(false);
+                setIsFirebaseAuthReady(true);
             }
         });
 
@@ -377,7 +378,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [sanitizeUser]);
 
 
-    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; message?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }> => {
+    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; role?: string; message?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }> => {
         try {
             // ── CRITICAL: Signal that login() owns the auth flow ──
             // onAuthStateChanged MUST NOT resolve or redirect during this window.
@@ -542,12 +543,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 console.error('❌ [DEBUG-login] NO USER in response!');
             }
 
-
             // ── Build user immediately from backend response ──
+            let resolvedRole: string | undefined;
             if (backendUser) {
                 const rawRole = backendUser.role;
                 const migratedRole = migrateLegacyUserRole(rawRole);
                 const finalRole = migratedRole || CUSTOMER_ROLE;
+                resolvedRole = finalRole;
 
                 console.log('🔄 [DEBUG-login] Role pipeline:', {
                     rawFromBackend: rawRole,
@@ -588,7 +590,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 console.error('❌ [DEBUG-login] backendUser is null/undefined — this should not happen!');
             }
 
-            return { success: true };
+            // Return the resolved role so callers can redirect immediately
+            // without waiting for async React state propagation (user/isLoading).
+            return { success: true, role: resolvedRole };
         } catch (error: any) {
             console.error('Login error:', error);
             // Always release the lock on error
@@ -818,6 +822,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const value = useMemo(() => ({
         user,
         isLoading,
+        isFirebaseAuthReady,
         login,
         signup,
         resetPassword,
@@ -825,7 +830,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         updateUser,
         setAuthUser: setUser,
         deleteAccount,
-    }), [user, isLoading, login, signup, resetPassword, logout, updateUser, deleteAccount]);
+    }), [user, isLoading, isFirebaseAuthReady, login, signup, resetPassword, logout, updateUser, deleteAccount]);
 
     return (
         <AuthContext.Provider value={value}>
@@ -834,6 +839,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 }
 
+// NOTE: useAuth is intentionally co-located with AuthProvider in this file.
+// The // @refresh reset pragma above handles the Vite HMR incompatibility
+// that arises from exporting both a component (AuthProvider) and a hook (useAuth).
 export function useAuth() {
     const context = useContext(AuthContext);
     if (context === undefined) {

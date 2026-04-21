@@ -2025,23 +2025,35 @@ export default function AdminDashboard() {
 
         switch (safeRole) {
             case 'administrator':
-                // Exclude 'appointments' — bookings tab already shows the full SmartCalendar
+                // Full access — appointments excluded (SmartCalendar is inside Bookings tab)
                 return allAdminTabs.filter(tab => tab.id !== 'appointments');
+
             case 'office_admin':
-                // Office Admin: AI Estimator + Waivers only (per spec)
-                return allAdminTabs.filter(tab => ['ai_estimator', 'waivers'].includes(tab.id));
+                // System Authority: User Registration + User Management only
+                // (Settings accessible via profile gear icon — no separate tab needed)
+                return allAdminTabs.filter(tab => ['users'].includes(tab.id));
+
             case 'operation_manager':
-                // Operation Manager: User Reg, Inventory, AI Estimator, Waivers, Bookings — NO appointments
-                return allAdminTabs.filter(tab => ['users', 'inventory', 'bookings', 'waivers', 'ai_estimator', 'activity'].includes(tab.id));
+                // Operational Authority: Staff & Technician Dashboard (Bookings/Jobs) +
+                // Customer Status Tracker (Bookings view) + Activity monitoring
+                return allAdminTabs.filter(tab =>
+                    ['bookings', 'activity'].includes(tab.id)
+                );
+
             case 'hr':
-                // HR: User Reg, User Management, Appointments (staff availability/schedule)
-                return allAdminTabs.filter(tab => ['users', 'appointments'].includes(tab.id));
+                // Domain Authority: User Management + Staff Activity Monitoring
+                // (staff accounts, role assignments + view activity/dashboard reports)
+                return allAdminTabs.filter(tab => ['users', 'activity'].includes(tab.id));
+
             case 'inventory':
-                // Inventory Staff: Inventory only
-                return allAdminTabs.filter(tab => ['inventory'].includes(tab.id));
+                // Domain Authority: Inventory Management + Supplier & Item Management
+                return allAdminTabs.filter(tab => ['inventory', 'suppliers'].includes(tab.id));
+
             case 'sales':
-                // Sales: User Reg, Appointments (smart calendar), not shown - chatbot handled elsewhere
-                return allAdminTabs.filter(tab => ['users', 'appointments', 'pos'].includes(tab.id));
+                // Domain Authority: POS System + customer history review (Users read)
+                // Appointments removed — cashier doesn't manage scheduling
+                return allAdminTabs.filter(tab => ['pos', 'users'].includes(tab.id));
+
             default:
                 return [];
         }
@@ -2709,7 +2721,7 @@ export default function AdminDashboard() {
 
 
                         {activeTab === 'users' && (canAccessUsers || canRegisterUsers) && (
-                            <UserManagementPanel theme={theme} users={users} loadData={loadData} currentUserRole={user?.role} />
+                            <UserManagementPanel theme={theme} users={users} loadData={loadData} currentUserRole={user?.role} currentUserId={user?._id || user?.id} />
                         )}
 
                         {activeTab === 'suppliers' && canAccessSupplierModule && (

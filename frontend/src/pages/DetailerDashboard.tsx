@@ -43,7 +43,7 @@ import { NotificationService, type SystemNotification } from '@/lib/notification
 import InspectionCapture from '@/components/InspectionCapture';
 import WarrantyReceiptModal from '@/components/staff/WarrantyReceiptModal';
 import api from '@/lib/api';
-import { SERVICE_STAFF_ROLE, isStaffQCRole, isStaffInventoryRole, isTechnicianRole } from '@/lib/roles';
+import { SERVICE_STAFF_ROLE, STAFF_ROLES, isStaffQCRole, isStaffInventoryRole, isTechnicianRole } from '@/lib/roles';
 import {
     Popover,
     PopoverContent,
@@ -541,7 +541,7 @@ export default function DetailerDashboard() {
     }, [loadData]);
 
     useEffect(() => {
-        if (!user || user.role !== SERVICE_STAFF_ROLE) {
+        if (!user || !STAFF_ROLES.includes(user.role as any)) {
             navigate('/');
             return;
         }
@@ -1198,17 +1198,27 @@ export default function DetailerDashboard() {
         const role = user?.role;
 
         if (isStaffQCRole(role)) {
-            // Quality Checker: Job queue dashboard + POS receipts
+            // Quality Checker spec:
+            //   • Staff & Technician Dashboard Module → review completed jobs, validate
+            //     before/after photos, check customer notes
+            //   • AI-Based Damage Detection & AR Module → verify AI analysis results,
+            //     confirm repair recommendations
             return [
                 { id: 'dashboard', label: "Today's Jobs", icon: LayoutDashboard, badge: finalPendingJobs.length > 0 ? finalPendingJobs.length : undefined },
-                { id: 'pos', label: 'POS / Receipts', icon: Monitor },
+                { id: 'photos',    label: 'Before / After',   icon: Camera },
+                { id: 'notes',     label: 'Customer Notes',   icon: MessageSquare },
+                { id: 'ai_damage_detection', label: 'AI Scan & AR', icon: Zap },
             ];
         }
 
         if (isStaffInventoryRole(role)) {
-            // Inventory Staff: inventory management only
+            // Inventory Management Personnel spec:
+            //   • Inventory Management Module → real-time stock monitoring, automatic
+            //     deductions, low-stock alerts (all inside the Inventory tab)
+            //   • Supports: voice assistant inventory logging
             return [
-                { id: 'inventory', label: 'Inventory', icon: Package },
+                { id: 'inventory',       label: 'Inventory',        icon: Package },
+                { id: 'voice_assistant', label: 'Voice Assistant',  icon: Mic },
             ];
         }
 

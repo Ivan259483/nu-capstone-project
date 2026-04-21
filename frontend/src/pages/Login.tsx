@@ -7,7 +7,6 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import Navbar from "@/components/Navbar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { getBaseApiUrl } from "@/lib/api";
@@ -41,7 +40,7 @@ const validatePassword = (password: string) => {
 export default function Login() {
     const { t } = useLanguage();
     const navigate = useNavigate();
-    const { login, signup, resetPassword, user, isLoading: isAuthLoading } = useAuth();
+    const { login, signup, resetPassword, user, isLoading: isAuthLoading, isFirebaseAuthReady } = useAuth();
 
     /* ── Form state ── */
     const [tab, setTab] = useState<"login" | "register">("login");
@@ -165,13 +164,17 @@ export default function Login() {
             hasUser: !!user,
             role: user?.role,
             isAuthLoading,
+            isFirebaseAuthReady,
             hasToken: !!localStorage.getItem('autospf_token'),
         });
-        if (user && !isAuthLoading) {
+        // GUARD: Only redirect once Firebase has confirmed the session.
+        // Without this, a stale localStorage user would trigger a redirect
+        // before onAuthStateChanged verifies the token is still valid.
+        if (user && !isAuthLoading && isFirebaseAuthReady) {
             console.log('🚀 [DEBUG-Login] REDIRECTING user with role:', user.role, '=> path:', getDashboardPathForRole(user.role));
             performRedirect(user.role);
         }
-    }, [user, isAuthLoading, performRedirect]);
+    }, [user, isAuthLoading, isFirebaseAuthReady, performRedirect]);
 
     /* ── Social login ── */
     const handleSocialLogin = async (providerName: "google") => {
@@ -269,8 +272,11 @@ export default function Login() {
             if (rememberMe) localStorage.setItem("remembered_email", loginForm.email);
             else localStorage.removeItem("remembered_email");
             toast.success("Welcome back.");
-            // Redirect is handled by the useEffect watching `user` state.
-            // Do NOT access `user?.role` here — it holds the stale pre-login value.
+            // Redirect is handled by the useEffect that watches [user, isAuthLoading, isFirebaseAuthReady].
+            // The useEffect fires AFTER React commits the setUser() state update from login(),
+            // so ProtectedRoute is guaranteed to see the authenticated user when it renders.
+            // DO NOT call performRedirect() here — it races with React's state commit and
+            // causes ProtectedRoute to see user=null, triggering a redirect loop.
         } catch {
             toast.error("Login failed");
         } finally {
@@ -463,7 +469,7 @@ export default function Login() {
     ═══════════════════════════════════════════════════════ */
     return (
         <div className="min-h-screen flex flex-col bg-background">
-            <Navbar />
+            {/* Navbar is rendered globally by App.tsx for all public routes including /login */}
 
             {/* ── Ambient Background ── */}
             <div className="absolute inset-0 bg-hero-pattern pointer-events-none" />

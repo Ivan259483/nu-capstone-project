@@ -366,6 +366,52 @@ export const createUser = async (req, res, next) => {
     // Check if user already exists
     const userExists = await User.findOne({ email });
     if (userExists) {
+      // If previously soft-deleted, restore instead of rejecting
+      if (userExists.isDeleted) {
+        const bcrypt = await import('bcryptjs');
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        const restored = await User.findByIdAndUpdate(
+          userExists._id,
+          {
+            $set: {
+              name,
+              role: requestedRole,
+              avatar: avatar || userExists.avatar,
+              isDeleted: false,
+              isActive: true,
+              isVerified: true,
+              loginAttempts: 0,
+              lockUntil: null,
+              deletedAt: null,
+              password: hashedPassword,
+              ...(firebaseUid ? { firebaseUid } : {}),
+            }
+          },
+          { new: true }
+        );
+
+        logActivity({
+          req, type: 'user_restored', module: 'User', action: 'User Restored',
+          description: `${req.user?.name || 'Admin'} restored deleted ${requestedRole} account: ${name} (${email}).`,
+          status: 'success', referenceId: restored._id.toString(),
+          metadata: { restoredUserId: restored._id, restoredEmail: email, newRole: requestedRole },
+        });
+
+        return res.status(201).json({
+          success: true,
+          message: 'User account restored successfully',
+          data: {
+            id: restored._id,
+            name: restored.name,
+            email: restored.email,
+            role: restored.role,
+            avatar: restored.avatar,
+          },
+        });
+      }
+
       return res.status(400).json({
         success: false,
         message: 'User already exists',
