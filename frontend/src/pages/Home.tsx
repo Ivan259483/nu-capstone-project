@@ -42,8 +42,9 @@ export default function Home() {
     return (
         <PageLayout>
             <HeroSection />
-            <ServicesSection />
+
             <GallerySection items={landingData.gallery} />
+            <ServicesSection />
             <TransformationsSection />
             <TestimonialsSection />
 
