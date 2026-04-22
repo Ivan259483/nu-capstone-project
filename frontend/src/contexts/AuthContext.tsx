@@ -24,7 +24,7 @@ const BACKEND_URL = getBaseApiUrl();
    to eliminate redundant API calls on warm restarts.
    ═══════════════════════════════════════════════════════ */
 const SESSION_CACHE_KEY = 'autospf_session_cache';
-const SESSION_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const SESSION_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface SessionCache {
     user: User;

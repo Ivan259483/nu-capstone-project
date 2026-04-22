@@ -486,7 +486,7 @@ export const register = async (req, res, next) => {
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
       config.jwtSecret,
-      { expiresIn: '30m' }
+      { expiresIn: '7d' }
     );
 
     const userObject = user.toObject({ virtuals: true });
@@ -715,7 +715,7 @@ export const login = async (req, res, next) => {
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
       config.jwtSecret,
-      { expiresIn: '30m' }
+      { expiresIn: '7d' }
     );
 
     const userObject = user.toObject({ virtuals: true });
@@ -882,7 +882,7 @@ export const socialLogin = async (req, res, next) => {
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
       config.jwtSecret,
-      { expiresIn: '30m' }
+      { expiresIn: '7d' }
     );
 
      const userObject = user.toObject({ virtuals: true });
@@ -1155,7 +1155,7 @@ export const verifyLoginOtp = async (req, res) => {
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
       config.jwtSecret,
-      { expiresIn: '30m' }
+      { expiresIn: '7d' }
     );
 
     const userObject = user.toObject({ virtuals: true });

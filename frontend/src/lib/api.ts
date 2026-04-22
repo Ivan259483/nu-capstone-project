@@ -3,6 +3,14 @@ import { toast } from 'sonner';
 import { auth } from '@/config/firebase';
 import { signOut } from 'firebase/auth';
 
+let isRefreshingToken = false;
+let refreshSubscribers: ((token: string) => void)[] = [];
+
+function onTokenRefreshed(token: string) {
+    refreshSubscribers.forEach(cb => cb(token));
+    refreshSubscribers = [];
+}
+
 // Backend API configuration
 // During development: Use /api which proxies to http://localhost:3000
 // During production: Use full URL from environment variable
@@ -55,7 +63,7 @@ api.interceptors.request.use(
 // Response Interceptor: Global Error Handling & 401 Cleanup
 api.interceptors.response.use(
     (response) => response,
-    (error) => {
+    async (error) => {
         const { response, config } = error;
         const suppressErrorToast = Boolean((config as any)?.meta?.suppressErrorToast);
 
@@ -74,34 +82,86 @@ api.interceptors.response.use(
 
         // Global Error Handler with Toast Notifications
         if (response?.status === 401) {
-            console.warn('🔓 [API 401]: Session expired or invalid. Clearing session.');
+            console.warn('🔓 [API 401]: Token expired — attempting Firebase refresh...');
 
+            const originalRequest = config as any;
+
+            // Don’t retry refresh calls themselves to avoid infinite loops
+            if (originalRequest._retry) {
+                // Refresh also failed — sign out completely
+                localStorage.removeItem('autospf_token');
+                localStorage.removeItem('autospf_current_user');
+                localStorage.removeItem('autospf_backend_user');
+                localStorage.removeItem('autospf_session_cache');
+                try { signOut(auth); } catch { /* ignore */ }
+                if (typeof window !== 'undefined' &&
+                    !window.location.pathname.includes('/login') &&
+                    window.location.pathname !== '/' &&
+                    !window.location.search.includes('session=expired')) {
+                    window.location.replace('/?session=expired');
+                }
+                return Promise.reject(error);
+            }
+
+            originalRequest._retry = true;
+
+            // Try to get a fresh Firebase token
+            const firebaseUser = auth.currentUser;
+            if (firebaseUser) {
+                if (isRefreshingToken) {
+                    // Queue until refresh completes
+                    return new Promise(resolve => {
+                        refreshSubscribers.push((newToken: string) => {
+                            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+                            resolve(api(originalRequest));
+                        });
+                    });
+                }
+
+                isRefreshingToken = true;
+                try {
+                    const idToken = await firebaseUser.getIdToken(true); // force refresh
+                    // Exchange Firebase token for new backend JWT
+                    const refreshRes = await axios.post(
+                        `${BACKEND_API_URL}/auth/social-login`,
+                        {
+                            email: firebaseUser.email,
+                            name: firebaseUser.displayName,
+                            provider: 'google',
+                            providerId: firebaseUser.uid,
+                            photoURL: firebaseUser.photoURL,
+                        }
+                    );
+                    const newToken = refreshRes.data?.data?.token;
+                    if (newToken) {
+                        localStorage.setItem('autospf_token', newToken);
+                        onTokenRefreshed(newToken);
+                        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+                        return api(originalRequest);
+                    }
+                } catch (refreshError) {
+                    console.error('[API] Firebase token refresh failed:', refreshError);
+                } finally {
+                    isRefreshingToken = false;
+                }
+            }
+
+            // Firebase has no user either — full logout
             if (!suppressErrorToast) {
                 toast.error('Session Expired', {
                     id: 'api-session-expired',
                     description: 'Please login again to continue.'
                 });
             }
-
-            // Clear auth data
             localStorage.removeItem('autospf_token');
             localStorage.removeItem('autospf_current_user');
             localStorage.removeItem('autospf_backend_user');
-            localStorage.removeItem('autospf_session_cache'); // Also clear session cache
-            
-            // Critical: Sign out of Firebase so the frontend doesn't auto-login again
-            try {
-                signOut(auth);
-            } catch (e) {
-                console.error('Failed to sign out of Firebase during 401 handling:', e);
-            }
-
-            // Only redirect if not already on login/home
+            localStorage.removeItem('autospf_session_cache');
+            try { signOut(auth); } catch { /* ignore */ }
             if (typeof window !== 'undefined' &&
                 !window.location.pathname.includes('/login') &&
                 window.location.pathname !== '/' &&
                 !window.location.search.includes('session=expired')) {
-                // Ensure we use React Router or similar if possible, but window.location.replace works
                 window.location.replace('/?session=expired');
             }
         } else if (response?.status === 403) {
