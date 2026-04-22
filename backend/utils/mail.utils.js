@@ -5,7 +5,7 @@
 import { Resend } from 'resend';
 
 const FROM_NAME  = process.env.EMAIL_FROM_NAME    || 'AutoSPF+';
-const FROM_EMAIL = process.env.EMAIL_FROM_ADDRESS || 'onboarding@resend.dev';
+const FROM_EMAIL = process.env.EMAIL_FROM_ADDRESS || 'noreply@autospf.shop'; // verified domain — do NOT use onboarding@resend.dev
 const FROM       = `"${FROM_NAME}" <${FROM_EMAIL}>`;
 
 let resend = null;

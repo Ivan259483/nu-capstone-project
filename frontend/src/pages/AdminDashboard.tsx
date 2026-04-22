@@ -261,6 +261,32 @@ export default function AdminDashboard() {
     const [searchTerm, setSearchTerm] = useState('');
     const [speechSupported, setSpeechSupported] = useState(true);
 
+    // ── Inventory toolbar state ──────────────────────────────────────────────
+    const [invViewMode, setInvViewMode]   = useState<'table' | 'grid'>('table');
+    const [invSortKey, setInvSortKey]     = useState<'name' | 'stock' | 'cost' | 'status'>('name');
+    const [invSortDir, setInvSortDir]     = useState<'asc' | 'desc'>('asc');
+    const [invFilterStatus, setInvFilterStatus] = useState<'All' | 'Optimal' | 'Warning' | 'Critical' | 'Out of Stock'>('All');
+    const [showSortDrop, setShowSortDrop]     = useState(false);
+    const [showFilterDrop, setShowFilterDrop] = useState(false);
+    const [showViewDrop, setShowViewDrop]     = useState(false);
+    const sortDropRef   = useRef<HTMLDivElement>(null);
+    const filterDropRef = useRef<HTMLDivElement>(null);
+    const viewDropRef   = useRef<HTMLDivElement>(null);
+    const sortBtnRef    = useRef<HTMLButtonElement>(null);
+    const filterBtnRef  = useRef<HTMLButtonElement>(null);
+    const viewBtnRef    = useRef<HTMLButtonElement>(null);
+    const [dropPos, setDropPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+
+    const openDropdown = (which: 'sort' | 'filter' | 'view', btnRef: React.RefObject<HTMLButtonElement>) => {
+        if (btnRef.current) {
+            const rect = btnRef.current.getBoundingClientRect();
+            setDropPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+        }
+        setShowSortDrop(which === 'sort');
+        setShowFilterDrop(which === 'filter');
+        setShowViewDrop(which === 'view');
+    };
+
     useEffect(() => {
         if (typeof window === 'undefined') return;
         setSpeechSupported('speechSynthesis' in window);
@@ -1986,24 +2012,74 @@ export default function AdminDashboard() {
         }
     };
 
-    const filteredInventory = inventory.filter(item => {
-        const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (item.supplier || '').toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesCategory = itemCategoryFilter === 'All Category' || item.category === itemCategoryFilter;
+    // ── Inventory: click-outside to close dropdowns ──────────────────────────
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (sortDropRef.current && !sortDropRef.current.contains(e.target as Node))   setShowSortDrop(false);
+            if (filterDropRef.current && !filterDropRef.current.contains(e.target as Node)) setShowFilterDrop(false);
+            if (viewDropRef.current && !viewDropRef.current.contains(e.target as Node))   setShowViewDrop(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
 
-        let matchesStatus = true;
-        if (itemStatusFilter !== 'All') {
-            const stockStatus = item.stock < 5 ? 'Critical' : item.stock <= 10 ? 'Warning' : 'Optimal';
-            if (itemStatusFilter === 'Out of Stock') {
-                matchesStatus = item.stock === 0;
-            } else {
-                matchesStatus = (stockStatus as string) === itemStatusFilter;
+    const filteredInventory = useMemo(() => {
+        const getStatus = (item: InventoryItem) => item.stock === 0 ? 'Out of Stock' : item.stock < 5 ? 'Critical' : item.stock <= 10 ? 'Warning' : 'Optimal';
+
+        const filtered = inventory.filter(item => {
+            const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (item.supplier || '').toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesCategory = itemCategoryFilter === 'All Category' || item.category === itemCategoryFilter;
+            let matchesStatus = true;
+            if (invFilterStatus !== 'All') {
+                matchesStatus = getStatus(item) === invFilterStatus;
+            } else if (itemStatusFilter !== 'All') {
+                matchesStatus = getStatus(item) === itemStatusFilter;
             }
-        }
+            return matchesSearch && matchesCategory && matchesStatus;
+        });
 
-        return matchesSearch && matchesCategory && matchesStatus;
-    });
+        filtered.sort((a, b) => {
+            let cmp = 0;
+            if (invSortKey === 'name')   cmp = a.name.localeCompare(b.name);
+            if (invSortKey === 'stock')  cmp = a.stock - b.stock;
+            if (invSortKey === 'cost')   cmp = (a.cost || 0) - (b.cost || 0);
+            if (invSortKey === 'status') {
+                const order = { 'Out of Stock': 0, 'Critical': 1, 'Warning': 2, 'Optimal': 3 };
+                cmp = (order[getStatus(a) as keyof typeof order] ?? 4) - (order[getStatus(b) as keyof typeof order] ?? 4);
+            }
+            return invSortDir === 'asc' ? cmp : -cmp;
+        });
+
+        return filtered;
+    }, [inventory, searchTerm, itemCategoryFilter, itemStatusFilter, invFilterStatus, invSortKey, invSortDir]);
+
+    // ── Inventory: Export CSV ─────────────────────────────────────────────────
+    const handleInvExport = useCallback(() => {
+        const cols = ['Name', 'Category', 'Stock', 'Unit', 'Cost', 'Min Level', 'Max Level', 'Supplier', 'Status'];
+        const getStatus = (item: InventoryItem) => item.stock === 0 ? 'Out of Stock' : item.stock < 5 ? 'Critical' : item.stock <= 10 ? 'Warning' : 'Optimal';
+        const rows = filteredInventory.map(item => [
+            `"${item.name}"`,
+            `"${item.category}"`,
+            item.stock,
+            `"${item.unit}"`,
+            item.cost || 0,
+            item.minLevel || '',
+            item.maxLevel || '',
+            `"${item.supplier || 'Manual'}"`,
+            getStatus(item),
+        ].join(','));
+        const csv = [cols.join(','), ...rows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `inventory_${new Date().toISOString().slice(0,10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success(`Exported ${filteredInventory.length} items to CSV`);
+    }, [filteredInventory]);
 
     const getTabsForRole = (role: string | undefined): any[] => {
         if (!role) return [];
@@ -2052,7 +2128,7 @@ export default function AdminDashboard() {
             case 'sales':
                 // Domain Authority: POS System + customer history review (Users read)
                 // Appointments removed — cashier doesn't manage scheduling
-                return allAdminTabs.filter(tab => ['pos', 'users'].includes(tab.id));
+                return allAdminTabs.filter(tab => ['pos'].includes(tab.id));
 
             default:
                 return [];
@@ -2358,7 +2434,7 @@ export default function AdminDashboard() {
                                                     <div className="h-4 w-px bg-zinc-700"></div>
                                                     <button onClick={() => setSelectedInventoryItems([])} className="text-xs font-semibold text-zinc-400 hover:text-white transition-colors uppercase tracking-wider">Clear selection</button>
                                                 </div>
-                                                <div className="toolbar-right">
+                                                <div className="toolbar-right" style={{ overflow: "visible", position: "relative" }}>
                                                     <button onClick={() => setShowBulkStockModal(true)} className="btn hover:bg-zinc-800" style={{ backgroundColor: 'var(--surface2)', color: 'var(--text)' }}>
                                                         <RefreshCw className="w-3 h-3 mr-2 inline-block" /> Update Stock
                                                     </button>
@@ -2389,15 +2465,99 @@ export default function AdminDashboard() {
                                                 </div>
 
                                                 <div className="toolbar-right">
-                                                    <button className="btn">
+                                                    {/* ── Export ── */}
+                                                    <button className="btn" onClick={handleInvExport}>
                                                         <Download className="w-3.5 h-3.5" /> Export
                                                     </button>
-                                                    <button className="btn">
-                                                        <LayoutGrid className="w-3.5 h-3.5" /> View
+                                                {/* ── View toggle ── */}
+                                                <div ref={viewDropRef} style={{ position: 'relative' }}>
+                                                    <button
+                                                        ref={viewBtnRef}
+                                                        className={`btn ${showViewDrop ? 'active' : ''}`}
+                                                        onClick={() => openDropdown('view', viewBtnRef)}
+                                                    >
+                                                        {invViewMode === 'grid' ? <LayoutGrid className="w-3.5 h-3.5" /> : <List className="w-3.5 h-3.5" />}
+                                                        View <ChevronDown className="w-3 h-3" />
                                                     </button>
-                                                    <button className="btn"><ArrowDown className="w-3 h-3" /> Sort</button>
-                                                    <button className="btn"><Filter className="w-3 h-3" /> Filter</button>
+                                                    {showViewDrop && (
+                                                        <div style={{ position: 'fixed', top: dropPos.top, right: dropPos.right, background: '#1c1c1f', border: '1px solid #3f3f46', borderRadius: 10, minWidth: 150, boxShadow: '0 16px 48px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.06)', zIndex: 9999, padding: 4 }}>
+                                                            {(['table', 'grid'] as const).map(mode => (
+                                                                <button key={mode} onClick={() => { setInvViewMode(mode); setShowViewDrop(false); }}
+                                                                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 12px', borderRadius: 7, background: invViewMode === mode ? 'rgba(249,115,22,.12)' : 'transparent', color: invViewMode === mode ? 'var(--accent)' : 'var(--text2)', fontSize: 13, border: 'none', cursor: 'pointer' }}>
+                                                                    {mode === 'table' ? <List className="w-3.5 h-3.5" /> : <LayoutGrid className="w-3.5 h-3.5" />}
+                                                                    {mode === 'table' ? 'Table View' : 'Grid View'}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
 
+                                                {/* ── Sort ── */}
+                                                <div ref={sortDropRef} style={{ position: 'relative' }}>
+                                                    <button
+                                                        ref={sortBtnRef}
+                                                        className={`btn ${showSortDrop ? 'active' : ''}`}
+                                                        onClick={() => openDropdown('sort', sortBtnRef)}
+                                                    >
+                                                        {invSortDir === 'asc' ? <ArrowDown className="w-3 h-3" /> : <ArrowUp className="w-3 h-3" />}
+                                                        Sort <ChevronDown className="w-3 h-3" />
+                                                    </button>
+                                                    {showSortDrop && (
+                                                        <div style={{ position: 'fixed', top: dropPos.top, right: dropPos.right, background: '#1c1c1f', border: '1px solid #3f3f46', borderRadius: 10, minWidth: 190, boxShadow: '0 16px 48px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.06)', zIndex: 9999, padding: 4 }}>
+                                                            <div style={{ padding: '6px 12px 4px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text3)' }}>Sort by</div>
+                                                            {([['name','Name'],['stock','Stock Level'],['cost','Unit Cost'],['status','Status']] as const).map(([key, label]) => (
+                                                                <button key={key}
+                                                                    onClick={() => { if (invSortKey === key) setInvSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setInvSortKey(key); setInvSortDir('asc'); } }}
+                                                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '7px 12px', borderRadius: 7, background: invSortKey === key ? 'rgba(249,115,22,.12)' : 'transparent', color: invSortKey === key ? 'var(--accent)' : 'var(--text2)', fontSize: 13, border: 'none', cursor: 'pointer' }}>
+                                                                    {label}
+                                                                    {invSortKey === key && (invSortDir === 'asc' ? <ArrowDown className="w-3 h-3" /> : <ArrowUp className="w-3 h-3" />)}
+                                                                </button>
+                                                            ))}
+                                                            <div style={{ height: 1, background: 'var(--border)', margin: '4px 8px' }} />
+                                                            {(['asc','desc'] as const).map(dir => (
+                                                                <button key={dir} onClick={() => setInvSortDir(dir)}
+                                                                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 12px', borderRadius: 7, background: invSortDir === dir ? 'rgba(249,115,22,.12)' : 'transparent', color: invSortDir === dir ? 'var(--accent)' : 'var(--text2)', fontSize: 13, border: 'none', cursor: 'pointer' }}>
+                                                                    {dir === 'asc' ? <><ArrowDown className="w-3 h-3" /> Ascending</> : <><ArrowUp className="w-3 h-3" /> Descending</>}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* ── Filter ── */}
+                                                <div ref={filterDropRef} style={{ position: 'relative' }}>
+                                                    <button
+                                                        ref={filterBtnRef}
+                                                        className={`btn ${invFilterStatus !== 'All' || showFilterDrop ? 'active' : ''}`}
+                                                        onClick={() => openDropdown('filter', filterBtnRef)}
+                                                    >
+                                                        <Filter className="w-3 h-3" />
+                                                        Filter
+                                                        {invFilterStatus !== 'All' && <span style={{ background: 'var(--accent)', color: '#000', borderRadius: 99, fontSize: 10, padding: '1px 6px', fontWeight: 700 }}>1</span>}
+                                                        <ChevronDown className="w-3 h-3" />
+                                                    </button>
+                                                    {showFilterDrop && (
+                                                        <div style={{ position: 'fixed', top: dropPos.top, right: dropPos.right, background: '#1c1c1f', border: '1px solid #3f3f46', borderRadius: 10, minWidth: 190, boxShadow: '0 16px 48px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.06)', zIndex: 9999, padding: 4 }}>
+                                                            <div style={{ padding: '6px 12px 4px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text3)' }}>Filter by Status</div>
+                                                            {(['All','Optimal','Warning','Critical','Out of Stock'] as const).map(status => (
+                                                                <button key={status} onClick={() => { setInvFilterStatus(status); setShowFilterDrop(false); }}
+                                                                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 12px', borderRadius: 7, background: invFilterStatus === status ? 'rgba(249,115,22,.12)' : 'transparent', color: invFilterStatus === status ? 'var(--accent)' : 'var(--text2)', fontSize: 13, border: 'none', cursor: 'pointer' }}>
+                                                                    <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: status === 'Optimal' ? 'var(--green)' : status === 'Warning' ? 'var(--amber)' : status === 'Critical' || status === 'Out of Stock' ? 'var(--red)' : 'var(--text3)' }} />
+                                                                    {status}
+                                                                </button>
+                                                            ))}
+                                                            {invFilterStatus !== 'All' && (
+                                                                <>
+                                                                    <div style={{ height: 1, background: 'var(--border)', margin: '4px 8px' }} />
+                                                                    <button onClick={() => { setInvFilterStatus('All'); setShowFilterDrop(false); }}
+                                                                        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 12px', borderRadius: 7, color: 'var(--text3)', fontSize: 12, border: 'none', cursor: 'pointer', background: 'transparent' }}>
+                                                                        <X className="w-3 h-3" /> Clear filter
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
                                                     <Dialog open={showInventoryModal} onOpenChange={setShowInventoryModal}>
                                                         <DialogTrigger asChild>
                                                             <button
@@ -2532,6 +2692,54 @@ export default function AdminDashboard() {
                                             </div>
                                         )}
 
+                                        {/* ── Grid View ── */}
+                                        {invViewMode === 'grid' ? (
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, padding: '4px 0 16px' }}>
+                                                {filteredInventory.map(item => {
+                                                    const isCritical = item.stock < 5;
+                                                    const isWarn = item.stock >= 5 && item.stock < 10;
+                                                    const isOut = item.stock === 0;
+                                                    const spText = isOut ? 'Out of Stock' : isCritical ? 'Critical' : isWarn ? 'Warning' : 'Optimal';
+                                                    const dotColor = isOut || isCritical ? 'var(--red)' : isWarn ? 'var(--amber)' : 'var(--green)';
+                                                    const stockPct = Math.min((item.stock / Math.max((item.minLevel || 1) * 3, 1)) * 100, 100);
+                                                    return (
+                                                        <div key={item.id || (item as any)._id} style={{ background: '#18181b', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', transition: 'box-shadow .15s' }} onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 20px rgba(249,115,22,.15)')} onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
+                                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                                                <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                                    {item.image ? <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} /> : <Package className="w-4 h-4" style={{ opacity: .5 }} />}
+                                                                </div>
+                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                                                                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{item.category}</div>
+                                                                </div>
+                                                                <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: dotColor, background: `${dotColor}18`, padding: '2px 8px', borderRadius: 99, flexShrink: 0 }}>
+                                                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor }} />{spText}
+                                                                </span>
+                                                            </div>
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                                                                <span style={{ color: 'var(--text3)' }}>Stock</span>
+                                                                <span style={{ fontWeight: 600, color: 'var(--text1)' }}>{item.stock} <span style={{ fontWeight: 400, color: 'var(--text3)', fontSize: 10 }}>{item.unit}</span></span>
+                                                            </div>
+                                                            <div style={{ height: 4, borderRadius: 99, background: 'var(--surface)' }}>
+                                                                <div style={{ height: '100%', borderRadius: 99, width: `${stockPct}%`, background: dotColor, transition: 'width .3s' }} />
+                                                            </div>
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                                                                <span style={{ color: 'var(--text3)' }}>Unit Cost</span>
+                                                                <span style={{ fontWeight: 600, color: 'var(--text1)' }}>₱{(item.cost || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                            </div>
+                                                            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                                                                <button className="ra px-2 py-1 flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 rounded text-xs text-zinc-300" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setRestockItemId(item.id || (item as any)._id); setShowRestockModal(true); }}><RefreshCw size={11} /> +Qty</button>
+                                                                <button className="ra px-2 py-1" style={{ flex: 1, textAlign: 'center' }} onClick={() => handleEditInventory(item)}>Edit</button>
+                                                                <button className="ra danger px-2 py-1" style={{ flex: 1, textAlign: 'center' }} onClick={() => handleDeleteInventory(item.id, item.name)}>Del</button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {filteredInventory.length === 0 && (
+                                                    <div style={{ gridColumn: '1/-1', display: 'flex', justifyContent: 'center', padding: 32, color: 'var(--text3)', fontSize: 14, gap: 8 }}><Package className="w-4 h-4" style={{ opacity: .5 }} /> No items found matching your filter.</div>
+                                                )}
+                                            </div>
+                                        ) : (
                                         <div className="table-wrap">
                                             <div className="table-head">
                                                 <div className="th flex items-center justify-center">
@@ -2663,6 +2871,7 @@ export default function AdminDashboard() {
                                                 </div>
                                             )}
                                         </div>
+                                        )}
                                     </div>
                                 </motion.div>
                             );

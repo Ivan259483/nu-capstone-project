@@ -63,7 +63,7 @@ interface AuthContextType {
     isLoading: boolean;
     /** True once Firebase's onAuthStateChanged has fired at least once and resolved. */
     isFirebaseAuthReady: boolean;
-    login: (email: string, password: string) => Promise<{ success: boolean; role?: string; message?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }>;
+    login: (email: string, password: string) => Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }>;
     signup: (email: string, password: string, name: string) => Promise<{ success: boolean; message?: string }>;
     resetPassword: (email: string) => Promise<{ success: boolean; message?: string }>;
     logout: () => void;
@@ -318,12 +318,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     setIsFirebaseAuthReady(true);
                 }
             } else {
-                console.log('ℹ️ [AuthContext] Firebase User signed out.');
-                userStorage.setCurrentUser(null);
-                setUser(null);
-                localStorage.removeItem('autospf_token');
-                localStorage.removeItem('autospf_backend_user');
-                clearSessionCache();
+                // Firebase reports no signed-in user.
+                // IMPORTANT: Staff/admin accounts are backend-only — they have no Firebase Auth entry.
+                // After OTP verification they have a valid autospf_token + autospf_backend_user in
+                // localStorage. We must NOT wipe those just because Firebase has no session.
+                const backendToken = localStorage.getItem('autospf_token');
+                const backendUserRaw = localStorage.getItem('autospf_backend_user');
+
+                if (backendToken && backendUserRaw) {
+                    // Backend-only session (staff/admin after OTP login) — restore user from cache.
+                    console.log('ℹ️ [AuthContext] No Firebase session but backend token found — restoring backend-only user.');
+                    try {
+                        const parsed = JSON.parse(backendUserRaw);
+                        const restoredUser: User = {
+                            id: parsed._id || parsed.id || '',
+                            _id: parsed._id || parsed.id || '',
+                            email: parsed.email || '',
+                            name: parsed.name || '',
+                            role: parsed.role || 'customer',
+                            createdAt: parsed.createdAt || new Date().toISOString(),
+                            password: '',
+                            isActive: parsed.isActive ?? true,
+                            lastActive: parsed.lastActive || new Date().toISOString(),
+                            avatar: parsed.avatar || undefined,
+                        };
+                        const sanitized = sanitizeUser(restoredUser);
+                        userStorage.setCurrentUser(sanitized);
+                        setUser(restoredUser);
+                        setSessionCache(restoredUser, backendToken);
+                    } catch {
+                        // Malformed cache — fall through to full clear
+                        console.warn('⚠️ [AuthContext] Could not parse autospf_backend_user — clearing session.');
+                        userStorage.setCurrentUser(null);
+                        setUser(null);
+                        localStorage.removeItem('autospf_token');
+                        localStorage.removeItem('autospf_backend_user');
+                        clearSessionCache();
+                    }
+                } else {
+                    // Genuine sign-out — no Firebase session AND no backend token.
+                    console.log('ℹ️ [AuthContext] Firebase User signed out — clearing full session.');
+                    userStorage.setCurrentUser(null);
+                    setUser(null);
+                    localStorage.removeItem('autospf_token');
+                    localStorage.removeItem('autospf_backend_user');
+                    clearSessionCache();
+                }
                 setIsLoading(false);
                 setIsFirebaseAuthReady(true);
             }
@@ -378,7 +418,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [sanitizeUser]);
 
 
-    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; role?: string; message?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }> => {
+    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }> => {
         try {
             // ── CRITICAL: Signal that login() owns the auth flow ──
             // onAuthStateChanged MUST NOT resolve or redirect during this window.
@@ -439,7 +479,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             // ── Firebase MUST succeed for normal login flow ──
+            // EXCEPTION: If the backend returned a 2FA OTP challenge (requiresOTP),
+            // we must honour it even if Firebase rejected — staff/admin accounts
+            // created via the admin panel may not exist in Firebase Auth.
             if (firebaseCred.status === 'rejected') {
+                // ── 2FA intercept: backend succeeded with OTP challenge ──
+                if (backendBody?.data?.requiresOTP) {
+                    console.log('🔐 [DEBUG-login] Firebase rejected but backend returned OTP challenge — honouring 2FA');
+                    loginInProgressRef.current = false;
+                    loginResolvedRef.current = false;
+                    clearSessionCache();
+                    localStorage.removeItem('autospf_token');
+                    localStorage.removeItem('autospf_backend_user');
+                    userStorage.setCurrentUser(null);
+                    setUser(null);
+                    return {
+                        success: true,
+                        requiresOTP: true,
+                        userId: backendBody.data.userId,
+                        maskedEmail: backendBody.data.maskedEmail,
+                    };
+                }
+
                 loginInProgressRef.current = false;
                 loginResolvedRef.current = false;
                 // Surface backend remaining-attempts data even when Firebase rejects
@@ -520,6 +581,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         message: 'Server is taking too long to respond. Please try again.',
                     };
                 }
+            }
+
+            // ── Handle 2FA OTP challenge FIRST (non-customer roles) ──
+            // Backend returned requiresOTP — do NOT store any JWT or call setUser().
+            // Return challenge data to Login.tsx; stay signed out of Firebase.
+            console.log('🔐 [DEBUG-login] Backend response — requiresOTP check:', {
+                requiresOTP: backendBody?.data?.requiresOTP,
+                userId: backendBody?.data?.userId,
+                maskedEmail: backendBody?.data?.maskedEmail,
+                fullData: backendBody?.data,
+            });
+            if (backendBody?.data?.requiresOTP) {
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                // Firebase sign-in succeeded (needed for password check) but auth is
+                // not complete yet — sign out immediately.
+                if (firebaseCred.status === 'fulfilled') {
+                    await signOut(auth).catch(() => {});
+                }
+                clearSessionCache();
+                localStorage.removeItem('autospf_token');
+                localStorage.removeItem('autospf_backend_user');
+                userStorage.setCurrentUser(null);
+                setUser(null);
+                return {
+                    success: true,
+                    requiresOTP: true,
+                    userId: backendBody.data.userId,
+                    maskedEmail: backendBody.data.maskedEmail,
+                };
             }
 
             // ── Process successful backend response ──

@@ -1,6 +1,7 @@
 import User from '../models/user.model.js';
 import OTP from '../models/oTP.model.js';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { config } from '../config/environment.js';
 import { sendOtpEmail, sendWelcomeEmail, sendPasswordResetEmail } from '../utils/mail.utils.js'; // Resend mailer
@@ -8,6 +9,22 @@ import mockOtpStore from '../utils/mockOtpStore.utils.js';
 import { getInvalidUserRoleMessage, isValidUserRole } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { admin } from '../config/firebaseAdmin.js';
+
+// Roles that require Email OTP 2FA after password verification.
+// 'customer' is intentionally excluded — direct JWT login.
+// ⚠️  Must mirror every non-customer value from constants/roles.js → USER_ROLES.
+const NON_CUSTOMER_ROLES = [
+  'administrator',
+  'office_admin',
+  'operation_manager',
+  'hr',
+  'inventory',
+  'sales',
+  'service_staff',
+  'staff_quality_checker',
+  'staff_inventory',
+  'technician',
+];
 
 /**
  * Generate OTP
@@ -629,7 +646,72 @@ export const login = async (req, res, next) => {
       await user.save();
     }
 
-    // Generate token
+    // ── 2FA Branch ─────────────────────────────────────────────────────────
+    // Non-customer roles must verify an OTP before receiving a JWT.
+    console.log('🔐 [Login 2FA] ROLE CHECK:', {
+      userRole: user.role,
+      typeofRole: typeof user.role,
+      otpRequired: NON_CUSTOMER_ROLES.includes(user.role),
+      allOtpRoles: NON_CUSTOMER_ROLES,
+    });
+    if (NON_CUSTOMER_ROLES.includes(user.role)) {
+      const otp = generateOTP(6);
+      const otpHash = await bcrypt.hash(otp, 10);
+
+      // Remove any previous login OTP for this user, then save fresh one
+      await OTP.deleteMany({ userId: user._id, purpose: 'login' });
+
+      const maskedEmail = email.replace(/^(.)(.*)(@.*)$/, (_, first, middle, domain) =>
+        `${first}${'*'.repeat(Math.min(middle.length, 5))}${domain}`
+      );
+
+      const otpRecord = new OTP({
+        email: user.email,
+        otp,              // plain — kept for legacy find queries, never sent to client
+        otpHash,          // bcrypt hash — used for verification
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+        attempts: 0,
+        maxAttempts: 3,
+        verified: false,
+        purpose: 'login',
+        userId: user._id,
+        lastSentAt: new Date(),
+      });
+      await otpRecord.save();
+
+      // Send OTP email (fire-and-forget — failure is non-fatal here, client can resend)
+      const emailResult = await sendOtpEmail(user.email, otp);
+      if (!emailResult.success) {
+        console.error('❌ [Login 2FA] Failed to send OTP email:', emailResult.error);
+        await OTP.deleteOne({ _id: otpRecord._id });
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to send verification code. Please try again.',
+        });
+      }
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🔑 [Login 2FA] OTP for ${email}: ${otp}`);
+      }
+
+      logActivity({
+        userId: user._id, userName: user.name || email, userRole: user.role,
+        type: 'login_otp_sent', module: 'Auth', action: '2FA OTP Sent',
+        description: `OTP challenge issued for ${user.name || email}.`, status: 'info',
+      });
+
+      return res.json({
+        success: true,
+        message: 'OTP sent to your email. Please verify to complete login.',
+        data: {
+          requiresOTP: true,
+          userId: user._id.toString(),
+          maskedEmail,
+        },
+      });
+    }
+
+    // ── Customer (or any unlisted role): direct JWT ─────────────────────────
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
       config.jwtSecret,
@@ -992,5 +1074,184 @@ export const deleteAccount = async (req, res) => {
       success: false,
       message: 'An unexpected error occurred. Please try again or contact support.',
     });
+  }
+};
+
+/**
+ * Verify Login OTP (2FA)
+ * POST /api/auth/verify-login-otp
+ *
+ * Body: { userId: string, otp: string }
+ * - Validates bcrypt hash, checks expiry, enforces 3-attempt limit.
+ * - On success: clears OTP record, returns JWT + user object.
+ * - After 3 failures: sets lockUntil = +15 min on the OTP record (429).
+ */
+export const verifyLoginOtp = async (req, res) => {
+  const OTP_LOCK_MS = 15 * 60 * 1000;
+  try {
+    const { userId, otp } = req.body;
+
+    if (!userId || !otp) {
+      return res.status(400).json({ success: false, message: 'userId and otp are required.' });
+    }
+
+    const otpRecord = await OTP.findOne({ userId, purpose: 'login' });
+    if (!otpRecord) {
+      return res.status(400).json({ success: false, message: 'OTP not found. Please request a new code.' });
+    }
+
+    // Check lockout (stored on OTP record via expiresAt override)
+    if (otpRecord.attempts >= otpRecord.maxAttempts) {
+      const lockExpiry = new Date(otpRecord.updatedAt.getTime() + OTP_LOCK_MS);
+      if (lockExpiry > new Date()) {
+        const remainingMs = lockExpiry.getTime() - Date.now();
+        const remainingMinutes = Math.ceil(remainingMs / 60000);
+        return res.status(429).json({
+          success: false,
+          message: `Too many failed attempts. Please wait ${remainingMinutes} minute(s) or request a new code.`,
+          data: { locked: true, remainingMinutes },
+        });
+      }
+      // Lock has expired — delete record and ask user to resend
+      await OTP.deleteOne({ _id: otpRecord._id });
+      return res.status(400).json({ success: false, message: 'OTP expired. Please request a new code.' });
+    }
+
+    // Check expiry
+    if (otpRecord.expiresAt < new Date()) {
+      await OTP.deleteOne({ _id: otpRecord._id });
+      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new code.' });
+    }
+
+    // Compare bcrypt hash
+    const isValid = await bcrypt.compare(otp, otpRecord.otpHash);
+    if (!isValid) {
+      otpRecord.attempts += 1;
+      await otpRecord.save();
+
+      const remaining = otpRecord.maxAttempts - otpRecord.attempts;
+      if (remaining <= 0) {
+        return res.status(429).json({
+          success: false,
+          message: 'Too many failed attempts. Please wait 15 minutes or request a new code.',
+          data: { locked: true, remainingMinutes: 15 },
+        });
+      }
+      return res.status(401).json({
+        success: false,
+        message: `Invalid code. ${remaining} attempt(s) remaining.`,
+        data: { remainingAttempts: remaining },
+      });
+    }
+
+    // OTP valid — clear record and issue JWT
+    await OTP.deleteOne({ _id: otpRecord._id });
+
+    const user = await User.findById(userId);
+    if (!user || user.isDeleted || !user.isActive) {
+      return res.status(403).json({ success: false, message: 'Account not accessible.' });
+    }
+
+    const token = jwt.sign(
+      { id: user._id, email: user.email, role: user.role },
+      config.jwtSecret,
+      { expiresIn: '30m' }
+    );
+
+    const userObject = user.toObject({ virtuals: true });
+    delete userObject.password;
+    delete userObject._id;
+    delete userObject.__v;
+
+    logActivity({
+      userId: user._id, userName: user.name || user.email, userRole: user.role,
+      type: 'login', module: 'Auth', action: 'User Login (2FA)',
+      description: `${user.name || user.email} completed 2FA and logged in.`, status: 'success',
+    });
+
+    return res.json({
+      success: true,
+      message: 'Login successful.',
+      data: { user: userObject, token },
+    });
+  } catch (error) {
+    console.error('❌ [verifyLoginOtp] Error:', error);
+    return res.status(500).json({ success: false, message: 'Verification failed. Please try again.' });
+  }
+};
+
+/**
+ * Resend Login OTP (2FA)
+ * POST /api/auth/resend-login-otp
+ *
+ * Body: { userId: string }
+ * - Enforces a 60-second resend cooldown.
+ * - Regenerates OTP, re-hashes, resends email.
+ */
+export const resendLoginOtp = async (req, res) => {
+  const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId is required.' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user || user.isDeleted || !user.isActive) {
+      return res.status(403).json({ success: false, message: 'Account not accessible.' });
+    }
+
+    const existing = await OTP.findOne({ userId, purpose: 'login' });
+    if (existing && existing.lastSentAt) {
+      const elapsed = Date.now() - existing.lastSentAt.getTime();
+      if (elapsed < RESEND_COOLDOWN_MS) {
+        const waitSeconds = Math.ceil((RESEND_COOLDOWN_MS - elapsed) / 1000);
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${waitSeconds} second(s) before requesting a new code.`,
+          data: { waitSeconds },
+        });
+      }
+    }
+
+    // Generate fresh OTP
+    const otp = generateOTP(6);
+    const otpHash = await bcrypt.hash(otp, 10);
+
+    // Upsert — replace the old record to reset expiry and attempts
+    await OTP.deleteMany({ userId, purpose: 'login' });
+    const otpRecord = new OTP({
+      email: user.email,
+      otp,
+      otpHash,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      attempts: 0,
+      maxAttempts: 3,
+      verified: false,
+      purpose: 'login',
+      userId: user._id,
+      lastSentAt: new Date(),
+    });
+    await otpRecord.save();
+
+    const emailResult = await sendOtpEmail(user.email, otp);
+    if (!emailResult.success) {
+      await OTP.deleteOne({ _id: otpRecord._id });
+      return res.status(500).json({ success: false, message: 'Failed to send code. Please try again.' });
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`🔑 [Resend Login OTP] OTP for ${user.email}: ${otp}`);
+    }
+
+    return res.json({
+      success: true,
+      message: 'A new verification code has been sent to your email.',
+      data: { expiresIn: 300 }, // 5 minutes in seconds
+    });
+  } catch (error) {
+    console.error('❌ [resendLoginOtp] Error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to resend code. Please try again.' });
   }
 };

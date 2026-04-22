@@ -9,6 +9,8 @@ import {
   validateForgotPassword,
   validateResetPassword,
   validateSocialLogin,
+  validateVerifyLoginOtp,
+  validateResendLoginOtp,
 } from '../middleware/validation.middleware.js';
 
 const router = express.Router();
@@ -90,5 +92,21 @@ router.post('/logout', authenticate, authController.logout);
  * @body { password: string }
  */
 router.delete('/account', authenticate, authController.deleteAccount);
+
+/**
+ * @route POST /api/auth/verify-login-otp
+ * @desc Verify Email OTP for 2FA login challenge
+ * @access Public
+ * @body { userId: string, otp: string }
+ */
+router.post('/verify-login-otp', validateVerifyLoginOtp, authController.verifyLoginOtp);
+
+/**
+ * @route POST /api/auth/resend-login-otp
+ * @desc Resend Email OTP for 2FA login challenge (60s cooldown)
+ * @access Public
+ * @body { userId: string }
+ */
+router.post('/resend-login-otp', validateResendLoginOtp, authController.resendLoginOtp);
 
 export default router;

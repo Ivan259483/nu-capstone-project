@@ -40,7 +40,7 @@ const validatePassword = (password: string) => {
 export default function Login() {
     const { t } = useLanguage();
     const navigate = useNavigate();
-    const { login, signup, resetPassword, user, isLoading: isAuthLoading, isFirebaseAuthReady } = useAuth();
+    const { login, signup, resetPassword, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser } = useAuth();
 
     /* ── Form state ── */
     const [tab, setTab] = useState<"login" | "register">("login");
@@ -65,13 +65,27 @@ export default function Login() {
     const [lockUntilMs, setLockUntilMs] = useState<number | null>(null);
     const [lockCountdown, setLockCountdown] = useState("");
 
-    /* ── OTP verification state ── */
+    /* ── OTP verification state (Registration flow) ── */
     const [otpStep, setOtpStep] = useState<"form" | "verify">("form");
     const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
     const [otpCountdown, setOtpCountdown] = useState(0);
     const [otpSending, setOtpSending] = useState(false);
     const [otpVerifying, setOtpVerifying] = useState(false);
     const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+    /* ── Login 2FA OTP state ── */
+    // pendingUserId lives only in React state, NEVER in localStorage.
+    const [loginOtpStep, setLoginOtpStep] = useState<"form" | "otp">("form");
+    const [loginOtpDigits, setLoginOtpDigits] = useState(["", "", "", "", "", ""]);
+    const [loginOtpExpiry, setLoginOtpExpiry] = useState(0);   // seconds until OTP expires
+    const [loginOtpResend, setLoginOtpResend] = useState(0);   // seconds until resend allowed
+    const [loginOtpVerifying, setLoginOtpVerifying] = useState(false);
+    const [loginOtpResending, setLoginOtpResending] = useState(false);
+    const [loginOtpShake, setLoginOtpShake] = useState(false);
+    const [pendingUserId, setPendingUserId] = useState("");
+    const [loginMaskedEmail, setLoginMaskedEmail] = useState("");
+    const [loginOtpError, setLoginOtpError] = useState("");
+    const loginOtpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
     /* ── Forgot password ── */
     const [showForgotModal, setShowForgotModal] = useState(false);
@@ -80,12 +94,26 @@ export default function Login() {
 
     const isRegister = tab === "register";
 
-    /* ── OTP countdown timer ── */
+    /* ── OTP countdown timer (registration) ── */
     useEffect(() => {
         if (otpCountdown <= 0) return;
         const timer = setInterval(() => setOtpCountdown((c) => c - 1), 1000);
         return () => clearInterval(timer);
     }, [otpCountdown]);
+
+    /* ── Login OTP expiry countdown (5 min) ── */
+    useEffect(() => {
+        if (loginOtpExpiry <= 0) return;
+        const timer = setInterval(() => setLoginOtpExpiry((c) => c - 1), 1000);
+        return () => clearInterval(timer);
+    }, [loginOtpExpiry]);
+
+    /* ── Login OTP resend cooldown (60 s) ── */
+    useEffect(() => {
+        if (loginOtpResend <= 0) return;
+        const timer = setInterval(() => setLoginOtpResend((c) => c - 1), 1000);
+        return () => clearInterval(timer);
+    }, [loginOtpResend]);
 
     /* ── Lock countdown timer ── */
     useEffect(() => {
@@ -113,6 +141,12 @@ export default function Login() {
             setOtpStep("form");
             setOtpDigits(["", "", "", "", "", ""]);
             setOtpCountdown(0);
+            // Also reset login OTP step when switching to login tab explicitly
+            setLoginOtpStep("form");
+            setLoginOtpDigits(["", "", "", "", "", ""]);
+            setPendingUserId("");
+            setLoginMaskedEmail("");
+            setLoginOtpError("");
         }
     }, [tab]);
 
@@ -246,6 +280,21 @@ export default function Login() {
         setIsLoading(true);
         try {
             const result = await login(loginForm.email, loginForm.password);
+
+            // ── 2FA: non-customer role ──
+            if (result.requiresOTP) {
+                setPendingUserId(result.userId ?? "");
+                setLoginMaskedEmail(result.maskedEmail ?? loginForm.email);
+                setLoginOtpDigits(["", "", "", "", "", ""]);
+                setLoginOtpExpiry(300); // 5 min
+                setLoginOtpResend(60);  // 60 s cooldown
+                setLoginOtpError("");
+                setLoginOtpStep("otp");
+                toast.success("Verification code sent to your email.");
+                setTimeout(() => loginOtpInputRefs.current[0]?.focus(), 120);
+                return;
+            }
+
             if (!result.success) {
                 // Handle structured lock / attempt data from backend
                 if (result.data?.locked || result.data?.lockUntilMs) {
@@ -281,6 +330,142 @@ export default function Login() {
             toast.error("Login failed");
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    /* ── Login OTP: digit input handler ── */
+    const handleLoginOtpChange = (index: number, value: string) => {
+        if (!/^\d*$/.test(value)) return;
+        const updated = [...loginOtpDigits];
+        updated[index] = value.slice(-1);
+        setLoginOtpDigits(updated);
+        setLoginOtpError("");
+        if (value && index < 5) loginOtpInputRefs.current[index + 1]?.focus();
+    };
+
+    const handleLoginOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
+        if (e.key === "Backspace" && !loginOtpDigits[index] && index > 0) {
+            loginOtpInputRefs.current[index - 1]?.focus();
+        }
+        if (e.key === "Enter" && loginOtpDigits.every((d) => d)) {
+            handleVerifyLoginOtp();
+        }
+    };
+
+    const handleLoginOtpPaste = (e: React.ClipboardEvent) => {
+        e.preventDefault();
+        const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+        if (pasted.length > 0) {
+            const updated = Array.from({ length: 6 }, (_, i) => pasted[i] || "");
+            setLoginOtpDigits(updated);
+            loginOtpInputRefs.current[Math.min(pasted.length, 5)]?.focus();
+        }
+    };
+
+    /* ── Login OTP: verify ── */
+    const handleVerifyLoginOtp = async () => {
+        const code = loginOtpDigits.join("");
+        if (code.length !== 6) {
+            setLoginOtpError("Please enter the complete 6-digit code.");
+            return;
+        }
+        setLoginOtpVerifying(true);
+        setLoginOtpError("");
+        try {
+            const backendUrl = getBaseApiUrl();
+            const resp = await fetch(`${backendUrl}/auth/verify-login-otp`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId: pendingUserId, otp: code }),
+                signal: AbortSignal.timeout(12000),
+            });
+            const json = await resp.json();
+
+            if (!resp.ok || !json.success) {
+                // Shake animation
+                setLoginOtpShake(true);
+                setTimeout(() => setLoginOtpShake(false), 600);
+                setLoginOtpDigits(["", "", "", "", "", ""]);
+                setTimeout(() => loginOtpInputRefs.current[0]?.focus(), 50);
+
+                if (resp.status === 429) {
+                    setLoginOtpError(json.message || "Too many failed attempts. Request a new code.");
+                } else {
+                    setLoginOtpError(json.message || "Invalid code. Please try again.");
+                }
+                return;
+            }
+
+            // OTP verified — store JWT and hydrate AuthContext immediately.
+            const backendUser = json.data?.user;
+            const backendToken = json.data?.token;
+
+            if (backendToken) {
+                localStorage.setItem("autospf_token", backendToken);
+            }
+            if (backendUser) {
+                // Keep in localStorage so onAuthStateChanged's backend-only session guard
+                // can restore it if it fires before React state propagates.
+                localStorage.setItem("autospf_backend_user", JSON.stringify(backendUser));
+
+                // ── Critical: set AuthContext user state NOW ──
+                // Without this, ProtectedRoute sees null user and bounces to /login
+                // before onAuthStateChanged has a chance to restore the session.
+                setAuthUser({
+                    id: backendUser._id || backendUser.id || "",
+                    _id: backendUser._id || backendUser.id || "",
+                    email: backendUser.email || "",
+                    name: backendUser.name || "",
+                    role: backendUser.role || "customer",
+                    createdAt: backendUser.createdAt || new Date().toISOString(),
+                    password: "",
+                    isActive: backendUser.isActive ?? true,
+                    lastActive: backendUser.lastActive || new Date().toISOString(),
+                    avatar: backendUser.avatar || undefined,
+                });
+            }
+
+            const role = backendUser?.role ?? "customer";
+            if (rememberMe) localStorage.setItem("remembered_email", loginForm.email);
+            toast.success("Verification successful. Welcome!");
+            setLoginOtpStep("form");
+            setPendingUserId("");
+            setLoginMaskedEmail("");
+            performRedirect(role);
+        } catch {
+            setLoginOtpError("Verification failed. Please try again.");
+        } finally {
+            setLoginOtpVerifying(false);
+        }
+    };
+
+    /* ── Login OTP: resend ── */
+    const handleResendLoginOtp = async () => {
+        if (loginOtpResend > 0 || !pendingUserId) return;
+        setLoginOtpResending(true);
+        try {
+            const backendUrl = getBaseApiUrl();
+            const resp = await fetch(`${backendUrl}/auth/resend-login-otp`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId: pendingUserId }),
+                signal: AbortSignal.timeout(12000),
+            });
+            const json = await resp.json();
+            if (resp.ok && json.success) {
+                toast.success("New verification code sent!");
+                setLoginOtpDigits(["", "", "", "", "", ""]);
+                setLoginOtpExpiry(300);
+                setLoginOtpResend(60);
+                setLoginOtpError("");
+                setTimeout(() => loginOtpInputRefs.current[0]?.focus(), 50);
+            } else {
+                toast.error(json.message || "Failed to resend code.");
+            }
+        } catch {
+            toast.error("Failed to resend code. Please try again.");
+        } finally {
+            setLoginOtpResending(false);
         }
     };
 
@@ -542,7 +727,7 @@ export default function Login() {
                         >
 
                         {/* ══════════ LOGIN FORM ══════════ */}
-                        {tab === "login" && (
+                        {tab === "login" && loginOtpStep === "form" && (
                             <div className="space-y-4">
                                 {/* Email */}
                                 <div>
@@ -686,7 +871,134 @@ export default function Login() {
                             </div>
                         )}
 
-                        {/* ══════════ REGISTER FORM ══════════ */}
+                        {/* ══════════ LOGIN 2FA OTP SCREEN ══════════ */}
+                        {tab === "login" && loginOtpStep === "otp" && (
+                            <div className="space-y-5 animate-slide-up">
+                                {/* Header */}
+                                <div className="text-center space-y-2">
+                                    <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-gold/20 to-gold/5 border border-gold/20 mb-1">
+                                        <ShieldCheck className="w-7 h-7 text-gold" />
+                                    </div>
+                                    <h2 className="text-lg font-bold text-foreground">Two-Factor Verification</h2>
+                                    <p className="text-sm text-muted-foreground">
+                                        We sent a 6-digit code to{" "}
+                                        <span className="font-semibold text-foreground">{loginMaskedEmail}</span>
+                                    </p>
+                                </div>
+
+                                {/* Expiry timer */}
+                                {loginOtpExpiry > 0 && (
+                                    <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+                                        <Clock className="w-3.5 h-3.5" />
+                                        <span>Code expires in{" "}
+                                            <span className={cn("font-mono font-semibold", loginOtpExpiry <= 60 ? "text-red-400" : "text-foreground")}>
+                                                {String(Math.floor(loginOtpExpiry / 60)).padStart(2, "0")}:{String(loginOtpExpiry % 60).padStart(2, "0")}
+                                            </span>
+                                        </span>
+                                    </div>
+                                )}
+                                {loginOtpExpiry === 0 && (
+                                    <p className="text-center text-xs text-red-400">Code expired. Please resend.</p>
+                                )}
+
+                                {/* Digit inputs */}
+                                <div
+                                    className={cn(
+                                        "flex gap-2 justify-center transition-all",
+                                        loginOtpShake && "animate-[shake_0.4s_ease-in-out]"
+                                    )}
+                                    style={loginOtpShake ? { animation: "shake 0.4s ease-in-out" } : undefined}
+                                >
+                                    <style>{`
+                                        @keyframes shake {
+                                          0%,100%{transform:translateX(0)}
+                                          20%{transform:translateX(-6px)}
+                                          40%{transform:translateX(6px)}
+                                          60%{transform:translateX(-4px)}
+                                          80%{transform:translateX(4px)}
+                                        }
+                                    `}</style>
+                                    {loginOtpDigits.map((digit, idx) => (
+                                        <input
+                                            key={idx}
+                                            ref={(el) => { loginOtpInputRefs.current[idx] = el; }}
+                                            type="text"
+                                            inputMode="numeric"
+                                            maxLength={1}
+                                            value={digit}
+                                            onChange={(e) => handleLoginOtpChange(idx, e.target.value)}
+                                            onKeyDown={(e) => handleLoginOtpKeyDown(idx, e)}
+                                            onPaste={idx === 0 ? handleLoginOtpPaste : undefined}
+                                            className={cn(
+                                                "w-11 h-14 text-center text-xl font-bold rounded-xl border-2 bg-muted/40 text-foreground",
+                                                "focus:outline-none focus:ring-0 transition-all duration-200",
+                                                digit ? "border-gold/60 bg-gold/5" : "border-border",
+                                                "focus:border-gold shadow-inner"
+                                            )}
+                                        />
+                                    ))}
+                                </div>
+
+                                {/* Error message */}
+                                {loginOtpError && (
+                                    <div className="flex items-start gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5">
+                                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                                        <span>{loginOtpError}</span>
+                                    </div>
+                                )}
+
+                                {/* Verify button */}
+                                <Button
+                                    onClick={handleVerifyLoginOtp}
+                                    className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold group"
+                                    disabled={loginOtpDigits.some((d) => !d) || loginOtpVerifying}
+                                >
+                                    {loginOtpVerifying ? (
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    ) : (
+                                        <ShieldCheck className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
+                                    )}
+                                    {loginOtpVerifying ? "Verifying..." : "Verify Access"}
+                                </Button>
+
+                                {/* Resend + back */}
+                                <div className="flex items-center justify-between text-xs">
+                                    <button
+                                        onClick={() => {
+                                            setLoginOtpStep("form");
+                                            setPendingUserId("");
+                                            setLoginMaskedEmail("");
+                                            setLoginOtpDigits(["", "", "", "", "", ""]);
+                                            setLoginOtpError("");
+                                        }}
+                                        className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+                                    >
+                                        <ArrowLeft className="w-3.5 h-3.5" />
+                                        Back to login
+                                    </button>
+
+                                    <button
+                                        onClick={handleResendLoginOtp}
+                                        disabled={loginOtpResend > 0 || loginOtpResending}
+                                        className={cn(
+                                            "flex items-center gap-1 transition-colors",
+                                            loginOtpResend > 0 || loginOtpResending
+                                                ? "text-muted-foreground/50 cursor-not-allowed"
+                                                : "text-primary hover:text-accent"
+                                        )}
+                                    >
+                                        {loginOtpResending ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                            <RefreshCw className="w-3.5 h-3.5" />
+                                        )}
+                                        {loginOtpResend > 0 ? `Resend in ${loginOtpResend}s` : "Resend code"}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+
                         {tab === "register" && otpStep === "form" && (
                             <div className="space-y-4 animate-slide-up">
                                 {/* Full Name */}

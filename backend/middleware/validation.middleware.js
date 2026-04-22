@@ -175,6 +175,36 @@ export const validateSocialLogin = [
   handleValidationErrors,
 ];
 
+/* ──────────────────────────────────────────────────
+   LOGIN 2FA — VERIFY OTP
+   ────────────────────────────────────────────────── */
+export const validateVerifyLoginOtp = [
+  body('userId')
+    .trim()
+    .notEmpty().withMessage('userId is required')
+    .isMongoId().withMessage('Invalid userId format'),
+
+  body('otp')
+    .trim()
+    .notEmpty().withMessage('OTP code is required')
+    .isLength({ min: 6, max: 6 }).withMessage('OTP must be exactly 6 digits')
+    .isNumeric().withMessage('OTP must contain only numbers'),
+
+  handleValidationErrors,
+];
+
+/* ──────────────────────────────────────────────────
+   LOGIN 2FA — RESEND OTP
+   ────────────────────────────────────────────────── */
+export const validateResendLoginOtp = [
+  body('userId')
+    .trim()
+    .notEmpty().withMessage('userId is required')
+    .isMongoId().withMessage('Invalid userId format'),
+
+  handleValidationErrors,
+];
+
 /* ──────────────────────────────────────────────────────
    LEGACY: schema-based validator (kept for backward compat)
    ────────────────────────────────────────────────────── */
@@ -202,6 +232,8 @@ export default {
   validateForgotPassword,
   validateResetPassword,
   validateSocialLogin,
+  validateVerifyLoginOtp,
+  validateResendLoginOtp,
   handleValidationErrors,
   validateRequest,
 };
