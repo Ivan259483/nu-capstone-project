@@ -230,12 +230,14 @@ function FeaturedTestimonial() {
                     boxShadow: "0 30px 80px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03)",
                 }}
             >
-                {/* Shimmer sweep */}
-                <motion.div
-                    className="absolute inset-0 pointer-events-none"
-                    style={{ background: "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.04) 48%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 52%, transparent 60%)", backgroundSize: "200% 100%" }}
-                    animate={{ backgroundPositionX: ["0%", "200%"] }}
-                    transition={{ duration: 4, repeat: Infinity, ease: "linear", repeatDelay: 3 }}
+                {/* Shimmer sweep — pure CSS so it never resets */}
+                <div
+                    className="absolute inset-0 pointer-events-none z-20"
+                    style={{
+                        background: "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.04) 48%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 52%, transparent 60%)",
+                        backgroundSize: "200% 100%",
+                        animation: "testimonial-shine 4s linear infinite",
+                    }}
                 />
 
                 {/* Giant quote watermark */}

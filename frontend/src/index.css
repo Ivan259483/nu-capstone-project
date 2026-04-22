@@ -72,6 +72,10 @@
     0% { background-position: -200% 0; }
     100% { background-position: 200% 0; }
 }
+@keyframes testimonial-shine {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
 @keyframes float {
     0%, 100% { transform: translateY(0px); }
     50% { transform: translateY(-12px); }
