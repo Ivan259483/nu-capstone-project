@@ -118,7 +118,7 @@ export default function PremiumButton({
         style={[[containerStyle, { opacity: 1 }], animStyle, style]}
       >
         <LinearGradient
-          colors={disabled ? ['#D1D5DB', '#E5E7EB'] : [Palette.accent, Palette.accentDark]}
+          colors={disabled ? ['#D1D5DB', '#E5E7EB'] : ['#1a1a1a', '#111111']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={[innerStyle, { borderWidth: 0 }]}

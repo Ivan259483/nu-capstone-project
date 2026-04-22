@@ -16,37 +16,23 @@
  * └──────────────────────────────────────────────────────────────────────┘
  */
 
-import { Stack, useSegments, useRouter } from 'expo-router';
+import { Stack, useSegments, useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { ThemeProvider, useTheme } from '@/hooks/useThemeContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import GlobalErrorBoundary from '@/components/GlobalErrorBoundary';
 import PremiumToast from '@/components/ui/PremiumToast';
 import AppLockGuard from '@/components/AppLockGuard';
-import { getSafeUserRole, isAdminDashboardRole, isServiceStaffRole } from '@/services/api/roles';
+import { resolveRouteForRole } from '@/utils/routeResolver';
 
 // Prevent the native splash from auto-hiding until our custom one is ready.
 SplashScreen.preventAutoHideAsync();
 
 // ── Role-Based Route Resolver ──────────────────────────────────────────
-// Determines which route group to send the user to after authentication.
-// Customers use (customer) and staff/admin use (staff) — each group has its
-// own tab navigator. The resolver below determines which to send users to.
-//
-// If you later need fully separate dashboards, create (staff-tabs) and
-// (admin-tabs) route groups and update this resolver.
-
-type RouteTarget = '/(customer)' | '/(staff)' | '/(auth)/login';
-
-function resolveRouteForRole(role: string | undefined): RouteTarget {
-  const safeRole = getSafeUserRole(role);
-  if (isAdminDashboardRole(safeRole) || isServiceStaffRole(safeRole)) {
-    return '/(staff)';
-  }
-  return '/(customer)';
-}
+// Lives in @/utils/routeResolver — imported above.
 
 // ── Inner Layout (consumes AuthContext) ────────────────────────────────
 function InnerLayout() {
@@ -57,21 +43,42 @@ function InnerLayout() {
 
   useEffect(() => {
     if (!initialized) return;
+    // Hide native splash once we know auth state
+    SplashScreen.hideAsync();
+  }, [initialized]);
 
+  useEffect(() => {
+    if (!initialized) return;
     const inAuthGroup = segments[0] === '(auth)';
-
-    if (!session && !inAuthGroup) {
-      // ► Not authenticated → redirect to login screen
-      router.replace('/(auth)/login');
-    } else if (session && inAuthGroup) {
-      // ► Authenticated but still on auth screens → route by role
+    if (session && inAuthGroup) {
+      // Authenticated but still on auth screens → route by role
       const target = resolveRouteForRole(profile?.role);
       router.replace(target);
-    } else if (initialized) {
-      // ► Already on the correct screen group → hide native splash
-      SplashScreen.hideAsync();
     }
   }, [session, initialized, segments, router, profile?.role]);
+
+  // ── Block ALL rendering until Firebase auth is confirmed ──────────────
+  if (!initialized) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="small" color="#F97316" />
+      </View>
+    );
+  }
+
+  // ── Not authenticated: force login immediately via <Redirect> (sync) ──
+  // Using <Redirect> instead of router.replace() fires on the same render
+  // cycle, guaranteeing zero flash of protected screens.
+  if (!session) {
+    return (
+      <>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(auth)" />
+        </Stack>
+        <Redirect href="/(auth)/login" />
+      </>
+    );
+  }
 
   return (
     <>
