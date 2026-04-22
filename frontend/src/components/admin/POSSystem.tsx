@@ -1349,6 +1349,77 @@ export function POSSystem({ bookings, services, users, payments, settings, onTra
                             )}
                         </AnimatePresence>
 
+                        {/* ── GCash QR Panel ── */}
+                        <AnimatePresence>
+                            {selectedPaymentMethod === 'gcash' && cart.length > 0 && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                    className="mt-4 relative z-10"
+                                >
+                                    <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 overflow-hidden">
+                                        {/* Header */}
+                                        <div className="flex items-center gap-2 px-4 py-3 border-b border-blue-500/10 bg-blue-500/10">
+                                            <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
+                                                <span className="text-white text-[10px] font-black">G</span>
+                                            </div>
+                                            <span className="text-xs font-bold text-blue-300 tracking-wide">GCash — Scan QR to Pay</span>
+                                            <span className="ml-auto text-[10px] font-bold text-blue-400/60 uppercase tracking-widest">QR Only</span>
+                                        </div>
+
+                                        {/* QR Code + Info */}
+                                        <div className="flex items-center gap-4 p-4">
+                                            {/* QR Image */}
+                                            <div className="w-28 h-28 bg-white rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/10 p-1.5 overflow-hidden">
+                                                <img 
+                                                    src="/gcash-qr.png" 
+                                                    alt="GCash QR Code" 
+                                                    className="w-full h-full object-contain"
+                                                    onError={(e) => {
+                                                        (e.target as HTMLImageElement).style.display = 'none';
+                                                        const parent = (e.target as HTMLImageElement).parentElement;
+                                                        if (parent) {
+                                                            const text = document.createElement('span');
+                                                            text.className = 'text-[10px] text-gray-400 font-medium text-center';
+                                                            text.innerText = 'QR Missing';
+                                                            parent.appendChild(text);
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+
+                                            {/* Account Info */}
+                                            <div className="flex-1 space-y-2">
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-blue-400/60 uppercase tracking-widest mb-0.5">Account Name</p>
+                                                    <p className="text-sm font-bold text-white">{settings?.businessName || 'AutoSPF+'}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-blue-400/60 uppercase tracking-widest mb-0.5">GCash Number</p>
+                                                    <p className="text-sm font-mono font-bold text-blue-300">{settings?.phoneNumber || '+63 917 000 0000'}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-blue-400/60 uppercase tracking-widest mb-0.5">Amount Due</p>
+                                                    <p className="text-lg font-black text-white">{formatCurrency(total)}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Instruction footer */}
+                                        <div className="px-4 pb-3">
+                                            <div className="flex items-start gap-2 p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                                                <Smartphone className="w-3.5 h-3.5 text-blue-400 mt-0.5 flex-shrink-0" />
+                                                <p className="text-[11px] text-blue-300 leading-relaxed">
+                                                    Ask the customer to open <strong>GCash → Scan QR</strong> and scan the code. Once payment is received, press <strong>Confirm</strong> to complete the transaction.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
                         {/* Split Payment Input */}
                         <AnimatePresence>
                             {selectedPaymentMethod === 'split' && cart.length > 0 && (

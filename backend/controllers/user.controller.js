@@ -10,6 +10,7 @@ import Payment from '../models/payment.model.js';
 import mongoose from 'mongoose';
 import Store from '../models/store.model.js';
 import OTP from '../models/oTP.model.js';
+import firebaseAdmin from '../config/firebaseAdmin.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import {
   canManageUserRole,
@@ -290,6 +291,29 @@ export const deleteUser = async (req, res, next) => {
     user.isActive = false;
     user.expoPushTokens = [];
     await user.save();
+
+    // Delete from Firebase Auth if admin is initialized
+    if (firebaseAdmin) {
+      try {
+        if (user.firebaseUid) {
+          await firebaseAdmin.auth().deleteUser(user.firebaseUid);
+          console.log(`✅ Deleted user from Firebase Auth via UID: ${user.firebaseUid}`);
+        } else if (userEmail) {
+          // Fallback to email lookup if UID isn't available
+          const fbUser = await firebaseAdmin.auth().getUserByEmail(userEmail);
+          await firebaseAdmin.auth().deleteUser(fbUser.uid);
+          console.log(`✅ Deleted user from Firebase Auth via Email: ${fbUser.uid}`);
+        }
+      } catch (fbError) {
+        if (fbError.code !== 'auth/user-not-found') {
+          console.error(`⚠️ Failed to delete user from Firebase Auth:`, fbError);
+        } else {
+          console.log(`ℹ️ User not found in Firebase Auth, skipping Firebase deletion.`);
+        }
+      }
+    } else {
+      console.warn(`⚠️ Firebase Admin not initialized, skipping Firebase Auth deletion for user ${userEmail}`);
+    }
 
     // Cascade-clean all related documents
     const userId = user._id;
