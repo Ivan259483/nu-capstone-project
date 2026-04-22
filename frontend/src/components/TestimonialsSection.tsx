@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Star, Quote, X, ChevronLeft, ChevronRight, MessageSquareQuote, BadgeCheck, Users, TrendingUp, Repeat } from "lucide-react";
+import { Star, Quote, X, ChevronLeft, ChevronRight, MessageSquareQuote, BadgeCheck } from "lucide-react";
 import { motion, useInView, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
@@ -16,44 +16,6 @@ function Particle({ delay, x, y, size }: { delay: number; x: string; y: string; 
     );
 }
 
-/* ─── Animated Counter ─── */
-function AnimatedStat({ value, suffix, label, icon: Icon, delay }: { value: number; suffix: string; label: string; icon: any; delay: number }) {
-    const ref = useRef<HTMLDivElement>(null);
-    const isInView = useInView(ref, { once: true });
-    const [count, setCount] = useState(0);
-
-    useEffect(() => {
-        if (!isInView) return;
-        const timer = setTimeout(() => {
-            let start = 0;
-            const step = Math.ceil(value / 40);
-            const interval = setInterval(() => {
-                start += step;
-                if (start >= value) { setCount(value); clearInterval(interval); }
-                else setCount(start);
-            }, 30);
-            return () => clearInterval(interval);
-        }, delay * 1000);
-        return () => clearTimeout(timer);
-    }, [isInView, value, delay]);
-
-    return (
-        <motion.div
-            ref={ref}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay }}
-            className="flex flex-col items-center gap-2 px-6"
-        >
-            <Icon className="w-5 h-5 text-[#E8650A]/60 mb-1" />
-            <div className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                {count}{suffix}
-            </div>
-            <div className="text-[11px] uppercase tracking-[0.2em] text-white/25 font-bold">{label}</div>
-        </motion.div>
-    );
-}
 
 /* ─── Easing ─── */
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -423,7 +385,7 @@ export default function TestimonialsSection() {
                             initial={{ opacity: 0, y: 60 }}
                             animate={isInView ? { opacity: 1, y: 0 } : {}}
                             transition={{ duration: 0.8, ease: EASE, delay: 0.15 }}
-                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[68px] font-black text-white leading-[1.02] tracking-tight"
+                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[68px] font-serif font-medium text-white leading-[1.05] tracking-tight"
                         >
                             Trusted by
                         </motion.h2>
@@ -433,8 +395,7 @@ export default function TestimonialsSection() {
                             initial={{ opacity: 0, y: 60 }}
                             animate={isInView ? { opacity: 1, y: 0 } : {}}
                             transition={{ duration: 0.8, ease: EASE, delay: 0.3 }}
-                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[68px] font-black leading-[1.02] tracking-tight"
-                            style={{ fontStyle: "italic" }}
+                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[68px] font-serif font-medium leading-[1.05] tracking-tight italic"
                         >
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#E8650A] via-amber-400 to-[#E8650A] bg-[length:200%_100%] animate-shimmer">
                                 Car Enthusiasts
@@ -496,20 +457,6 @@ export default function TestimonialsSection() {
                     <FeaturedTestimonial />
                 </motion.div>
 
-                {/* ── Social Proof Stats ── */}
-                <motion.div
-                    initial={{ opacity: 0, y: 30 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.7, ease: EASE }}
-                    className="flex flex-wrap items-center justify-center gap-6 sm:gap-0 sm:divide-x divide-white/[0.06] mb-8 py-8 px-4 rounded-2xl"
-                    style={{ background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.04)" }}
-                >
-                    <AnimatedStat value={500} suffix="+" label="Happy Clients" icon={Users} delay={0} />
-                    <AnimatedStat value={4.9} suffix="" label="Avg Rating" icon={Star} delay={0.15} />
-                    <AnimatedStat value={98} suffix="%" label="Return Rate" icon={Repeat} delay={0.3} />
-                    <AnimatedStat value={1200} suffix="+" label="Cars Detailed" icon={TrendingUp} delay={0.45} />
-                </motion.div>
             </div>
 
             {/* ── Marquee Strip ── */}

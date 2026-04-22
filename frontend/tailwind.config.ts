@@ -2,7 +2,7 @@ import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
 
 export default {
-    darkMode: ["class"],
+    darkMode: "class",
     content: [
         "./pages/**/*.{ts,tsx}",
         "./components/**/*.{ts,tsx}",
@@ -74,6 +74,7 @@ export default {
             },
             fontFamily: {
                 sans: ["Inter", "Segoe UI", "system-ui", "sans-serif"],
+                serif: ["'Playfair Display'", "Georgia", "serif"],
             },
             keyframes: {
                 "accordion-down": {

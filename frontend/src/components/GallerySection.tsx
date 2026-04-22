@@ -356,7 +356,7 @@ export default function GallerySection({ items }: GallerySectionProps) {
                             initial={{ opacity: 0, y: 60 }}
                             animate={isInView ? { opacity: 1, y: 0 } : {}}
                             transition={{ duration: 0.8, ease: EASE, delay: 0.15 }}
-                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[76px] font-black text-white leading-[1] tracking-tight"
+                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[76px] font-serif font-medium text-white leading-[1.05] tracking-tight"
                         >
                             Unparalleled Quality,
                         </motion.h2>
@@ -366,8 +366,7 @@ export default function GallerySection({ items }: GallerySectionProps) {
                             initial={{ opacity: 0, y: 60 }}
                             animate={isInView ? { opacity: 1, y: 0 } : {}}
                             transition={{ duration: 0.8, ease: EASE, delay: 0.3 }}
-                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[76px] font-black leading-[1] tracking-tight"
-                            style={{ fontStyle: "italic" }}
+                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[76px] font-serif font-medium text-white leading-[1.05] tracking-tight italic"
                         >
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#E8650A] via-amber-400 to-[#E8650A] bg-[length:200%_100%] animate-shimmer">
                                 Every Time
