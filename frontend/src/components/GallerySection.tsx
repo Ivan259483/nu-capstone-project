@@ -42,13 +42,6 @@ const featureCards = [
         src: "https://images.unsplash.com/photo-1605437241278-c1806d14a4d9?auto=format&fit=crop&q=80&w=800",
         icon: ShieldCheck,
     },
-    {
-        num: "04",
-        label: "Convenient\n& Fast",
-        desc: "Same-day turnaround available — quick service without cutting corners.",
-        src: "https://images.unsplash.com/photo-1620584898989-d39f7f9ed1b7?auto=format&fit=crop&q=80&w=800",
-        icon: Clock,
-    },
 ];
 
 /* ═══════════════════════════════════════
@@ -104,7 +97,7 @@ function FeatureCard({
             <motion.div
                 className="group relative rounded-[22px] overflow-hidden cursor-default select-none"
                 style={{
-                    aspectRatio: "3 / 4",
+                    aspectRatio: "4 / 5",
                     rotateX: hovered ? rotateX : 0,
                     rotateY: hovered ? rotateY : 0,
                     transformStyle: "preserve-3d",
@@ -412,8 +405,8 @@ export default function GallerySection({ items }: GallerySectionProps) {
                     </motion.div>
                 </div>
 
-                {/* ── 4-Card Grid ── */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-16">
+                {/* ── 3-Card Grid ── */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 mb-16">
                     {featureCards.map((card, i) => (
                         <FeatureCard key={card.num} card={card} index={i} />
                     ))}

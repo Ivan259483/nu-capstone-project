@@ -69,6 +69,8 @@ interface AuthContextType {
     logout: () => void;
     updateUser: (user: User, options?: { localOnly?: boolean }) => Promise<{ success: boolean; message?: string; offline?: boolean; reason?: 'timeout' | 'network' | 'error' }>;
     setAuthUser: (user: User | null) => void;
+    markLoginInProgress: () => void;
+    markLoginComplete: () => void;
     deleteAccount: (password: string) => Promise<{ success: boolean; message?: string }>;
 }
 
@@ -919,7 +921,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         resetPassword,
         logout,
         updateUser,
-        setAuthUser: setUser,
+        setAuthUser: (u: User | null) => {
+            setUser(u);
+            if (u) {
+                // When externally setting a user (e.g. after Google login),
+                // mark auth as ready so ProtectedRoute renders immediately
+                // instead of showing the skeleton loader.
+                setIsFirebaseAuthReady(true);
+                setIsLoading(false);
+                loginResolvedRef.current = true;
+            }
+        },
+        markLoginInProgress: () => { loginInProgressRef.current = true; },
+        markLoginComplete: () => { loginInProgressRef.current = false; },
         deleteAccount,
     }), [user, isLoading, isFirebaseAuthReady, login, signup, resetPassword, logout, updateUser, deleteAccount]);
 

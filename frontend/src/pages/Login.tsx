@@ -40,7 +40,7 @@ const validatePassword = (password: string) => {
 export default function Login() {
     const { t } = useLanguage();
     const navigate = useNavigate();
-    const { login, signup, resetPassword, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser } = useAuth();
+    const { login, signup, resetPassword, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser, markLoginInProgress, markLoginComplete } = useAuth();
 
     /* ── Form state ── */
     const [tab, setTab] = useState<"login" | "register">("login");
@@ -217,13 +217,20 @@ export default function Login() {
             return;
         }
         setIsLoading(true);
+
+        // ── CRITICAL: Tell onAuthStateChanged to DEFER ──
+        // signInWithPopup triggers onAuthStateChanged immediately when the popup
+        // closes. Without this flag, onAuthStateChanged races our backend call,
+        // sets isLoading=true, and ProtectedRoute shows skeleton instead of dashboard.
+        markLoginInProgress();
+
         try {
             const provider = googleProvider;
             const result = await signInWithPopup(auth, provider);
             const firebaseUser = result.user;
 
-            // ── CRITICAL: Call backend /social-login to ensure a backend user
-            // record exists and to obtain a JWT for API calls ──
+            // ── Call backend /social-login to sync user + get JWT ──
+            let didRedirect = false;
             try {
                 const backendUrl = getBaseApiUrl();
                 const resp = await fetch(`${backendUrl}/auth/social-login`, {
@@ -240,11 +247,52 @@ export default function Login() {
                 });
                 if (resp.ok) {
                     const json = await resp.json();
-                    if (json.data?.token) {
-                        localStorage.setItem('autospf_token', json.data.token);
+                    const backendUser = json.data?.user;
+                    const backendToken = json.data?.token;
+
+                    if (backendToken) {
+                        localStorage.setItem('autospf_token', backendToken);
                     }
-                    if (json.data?.user) {
-                        localStorage.setItem('autospf_backend_user', JSON.stringify(json.data.user));
+
+                    if (backendUser) {
+                        localStorage.setItem('autospf_backend_user', JSON.stringify(backendUser));
+
+                        // Build the user object for AuthContext
+                        const userData = {
+                            id: backendUser.id || backendUser._id || firebaseUser.uid,
+                            _id: backendUser.id || backendUser._id || '',
+                            email: backendUser.email || firebaseUser.email || '',
+                            name: backendUser.name || firebaseUser.displayName || 'User',
+                            role: backendUser.role || 'customer',
+                            createdAt: backendUser.createdAt || new Date().toISOString(),
+                            password: '',
+                            isActive: backendUser.isActive ?? true,
+                            lastActive: backendUser.lastActive || new Date().toISOString(),
+                            avatar: backendUser.avatar || firebaseUser.photoURL || undefined,
+                        };
+
+                        // Persist session cache for instant restore
+                        try {
+                            localStorage.setItem('autospf_session_cache', JSON.stringify({
+                                user: userData,
+                                token: backendToken || '',
+                                timestamp: Date.now(),
+                            }));
+                        } catch { /* quota */ }
+
+                        // Hydrate AuthContext — sets user + isFirebaseAuthReady + loginResolved
+                        setAuthUser(userData);
+
+                        toast.success("Welcome back!");
+                        didRedirect = true;
+
+                        // Navigate after React commits the state
+                        const role = backendUser.role || 'customer';
+                        const dashPath = getDashboardPathForRole(role);
+                        setTimeout(() => {
+                            navigate(dashPath, { replace: true });
+                        }, 80);
+                        return;
                     }
                     console.log('✅ [Login] Backend social-login synced successfully');
                 } else {
@@ -252,11 +300,15 @@ export default function Login() {
                 }
             } catch (backendErr) {
                 console.warn('⚠️ [Login] Backend social-login call failed:', backendErr);
-                // Non-blocking: onAuthStateChanged will still resolve the user via GET /users
             }
 
-            toast.success("Welcome back!");
+            if (!didRedirect) {
+                // Fallback: let onAuthStateChanged handle the rest
+                markLoginComplete();
+                toast.success("Welcome back!");
+            }
         } catch (error: any) {
+            markLoginComplete();
             // Don't show error for user-cancelled popup
             if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
                 return;

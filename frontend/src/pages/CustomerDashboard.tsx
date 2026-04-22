@@ -6,7 +6,7 @@ import { NotificationService, SystemNotification } from '../lib/notification-ser
 export default function CustomerDashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<'dashboard' | 'settings'>('dashboard');
-  const { logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profileSubMenu, setProfileSubMenu] = useState<null | 'display' | 'help'>(null);
@@ -24,12 +24,84 @@ export default function CustomerDashboard() {
   const [activities, setActivities] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
 
-  const handleAddDummyVehicle = () => {
-    setVehicles([...vehicles, {
-      plate: vehicles.length % 2 === 0 ? 'TSLA-3X9' : 'PORS-911',
-      name: vehicles.length % 2 === 0 ? '2023 Tesla Model 3' : '2019 Porsche 911',
-      color: vehicles.length % 2 === 0 ? 'Pearl White Multi-Coat' : 'Agate Grey Metallic'
-    }]);
+  const [addVehicleOpen, setAddVehicleOpen] = useState(false);
+  const [newVehicle, setNewVehicle] = useState({ plate: '', name: '', color: '', type: '' });
+  const [vehicleErrors, setVehicleErrors] = useState<Record<string, string>>({});
+  // Booking Modal
+  const [bookingOpen, setBookingOpen] = useState(false);
+  const [bookingStep, setBookingStep] = useState(1); // 1=service, 2=vehicle, 3=datetime, 4=confirm
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  const [bookingDone, setBookingDone] = useState(false);
+  const [bookingServices, setBookingServices] = useState<any[]>([]);
+  const [bookingForm, setBookingForm] = useState({
+    service: '', serviceName: '', servicePrice: 0,
+    vehicleMake: '', vehicleModel: '', vehicleYear: '', vehicleColor: '', vehiclePlate: '',
+    date: '', time: '', notes: '',
+  });
+  const BOOKING_TIMES = ['8:00 AM','9:00 AM','10:00 AM','11:00 AM','1:00 PM','2:00 PM','3:00 PM','4:00 PM'];
+  const BOOKING_DATES = (() => {
+    const dates: Date[] = []; const d = new Date(); d.setDate(d.getDate()+1);
+    while (dates.length < 14) { if (d.getDay() !== 0) dates.push(new Date(d)); d.setDate(d.getDate()+1); }
+    return dates;
+  })();
+  const openBookingModal = async () => {
+    setBookingOpen(true); setBookingStep(1); setBookingDone(false);
+    setBookingForm({ service:'', serviceName:'', servicePrice:0, vehicleMake:'', vehicleModel:'', vehicleYear:'', vehicleColor:'', vehiclePlate:'', date:'', time:'', notes:'' });
+    try {
+      const { default: api } = await import('../lib/api');
+      const res = await api.get('/services/published');
+      if (res.data.success) setBookingServices(res.data.data || []);
+    } catch { setBookingServices([]); }
+  };
+  const submitBooking = async () => {
+    if (!user) return;
+    setBookingSubmitting(true);
+    try {
+      const { OrderService } = await import('../lib/order-service');
+      const payload = {
+        customer: user.id, customerName: user.name || '', customerPhone: '',
+        vehicleYear: bookingForm.vehicleYear, vehicleMake: bookingForm.vehicleMake,
+        vehicleModel: bookingForm.vehicleModel, vehicleColor: bookingForm.vehicleColor,
+        vehiclePlate: bookingForm.vehiclePlate, serviceType: bookingForm.serviceName,
+        price: bookingForm.servicePrice, bookingDate: bookingForm.date,
+        bookingTime: bookingForm.time, notes: bookingForm.notes,
+        items: JSON.stringify([{ product: bookingForm.service, quantity: 1, price: bookingForm.servicePrice }])
+      };
+      const res = await OrderService.createOrder(payload);
+      if (res?.success) { setBookingDone(true); setHasActiveBooking(true); }
+    } catch(e) { console.error(e); } finally { setBookingSubmitting(false); }
+  };
+
+  const handleAddVehicleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const errors: Record<string, string> = {};
+    const plate = newVehicle.plate.trim();
+    const name = newVehicle.name.trim();
+    const type = newVehicle.type.trim();
+
+    if (!plate) {
+      errors.plate = 'Plate number is required.';
+    } else if (!/^[A-Za-z0-9 \-]{3,12}$/.test(plate)) {
+      errors.plate = 'Enter a valid plate number (3–12 alphanumeric characters).';
+    }
+    if (!name) {
+      errors.name = 'Make & Model is required.';
+    } else if (name.length < 3) {
+      errors.name = 'Please enter a valid make and model (min. 3 characters).';
+    }
+    if (!type) {
+      errors.type = 'Please select a vehicle type.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setVehicleErrors(errors);
+      return;
+    }
+
+    setVehicles([...vehicles, { plate: plate.toUpperCase(), name, color: newVehicle.color.trim(), type }]);
+    setAddVehicleOpen(false);
+    setNewVehicle({ plate: '', name: '', color: '', type: '' });
+    setVehicleErrors({});
   };
 
   useEffect(() => {
@@ -55,9 +127,15 @@ export default function CustomerDashboard() {
   const [feedbackToast, setFeedbackToast] = useState(false);
 
   // Settings — Profile
-  const [profile, setProfile] = useState({ fullName: 'Alex Reyes', email: 'alex@email.com', phone: '+63 912 345 6789' });
+  const [profile, setProfile] = useState({ fullName: user?.name || '', email: user?.email || '', phone: '+63 912 345 6789' });
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   const [profileSaved, setProfileSaved] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setProfile(p => ({ ...p, fullName: user.name || '', email: user.email || '' }));
+    }
+  }, [user]);
 
   // Settings — Password
   const [passwords, setPasswords] = useState({ current: '', newPass: '', confirm: '' });
@@ -77,11 +155,32 @@ export default function CustomerDashboard() {
     return Object.keys(errs).length === 0;
   }
 
-  function handleProfileSave(e: React.FormEvent) {
+  async function handleProfileSave(e: React.FormEvent) {
     e.preventDefault();
     if (!validateProfile()) return;
-    setProfileSaved(true);
-    setTimeout(() => setProfileSaved(false), 3000);
+
+    if (!user) {
+      logout();
+      navigate('/login');
+      return;
+    }
+
+    try {
+      const result = await updateUser({
+        ...user,
+        name: profile.fullName,
+        email: profile.email
+      });
+
+      if (result.success) {
+        setProfileSaved(true);
+        setTimeout(() => setProfileSaved(false), 3000);
+      } else {
+        setProfileErrors({ form: result.message || 'Failed to update profile' });
+      }
+    } catch (err) {
+      setProfileErrors({ form: 'An error occurred while saving.' });
+    }
   }
 
   function validatePasswords() {
@@ -207,7 +306,7 @@ export default function CustomerDashboard() {
 
           <div className="flex items-center gap-4">
             <button 
-              onClick={() => setHasActiveBooking(true)}
+              onClick={openBookingModal}
               className="hidden sm:flex items-center justify-center px-4 py-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-md font-medium transition-colors shadow-sm"
             >
               Book Service
@@ -289,8 +388,8 @@ export default function CustomerDashboard() {
             </div>
             
             <div className="relative">
-              <button onClick={() => setProfileMenuOpen(!profileMenuOpen)} className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 font-medium ml-2 hover:ring-2 hover:ring-indigo-200 transition-all">
-                A
+              <button onClick={() => setProfileMenuOpen(!profileMenuOpen)} className="w-8 h-8 rounded-full bg-[#eff6ff] border border-[#bfdbfe] flex items-center justify-center text-[#1d4ed8] font-bold text-sm ml-2 hover:ring-2 hover:ring-[#bfdbfe] transition-all">
+                {(user?.name || 'C').charAt(0).toUpperCase()}
               </button>
 
               {profileMenuOpen && (
@@ -302,11 +401,16 @@ export default function CustomerDashboard() {
                     {!profileSubMenu && (
                       <div className="py-1.5">
                         <div className="px-2 pt-1 pb-1.5">
-                          <button className="w-full flex items-center gap-2.5 p-2.5 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors" style={{border: '1px solid #e2e8f0'}}>
-                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-100 to-slate-200 flex items-center justify-center text-indigo-600 font-semibold text-sm shrink-0">A</div>
-                            <div className="text-left">
-                              <p className="font-semibold text-[13px] text-slate-900 leading-tight">Alex Reyes</p>
-                              <p className="text-[11px] text-slate-500 leading-tight mt-0.5">alex@email.com</p>
+                          <button onClick={() => { setProfileMenuOpen(false); setProfileSubMenu(null); nav('settings'); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-white hover:bg-slate-50 border border-slate-100 shadow-sm transition-all group">
+                            <div className="w-12 h-12 rounded-full bg-[#eff6ff] flex items-center justify-center text-[#1d4ed8] font-bold text-[17px] shrink-0">
+                              {(user?.name || 'C').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="text-left flex-1">
+                              <p className="font-bold text-[15px] text-slate-900 leading-tight">{user?.name || 'Customer'}</p>
+                              <p className="text-[13px] text-slate-600 leading-tight mt-0.5">{user?.email || 'customer@email.com'}</p>
+                            </div>
+                            <div className="bg-[#eff6ff] group-hover:bg-[#dbeafe] text-[#1d4ed8] px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors flex items-center gap-0.5">
+                              Edit <span className="text-[16px] leading-none mb-[1px]">›</span>
                             </div>
                           </button>
                         </div>
@@ -502,6 +606,36 @@ export default function CustomerDashboard() {
                 </div>
                 <form onSubmit={handleProfileSave} className="p-6 space-y-5" noValidate>
                   {profileSaved && <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md px-4 py-2 text-sm"><iconify-icon icon="solar:check-circle-linear" width="18"></iconify-icon> Profile saved successfully!</div>}
+                  {profileErrors.form && <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-100 rounded-md px-4 py-2 text-sm"><iconify-icon icon="solar:danger-circle-linear" width="18"></iconify-icon> {profileErrors.form}</div>}
+                  
+                  {/* Avatar Upload */}
+                  <div className="flex items-center gap-5 pb-4 border-b border-slate-100">
+                    <div className="relative group cursor-pointer">
+                      <div className="w-20 h-20 rounded-full bg-[#eff6ff] flex items-center justify-center text-[#1d4ed8] font-bold text-3xl shadow-sm overflow-hidden border border-slate-200">
+                        {user?.avatar ? (
+                          <img src={user.avatar} alt="Profile" className="w-full h-full object-cover" />
+                        ) : (
+                          (user?.name || 'C').charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+                        <iconify-icon icon="solar:camera-add-linear" width="24" style={{color: 'white'}}></iconify-icon>
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium text-slate-900">Profile Photo</h4>
+                      <p className="text-xs text-slate-500 mt-0.5 mb-2">Recommended: Square JPG or PNG, max 2MB.</p>
+                      <div className="flex items-center gap-2">
+                        <button type="button" className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-md transition-colors shadow-sm">
+                          Upload Photo
+                        </button>
+                        <button type="button" className="px-3 py-1.5 text-slate-500 hover:text-red-600 text-xs font-medium transition-colors">
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1.5">Full Name</label>
                     <input value={profile.fullName} onChange={e => { setProfile(p => ({...p, fullName: e.target.value})); setProfileErrors(er => ({...er, fullName: ''})); }}
@@ -694,7 +828,7 @@ export default function CustomerDashboard() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-medium tracking-tight text-slate-900">Your Garage</h2>
               <button 
-                onClick={handleAddDummyVehicle}
+                onClick={() => setAddVehicleOpen(true)}
                 className="text-sm font-medium text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
               >
                 <iconify-icon icon="solar:add-circle-linear"></iconify-icon>
@@ -710,7 +844,7 @@ export default function CustomerDashboard() {
                 <p className="text-[14px] font-medium text-slate-900">Your garage is empty</p>
                 <p className="text-[12px] text-slate-500 mt-1 mb-4 max-w-[200px] mx-auto">Add your vehicles here to easily book and track services.</p>
                 <button 
-                  onClick={handleAddDummyVehicle}
+                  onClick={() => setAddVehicleOpen(true)}
                   className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-md text-sm font-medium transition-colors"
                 >
                   Add Your First Vehicle
@@ -831,7 +965,329 @@ export default function CustomerDashboard() {
       </div>
     </div>
 
-    {/* Feedback Modal */}
+    {/* Add Vehicle Modal */}
+    {addVehicleOpen && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{backgroundColor: 'rgba(0,0,0,.4)', backdropFilter: 'blur(4px)'}} onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', name: '', color: '', type: '' }); }}>
+        <div className="bg-white rounded-xl w-full max-w-[400px] shadow-2xl" onClick={e => e.stopPropagation()} style={{animation: 'modalIn .2s ease-out'}}>
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <h3 className="text-[15px] font-semibold text-gray-900">Add Vehicle</h3>
+            <button
+              onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', name: '', color: '', type: '' }); }}
+              className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
+            </button>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleAddVehicleSubmit} className="px-5 py-4 space-y-3" noValidate>
+
+            <div className="grid grid-cols-2 gap-3">
+              {/* Plate Number */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Plate Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. ABC-1234"
+                  value={newVehicle.plate}
+                  onChange={(e) => { setNewVehicle({...newVehicle, plate: e.target.value}); setVehicleErrors(er => ({...er, plate: ''})); }}
+                  className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${vehicleErrors.plate ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
+                />
+                {vehicleErrors.plate && (
+                  <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.plate}</p>
+                )}
+              </div>
+
+              {/* Vehicle Type */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Type <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={newVehicle.type}
+                  onChange={(e) => { setNewVehicle({...newVehicle, type: e.target.value}); setVehicleErrors(er => ({...er, type: ''})); }}
+                  className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${vehicleErrors.type ? 'border-red-300 bg-red-50 text-red-700 focus:border-red-400' : newVehicle.type ? 'border-gray-200 text-gray-900 focus:border-gray-400' : 'border-gray-200 text-gray-400 focus:border-gray-400'}`}
+                  style={{backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition:'right 8px center', backgroundSize:'16px', backgroundRepeat:'no-repeat', paddingRight:'28px'}}
+                >
+                  <option value="" disabled>Select...</option>
+                  <option value="Sedan">Sedan</option>
+                  <option value="SUV">SUV / Crossover</option>
+                  <option value="Pickup">Pickup Truck</option>
+                  <option value="Van">Van / Minivan</option>
+                  <option value="Motorcycle">Motorcycle</option>
+                  <option value="Hatchback">Hatchback</option>
+                  <option value="Coupe">Coupe / Sports</option>
+                  <option value="Other">Other</option>
+                </select>
+                {vehicleErrors.type && (
+                  <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.type}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Make & Model */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Make &amp; Model <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 2023 Toyota Camry"
+                value={newVehicle.name}
+                onChange={(e) => { setNewVehicle({...newVehicle, name: e.target.value}); setVehicleErrors(er => ({...er, name: ''})); }}
+                className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${vehicleErrors.name ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
+              />
+              {vehicleErrors.name && (
+                <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.name}</p>
+              )}
+            </div>
+
+            {/* Color */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Color <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Pearl White"
+                value={newVehicle.color}
+                onChange={(e) => setNewVehicle({...newVehicle, color: e.target.value})}
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 transition-colors"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', name: '', color: '', type: '' }); }}
+                className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="flex-1 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                Add Vehicle
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+
+    {/* Book Service Modal */}
+    {bookingOpen && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{backgroundColor:'rgba(0,0,0,.45)', backdropFilter:'blur(5px)'}} onClick={() => { if (!bookingSubmitting) { setBookingOpen(false); }}}>
+        <div className="bg-white rounded-xl w-full max-w-lg shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()} style={{animation:'modalIn .2s ease-out', maxHeight:'90vh', display:'flex', flexDirection:'column'}}>
+          
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+            {bookingDone ? (
+              <h3 className="text-[15px] font-semibold text-gray-900">Booking Confirmed!</h3>
+            ) : (
+              <div>
+                <h3 className="text-[15px] font-semibold text-gray-900">Book a Service</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Step {bookingStep} of 4</p>
+              </div>
+            )}
+            {!bookingSubmitting && (
+              <button onClick={() => setBookingOpen(false)} className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
+              </button>
+            )}
+          </div>
+
+          {/* Progress bar */}
+          {!bookingDone && (
+            <div className="w-full h-0.5 bg-gray-100 shrink-0">
+              <div className="h-full bg-gray-900 transition-all duration-300" style={{width: bookingStep === 1 ? '25%' : bookingStep === 2 ? '50%' : bookingStep === 3 ? '75%' : '100%'}}/>
+            </div>
+          )}
+
+          {/* Body */}
+          <div className="overflow-y-auto flex-1">
+            {bookingDone ? (
+              /* ── Success ── */
+              <div className="flex flex-col items-center justify-center py-10 px-6 text-center">
+                <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center mb-4">
+                  <iconify-icon icon="solar:check-circle-bold" width="32" style={{color:'#16a34a'}}></iconify-icon>
+                </div>
+                <h4 className="text-lg font-semibold text-gray-900 mb-1">Booking Submitted!</h4>
+                <p className="text-sm text-gray-500 mb-2">Your appointment has been submitted. We'll confirm it shortly.</p>
+                <p className="text-sm font-medium text-gray-700">{bookingForm.serviceName} — {bookingForm.date} at {bookingForm.time}</p>
+                <button onClick={() => setBookingOpen(false)} className="mt-6 px-5 py-2 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-gray-700 transition-colors">Done</button>
+              </div>
+            ) : bookingStep === 1 ? (
+              /* ── Step 1: Service ── */
+              <div className="p-5">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Select a Service</p>
+                {bookingServices.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-gray-400">Loading services...</div>
+                ) : (
+                  <div className="space-y-2">
+                    {bookingServices.map((svc: any) => (
+                      <button key={svc._id || svc.id} type="button"
+                        onClick={() => setBookingForm(f => ({...f, service: svc._id || svc.id, serviceName: svc.name, servicePrice: svc.basePrice || 0}))}
+                        className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border text-left transition-colors ${bookingForm.service === (svc._id || svc.id) ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">{svc.name}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">{svc.duration || svc.category}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-gray-900">₱{(svc.basePrice || 0).toLocaleString()}</span>
+                          {bookingForm.service === (svc._id || svc.id) && <iconify-icon icon="solar:check-circle-bold" width="18" style={{color:'#111'}}></iconify-icon>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : bookingStep === 2 ? (
+              /* ── Step 2: Vehicle ── */
+              <div className="p-5 space-y-3">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Vehicle Details</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Make</label>
+                    <input type="text" placeholder="e.g. Toyota" value={bookingForm.vehicleMake} onChange={e => setBookingForm(f=>({...f,vehicleMake:e.target.value}))} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Model <span className="text-red-500">*</span></label>
+                    <input type="text" placeholder="e.g. Camry" value={bookingForm.vehicleModel} onChange={e => setBookingForm(f=>({...f,vehicleModel:e.target.value}))} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Year <span className="text-red-500">*</span></label>
+                    <select value={bookingForm.vehicleYear} onChange={e => setBookingForm(f=>({...f,vehicleYear:e.target.value}))} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none">
+                      <option value="" disabled>Select year</option>
+                      {Array.from({length:30},(_,i)=>String(2025-i)).map(y=><option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Color <span className="text-red-500">*</span></label>
+                    <select value={bookingForm.vehicleColor} onChange={e => setBookingForm(f=>({...f,vehicleColor:e.target.value}))} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none">
+                      <option value="" disabled>Select color</option>
+                      {['White','Black','Silver','Gray','Blue','Red','Green','Yellow','Other'].map(c=><option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Plate Number</label>
+                    <input type="text" placeholder="e.g. ABC 1234" value={bookingForm.vehiclePlate} onChange={e => setBookingForm(f=>({...f,vehiclePlate:e.target.value}))} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400"/>
+                  </div>
+                </div>
+                {vehicles.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-xs font-medium text-gray-500 mb-2">Or pick from your garage:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {vehicles.map((v:any, i:number) => (
+                        <button key={i} type="button" onClick={() => setBookingForm(f=>({...f, vehicleModel:v.name, vehiclePlate:v.plate, vehicleColor:v.color||''}))}
+                          className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:border-gray-400 text-gray-700 transition-colors">
+                          {v.name} ({v.plate})
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : bookingStep === 3 ? (
+              /* ── Step 3: Date & Time ── */
+              <div className="p-5 space-y-4">
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Choose a Date</p>
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {BOOKING_DATES.map(d => {
+                      const iso = d.toISOString().split('T')[0];
+                      return (
+                        <button key={iso} type="button" onClick={() => setBookingForm(f=>({...f,date:iso}))}
+                          className={`flex flex-col items-center py-2 px-1 rounded-lg border text-center transition-colors ${bookingForm.date===iso ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 hover:border-gray-400 text-gray-700'}`}>
+                          <span className="text-[10px] font-medium uppercase">{d.toLocaleDateString('en',{weekday:'short'})}</span>
+                          <span className="text-sm font-bold">{d.getDate()}</span>
+                          <span className="text-[10px]">{d.toLocaleDateString('en',{month:'short'})}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Choose a Time</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {BOOKING_TIMES.map(t => (
+                      <button key={t} type="button" onClick={() => setBookingForm(f=>({...f,time:t}))}
+                        className={`py-2 rounded-lg border text-sm font-medium transition-colors ${bookingForm.time===t ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 hover:border-gray-400 text-gray-700'}`}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Special Requests <span className="text-gray-400 font-normal">(optional)</span></label>
+                  <textarea rows={3} value={bookingForm.notes} onChange={e => setBookingForm(f=>({...f,notes:e.target.value}))} placeholder="Any specific instructions..." className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 resize-none"/>
+                </div>
+              </div>
+            ) : (
+              /* ── Step 4: Confirm ── */
+              <div className="p-5">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Booking Summary</p>
+                <div className="space-y-2">
+                  {[
+                    {label:'Service', value: bookingForm.serviceName},
+                    {label:'Price', value: `₱${bookingForm.servicePrice.toLocaleString()}`},
+                    {label:'Vehicle', value: [bookingForm.vehicleYear, bookingForm.vehicleMake, bookingForm.vehicleModel].filter(Boolean).join(' ') || '—'},
+                    {label:'Plate', value: bookingForm.vehiclePlate || '—'},
+                    {label:'Color', value: bookingForm.vehicleColor || '—'},
+                    {label:'Date', value: bookingForm.date ? new Date(bookingForm.date).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : '—'},
+                    {label:'Time', value: bookingForm.time || '—'},
+                  ].map(({label,value}) => (
+                    <div key={label} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                      <span className="text-xs font-medium text-gray-500">{label}</span>
+                      <span className="text-sm font-semibold text-gray-900">{value}</span>
+                    </div>
+                  ))}
+                </div>
+                {bookingForm.notes && <div className="mt-3 p-3 bg-gray-50 rounded-lg text-xs text-gray-600"><span className="font-medium">Notes:</span> {bookingForm.notes}</div>}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          {!bookingDone && (
+            <div className="px-5 py-4 border-t border-gray-100 flex gap-2 shrink-0 bg-white">
+              {bookingStep > 1 && (
+                <button type="button" onClick={() => setBookingStep(s=>s-1)} disabled={bookingSubmitting}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
+                  Back
+                </button>
+              )}
+              {bookingStep < 4 ? (
+                <button type="button"
+                  disabled={
+                    (bookingStep===1 && !bookingForm.service) ||
+                    (bookingStep===2 && (!bookingForm.vehicleModel || !bookingForm.vehicleYear || !bookingForm.vehicleColor)) ||
+                    (bookingStep===3 && (!bookingForm.date || !bookingForm.time))
+                  }
+                  onClick={() => setBookingStep(s=>s+1)}
+                  className="flex-1 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                  Continue
+                </button>
+              ) : (
+                <button type="button" onClick={submitBooking} disabled={bookingSubmitting}
+                  className="flex-1 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-60">
+                  {bookingSubmitting ? 'Submitting...' : 'Confirm Booking'}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+
+        {/* Feedback Modal */}
     {feedbackOpen && (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{backgroundColor: 'rgba(15,23,42,.5)', backdropFilter: 'blur(4px)'}}>
         <div className="bg-white rounded-2xl w-full max-w-[440px] overflow-hidden" style={{boxShadow: '0 25px 50px -12px rgba(0,0,0,.25), 0 0 0 1px rgba(0,0,0,.03)', animation: 'modalIn .25s ease-out'}} onClick={e => e.stopPropagation()}>
