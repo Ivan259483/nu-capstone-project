@@ -190,6 +190,14 @@ function AppRoutes() {
     );
 }
 
+// Only show the floating ChatWidget on public pages — not inside any dashboard
+function _ConditionalChatWidget() {
+    const { pathname } = useLocation();
+    const isDashboardRoute = /^\/(customer|detailer|admin|scan-preview)/.test(pathname);
+    if (isDashboardRoute) return null;
+    return <ChatWidget />;
+}
+
 const App = () => (
     <QueryClientProvider client={queryClient}>
         <LanguageProvider>
@@ -198,7 +206,8 @@ const App = () => (
                     <Toaster position="top-center" />
                     <BrowserRouter>
                         <AppRoutes />
-                        <ChatWidget />
+                        {/* ChatWidget: public site only — dashboards have their own chat */}
+                        <_ConditionalChatWidget />
                     </BrowserRouter>
                 </TooltipProvider>
             </AuthProvider>
