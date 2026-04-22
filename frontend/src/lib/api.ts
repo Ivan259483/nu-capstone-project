@@ -18,7 +18,7 @@ const isDevelopment = import.meta.env.MODE === 'development';
 
 export const getBaseApiUrl = () => {
     if (isDevelopment) return '/api';
-    let url = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+    let url = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || 'https://nu-capstone-project-production.up.railway.app/api';
     return url.replace(/\/+$/, ''); // Strip trailing slashes safely
 };
 
@@ -37,7 +37,7 @@ export const getBackendSocketUrl = () => {
     if (isDevelopment) return '/';
     const backendUrl = import.meta.env.VITE_BACKEND_URL
         || (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') : '')
-        || 'http://localhost:3000';
+        || 'https://nu-capstone-project-production.up.railway.app';
     return backendUrl;
 };
 
