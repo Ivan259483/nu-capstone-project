@@ -2701,7 +2701,7 @@ export default function AdminDashboard() {
                                                     const isOut = item.stock === 0;
                                                     const spText = isOut ? 'Out of Stock' : isCritical ? 'Critical' : isWarn ? 'Warning' : 'Optimal';
                                                     const dotColor = isOut || isCritical ? 'var(--red)' : isWarn ? 'var(--amber)' : 'var(--green)';
-                                                    const stockPct = Math.min((item.stock / Math.max((item.minLevel || 1) * 3, 1)) * 100, 100);
+                                                    const stockPct = Math.min(((item.stock || 0) / Math.max((item.minLevel || 1) * 3, 1)) * 100, 100) || 0;
                                                     return (
                                                         <div key={item.id || (item as any)._id} style={{ background: '#18181b', border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', transition: 'box-shadow .15s' }} onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 20px rgba(249,115,22,.15)')} onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
                                                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -2779,7 +2779,7 @@ export default function AdminDashboard() {
                                                     else if (catLower.includes('access')) pillColor = 'pill-purple';
                                                     else if (catLower.includes('pad') || catLower.includes('polish')) pillColor = 'pill-green';
 
-                                                    const stockPercentage = Math.min((item.stock / (item.minLevel * 3)) * 100, 100);
+                                                    const stockPercentage = Math.min(((item.stock || 0) / Math.max((item.minLevel || 1) * 3, 1)) * 100, 100) || 0;
                                                     const barColor = isCritical ? 'var(--red)' : (isWarn ? 'var(--amber)' : 'var(--green)');
 
                                                     return (
@@ -2930,7 +2930,9 @@ export default function AdminDashboard() {
 
 
                         {activeTab === 'users' && (canAccessUsers || canRegisterUsers) && (
-                            <UserManagementPanel theme={theme} users={users} loadData={loadData} currentUserRole={user?.role} currentUserId={user?._id || user?.id} />
+                            <motion.div key="users" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="w-full">
+                                <UserManagementPanel theme={theme} users={users} loadData={loadData} currentUserRole={user?.role} currentUserId={user?._id || user?.id} />
+                            </motion.div>
                         )}
 
                         {activeTab === 'suppliers' && canAccessSupplierModule && (
@@ -3009,7 +3011,7 @@ export default function AdminDashboard() {
                         )}
 
                         {activeTab === 'profile' && (
-                            <div className="flex-1 bg-[var(--bg)] text-[var(--text)] overflow-y-auto">
+                            <motion.div key="profile" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="flex-1 bg-[var(--bg)] text-[var(--text)] overflow-y-auto">
                                 <div className="profile-hero">
                                     <div className="hero-avatar">
                                         {profilePhoto ? (
@@ -3327,7 +3329,7 @@ export default function AdminDashboard() {
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                            </motion.div>
                         )}
                         {activeTab === 'settings' && canAccessSettings && (
                             <motion.div key="settings" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-4 sm:p-6 lg:p-8 space-y-6">

@@ -1,4 +1,5 @@
-import { Star, Quote } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Star, Quote, X } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 import { cn } from "@/lib/utils";
@@ -48,9 +49,12 @@ const testimonials = [
     },
 ];
 
-function TestimonialCard({ t: testimonial }: { t: (typeof testimonials)[0] }) {
+function TestimonialCard({ t: testimonial, onClick }: { t: (typeof testimonials)[0]; onClick: () => void }) {
     return (
-        <div className="w-80 shrink-0 glass rounded-2xl p-6 border border-gold/10 hover:border-gold/30 transition-all duration-300 group">
+        <div 
+            onClick={onClick}
+            className="w-80 shrink-0 glass rounded-2xl p-6 border border-gold/10 hover:border-gold/30 transition-all duration-300 group cursor-pointer hover:shadow-[0_4px_20px_rgba(212,175,55,0.1)] hover:-translate-y-1"
+        >
             <div className="flex items-center gap-3 mb-4">
                 <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 border border-gold/20 shadow-[0_0_12px_rgba(212,175,55,0.2)]">
                     <img
@@ -78,6 +82,19 @@ function TestimonialCard({ t: testimonial }: { t: (typeof testimonials)[0] }) {
 export default function TestimonialsSection() {
     const { t } = useLanguage();
     const { ref, isVisible } = useScrollAnimation<HTMLDivElement>({ threshold: 0.1 });
+    const [selected, setSelected] = useState<(typeof testimonials)[0] | null>(null);
+
+    // Prevent body scroll when modal is open
+    useEffect(() => {
+        if (selected) {
+            document.body.style.overflow = "hidden";
+        } else {
+            document.body.style.overflow = "";
+        }
+        return () => {
+            document.body.style.overflow = "";
+        };
+    }, [selected]);
 
     return (
         <section className="py-24 section-dark overflow-hidden">
@@ -99,17 +116,66 @@ export default function TestimonialsSection() {
             </div>
 
             {/* Marquee */}
-            <div className="relative">
+            <div className="relative group">
                 {/* Fade edges */}
                 <div className="absolute left-0 top-0 bottom-0 w-32 z-10 bg-gradient-to-r from-card to-transparent pointer-events-none" />
                 <div className="absolute right-0 top-0 bottom-0 w-32 z-10 bg-gradient-to-l from-card to-transparent pointer-events-none" />
 
-                <div className="flex gap-6 animate-marquee w-max">
-                    {[...testimonials, ...testimonials].map((t, i) => (
-                        <TestimonialCard key={i} t={t} />
+                <div className="flex gap-6 animate-marquee w-max group-hover:[animation-play-state:paused] py-4">
+                    {[...testimonials, ...testimonials].map((testimonial, i) => (
+                        <TestimonialCard key={i} t={testimonial} onClick={() => setSelected(testimonial)} />
                     ))}
                 </div>
             </div>
+
+            {/* Custom Modal */}
+            {selected && (
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center p-4">
+                    {/* Backdrop */}
+                    <div 
+                        className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity" 
+                        onClick={() => setSelected(null)}
+                    />
+                    
+                    {/* Modal Content */}
+                    <div 
+                        className="relative w-full max-w-md bg-[#0a0a0a] border border-gold/20 p-8 rounded-2xl shadow-[0_0_40px_rgba(212,175,55,0.15)] animate-in fade-in zoom-in-95 duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <button 
+                            onClick={() => setSelected(null)}
+                            className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors p-1"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+
+                        <div className="flex flex-col items-center text-center mt-2">
+                            <Quote className="w-12 h-12 text-primary/20 mb-4 absolute top-6 left-6" />
+                            
+                            <div className="w-24 h-24 rounded-full overflow-hidden mb-4 border-2 border-gold/30 shadow-[0_0_20px_rgba(212,175,55,0.3)]">
+                                <img
+                                    src={selected.image}
+                                    alt={selected.name}
+                                    className="w-full h-full object-cover"
+                                />
+                            </div>
+                            
+                            <div className="text-xl font-bold text-foreground mb-1">{selected.name}</div>
+                            <div className="text-sm text-muted-foreground mb-5">{selected.role}</div>
+                            
+                            <div className="flex gap-1.5 mb-6">
+                                {Array.from({ length: selected.rating }).map((_, i) => (
+                                    <Star key={i} className="w-5 h-5 fill-primary text-primary drop-shadow-[0_0_8px_rgba(212,175,55,0.5)]" />
+                                ))}
+                            </div>
+                            
+                            <p className="text-base text-muted-foreground leading-relaxed italic px-2">
+                                "{selected.text}"
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
         </section>
     );
 }

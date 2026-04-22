@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import PageLayout from "@/components/PageLayout";
 import HeroSection from "@/components/HeroSection";
-import StatsSection from "@/components/StatsSection";
+import TickerStrip from "@/components/TickerStrip";
+
 import ServicesSection from "@/components/ServicesSection";
 import GallerySection from "@/components/GallerySection";
 import TransformationsSection from "@/components/TransformationsSection";
 import TestimonialsSection from "@/components/TestimonialsSection";
-
 import BookingCTA from "@/components/BookingCTA";
 import { SettingsService } from "@/lib/settings-service";
 import type { BusinessSettings } from "@/types";
@@ -42,7 +42,7 @@ export default function Home() {
     return (
         <PageLayout>
             <HeroSection />
-            <StatsSection />
+            <TickerStrip />
             <ServicesSection />
             <GallerySection items={landingData.gallery} />
             <TransformationsSection />

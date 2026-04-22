@@ -13,7 +13,7 @@ function StatItem({ value, suffix, label, delay, isVisible }: StatItemProps) {
     const count = useCounter(value, 2200, isVisible);
     return (
         <div
-            className="reveal text-center"
+            className="text-center"
             style={{ transitionDelay: `${delay}ms` }}
         >
             <div className="text-4xl sm:text-5xl font-bold gradient-text mb-1">
@@ -28,7 +28,7 @@ function StatItem({ value, suffix, label, delay, isVisible }: StatItemProps) {
 
 export default function StatsSection() {
     const { t } = useLanguage();
-    const { ref, isVisible } = useScrollAnimation<HTMLDivElement>({ threshold: 0.3 });
+    const { ref, isVisible } = useScrollAnimation<HTMLDivElement>({ threshold: 0.1 });
 
     const stats = [
         { value: 5000, suffix: "+", label: t("stats.carsDetailed"), delay: 0 },
@@ -38,14 +38,14 @@ export default function StatsSection() {
     ];
 
     return (
-        <section className="relative py-20 section-darker overflow-hidden">
+        <section className="relative py-16 section-darker overflow-hidden">
             <div className="absolute inset-0 bg-gradient-radial-gold opacity-50" />
             <div className="gold-line absolute top-0 left-0 right-0" />
             <div className="gold-line absolute bottom-0 left-0 right-0" />
 
             <div
                 ref={ref}
-                className={`container max-w-5xl mx-auto px-6 reveal ${isVisible ? "visible" : ""}`}
+                className="container max-w-5xl mx-auto px-6"
             >
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-10">
                     {stats.map((stat) => (

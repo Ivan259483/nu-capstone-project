@@ -507,15 +507,11 @@ export default function Services() {
                 CINEMATIC HERO
             ══════════════════════════════════ */}
             <section className="relative pt-32 pb-20 overflow-hidden">
-                {/* Rich gradient background */}
-                <div className="absolute inset-0" style={{
-                    background: `
-                        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(245,158,11,0.08) 0%, transparent 50%),
-                        radial-gradient(ellipse 60% 40% at 70% 10%, rgba(139,92,246,0.06) 0%, transparent 50%),
-                        radial-gradient(ellipse 60% 40% at 30% 20%, rgba(59,130,246,0.05) 0%, transparent 50%),
-                        linear-gradient(180deg, #06080f 0%, #0a0f1c 50%, #080c18 100%)
-                    `
-                }} />
+                {/* Same bg-hero-pattern as Gallery */}
+                <div className="absolute inset-0 bg-hero-pattern" />
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background" />
+                {/* Orange amber glow blob — matches Gallery hero */}
+                <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-amber-500/[0.07] blur-[160px] rounded-full pointer-events-none" />
 
                 {/* Animated gradient mesh */}
                 <motion.div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] pointer-events-none"
@@ -601,42 +597,6 @@ export default function Services() {
                 <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-500/15 to-transparent" />
             </section>
 
-            {/* ══════════════════════════════════
-                STATS COUNTER BAR
-            ══════════════════════════════════ */}
-            <section className="relative py-10 z-20" style={{ background: "linear-gradient(180deg, #080c18 0%, #0a0f1c 100%)" }}>
-                <div className="container max-w-5xl mx-auto px-6">
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        whileInView={{ opacity: 1, y: 0 }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.6 }}
-                        className="grid grid-cols-2 sm:grid-cols-4 gap-6 py-6 px-8 rounded-2xl"
-                        style={{
-                            background: "linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))",
-                            border: "1px solid rgba(255,255,255,0.06)",
-                            backdropFilter: "blur(12px)",
-                        }}
-                    >
-                        {[
-                            { value: 5000, suffix: "+", label: "Vehicles Protected", icon: Car, color: "#3b82f6" },
-                            { value: 10, suffix: " Yrs", label: "Max Protection", icon: Shield, color: "#f59e0b" },
-                            { value: 100, suffix: "%", label: "Satisfaction Rate", icon: Trophy, color: "#10b981" },
-                            { value: 8, suffix: "+", label: "Years Experience", icon: Timer, color: "#a78bfa" },
-                        ].map(({ value, suffix, label, icon: SIcon, color }) => (
-                            <div key={label} className="text-center">
-                                <div className="flex items-center justify-center gap-2 mb-1.5">
-                                    <SIcon className="w-4 h-4" style={{ color }} />
-                                    <span className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                                        <AnimatedCounter value={value} suffix={suffix} />
-                                    </span>
-                                </div>
-                                <span className="text-[10px] text-white/40 font-bold uppercase tracking-[0.2em]">{label}</span>
-                            </div>
-                        ))}
-                    </motion.div>
-                </div>
-            </section>
 
             {/* ══════════════════════════════════
                 VEHICLE SELECTOR
