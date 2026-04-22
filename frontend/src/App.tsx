@@ -14,9 +14,10 @@ import Gallery from "./pages/Gallery";
 import Services from "./pages/Services";
 import BookingPage from "./pages/BookingPage";
 import CustomerDashboard from "./pages/CustomerDashboard";
+import CustomerLiveTrackerPage from "./pages/CustomerLiveTrackerPage";
 import DetailerDashboard from "./pages/DetailerDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
-import ScanPreviewPage from "./pages/ScanPreviewPage";
+
 import CreateStaffAccountPage from "./pages/admin/CreateStaffAccountPage";
 import AccountRequestsPage from "./pages/admin/AccountRequestsPage";
 import ChatWidget from "./components/ChatWidget";
@@ -124,7 +125,7 @@ function AppRoutes() {
     const location = useLocation();
 
     // Hide the public Navbar on dashboard routes — they have their own navigation
-    const isDashboardRoute = /^\/(customer|detailer|admin|scan-preview)/.test(location.pathname);
+    const isDashboardRoute = /^\/(customer|detailer|admin)/.test(location.pathname);
 
     return (
         <ErrorBoundary>
@@ -148,13 +149,22 @@ function AppRoutes() {
                     }
                 />
                 <Route
-                    path="/scan-preview"
+                    path="/customer/live-tracker"
                     element={
-                        <ProtectedRoute allowedRoles={[...USER_ROLES]}>
-                            <ScanPreviewPage />
+                        <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
+                            <CustomerLiveTrackerPage />
                         </ProtectedRoute>
                     }
                 />
+                <Route
+                    path="/customer/book"
+                    element={
+                        <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
+                            <CustomerDashboard />
+                        </ProtectedRoute>
+                    }
+                />
+
                 <Route
                     path="/detailer/dashboard"
                     element={
@@ -193,7 +203,7 @@ function AppRoutes() {
 // Only show the floating ChatWidget on public pages — not inside any dashboard
 function _ConditionalChatWidget() {
     const { pathname } = useLocation();
-    const isDashboardRoute = /^\/(customer|detailer|admin|scan-preview)/.test(pathname);
+    const isDashboardRoute = /^\/(customer|detailer|admin)/.test(pathname);
     if (isDashboardRoute) return null;
     return <ChatWidget />;
 }

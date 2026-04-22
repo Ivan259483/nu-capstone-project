@@ -1,12 +1,14 @@
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInWithCredential,
   signOut as firebaseSignOut,
   updateProfile,
   updatePassword,
   sendPasswordResetEmail as firebaseSendPasswordReset,
   reauthenticateWithCredential,
   EmailAuthProvider,
+  GoogleAuthProvider,
 } from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { chatbotService } from '@/services/api/chatbotService';
@@ -252,6 +254,43 @@ export const authService = {
       await persistSession(authPayload.token, syncedUser);
     } catch (error) {
       console.warn('Mongo user sync failed during registration:', getApiErrorMessage(error));
+    }
+
+    return {
+      firebaseUser,
+      token: authPayload.token,
+      backendUser: syncedUser,
+    };
+  },
+
+  /**
+   * Sign in with a Google id_token obtained from expo-auth-session.
+   * Creates a Firebase credential, signs into Firebase, then syncs with backend.
+   */
+  async loginWithGoogle(idToken: string): Promise<{
+    firebaseUser: FirebaseUser;
+    token: string;
+    backendUser: BackendUser;
+  }> {
+    let firebaseUser: FirebaseUser;
+    try {
+      const credential = GoogleAuthProvider.credential(idToken);
+      const result = await signInWithCredential(auth, credential);
+      firebaseUser = result.user;
+    } catch (firebaseError: any) {
+      throw new Error(getFirebaseAuthErrorMessage(firebaseError));
+    }
+
+    // Exchange Firebase session for backend JWT via social-login
+    const authPayload = await socialLogin(firebaseUser);
+    await persistSession(authPayload.token, authPayload.user);
+
+    let syncedUser = authPayload.user;
+    try {
+      syncedUser = await syncUserWithMongo(firebaseUser, authPayload.user);
+      await persistSession(authPayload.token, syncedUser);
+    } catch (error) {
+      console.warn('Mongo user sync failed during Google login:', getApiErrorMessage(error));
     }
 
     return {

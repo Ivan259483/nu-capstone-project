@@ -20,3 +20,11 @@ export const FIREBASE_CONFIG = {
   messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '227724962432',
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || '1:227724962432:web:fddb58f76cf6b348ee5465',
 } as const;
+
+/**
+ * Google Web Client ID – required for expo-auth-session Google Sign-In.
+ * Get this from Firebase Console → Authentication → Sign-in method → Google → Web Client ID
+ * Or Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client IDs → Web client
+ */
+export const GOOGLE_WEB_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '';

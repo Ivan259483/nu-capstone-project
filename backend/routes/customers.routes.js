@@ -43,6 +43,13 @@ router.post('/vehicles', customerController.addVehicle);
 router.put('/vehicles/:id', customerController.updateVehicle);
 
 /**
+ * @route DELETE /api/customers/vehicles/:id
+ * @desc Delete a vehicle
+ * @access Private
+ */
+router.delete('/vehicles/:id', customerController.deleteVehicle);
+
+/**
  * @route GET /api/customers
  * @desc Get all customers
  * @access Private - Admin only

@@ -13,7 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
+
 import { Ionicons } from '@expo/vector-icons';
 
 import { Palette } from '@/constants/theme';
@@ -174,9 +174,6 @@ export default function ForgotPasswordScreen() {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      <View style={StyleSheet.absoluteFillObject}>
-        <LinearGradient colors={['rgba(249,115,22,0.1)', 'transparent']} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 300 }} />
-      </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -184,7 +181,7 @@ export default function ForgotPasswordScreen() {
           {/* Back button */}
           <Animated.View entering={FadeInDown.delay(50).duration(200)} style={styles.backBtn}>
             <TouchableOpacity style={styles.backBtnInner} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }} onPress={() => router.back()}>
-              <Ionicons name="chevron-back" size={24} color="#FFF" />
+              <Ionicons name="chevron-back" size={24} color="#111" />
             </TouchableOpacity>
           </Animated.View>
 
@@ -233,7 +230,7 @@ export default function ForgotPasswordScreen() {
                 <Text style={styles.title}>Enter Code</Text>
                 <Text style={styles.subtitle}>
                   We sent a 6-digit code to{'\n'}
-                  <Text style={{ color: '#FFF', fontWeight: '700' }}>{email}</Text>
+                  <Text style={{ color: '#111', fontWeight: '700' }}>{email}</Text>
                 </Text>
               </Animated.View>
 
@@ -335,8 +332,8 @@ export default function ForgotPasswordScreen() {
               <Text style={styles.successTitle}>Password Reset!</Text>
               <Text style={styles.successSub}>
                 Your password has been updated successfully.{'\n\n'}
-                <Text style={{ color: '#f59e0b', fontWeight: '700' }}>Action Required: </Text>
-                We also sent a <Text style={{ color: '#FFF', fontWeight: '600' }}>Firebase reset link</Text> to your email. Click it to finish syncing your login, then sign in with your new password.
+                <Text style={{ color: '#F97316', fontWeight: '700' }}>Action Required: </Text>
+                We also sent a <Text style={{ color: '#111', fontWeight: '600' }}>Firebase reset link</Text> to your email. Click it to finish syncing your login, then sign in with your new password.
               </Text>
               <View style={{ marginTop: 32, width: '100%' }}>
                 <PremiumButton
@@ -355,43 +352,43 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#050505' },
-  scroll: { paddingHorizontal: 28, paddingTop: 140, paddingBottom: 60, flexGrow: 1 },
-  backBtn: { position: 'absolute', top: 60, left: 20, zIndex: 10 },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  scroll: { paddingHorizontal: 28, paddingTop: 100, paddingBottom: 60, flexGrow: 1 },
+  backBtn: { position: 'absolute', top: 56, left: 20, zIndex: 10 },
   backBtnInner: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#F5F5F5',
+    borderWidth: 1, borderColor: '#E5E7EB',
     justifyContent: 'center', alignItems: 'center',
   },
   header: { alignItems: 'center', marginBottom: 36 },
   iconBox: {
     width: 68, height: 68, borderRadius: 20,
-    backgroundColor: 'rgba(249,115,22,0.1)',
+    backgroundColor: 'rgba(249,115,22,0.08)',
     borderWidth: 1, borderColor: 'rgba(249,115,22,0.2)',
     justifyContent: 'center', alignItems: 'center', marginBottom: 20,
   },
-  title: { fontSize: 30, fontWeight: '800', color: '#FFF', letterSpacing: -0.5, marginBottom: 10 },
-  subtitle: { fontSize: 14, color: '#8A8A9A', textAlign: 'center', lineHeight: 22 },
+  title: { fontSize: 30, fontWeight: '800', color: '#111111', letterSpacing: -0.5, marginBottom: 10 },
+  subtitle: { fontSize: 14, color: '#9CA3AF', textAlign: 'center', lineHeight: 22 },
 
   otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 8 },
   otpBox: {
     width: 48, height: 58, borderRadius: 12,
-    backgroundColor: '#111', borderWidth: 2, borderColor: '#2a2a2a',
-    color: '#FFF', fontSize: 24, fontWeight: '700', textAlign: 'center',
+    backgroundColor: '#FAFAFA', borderWidth: 1.5, borderColor: '#E9EAEC',
+    color: '#111111', fontSize: 24, fontWeight: '700', textAlign: 'center',
   },
-  otpBoxFilled: { borderColor: Palette.accent, backgroundColor: 'rgba(249,115,22,0.06)' },
+  otpBoxFilled: { borderColor: Palette.accent, backgroundColor: 'rgba(249,115,22,0.05)' },
 
   successCard: {
     alignItems: 'center', padding: 28,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: '#FAFAFA',
+    borderRadius: 24, borderWidth: 1, borderColor: '#F0F0F0',
   },
   successIcon: {
     width: 88, height: 88, borderRadius: 44,
-    backgroundColor: 'rgba(249,115,22,0.1)',
+    backgroundColor: 'rgba(249,115,22,0.08)',
     justifyContent: 'center', alignItems: 'center', marginBottom: 20,
   },
-  successTitle: { fontSize: 24, fontWeight: '800', color: '#FFF', marginBottom: 10 },
-  successSub: { fontSize: 14, color: '#8A8A9A', textAlign: 'center', lineHeight: 22 },
+  successTitle: { fontSize: 24, fontWeight: '800', color: '#111111', marginBottom: 10 },
+  successSub: { fontSize: 14, color: '#9CA3AF', textAlign: 'center', lineHeight: 22 },
 });

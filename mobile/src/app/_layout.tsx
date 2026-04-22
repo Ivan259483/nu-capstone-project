@@ -38,7 +38,7 @@ SplashScreen.preventAutoHideAsync();
 // If you later need fully separate dashboards, create (staff-tabs) and
 // (admin-tabs) route groups and update this resolver.
 
-type RouteTarget = '/(customer)' | '/(staff)' | '/(auth)/welcome';
+type RouteTarget = '/(customer)' | '/(staff)' | '/(auth)/login';
 
 function resolveRouteForRole(role: string | undefined): RouteTarget {
   const safeRole = getSafeUserRole(role);
@@ -61,8 +61,8 @@ function InnerLayout() {
     const inAuthGroup = segments[0] === '(auth)';
 
     if (!session && !inAuthGroup) {
-      // ► Not authenticated → redirect to welcome/login screen
-      router.replace('/(auth)/welcome');
+      // ► Not authenticated → redirect to login screen
+      router.replace('/(auth)/login');
     } else if (session && inAuthGroup) {
       // ► Authenticated but still on auth screens → route by role
       const target = resolveRouteForRole(profile?.role);

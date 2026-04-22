@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,59 +6,48 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  Dimensions,
+  ScrollView,
+  ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { useTheme } from '@/hooks/useThemeContext';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
+import * as Crypto from 'expo-crypto';
+import Svg, { Path, G, ClipPath, Rect, Defs } from 'react-native-svg';
 import { useAuth } from '@/context/AuthContext';
-import { Palette, Shadows } from '@/constants/theme';
-import PremiumButton from '@/components/ui/PremiumButton';
-import PremiumInput from '@/components/ui/PremiumInput';
+import { GOOGLE_WEB_CLIENT_ID } from '@/config/env';
 import { Toast } from '@/components/ui/PremiumToast';
 import { Validation } from '@/utils/validation';
 
-const { width, height } = Dimensions.get('window');
+WebBrowser.maybeCompleteAuthSession();
 
-
-
-/* ═══════════════════════════════════════
-   LoginScreen Component
-═══════════════════════════════════════ */
 export default function LoginScreen() {
-  const { signIn } = useAuth();
-  
+  const { signIn, signInWithGoogle } = useAuth();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [keepSignedIn, setKeepSignedIn] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
-  // Brute-force lock state (driven by backend structured data)
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [lockUntilMs, setLockUntilMs] = useState<number | null>(null);
   const [lockCountdown, setLockCountdown] = useState('');
-
-  // Validation errors
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
-
-  // Lock countdown timer
   useEffect(() => {
     if (!isLocked || !lockUntilMs) return;
     const tick = () => {
       const diff = lockUntilMs - Date.now();
-      if (diff <= 0) {
-        setIsLocked(false);
-        setLockUntilMs(null);
-        setLockCountdown('');
-        return;
-      }
+      if (diff <= 0) { setIsLocked(false); setLockUntilMs(null); setLockCountdown(''); return; }
       const mins = Math.floor(diff / 60000);
       const secs = Math.floor((diff % 60000) / 1000);
       setLockCountdown(`${mins}:${secs.toString().padStart(2, '0')}`);
@@ -69,57 +58,26 @@ export default function LoginScreen() {
   }, [isLocked, lockUntilMs]);
 
   async function handleLogin() {
-    if (isLocked) {
-      Toast.show(`Account locked. Try again in ${lockCountdown}.`, 'error');
-      return;
-    }
-
-    setEmailError('');
-    setPasswordError('');
-    
+    if (isLocked) { Toast.show(`Locked. Try again in ${lockCountdown}.`, 'error'); return; }
+    setEmailError(''); setPasswordError('');
     let hasError = false;
-
-    if (!email) {
-      setEmailError('Email is required');
-      hasError = true;
-    } else if (!Validation.isValidEmail(email)) {
-      setEmailError('Please enter a valid email address');
-      hasError = true;
-    }
-
-    if (!password) {
-      setPasswordError('Password is required');
-      hasError = true;
-    }
-
+    if (!email) { setEmailError('Email is required'); hasError = true; }
+    else if (!Validation.isValidEmail(email)) { setEmailError('Please enter a valid email'); hasError = true; }
+    if (!password) { setPasswordError('Password is required'); hasError = true; }
     if (hasError) return;
 
     setLoading(true);
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const result = await signIn(email.trim(), password);
-
     if (result.success) {
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-      // Reset attempt tracking on success
-      setLoginAttempts(0);
-      setRemainingAttempts(null);
-      setIsLocked(false);
-      setLockUntilMs(null);
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setIsLocked(false); setLockUntilMs(null);
       router.replace('/');
     } else {
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      }
-      // Parse structured lock / attempt data from backend
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       if (result.data?.locked || result.data?.lockUntilMs) {
         setIsLocked(true);
         setLockUntilMs(result.data.lockUntilMs ?? Date.now() + 15 * 60 * 1000);
-        setLoginAttempts(0);
         setRemainingAttempts(0);
         Toast.show(result.message || 'Account locked for 15 minutes.', 'error');
       } else if (result.data?.remainingAttempts !== undefined) {
@@ -127,281 +85,432 @@ export default function LoginScreen() {
         setRemainingAttempts(result.data.remainingAttempts);
         Toast.show(result.message || 'Invalid credentials.', 'error');
       } else {
-        // Firebase-level error or unknown (no structured data)
         Toast.show(result.message || 'Invalid credentials. Please try again.', 'error');
       }
     }
-
     setLoading(false);
   }
 
-  const triggerHapticSelection = () => {
-    if (Platform.OS !== 'web') Haptics.selectionAsync();
-  };
-
-  const triggerHapticImpact = () => {
+  async function promptGoogleSignIn() {
+    setGoogleLoading(true);
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
-
-  const triggerHapticLight = () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
+    try {
+      const randomBytes = await Crypto.getRandomBytesAsync(32);
+      const codeVerifier = btoa(String.fromCharCode(...randomBytes))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      const digest = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256, codeVerifier,
+        { encoding: Crypto.CryptoEncoding.BASE64 }
+      );
+      const codeChallenge = digest.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      const redirectUri = Linking.createURL('');
+      const state = Math.random().toString(36).substring(2, 15);
+      const authUrl =
+        `https://accounts.google.com/o/oauth2/v2/auth?` +
+        `client_id=${encodeURIComponent(GOOGLE_WEB_CLIENT_ID)}` +
+        `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+        `&response_type=code` +
+        `&scope=${encodeURIComponent('openid profile email')}` +
+        `&code_challenge=${codeChallenge}&code_challenge_method=S256` +
+        `&state=${state}&access_type=offline&prompt=select_account`;
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+      if (result.type === 'success' && result.url) {
+        const urlObj = new URL(result.url);
+        const code = urlObj.searchParams.get('code');
+        if (!code) { Toast.show('Google sign-in failed: no code returned.', 'error'); setGoogleLoading(false); return; }
+        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ code, client_id: GOOGLE_WEB_CLIENT_ID, redirect_uri: redirectUri, grant_type: 'authorization_code', code_verifier: codeVerifier }).toString(),
+        });
+        const tokenData = await tokenResponse.json();
+        const idToken = tokenData?.id_token;
+        if (!idToken) { Toast.show('Google sign-in failed: could not get ID token.', 'error'); setGoogleLoading(false); return; }
+        const signInResult = await signInWithGoogle(idToken);
+        if (signInResult.success) {
+          if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          router.replace('/');
+        } else {
+          Toast.show(signInResult.message || 'Google sign-in failed.', 'error');
+        }
+      }
+    } catch (error: any) {
+      Toast.show(error.message || 'Google sign-in failed.', 'error');
+    }
+    setGoogleLoading(false);
+  }
 
   return (
-    <View style={[styles.container, { backgroundColor: '#050505' }]}>
-      {/* Ambient Backgrounds */}
-      <View style={styles.ambientBackground}>
-        <LinearGradient
-          colors={['rgba(249, 115, 22, 0.1)', 'transparent']}
-          style={styles.ambientTopGlow}
-        />
-        <LinearGradient
-          colors={['transparent', 'rgba(249, 115, 22, 0.05)']}
-          style={styles.ambientBottomFade}
-        />
-      </View>
+    <View style={styles.container}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Card */}
+          <Animated.View entering={FadeIn.duration(400)} style={styles.card}>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 32 }}
-      >
-        {/* Premium Back Button */}
-        <Animated.View entering={FadeInDown.delay(50).duration(200)} style={styles.backButtonContainer}>
-             <TouchableOpacity 
-                style={styles.backButton}
-                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                onPress={() => {
-                   triggerHapticLight();
-                   router.back();
-                }}
-             >
-                <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
-             </TouchableOpacity>
-        </Animated.View>
-
-        {/* Branding & Logo */}
-        <Animated.View entering={FadeInDown.delay(100).duration(200)} style={styles.headerContainer}>
-          <View style={styles.iconWrapper}>
-            <LinearGradient
-              colors={[Palette.accent, Palette.accentDark]}
-              style={[StyleSheet.absoluteFillObject, { borderRadius: 18 }]}
-            />
-            <Text style={styles.iconLetter}>A</Text>
-          </View>
-          <Text style={styles.title}>
-            AutoSPF<Text style={{ color: Palette.accent }}>+</Text>
-          </Text>
-          <Text style={styles.subtitle}>CUSTOMER PORTAL</Text>
-        </Animated.View>
-
-        {/* Welcome Text */}
-        <Animated.View entering={FadeInUp.delay(200).duration(200)} style={styles.welcomeArea}>
-            <Text style={styles.welcomeText}>Welcome Back</Text>
-            <Text style={styles.welcomeSubtext}>
-              Access your appointments, vehicle status, and service history
-            </Text>
-        </Animated.View>
-
-
-
-            {/* Floating Inputs Form */}
-        <View style={styles.formContainer}>
-            <Animated.View entering={FadeInUp.delay(300).duration(200)}>
-              <PremiumInput
-                label="EMAIL ADDRESS"
-                iconName="mail-outline"
-                placeholder="name@example.com"
-                value={email}
-                onChangeText={(t) => { setEmail(t); setEmailError(''); }}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                error={emailError}
-              />
+            {/* Logo + Header */}
+            <Animated.View entering={FadeInDown.delay(80).duration(350)} style={styles.headerBlock}>
+              <Text style={styles.logoText}>AutoSPF<Text style={styles.logoPlus}>+</Text></Text>
+              <Text style={styles.heading}>Welcome back</Text>
+              <Text style={styles.subheading}>Sign in to continue to your account</Text>
             </Animated.View>
 
-            <Animated.View entering={FadeInUp.delay(400).duration(200)}>
-              <PremiumInput
-                label="PASSWORD"
-                iconName="lock-closed-outline"
-                placeholder="••••••••"
-                value={password}
-                onChangeText={(t) => { setPassword(t); setPasswordError(''); }}
-                isPassword
-                error={passwordError}
-              />
-            </Animated.View>
-
-            {/* ── Failed-attempt inline warning ── */}
-            {loginAttempts > 0 && !isLocked && remainingAttempts !== null && (
-              <Animated.View entering={FadeInUp.duration(200)} style={styles.warningBanner}>
-                <Ionicons name="warning-outline" size={16} color="#FCD34D" />
-                <View style={{ flex: 1, marginLeft: 8 }}>
-                  <Text style={styles.warningTitle}>{loginAttempts} Failed Attempt{loginAttempts !== 1 ? 's' : ''}</Text>
-                  <Text style={styles.warningBody}>
-                    {remainingAttempts} attempt{remainingAttempts !== 1 ? 's' : ''} remaining before your account is locked for 15 minutes.
-                  </Text>
-                </View>
-              </Animated.View>
-            )}
-
-            {/* ── Account locked panel ── */}
+            {/* Lock / Attempt Banner */}
             {isLocked && (
-              <Animated.View entering={FadeInUp.duration(200)} style={styles.lockBanner}>
-                <Ionicons name="lock-closed" size={20} color="#F87171" />
-                <View style={{ flex: 1, marginLeft: 10 }}>
-                  <Text style={styles.lockTitle}>Account Temporarily Locked</Text>
-                  <Text style={styles.lockBody}>
-                    Too many failed attempts. Try again in{' '}
-                    <Text style={styles.lockTimer}>{lockCountdown || '15:00'}</Text>.
-                  </Text>
-                </View>
+              <Animated.View entering={FadeInDown.duration(200)} style={styles.alertBox}>
+                <Ionicons name="lock-closed" size={14} color="#DC2626" />
+                <Text style={styles.alertText}> Locked — try again in {lockCountdown || '15:00'}</Text>
+              </Animated.View>
+            )}
+            {!isLocked && loginAttempts > 0 && remainingAttempts !== null && (
+              <Animated.View entering={FadeInDown.duration(200)} style={[styles.alertBox, styles.alertWarn]}>
+                <Ionicons name="warning-outline" size={14} color="#B45309" />
+                <Text style={[styles.alertText, { color: '#92400E' }]}> {loginAttempts} failed attempt{loginAttempts !== 1 ? 's' : ''} · {remainingAttempts} remaining</Text>
               </Animated.View>
             )}
 
-            {/* Forgot Password */}
-            <Animated.View entering={FadeInUp.delay(500).duration(200)}>
+            {/* Form */}
+            <Animated.View entering={FadeInDown.delay(160).duration(350)}>
+
+              {/* Email */}
+              <Text style={styles.label}>Email address</Text>
+              <View style={[styles.inputWrap, emailError ? styles.inputWrapError : null]}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="name@example.com"
+                  placeholderTextColor="#C0C0C0"
+                  value={email}
+                  onChangeText={t => { setEmail(t); setEmailError(''); }}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoCorrect={false}
+                />
+              </View>
+              {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
+
+              {/* Password */}
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>Password</Text>
+                <TouchableOpacity onPress={() => router.push('/(auth)/forgot-password')}>
+                  <Text style={styles.forgotLink}>Forgot password?</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={[styles.inputWrap, passwordError ? styles.inputWrapError : null]}>
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  placeholder="••••••••"
+                  placeholderTextColor="#C0C0C0"
+                  value={password}
+                  onChangeText={t => { setPassword(t); setPasswordError(''); }}
+                  secureTextEntry={!showPassword}
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+                  <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={18} color="#BBBBBB" />
+                </TouchableOpacity>
+              </View>
+              {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
+
+              {/* Keep signed in */}
               <TouchableOpacity
-                style={{ alignSelf: 'flex-end', marginTop: 16 }}
-                onPress={() => {
-                  triggerHapticSelection();
-                  router.push('/(auth)/forgot-password');
-                }}
+                style={styles.checkRow}
+                onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); setKeepSignedIn(!keepSignedIn); }}
+                activeOpacity={0.7}
               >
-                <Text style={{ fontSize: 13, fontWeight: '700', color: Palette.accent, letterSpacing: 0.5 }}>
-                  Forgot Password?
-                </Text>
+                <View style={[styles.checkbox, keepSignedIn && styles.checkboxOn]}>
+                  {keepSignedIn && <Ionicons name="checkmark" size={12} color="#FFF" />}
+                </View>
+                <Text style={styles.checkLabel}>Keep me signed in</Text>
+              </TouchableOpacity>
+
+              {/* Sign In */}
+              <TouchableOpacity
+                style={[styles.signInBtn, (loading || isLocked) && styles.signInBtnOff]}
+                onPress={handleLogin}
+                disabled={loading || isLocked}
+                activeOpacity={0.87}
+              >
+                {loading
+                  ? <ActivityIndicator size="small" color="#FFF" />
+                  : <Text style={styles.signInBtnText}>{isLocked ? `Locked — ${lockCountdown}` : 'Sign in  →'}</Text>
+                }
+              </TouchableOpacity>
+
+              {/* Divider */}
+              <View style={styles.divRow}>
+                <View style={styles.divLine} />
+                <Text style={styles.divText}>OR</Text>
+                <View style={styles.divLine} />
+              </View>
+
+              {/* Google */}
+              <TouchableOpacity
+                style={styles.socialBtn}
+                onPress={promptGoogleSignIn}
+                disabled={googleLoading || loading}
+                activeOpacity={0.87}
+              >
+                {googleLoading ? <ActivityIndicator size="small" color="#555" /> : (
+                  <>
+                    <View style={styles.googleIconWrap}>
+                      <Svg width={18} height={18} viewBox="0 0 48 48">
+                        <Defs>
+                          <ClipPath id="gc"><Rect width={48} height={48} rx={24} /></ClipPath>
+                        </Defs>
+                        <G clipPath="url(#gc)">
+                          <Path d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21c10.5 0 20-7.6 20-21 0-1.3-.2-2.7-.5-4z" fill="#FBC02D" />
+                          <Path d="M6.3 14.7l7 5.1C15 16.1 19.2 13 24 13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 5.1 29.6 3 24 3 16.3 3 9.7 7.9 6.3 14.7z" fill="#E53935" />
+                          <Path d="M24 45c5.5 0 10.4-1.9 14.2-5.1l-6.6-5.5C29.5 36 26.9 37 24 37c-6.1 0-10.7-3.1-11.8-8.5l-7 5.4C8.6 41 15.8 45 24 45z" fill="#4CAF50" />
+                          <Path d="M44.5 20H24v8.5h11.8c-.6 2.9-2.5 5.4-5 7l6.6 5.5C41.7 37.3 44.5 31 44.5 24c0-1.3-.2-2.7-.5-4z" fill="#1565C0" />
+                        </G>
+                      </Svg>
+                    </View>
+                    <Text style={styles.socialBtnText}>Continue with Google</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {/* Apple */}
+              <TouchableOpacity
+                style={styles.socialBtn}
+                disabled={loading}
+                activeOpacity={0.87}
+                onPress={() => Toast.show('Apple Sign-In coming soon.', 'info')}
+              >
+                <Ionicons name="logo-apple" size={18} color="#111" style={{ marginRight: 10 }} />
+                <Text style={styles.socialBtnText}>Continue with Apple</Text>
+              </TouchableOpacity>
+
+            </Animated.View>
+
+            {/* Footer */}
+            <Animated.View entering={FadeInDown.delay(300).duration(350)} style={styles.footer}>
+              <Text style={styles.footerText}>New to AutoSPF+? </Text>
+              <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
+                <Text style={styles.footerLink}>Create an account</Text>
               </TouchableOpacity>
             </Animated.View>
 
-            {/* Sign In Button */}
-            <Animated.View entering={FadeInUp.delay(600).duration(200)} style={{ marginTop: 32 }}>
-              <PremiumButton
-                title={isLocked ? `LOCKED — ${lockCountdown || '15:00'}` : loading ? 'SIGNING IN...' : 'SIGN IN'}
-                icon={loading || isLocked ? undefined : 'log-in-outline'}
-                onPress={handleLogin}
-                disabled={loading || isLocked}
-              />
-            </Animated.View>
-        </View>
-
-        {/* Footer */}
-        <Animated.View
-          entering={FadeInUp.delay(700).duration(200)}
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'center',
-            marginTop: 40,
-          }}
-        >
-          <Text style={{ color: '#8A8A9A', fontSize: 13, fontWeight: '500' }}>
-            Don't have an account?{' '}
-          </Text>
-          <TouchableOpacity onPress={() => {
-              triggerHapticImpact();
-              router.push('/(auth)/signup');
-          }}>
-            <Text style={{ color: Palette.accent, fontSize: 13, fontWeight: '800', letterSpacing: 0.5 }}>
-              Create Account
-            </Text>
-          </TouchableOpacity>
-        </Animated.View>
+          </Animated.View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  ambientBackground: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#050505',
-    zIndex: -1,
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
   },
-  ambientTopGlow: {
-    position: 'absolute',
-    top: -50,
-    left: 0,
-    right: 0,
-    height: height * 0.5,
-  },
-  ambientBottomFade: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '40%',
-  },
-
-  backButtonContainer: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 60 : 40,
-    left: 24,
-    zIndex: 10,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
-    alignItems: 'center',
+    paddingHorizontal: 28,
+    paddingVertical: 40,
   },
-
-  headerContainer: { alignItems: 'center', marginBottom: 24 },
-  iconWrapper: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    ...Shadows.glow,
-  },
-  iconLetter: { color: '#fff', fontSize: 28, fontWeight: '900', zIndex: 2 },
-  title: { fontSize: 32, fontWeight: '900', color: '#FFFFFF', letterSpacing: -0.5 },
-  subtitle: { fontSize: 10, fontWeight: '800', color: '#8A8A9A', letterSpacing: 3, marginTop: 6 },
-  
-  welcomeArea: {
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  welcomeText: { fontSize: 26, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', letterSpacing: 0.5 },
-  welcomeSubtext: { fontSize: 14, color: '#8A8A9A', textAlign: 'center', marginTop: 8, fontWeight: '500' },
-  
-
-
-  formContainer: {
+  card: {
     width: '100%',
   },
 
-  // Failed-attempt warning banner
-  warningBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: 'rgba(251, 191, 36, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(251, 191, 36, 0.3)',
-    borderRadius: 14,
-    padding: 12,
-    marginTop: 12,
+  // Header
+  headerBlock: {
+    marginBottom: 28,
   },
-  warningTitle: { fontSize: 13, fontWeight: '700', color: '#FCD34D' },
-  warningBody: { fontSize: 12, color: 'rgba(252, 211, 77, 0.75)', marginTop: 3, lineHeight: 17 },
+  logoText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111111',
+    letterSpacing: -0.2,
+    marginBottom: 20,
+  },
+  logoPlus: {
+    color: '#F97316',
+  },
+  heading: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#111111',
+    letterSpacing: -0.5,
+    marginBottom: 6,
+  },
+  subheading: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    fontWeight: '400',
+    lineHeight: 20,
+  },
 
-  // Account locked panel
-  lockBanner: {
+  // Alert banners
+  alertBox: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.35)',
-    borderRadius: 14,
-    padding: 14,
-    marginTop: 12,
+    borderColor: '#FECACA',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 18,
   },
-  lockTitle: { fontSize: 14, fontWeight: '700', color: '#F87171' },
-  lockBody: { fontSize: 12, color: 'rgba(248, 113, 113, 0.75)', marginTop: 3, lineHeight: 17 },
-  lockTimer: { fontWeight: '900', color: '#F87171', fontVariant: ['tabular-nums'] as any },
+  alertWarn: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+  alertText: {
+    fontSize: 13,
+    color: '#991B1B',
+    fontWeight: '500',
+  },
+
+  // Form
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 18,
+    marginBottom: 8,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  forgotLink: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#E9EAEC',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    height: 48,
+    backgroundColor: '#FAFAFA',
+  },
+  inputWrapError: {
+    borderColor: '#F87171',
+    backgroundColor: '#FFF9F9',
+  },
+  input: {
+    flex: 1,
+    fontSize: 15,
+    color: '#111111',
+    fontWeight: '400',
+  },
+  eyeBtn: { padding: 4 },
+  errorText: {
+    fontSize: 12,
+    color: '#EF4444',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+
+  // Checkbox
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    marginBottom: 22,
+  },
+  checkbox: {
+    width: 19,
+    height: 19,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 9,
+  },
+  checkboxOn: {
+    backgroundColor: '#111111',
+    borderColor: '#111111',
+  },
+  checkLabel: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+
+  // Sign In Button
+  signInBtn: {
+    height: 50,
+    borderRadius: 13,
+    backgroundColor: '#111111',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#111',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  signInBtnOff: {
+    backgroundColor: '#9CA3AF',
+    shadowOpacity: 0,
+  },
+  signInBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+
+  // Divider
+  divRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  divLine: { flex: 1, height: 1, backgroundColor: '#F0F0F0' },
+  divText: {
+    color: '#C4C4C4',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.5,
+    marginHorizontal: 12,
+  },
+
+  // Social Buttons
+  socialBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#EBEBEB',
+    backgroundColor: '#FFFFFF',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  googleIconWrap: { marginRight: 10 },
+  socialBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+
+  // Footer
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  footerText: { fontSize: 13, color: '#9CA3AF' },
+  footerLink: { fontSize: 13, color: '#111111', fontWeight: '700' },
 });

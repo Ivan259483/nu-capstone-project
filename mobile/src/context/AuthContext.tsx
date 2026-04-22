@@ -29,6 +29,7 @@ type AuthContextType = {
   token: string | null;
   initialized: boolean;
   signIn: (email: string, password: string) => Promise<AuthResult>;
+  signInWithGoogle: (idToken: string) => Promise<AuthResult>;
   signUp: (fullName: string, email: string, password: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -43,6 +44,7 @@ const AuthContext = createContext<AuthContextType>({
   token: null,
   initialized: false,
   signIn: async () => ({ success: false }),
+  signInWithGoogle: async () => ({ success: false }),
   signUp: async () => ({ success: false }),
   signOut: async () => {},
   refreshProfile: async () => {},
@@ -141,6 +143,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const signInWithGoogle = async (idToken: string): Promise<AuthResult> => {
+    try {
+      const result = await authService.loginWithGoogle(idToken);
+      applyState(result.firebaseUser, result.token, result.backendUser);
+      return { success: true };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message || getApiErrorMessage(error, 'Google sign-in failed.'),
+      };
+    }
+  };
+
   const signUp = async (
     fullName: string,
     email: string,
@@ -210,6 +225,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token,
         initialized,
         signIn,
+        signInWithGoogle,
         signUp,
         signOut,
         refreshProfile,

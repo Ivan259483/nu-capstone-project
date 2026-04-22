@@ -61,13 +61,13 @@ export default function PremiumInput({
     const borderColor = interpolateColor(
       glowBorder.value,
       [0, 1, 2],
-      ['rgba(255,255,255,0.08)', 'rgba(249, 115, 22, 0.6)', 'rgba(239, 68, 68, 0.8)']
+      ['#E9EAEC', 'rgba(249, 115, 22, 0.7)', 'rgba(239, 68, 68, 0.8)']
     );
 
     const backgroundColor = interpolateColor(
       glowBorder.value,
       [0, 1, 2],
-      ['rgba(255,255,255,0.02)', 'rgba(249, 115, 22, 0.05)', 'rgba(239, 68, 68, 0.05)']
+      ['#FAFAFA', 'rgba(249, 115, 22, 0.04)', 'rgba(239, 68, 68, 0.04)']
     );
 
     return {
@@ -86,13 +86,13 @@ export default function PremiumInput({
           <Ionicons 
             name={iconName} 
             size={18} 
-            color={error ? '#EF4444' : isFocused ? '#F97316' : '#8A8A9A'} 
+            color={error ? '#EF4444' : isFocused ? '#F97316' : '#9CA3AF'} 
           />
         )}
         
         <TextInput
           style={styles.input}
-          placeholderTextColor="#6B7280"
+          placeholderTextColor="#C0C0C0"
           secureTextEntry={isPassword && !showPassword}
           onFocus={(e) => {
             setIsFocused(true);
@@ -137,11 +137,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   label: { 
-    fontSize: 10, 
-    fontWeight: '800', 
-    letterSpacing: 2, 
-    color: '#6B7280', 
-    marginBottom: 10 
+    fontSize: 12, 
+    fontWeight: '700', 
+    letterSpacing: 0.3, 
+    color: '#374151', 
+    marginBottom: 8 
   },
   inputContainer: {
     flexDirection: 'row',
@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
     flex: 1, 
     fontSize: 15, 
     height: '100%', 
-    color: '#FFFFFF', 
+    color: '#111111', 
     fontWeight: '500' 
   },
   errorText: {

@@ -871,8 +871,8 @@ export const socialLogin = async (req, res, next) => {
          if (providerId && !user.firebaseUid) {
             user.firebaseUid = providerId;
          }
-         // Sync avatar if missing
-         if (req.body.photoURL && !user.avatar) {
+         // Always sync avatar from Google (keeps profile photo up to date)
+         if (req.body.photoURL) {
              user.avatar = req.body.photoURL;
          }
          await user.save();

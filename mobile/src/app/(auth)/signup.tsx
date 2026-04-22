@@ -8,12 +8,10 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  Dimensions,
   ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
@@ -24,8 +22,6 @@ import { Toast } from '@/components/ui/PremiumToast';
 import { Validation } from '@/utils/validation';
 import { authService } from '@/services/api/authService';
 import { getApiErrorMessage } from '@/services/api/client';
-
-const { height } = Dimensions.get('window');
 
 /* ═══════════════════════════════════════
    FIELD VALIDATORS — per-field on-blur
@@ -239,19 +235,7 @@ export default function SignUpScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: '#050505' }]}>
-      {/* Ambient Backgrounds */}
-      <View style={styles.ambientBackground}>
-        <LinearGradient
-          colors={['rgba(232, 101, 10, 0.1)', 'transparent']}
-          style={styles.ambientTopGlow}
-        />
-        <LinearGradient
-          colors={['transparent', 'rgba(232, 101, 10, 0.05)']}
-          style={styles.ambientBottomFade}
-        />
-      </View>
-
+    <View style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
@@ -271,7 +255,7 @@ export default function SignUpScreen() {
                 router.back();
               }}
             >
-              <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+              <Ionicons name="chevron-back" size={24} color="#111" />
             </TouchableOpacity>
           </Animated.View>
 
@@ -483,31 +467,12 @@ export default function SignUpScreen() {
    STYLES
 ═══════════════════════════════════════ */
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
   scrollContainer: {
-    paddingHorizontal: 32,
+    paddingHorizontal: 28,
     paddingTop: Platform.OS === 'ios' ? 100 : 80,
     paddingBottom: 50,
     flexGrow: 1,
-  },
-  ambientBackground: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#050505',
-    zIndex: -1,
-  },
-  ambientTopGlow: {
-    position: 'absolute',
-    top: -50,
-    left: 0,
-    right: 0,
-    height: height * 0.5,
-  },
-  ambientBottomFade: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '40%',
   },
 
   backButtonContainer: {
@@ -520,28 +485,25 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: '#F5F5F5',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: '#E5E7EB',
     justifyContent: 'center',
     alignItems: 'center',
   },
 
   headerContainer: { alignItems: 'flex-start', marginBottom: 32, marginTop: 20 },
-  welcomeText: { fontSize: 32, fontWeight: '900', color: '#FFFFFF', letterSpacing: -0.5 },
-  welcomeSubtext: { fontSize: 14, color: '#8A8A9A', marginTop: 8, fontWeight: '500', lineHeight: 22 },
+  welcomeText: { fontSize: 32, fontWeight: '900', color: '#111111', letterSpacing: -0.5 },
+  welcomeSubtext: { fontSize: 14, color: '#9CA3AF', marginTop: 8, fontWeight: '500', lineHeight: 22 },
 
-  formContainer: {
-    width: '100%',
-  },
+  formContainer: { width: '100%' },
 
-  // API Error banner
   apiErrorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    backgroundColor: '#FEF2F2',
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.35)',
+    borderColor: '#FECACA',
     borderRadius: 14,
     padding: 14,
     marginTop: 8,
@@ -549,15 +511,14 @@ const styles = StyleSheet.create({
   },
   apiErrorText: {
     flex: 1,
-    color: '#F87171',
+    color: '#EF4444',
     fontSize: 13,
     fontWeight: '600',
     lineHeight: 18,
   },
 
-  // Disabled hint
   disabledHint: {
-    color: '#6B7280',
+    color: '#9CA3AF',
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
@@ -565,10 +526,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  // OTP
   otpInstructions: {
     fontSize: 14,
-    color: '#8A8A9A',
+    color: '#9CA3AF',
     marginBottom: 24,
     textAlign: 'center',
     paddingHorizontal: 10,
@@ -583,10 +543,10 @@ const styles = StyleSheet.create({
     width: 48,
     height: 56,
     borderRadius: 12,
-    backgroundColor: '#111',
-    borderWidth: 1,
-    borderColor: '#333',
-    color: '#FFF',
+    backgroundColor: '#FAFAFA',
+    borderWidth: 1.5,
+    borderColor: '#E9EAEC',
+    color: '#111111',
     fontSize: 24,
     fontWeight: '700',
     textAlign: 'center',
@@ -608,10 +568,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   resendTextDisabled: {
-    color: '#555',
+    color: '#9CA3AF',
   },
   changeEmailText: {
-    color: '#8A8A9A',
+    color: '#9CA3AF',
     fontSize: 14,
     fontWeight: '500',
   },

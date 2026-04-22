@@ -29,9 +29,9 @@ export const getAllCustomers = async (req, res, next) => {
 export const getMe = async (req, res, next) => {
   try {
     if (!req.user || !req.user.id) {
-       return res.status(401).json({ success: false, message: 'Unauthorized' });
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
-    
+
     let customer = await Customer.findOne({ user: req.user.id })
       .populate('user')
       .populate('vehicles')
@@ -110,9 +110,9 @@ export const createCustomer = async (req, res, next) => {
 export const updateMe = async (req, res, next) => {
   try {
     if (!req.user || !req.user.id) {
-       return res.status(401).json({ success: false, message: 'Unauthorized' });
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
-    
+
     let customer = await Customer.findOne({ user: req.user.id });
     if (!customer) {
       customer = new Customer({ user: req.user.id });
@@ -205,41 +205,42 @@ export const addVehicle = async (req, res, next) => {
   try {
     // Controller-Level Authorization Guard
     if (!req.user || !req.user.id || !req.user.role) {
-        return res.status(401).json({ 
-            success: false, 
-            message: 'Not authorized - Invalid or missing user session' 
-        });
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized - Invalid or missing user session'
+      });
     }
 
-    const { year, make, model, color, plateNumber } = req.body;
+    const { year, make, model, color, plateNumber, vehicleType } = req.body;
     const customerId = req.user.id; // From authenticate middleware
     const normalizedPlate = typeof plateNumber === 'string'
       ? plateNumber.toUpperCase().replace(/[^A-Z0-9]/g, '')
       : '';
-    const platePattern = /^[A-Z0-9]{4,8}$/;
+    const platePattern = /^[A-Z0-9]{4,9}$/;
 
-    if (!platePattern.test(normalizedPlate)) {
+    if (!normalizedPlate || !platePattern.test(normalizedPlate)) {
       return res.status(400).json({
         success: false,
-        message: 'Plate number must be 3 letters followed by 4 numbers (e.g., ABC1234)',
+        message: 'Plate number must be 4–9 alphanumeric characters (e.g., ABC1234)',
       });
     }
 
     const vehicle = new Vehicle({
       customer: customerId,
-      year,
-      make,
-      model,
+      year: year || '',
+      make: make || '',
+      model: model || '',
       color,
       plateNumber: normalizedPlate,
+      vehicleType: vehicleType || '',
     });
 
     await vehicle.save();
 
     // Also link to customer profile if needed (though we can just query by customer id)
     await Customer.findOneAndUpdate(
-        { user: customerId },
-        { $push: { vehicles: vehicle._id } }
+      { user: customerId },
+      { $push: { vehicles: vehicle._id } }
     );
 
     res.status(201).json({
@@ -265,10 +266,10 @@ export const getVehicles = async (req, res, next) => {
   try {
     // Controller-Level Authorization Guard
     if (!req.user || !req.user.id || !req.user.role) {
-        return res.status(401).json({ 
-            success: false, 
-            message: 'Not authorized - Invalid or missing user session' 
-        });
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized - Invalid or missing user session'
+      });
     }
 
     const vehicles = await Vehicle.find({ customer: req.user.id })
@@ -291,15 +292,15 @@ export const updateVehicle = async (req, res, next) => {
   try {
     // Controller-Level Authorization Guard
     if (!req.user || !req.user.id || !req.user.role) {
-        return res.status(401).json({ 
-            success: false, 
-            message: 'Not authorized - Invalid or missing user session' 
-        });
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized - Invalid or missing user session'
+      });
     }
 
-    const { year, make, model, color, plateNumber } = req.body;
-    const platePattern = /^[A-Z]{3}\d{4}$/;
-    
+    const { year, make, model, color, plateNumber, vehicleType } = req.body;
+    const platePattern = /^[A-Z0-9]{4,9}$/;
+
     // Find vehicle first to check ownership
     const vehicle = await Vehicle.findById(req.params.id);
 
@@ -319,10 +320,11 @@ export const updateVehicle = async (req, res, next) => {
     }
 
     // Update fields
-    if (year) vehicle.year = year;
-    if (make) vehicle.make = make;
-    if (model) vehicle.model = model;
-    if (color) vehicle.color = color;
+    if (year !== undefined) vehicle.year = year;
+    if (make !== undefined) vehicle.make = make;
+    if (model !== undefined) vehicle.model = model;
+    if (color !== undefined) vehicle.color = color;
+    if (vehicleType !== undefined) vehicle.vehicleType = vehicleType;
     if (plateNumber) {
       const normalizedPlate = typeof plateNumber === 'string'
         ? plateNumber.toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -330,7 +332,7 @@ export const updateVehicle = async (req, res, next) => {
       if (!platePattern.test(normalizedPlate)) {
         return res.status(400).json({
           success: false,
-          message: 'Plate number must be 3 letters followed by 4 numbers (e.g., ABC1234)',
+          message: 'Plate number must be 4–9 alphanumeric characters (e.g., ABC1234)',
         });
       }
       vehicle.plateNumber = normalizedPlate;
@@ -345,11 +347,43 @@ export const updateVehicle = async (req, res, next) => {
     });
   } catch (error) {
     if (error.code === 11000) {
-        return res.status(400).json({
-          success: false,
-          message: 'Vehicle with this plate number already exists',
-        });
-      }
+      return res.status(400).json({
+        success: false,
+        message: 'Vehicle with this plate number already exists',
+      });
+    }
+    next(error);
+  }
+};
+
+/**
+ * Delete a vehicle
+ */
+export const deleteVehicle = async (req, res, next) => {
+  try {
+    const vehicle = await Vehicle.findById(req.params.id);
+
+    if (!vehicle) {
+      return res.status(404).json({
+        success: false,
+        message: 'Vehicle not found',
+      });
+    }
+
+    if (vehicle.customer.toString() !== req.user.id && !isFullAdminRole(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: You can only delete your own vehicles',
+      });
+    }
+
+    await vehicle.deleteOne();
+
+    res.json({
+      success: true,
+      message: 'Vehicle deleted successfully',
+    });
+  } catch (error) {
     next(error);
   }
 };
