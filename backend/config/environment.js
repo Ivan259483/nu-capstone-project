@@ -53,7 +53,7 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET, // Required — validated above
   corsOrigin: (() => {
     const raw = process.env.CORS_ORIGIN;
-    if (!raw) return ['http://localhost:5173', 'http://localhost:3001', 'https://autospf.shop', 'https://www.autospf.shop'];
+    if (!raw) return true; // Allow all origins by default — Railway may not have CORS_ORIGIN set
     // Wildcard: allow any origin dynamically (required when credentials: true)
     if (raw.trim() === '*') return true;
     // Comma-separated list of specific origins
