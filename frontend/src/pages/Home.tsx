@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PageLayout from "@/components/PageLayout";
 import HeroSection from "@/components/HeroSection";
-import TickerStrip from "@/components/TickerStrip";
+
 
 import ServicesSection from "@/components/ServicesSection";
 import GallerySection from "@/components/GallerySection";
@@ -42,7 +42,6 @@ export default function Home() {
     return (
         <PageLayout>
             <HeroSection />
-            <TickerStrip />
             <ServicesSection />
             <GallerySection items={landingData.gallery} />
             <TransformationsSection />

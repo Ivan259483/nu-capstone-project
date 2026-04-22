@@ -725,7 +725,7 @@ export default function Services() {
                                 )}>
                                 <div className="flex items-center gap-3">
                                     <div className="w-7 h-7 rounded-lg bg-amber-500/[0.08] border border-amber-500/15 flex items-center justify-center">
-                                    <Layers className="w-3.5 h-3.5 text-amber-400/70 group-hover:text-amber-400 transition-colors duration-300" />
+                                        <Layers className="w-3.5 h-3.5 text-amber-400/70 group-hover:text-amber-400 transition-colors duration-300" />
                                     </div>
                                     <span className="text-sm font-semibold text-white/70 group-hover:text-white/90 transition-colors duration-300">{addon.name}</span>
                                 </div>
