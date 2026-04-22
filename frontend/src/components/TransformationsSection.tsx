@@ -28,8 +28,8 @@ export default function TransformationsSection() {
                         <Sparkles className="w-3.5 h-3.5" />
                         See The Difference
                     </div>
-                    <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
-                        Real Results. Real Perfection.
+                    <h2 className="text-3xl sm:text-4xl font-serif font-medium text-foreground mb-4">
+                        Real Results. <span className="italic text-gold">Real Perfection.</span>
                     </h2>
                     <p className="text-muted-foreground max-w-2xl mx-auto">
                         Experience the transformation of professional automotive detailing. Slide to see the before and after comparison of our paint correction and ceramic coating treatments.

@@ -307,7 +307,7 @@ export default function ServicesSection() {
                     {/* Heading */}
                     <motion.h2
                         variants={fadeUp}
-                        className="text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mb-5 tracking-tight"
+                        className="text-3xl sm:text-4xl md:text-5xl font-serif font-medium text-foreground mb-5 tracking-tight"
                     >
                         {t("services.subtitle")}
                     </motion.h2>

@@ -33,7 +33,7 @@ export default function BookingCTA() {
                     Book Today
                 </div>
 
-                <h2 className="text-3xl sm:text-5xl font-bold text-foreground mb-4">
+                <h2 className="text-3xl sm:text-5xl font-serif font-medium text-foreground mb-4">
                     {t("cta.title")}
                 </h2>
                 <p className="text-muted-foreground text-lg max-w-xl mx-auto mb-10 leading-relaxed">
