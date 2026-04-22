@@ -284,20 +284,19 @@ function FeaturedTestimonial() {
 
                         {/* Author row */}
                         <div className="flex items-center gap-4">
-                            <motion.div
+                            <div
                                 className="w-14 h-14 rounded-full overflow-hidden shrink-0"
                                 style={{
                                     border: "2px solid rgba(232,101,10,0.4)",
                                     boxShadow: "0 0 25px rgba(232,101,10,0.15)",
                                 }}
-                                layoutId={`avatar-${current}`}
                             >
                                 <img
                                     src={featured.image}
                                     alt={featured.name}
                                     className="w-full h-full object-cover"
                                 />
-                            </motion.div>
+                            </div>
                             <div>
                                 <div className="text-base font-bold text-white tracking-tight">
                                     {featured.name}
