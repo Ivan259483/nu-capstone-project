@@ -255,6 +255,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         console.warn(`⚠️ [onAuth] ${backendSyncOk ? 'No role in response' : 'Backend sync failed'} — fallback role: ${resolvedRole}`);
                     }
 
+                    // ── Bug 2 fix: restore cached token if localStorage is empty ──
+                    // After a backend sync failure, localStorage may be empty (no autospf_token).
+                    // Check the session cache and restore the token so API calls go out with Bearer.
+                    if (!localStorage.getItem('autospf_token') && cached?.token) {
+                        localStorage.setItem('autospf_token', cached.token);
+                        console.log('🔑 [onAuth] Restored cached token from session cache (fallback path)');
+                    }
+
                     const finalRole: import('@/types').UserRole = resolvedRole as import('@/types').UserRole;
                     console.log(`🔐 [AuthContext] Final resolved role: ${finalRole}`);
 

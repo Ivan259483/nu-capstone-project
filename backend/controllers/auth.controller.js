@@ -829,14 +829,19 @@ export const socialLogin = async (req, res, next) => {
       });
     }
 
-    // Check if user exists
-    let user = await User.findOne({ email });
+    // ── Upsert logic: find by email or Firebase UID ──
+    let user = await User.findOne({
+      $or: [{ email }, ...(providerId ? [{ firebaseUid: providerId }] : [])],
+    });
 
     if (user && user.isDeleted) {
-      return res.status(403).json({
-        success: false,
-        message: 'This account has been deleted by an administrator.',
-      });
+      // Soft-deleted account — restore it on social re-login instead of blocking.
+      // The user authenticated successfully via Firebase; rejecting them here would
+      // cause an infinite logout loop. Restore and continue.
+      console.log(`[socialLogin] Restoring soft-deleted account for ${email}`);
+      user.isDeleted = false;
+      user.isActive = true;
+      user.deletedAt = undefined;
     }
 
     if (!user) {
@@ -847,35 +852,26 @@ export const socialLogin = async (req, res, next) => {
         });
       }
 
-      // Create new user (Social Logins only - e.g. provider === 'google')
-      // Generate random password
+      // Auto-create user for social logins — Firebase authenticated them, trust it.
       const randomPassword = crypto.randomBytes(16).toString('hex');
-      
-      // Use User.create as requested
       user = await User.create({
         name: name || email.split('@')[0],
         email,
         password: randomPassword,
         role: 'customer',
         isVerified: true,
-        firebaseUid: providerId, // Sync Firebase UID on creation
-        avatar: req.body.photoURL || undefined, // Sync avatar if provided
+        isActive: true,
+        firebaseUid: providerId,
+        avatar: req.body.photoURL || undefined,
       });
+      console.log(`[socialLogin] Auto-created new user for ${email}`);
 
     } else {
-        // If user exists but wasn't verified, verify them now since they logged in via social
-         if (!user.isVerified) {
-            user.isVerified = true;
-         }
-         // Sync Sync Firebase UID if missing
-         if (providerId && !user.firebaseUid) {
-            user.firebaseUid = providerId;
-         }
-         // Always sync avatar from Google (keeps profile photo up to date)
-         if (req.body.photoURL) {
-             user.avatar = req.body.photoURL;
-         }
-         await user.save();
+      // Existing user — sync fields from Firebase
+      if (!user.isVerified) user.isVerified = true;
+      if (providerId && !user.firebaseUid) user.firebaseUid = providerId;
+      if (req.body.photoURL) user.avatar = req.body.photoURL;
+      await user.save();
     }
 
     // Generate token
