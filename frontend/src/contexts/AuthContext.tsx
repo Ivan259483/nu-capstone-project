@@ -165,28 +165,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     return;
                 }
 
-                console.log('🔥 [AuthContext] Firebase User detected:', firebaseUser.email);
+                console.log('🔥 [AuthContext] Firebase User detected on reload:', firebaseUser.email);
                 setIsLoading(true);
                 try {
                     const existingStored = userStorage.getCurrentUser();
-                    let resolvedRole: import('@/types').UserRole | '' = '';
-                    let resolvedName: string = existingStored?.name || firebaseUser.displayName || 'User';
 
-                    let foundBackendId: string | undefined = undefined;
-                    let mongoPayload: any = {};
-
-                    // ── Ultra-fast path: use session cache if UID matches ──
-                    // GUARD: Skip cache if login() is in progress — it will resolve
-                    // the user with fresh backend data including the correct role.
+                    // ── Ultra-fast path: session cache hit ──
                     const cached = getSessionCache();
-                    console.log('🔍 [DEBUG-onAuth] Session cache:', {
-                        hasCachedData: !!cached,
-                        cachedUid: cached?.user?.id,
-                        firebaseUid: firebaseUser.uid,
-                        cachedRole: cached?.user?.role,
-                        loginResolved: loginResolvedRef.current,
-                    });
-                    if (cached && cached.user.id === firebaseUser.uid && !loginResolvedRef.current) {
+                    if (cached && cached.user.id === firebaseUser.uid) {
                         console.log(`⚡ [AuthContext] Session cache hit — instant restore, role: ${cached.user.role}`);
                         const sanitized = sanitizeUser(cached.user);
                         userStorage.setCurrentUser(sanitized);
@@ -196,101 +182,85 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         }
                         setIsLoading(false);
                         setIsFirebaseAuthReady(true);
-
-                        // Background refresh: silently update from backend
                         queueMicrotask(() => {
                             backgroundRefreshUser(firebaseUser.email || '', firebaseUser.uid, cached.user);
                         });
                         return;
                     }
 
-                    // ── Fast path: use cached backend user from the login() call ──
-                    const cachedBackendUser = localStorage.getItem('autospf_backend_user');
-                    console.log('🔍 [DEBUG-onAuth] Cached backend user:', cachedBackendUser);
-                    if (cachedBackendUser) {
-                        try {
-                            const parsed = JSON.parse(cachedBackendUser);
-                            foundBackendId = parsed._id;
-                            if (parsed.role) {
-                                const migratedRole = migrateLegacyUserRole(parsed.role);
-                                if (migratedRole) resolvedRole = migratedRole;
-                            }
-                            if (parsed.name) resolvedName = parsed.name;
-                            console.log(`✅ [DEBUG-onAuth] Role from cached backend login: ${resolvedRole}`);
-                            // Clear the cache — it's single-use
-                            localStorage.removeItem('autospf_backend_user');
-                        } catch { /* ignore malformed cache */ }
-                    }
+                    // ── Full sync: attempt fresh backend JWT via social-login ──
+                    // If this fails for ANY reason (4xx, network, CORS), we keep the
+                    // Firebase session alive and fall back to stored data. Never sign out.
+                    let resolvedRole: import('@/types').UserRole | '' = '';
+                    let resolvedName: string = existingStored?.name || firebaseUser.displayName || 'User';
+                    let foundBackendId: string | undefined = existingStored?._id;
+                    let mongoPayload: any = {};
+                    let backendSyncOk = false;
 
-                    // ── Primary path: fetch role from MongoDB backend API ──
-                    if (!resolvedRole || !foundBackendId) {
-                        const fetchUrl = `${BACKEND_URL}/users?email=${encodeURIComponent(firebaseUser.email || '')}`;
-                        console.log('🌐 [DEBUG-onAuth] Fetching user from backend:', fetchUrl);
-                        try {
-                            const resp = await fetch(fetchUrl, { signal: AbortSignal.timeout(5000) });
-                            console.log('🌐 [DEBUG-onAuth] Backend response status:', resp.status, resp.statusText);
-                            if (resp.ok) {
-                                const json = await resp.json();
-                                console.log('🌐 [DEBUG-onAuth] Backend response JSON:', JSON.stringify(json, null, 2));
-                                const found = Array.isArray(json.data)
-                                    ? json.data.find((u: any) =>
-                                        u.email?.toLowerCase() === firebaseUser.email?.toLowerCase()
-                                      )
-                                    : json.data;
-                                
-                                console.log('🌐 [DEBUG-onAuth] Found user match:', found ? JSON.stringify({ role: found.role, email: found.email, _id: found._id }) : 'NULL - NO MATCH');
+                    try {
+                        // Force-refresh Firebase ID token to ensure it is not stale
+                        await firebaseUser.getIdToken(true);
 
-                                if (found) {
-                                    foundBackendId = found._id || found.id || foundBackendId;
-                                    const migratedRole = migrateLegacyUserRole(found.role);
-                                    console.log('🌐 [DEBUG-onAuth] migrateLegacyUserRole result:', { input: found.role, output: migratedRole });
-                                    if (migratedRole) resolvedRole = migratedRole;
-                                    if (found.name) resolvedName = found.name;
-                                    
-                                    // Cache additional Mongo payloads
-                                    mongoPayload = {
-                                        avatar: found.avatar,
-                                        createdAt: found.createdAt,
-                                        isActive: found.isActive !== undefined ? found.isActive : true,
-                                        lastActive: found.updatedAt || new Date().toISOString()
-                                    };
-
-                                    console.log(`✅ [DEBUG-onAuth] Role from MongoDB API: ${resolvedRole}`);
-                                }
-                            } else {
-                                const errText = await resp.text();
-                                console.error('❌ [DEBUG-onAuth] Backend returned non-OK:', resp.status, errText);
-                            }
-                        } catch (backendErr) {
-                            console.warn('⚠️ [DEBUG-onAuth] Backend role lookup FAILED:', backendErr);
-                        }
-                    }
-
-                    // ── Fallback Path ──
-                    if (!resolvedRole) {
-                        console.warn('⚠️ [DEBUG-onAuth] No role resolved! Falling back.', {
-                            existingStoredId: existingStored?.id,
-                            firebaseUid: firebaseUser.uid,
-                            existingStoredRole: existingStored?.role,
+                        const syncResp = await fetch(`${BACKEND_URL}/auth/social-login`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                email: firebaseUser.email,
+                                name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+                                provider: 'google',
+                                providerId: firebaseUser.uid,
+                                photoURL: firebaseUser.photoURL || undefined,
+                            }),
+                            signal: AbortSignal.timeout(8000),
                         });
-                         resolvedRole = (existingStored?.id === firebaseUser.uid && existingStored?.role)
-                             ? getSafeUserRole(existingStored.role, CUSTOMER_ROLE)
-                             : CUSTOMER_ROLE;
-                        console.warn('⚠️ [DEBUG-onAuth] Fallback resolved to:', resolvedRole);
+
+                        if (syncResp.ok) {
+                            const syncJson = await syncResp.json();
+                            const backendUser = syncJson.data?.user;
+                            const backendToken = syncJson.data?.token;
+
+                            if (backendToken) {
+                                localStorage.setItem('autospf_token', backendToken);
+                                console.log('✅ [onAuth] Fresh backend JWT saved');
+                            }
+                            if (backendUser) {
+                                foundBackendId = backendUser._id || backendUser.id || foundBackendId;
+                                const migratedRole = migrateLegacyUserRole(backendUser.role);
+                                if (migratedRole) resolvedRole = migratedRole;
+                                if (backendUser.name) resolvedName = backendUser.name;
+                                mongoPayload = {
+                                    avatar: backendUser.avatar,
+                                    createdAt: backendUser.createdAt,
+                                    isActive: backendUser.isActive ?? true,
+                                    lastActive: backendUser.updatedAt || new Date().toISOString(),
+                                };
+                                backendSyncOk = true;
+                                console.log(`✅ [onAuth] Backend sync OK — role: ${resolvedRole}`);
+                            }
+                        } else {
+                            // ── Backend returned 4xx/5xx — DO NOT sign out ──
+                            const errText = await syncResp.text().catch(() => '');
+                            console.warn(`⚠️ [onAuth] Backend sync returned ${syncResp.status} — keeping Firebase session alive. Body: ${errText}`);
+                        }
+                    } catch (syncErr) {
+                        // ── Network / timeout / CORS error — DO NOT sign out ──
+                        console.warn('⚠️ [onAuth] Backend sync failed — keeping Firebase session alive:', syncErr);
+                    }
+
+                    // Fallback role if backend sync failed
+                    if (!resolvedRole) {
+                        resolvedRole = (existingStored?.id === firebaseUser.uid && existingStored?.role)
+                            ? getSafeUserRole(existingStored.role, CUSTOMER_ROLE)
+                            : CUSTOMER_ROLE;
+                        console.warn(`⚠️ [onAuth] ${backendSyncOk ? 'No role in response' : 'Backend sync failed'} — fallback role: ${resolvedRole}`);
                     }
 
                     const finalRole: import('@/types').UserRole = resolvedRole as import('@/types').UserRole;
                     console.log(`🔐 [AuthContext] Final resolved role: ${finalRole}`);
 
-                    // Combine into User data with both backend _id and frontend UID
-                    let backendId = foundBackendId;
-                    if (!backendId && existingStored?._id) {
-                        backendId = existingStored._id;
-                    }
-
                     const userData: User = {
                         id: firebaseUser.uid,
-                        _id: backendId,
+                        _id: foundBackendId,
                         email: firebaseUser.email || '',
                         name: resolvedName,
                         role: finalRole,
@@ -298,37 +268,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         password: '',
                         isActive: mongoPayload.isActive ?? existingStored?.isActive ?? true,
                         lastActive: mongoPayload.lastActive || existingStored?.lastActive || new Date().toISOString(),
-                        avatar: mongoPayload.avatar || existingStored?.avatar || undefined,
+                        avatar: mongoPayload.avatar || existingStored?.avatar || firebaseUser.photoURL || undefined,
                     };
                     const sanitized = sanitizeUser(userData);
                     userStorage.setCurrentUser(sanitized);
                     setUser(userData);
 
-                    // Persist session cache for next page load / refresh
+                    // Persist session cache — next reload will hit the fast path instantly
                     const token = localStorage.getItem('autospf_token') || '';
                     setSessionCache(userData, token);
 
-                    // Firebase token is INTENTIONALLY not saved to autospf_token.
-                    // The backend API requires its own JWT token. If the user does not have an
-                    // autospf_token, they will remain unauthenticated for API calls and will
-                    // receive 401s, which will correctly kick them back to login.
                 } catch (err) {
-                    console.error('❌ [AuthContext] Auth state error:', err);
-                    // Don't wipe existing user state on error
+                    // Unexpected error — do NOT wipe session, Firebase is still valid
+                    console.error('❌ [AuthContext] Unexpected error in onAuthStateChanged:', err);
                 } finally {
                     setIsLoading(false);
                     setIsFirebaseAuthReady(true);
                 }
             } else {
                 // Firebase reports no signed-in user.
-                // IMPORTANT: Staff/admin accounts are backend-only — they have no Firebase Auth entry.
-                // After OTP verification they have a valid autospf_token + autospf_backend_user in
-                // localStorage. We must NOT wipe those just because Firebase has no session.
+                // Staff/admin accounts are backend-only — they authenticate via OTP and have
+                // no Firebase Auth entry. Preserve their session if backend token exists.
                 const backendToken = localStorage.getItem('autospf_token');
                 const backendUserRaw = localStorage.getItem('autospf_backend_user');
 
                 if (backendToken && backendUserRaw) {
-                    // Backend-only session (staff/admin after OTP login) — restore user from cache.
                     console.log('ℹ️ [AuthContext] No Firebase session but backend token found — restoring backend-only user.');
                     try {
                         const parsed = JSON.parse(backendUserRaw);
@@ -349,7 +313,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         setUser(restoredUser);
                         setSessionCache(restoredUser, backendToken);
                     } catch {
-                        // Malformed cache — fall through to full clear
                         console.warn('⚠️ [AuthContext] Could not parse autospf_backend_user — clearing session.');
                         userStorage.setCurrentUser(null);
                         setUser(null);
@@ -358,8 +321,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         clearSessionCache();
                     }
                 } else {
-                    // Genuine sign-out — no Firebase session AND no backend token.
-                    console.log('ℹ️ [AuthContext] Firebase User signed out — clearing full session.');
+                    // Genuine sign-out — Firebase has no session AND no backend-only token
+                    console.log('ℹ️ [AuthContext] Firebase signed out — clearing full session.');
                     userStorage.setCurrentUser(null);
                     setUser(null);
                     localStorage.removeItem('autospf_token');
