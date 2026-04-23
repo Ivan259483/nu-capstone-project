@@ -11,19 +11,19 @@ dotenv.config({ path: path.join(__dirname, '..', '.env'), override: false });
 // Determine email provider based on available credentials
 const determineEmailProvider = () => {
   const providedProvider = process.env.EMAIL_PROVIDER;
-  
+
   // If explicitly set, use it
   if (providedProvider) return providedProvider;
-  
+
   // Check for Resend credentials
   if (process.env.RESEND_API_KEY) return 'resend';
-  
+
   // Check for Brevo credentials
   if (process.env.BREVO_SMTP_USER && process.env.BREVO_SMTP_PASSWORD) return 'brevo';
-  
+
   // Check for Gmail credentials
   if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) return 'gmail';
-  
+
   // Default to console mode for development
   console.log('⚠️ No email credentials configured - defaulting to console mode');
   return 'console';

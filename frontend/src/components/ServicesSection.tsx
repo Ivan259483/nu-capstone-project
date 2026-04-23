@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import type { Variants } from "framer-motion";
-import { Sparkles, Shield, Crown, ArrowRight, CheckCircle2, Zap, Star, Wind, Layers, Wrench, Package } from "lucide-react";
+import { Sparkles, Shield, ArrowRight, Wind, Layers, Wrench, Package } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import QuickBookModal from "./QuickBookModal";
+import { BackgroundGradient } from "@/lib/components/ui/BackgroundGradient";
 
 /* ── Easing ── */
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -18,26 +17,12 @@ const fadeUp: Variants = {
     visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: EASE } },
 };
 
-const stagger: Variants = {
-    hidden: {},
-    visible: { transition: { staggerChildren: 0.1, delayChildren: 0.1 } },
-};
-
-const cardReveal: Variants = {
-    hidden: { opacity: 0, y: 50, scale: 0.96 },
-    visible: (i: number) => ({
-        opacity: 1,
-        y: 0,
-        scale: 1,
-        transition: { duration: 0.6, ease: EASE, delay: i * 0.08 },
-    }),
-};
-
 const shimmer: Variants = {
     hidden: { x: '-100%' },
     visible: { x: '200%', transition: { duration: 2.2, ease: 'easeInOut', repeat: Infinity, repeatDelay: 5 } },
 };
 
+/* ── Data ── */
 const serviceIcons = [Sparkles, Wind, Layers, Shield, Wrench, Package];
 const servicePrices = ["₱499", "₱699", "₱1,499", "₱3,999", "₱799", "₱5,499"];
 const serviceKeys = ["exterior", "interior", "paint", "ceramic", "engine", "full"] as const;
@@ -60,14 +45,6 @@ const serviceDescs = [
     "Complete interior + exterior + paint correction — the ultimate treatment.",
 ];
 
-const serviceGlows = [
-    'rgba(14,165,233,0.08)',
-    'rgba(16,185,129,0.10)',
-    'rgba(245,158,11,0.10)',
-    'rgba(212,175,55,0.12)',
-    'rgba(239,68,68,0.08)',
-    'rgba(139,92,246,0.10)',
-];
 const serviceAccents = [
     '#0ea5e9',
     '#10b981',
@@ -77,194 +54,28 @@ const serviceAccents = [
     '#8b5cf6',
 ];
 
-/* ── Card Component ── */
-interface ServiceCardProps {
-    icon: React.ComponentType<{ className?: string }>;
-    name: string;
-    desc: string;
-    price: string;
-    years?: string;
-    isPopular?: boolean;
-    isFlagship?: boolean;
-    index: number;
-    glow: string;
-    accent: string;
-    onBookClick: () => void;
-}
+const serviceImages = [
+    // Exterior Wash — shiny sports car exterior after wash
+    'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=600&q=80',
+    // Interior Detail — luxury car interior
+    'https://images.unsplash.com/photo-1494905998402-395d579af36f?auto=format&fit=crop&w=600&q=80',
+    // Paint Correction — car paint polishing close-up
+    'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?auto=format&fit=crop&w=600&q=80',
+    // Ceramic Coating — glossy luxury showroom car
+    'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=600&q=80',
+    // Engine Bay Detail — engine close-up
+    'https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?auto=format&fit=crop&w=600&q=80',
+    // Full Detail Package — pristine exotic sports car
+    'https://images.unsplash.com/photo-1553440569-bcc63803a83d?auto=format&fit=crop&w=600&q=80',
+];
 
-function ServiceCard({ icon: Icon, name, desc, price, years, isPopular, isFlagship, index, glow, accent, onBookClick }: ServiceCardProps) {
-    const { t } = useLanguage();
-    const [isHovered, setIsHovered] = useState(false);
+const serviceDurations = ['~30 min', '~2 hrs', '~4 hrs', '~8 hrs', '~1.5 hrs', '~6 hrs'];
+const serviceRatings   = ['4.9', '4.8', '4.9', '5.0', '4.7', '5.0'];
 
-    return (
-        <motion.div
-            custom={index}
-            variants={cardReveal}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, margin: '-30px' }}
-            whileHover={{
-                y: -10,
-                scale: 1.02,
-                transition: { duration: 0.3, ease: EASE },
-            }}
-            onHoverStart={() => setIsHovered(true)}
-            onHoverEnd={() => setIsHovered(false)}
-            className="group relative glass rounded-2xl overflow-hidden cursor-pointer"
-            style={{
-                boxShadow: isHovered
-                    ? `0 20px 60px ${glow}, inset 0 1px 0 rgba(255,255,255,0.06)`
-                    : `0 4px 20px rgba(0,0,0,0.2)`,
-                transition: 'box-shadow 0.5s ease',
-            }}
-        >
-            {/* Animated border glow */}
-            <motion.div
-                className="absolute inset-0 rounded-2xl pointer-events-none z-10"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: isHovered ? 1 : 0 }}
-                transition={{ duration: 0.4 }}
-                style={{
-                    boxShadow: `inset 0 0 0 1.5px ${accent}40`,
-                }}
-            />
 
-            {/* Top accent bar */}
-            <div className="relative h-1 w-full overflow-hidden">
-                <motion.div
-                    className="absolute inset-0"
-                    style={{ background: `linear-gradient(90deg, transparent, ${accent}, transparent)` }}
-                    initial={{ scaleX: 0 }}
-                    whileInView={{ scaleX: 1 }}
-                    transition={{ duration: 0.8, delay: index * 0.08 + 0.3 }}
-                />
-            </div>
-
-            {/* Popular badge */}
-            {isPopular && (
-                <motion.span
-                    initial={{ opacity: 0, y: -10, scale: 0.9 }}
-                    whileInView={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ duration: 0.4, delay: 0.5, type: 'spring', stiffness: 300 }}
-                    viewport={{ once: true }}
-                    className="absolute -top-0 right-5 px-3 py-1.5 rounded-b-lg bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[10px] font-bold tracking-widest uppercase shadow-lg shadow-emerald-500/30 z-20"
-                >
-                    <Star className="w-2.5 h-2.5 inline mr-1 fill-current" />
-                    Recommended
-                </motion.span>
-            )}
-
-            {/* Flagship badge */}
-            {isFlagship && (
-                <motion.span
-                    initial={{ opacity: 0, y: -10, scale: 0.9 }}
-                    whileInView={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ duration: 0.4, delay: 0.5, type: 'spring', stiffness: 300 }}
-                    viewport={{ once: true }}
-                    className="absolute -top-0 right-5 px-3 py-1.5 rounded-b-lg bg-gradient-gold text-primary-foreground text-[10px] font-bold tracking-widest uppercase shadow-lg shadow-gold/20 z-20"
-                >
-                    <Crown className="w-2.5 h-2.5 inline mr-1" />
-                    Flagship
-                </motion.span>
-            )}
-
-            <div className="p-7 relative flex flex-col items-center text-center">
-                {/* Icon + Protection badge */}
-                <div className="flex flex-col items-center gap-3 mb-5">
-                    <motion.div
-                        className="w-12 h-12 rounded-xl flex items-center justify-center relative"
-                        whileHover={{ rotate: 8, scale: 1.1 }}
-                        transition={{ type: 'spring', stiffness: 300 }}
-                        style={{
-                            background: `${accent}15`,
-                            border: `1px solid ${accent}30`,
-                        }}
-                    >
-                        <Icon className="w-5 h-5 text-primary" />
-                        {/* Icon glow */}
-                        <motion.div
-                            className="absolute inset-0 rounded-xl"
-                            animate={isHovered ? {
-                                boxShadow: `0 0 20px ${accent}30`,
-                            } : {
-                                boxShadow: `0 0 0px transparent`,
-                            }}
-                            transition={{ duration: 0.4 }}
-                        />
-                    </motion.div>
-                    {years && (
-                        <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/30 bg-white/5 px-2.5 py-1 rounded-full border border-white/8 inline-flex items-center gap-1">
-                            <Shield className="w-2.5 h-2.5" />
-                            {years}
-                        </span>
-                    )}
-                </div>
-
-                <h3 className="text-base font-bold text-foreground mb-2 group-hover:text-primary transition-colors duration-300">
-                    {name}
-                </h3>
-                <p className="text-sm text-muted-foreground leading-relaxed mb-6">
-                    {desc}
-                </p>
-
-                {/* Divider */}
-                <div className="relative h-px w-full mb-5 overflow-hidden">
-                    <div className="absolute inset-0 bg-white/[0.06]" />
-                    <motion.div
-                        className="absolute inset-0 h-full"
-                        style={{ background: `linear-gradient(90deg, transparent, ${accent}40, transparent)` }}
-                        initial={{ scaleX: 0 }}
-                        whileInView={{ scaleX: isHovered ? 1 : 0 }}
-                        transition={{ duration: 0.5 }}
-                    />
-                </div>
-
-                {/* Price + CTA */}
-                <div className="flex flex-col items-center gap-4 w-full">
-                    <div>
-                        <motion.span
-                            className="text-[10px] text-muted-foreground uppercase tracking-widest block"
-                            initial={{ opacity: 0 }}
-                            whileInView={{ opacity: 1 }}
-                            transition={{ delay: 0.3 + index * 0.08 }}
-                        >
-                            Starting from
-                        </motion.span>
-                        <motion.div
-                            className="text-xl font-black gradient-text"
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            whileInView={{ opacity: 1, scale: 1 }}
-                            transition={{ duration: 0.5, delay: 0.4 + index * 0.08 }}
-                        >
-                            {price}
-                        </motion.div>
-                    </div>
-                    <motion.div
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                    >
-                        <Button
-                            onClick={(e) => { e.stopPropagation(); onBookClick(); }}
-                            size="sm"
-                            variant="outline"
-                            className="border-gold/25 text-primary hover:bg-gold/10 hover:border-gold/50 text-xs z-10 relative group/btn overflow-hidden"
-                        >
-                            <span className="relative z-10 flex items-center gap-1.5">
-                                {t("services.bookNow")}
-                                <ArrowRight className="w-3 h-3 group-hover/btn:translate-x-0.5 transition-transform duration-200" />
-                            </span>
-                        </Button>
-                    </motion.div>
-                </div>
-            </div>
-        </motion.div>
-    );
-}
-
-/* ── Main Section ── */
 export default function ServicesSection() {
     const { t } = useLanguage();
-    const { ref, isVisible } = useScrollAnimation<HTMLDivElement>({ threshold: 0.1 });
+    const { ref } = useScrollAnimation<HTMLDivElement>({ threshold: 0.1 });
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     return (
@@ -331,21 +142,121 @@ export default function ServicesSection() {
 
                 {/* ── Cards Grid ── */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-14">
-                    {serviceKeys.map((key, i) => (
-                        <ServiceCard
-                            key={key}
-                            icon={serviceIcons[i]}
-                            name={serviceNames[i]}
-                            desc={serviceDescs[i]}
-                            price={servicePrices[i]}
-                            isPopular={key === "full" || key === "ceramic"}
-                            index={i}
-                            glow={serviceGlows[i]}
-                            accent={serviceAccents[i]}
-                            onBookClick={() => setIsModalOpen(true)}
-                        />
-                    ))}
+                    {serviceKeys.map((key, i) => {
+                        const Icon = serviceIcons[i];
+                        const isHighlight = key === 'ceramic' || key === 'full';
+                        return (
+                            <BackgroundGradient
+                                key={key}
+                                containerClassName="rounded-[22px] w-full"
+                                className="rounded-[22px] p-5 sm:p-7 bg-zinc-900 dark:bg-zinc-900 min-h-[580px] flex flex-col group"
+                            >
+                                {/* Icon + Duration row */}
+                                <div className="flex items-center justify-between mb-4">
+                                    <div
+                                        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                                        style={{
+                                            background: `${serviceAccents[i]}18`,
+                                            border: `1px solid ${serviceAccents[i]}40`,
+                                        }}
+                                    >
+                                        <Icon className="w-5 h-5" style={{ color: serviceAccents[i] }} />
+                                    </div>
+                                    <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-neutral-500 border border-neutral-700/50 rounded-full px-3 py-1">
+                                        {serviceDurations[i]}
+                                    </span>
+                                </div>
+
+                                {/* Image — taller, zoom on hover, deep fade */}
+                                <div className="relative mb-5 overflow-hidden rounded-2xl h-56 shrink-0">
+                                    <img
+                                        src={serviceImages[i]}
+                                        alt={serviceNames[i]}
+                                        className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-110"
+                                    />
+                                    {/* Subtle dark overlay for depth */}
+                                    <div className="absolute inset-0 bg-black/20" />
+                                    {/* Deep gradient fade into card */}
+                                    <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/50 to-transparent" />
+                                    {/* Accent tint on hover */}
+                                    <div
+                                        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                                        style={{ background: `linear-gradient(to top, ${serviceAccents[i]}30, transparent 60%)` }}
+                                    />
+                                    {/* Floating "Auto Detailing" label */}
+                                    <div className="absolute bottom-3 left-3">
+                                        <span className="text-[8px] font-bold uppercase tracking-[0.25em] text-white/40">
+                                            Auto Detailing
+                                        </span>
+                                    </div>
+                                    {/* Glassmorphic rating badge */}
+                                    <div
+                                        className="absolute top-3 right-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-[9px] font-bold"
+                                        style={{ background: 'rgba(0,0,0,0.50)', backdropFilter: 'blur(10px)', border: `1px solid ${serviceAccents[i]}40` }}
+                                    >
+                                        <span style={{ color: serviceAccents[i] }}>★</span>
+                                        <span className="text-white">{serviceRatings[i]}</span>
+                                    </div>
+                                </div>
+
+                                {/* Badge */}
+                                {isHighlight && (
+                                    <span className="mb-2 inline-flex w-fit items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-emerald-400">
+                                        {key === 'full' ? '✦ Flagship' : '✦ Popular'}
+                                    </span>
+                                )}
+
+                                {/* Title */}
+                                <p className="text-base sm:text-lg font-bold text-neutral-100 leading-snug mb-1.5">
+                                    {serviceNames[i]}
+                                </p>
+
+                                {/* Description */}
+                                <p className="flex-grow text-[11px] text-neutral-500 leading-relaxed mb-4">
+                                    {serviceDescs[i]}
+                                </p>
+
+                                {/* Divider */}
+                                <div className="h-px mb-4" style={{ background: `linear-gradient(to right, ${serviceAccents[i]}30, transparent)` }} />
+
+                                {/* Price + Book Now */}
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-[8px] uppercase tracking-[0.2em] text-neutral-600 mb-0.5">From</p>
+                                        <p className="text-xl font-black" style={{ color: serviceAccents[i] }}>
+                                            {servicePrices[i]}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setIsModalOpen(true); }}
+                                        className="flex items-center rounded-full py-2 pl-5 pr-2 text-xs font-bold text-white transition-all duration-300"
+                                        style={{
+                                            background: `${serviceAccents[i]}15`,
+                                            border: `1px solid ${serviceAccents[i]}45`,
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.background = `${serviceAccents[i]}28`;
+                                            e.currentTarget.style.boxShadow = `0 0 22px ${serviceAccents[i]}45`;
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.background = `${serviceAccents[i]}15`;
+                                            e.currentTarget.style.boxShadow = 'none';
+                                        }}
+                                    >
+                                        <span>Book now</span>
+                                        <span
+                                            className="ml-2 rounded-full px-2 py-0.5 text-[0.6rem] font-bold"
+                                            style={{ background: `${serviceAccents[i]}28`, color: serviceAccents[i] }}
+                                        >
+                                            {servicePrices[i]}
+                                        </span>
+                                    </button>
+                                </div>
+                            </BackgroundGradient>
+                        );
+                    })}
                 </div>
+
 
                 {/* ── View All CTA ── */}
                 <motion.div

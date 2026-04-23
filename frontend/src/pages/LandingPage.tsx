@@ -319,14 +319,15 @@ export default function LandingPage() {
                     {activeStats.map(({ icon, value, label }: any) => {
                         const Icon = getDynamicIcon(icon, Star);
                         return (
-                        <motion.div key={label} variants={fadeUp} className="text-center group">
-                            <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center mx-auto mb-3 group-hover:bg-orange-500/10 group-hover:border-orange-500/20 transition-all duration-300">
-                                <Icon className="w-5 h-5 text-white/30 group-hover:text-orange-400 transition-colors" />
-                            </div>
-                            <p className="text-3xl font-bold tracking-tight text-white mb-1">{value}</p>
-                            <p className="text-xs text-white/30 uppercase tracking-widest font-medium">{label}</p>
-                        </motion.div>
-                    )})}
+                            <motion.div key={label} variants={fadeUp} className="text-center group">
+                                <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center mx-auto mb-3 group-hover:bg-orange-500/10 group-hover:border-orange-500/20 transition-all duration-300">
+                                    <Icon className="w-5 h-5 text-white/30 group-hover:text-orange-400 transition-colors" />
+                                </div>
+                                <p className="text-3xl font-bold tracking-tight text-white mb-1">{value}</p>
+                                <p className="text-xs text-white/30 uppercase tracking-widest font-medium">{label}</p>
+                            </motion.div>
+                        )
+                    })}
                 </motion.div>
             </section>
 
@@ -405,122 +406,123 @@ export default function LandingPage() {
                         {activeServices.map(({ title, subtitle, desc, image, badge, badgeColor, features, icon, glow }: any, idx: number) => {
                             const Icon = getDynamicIcon(icon, Shield);
                             return (
-                            <motion.div
-                                key={title || idx}
-                                custom={idx}
-                                variants={cardReveal}
-                                initial="hidden"
-                                whileInView="visible"
-                                viewport={{ once: true, margin: '-40px' }}
-                                whileHover={{
-                                    y: -12,
-                                    scale: 1.02,
-                                    transition: { duration: 0.35, ease: EASE },
-                                }}
-                                className="group relative rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm transition-all duration-500"
-                                style={{
-                                    boxShadow: `0 4px 30px ${glow || 'rgba(255,165,0,0.04)'}`,
-                                }}
-                            >
-                                {/* Animated border glow on hover */}
-                                <div
-                                    className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none z-10"
-                                    style={{
-                                        boxShadow: `inset 0 0 0 1px rgba(249,115,22,0.2), 0 20px 80px ${glow || 'rgba(249,115,22,0.12)'}`,
+                                <motion.div
+                                    key={title || idx}
+                                    custom={idx}
+                                    variants={cardReveal}
+                                    initial="hidden"
+                                    whileInView="visible"
+                                    viewport={{ once: true, margin: '-40px' }}
+                                    whileHover={{
+                                        y: -12,
+                                        scale: 1.02,
+                                        transition: { duration: 0.35, ease: EASE },
                                     }}
-                                />
-
-                                {/* Card image */}
-                                <div className="relative h-52 overflow-hidden">
-                                    <motion.img
-                                        src={image || COATING_IMG} alt={title}
-                                        loading="lazy"
-                                        className="w-full h-full object-cover opacity-70"
-                                        whileHover={{ scale: 1.12 }}
-                                        transition={{ duration: 0.8, ease: EASE }}
+                                    className="group relative rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm transition-all duration-500"
+                                    style={{
+                                        boxShadow: `0 4px 30px ${glow || 'rgba(255,165,0,0.04)'}`,
+                                    }}
+                                >
+                                    {/* Animated border glow on hover */}
+                                    <div
+                                        className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none z-10"
+                                        style={{
+                                            boxShadow: `inset 0 0 0 1px rgba(249,115,22,0.2), 0 20px 80px ${glow || 'rgba(249,115,22,0.12)'}`,
+                                        }}
                                     />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-[#0B1120] via-[#0B1120]/40 to-transparent" />
 
-                                    {/* Badge */}
-                                    {badge && (
-                                        <motion.span
-                                            initial={{ opacity: 0, y: -10 }}
-                                            whileInView={{ opacity: 1, y: 0 }}
-                                            transition={{ duration: 0.4, delay: 0.3 + idx * 0.1 }}
-                                            className={`absolute top-4 left-4 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider border ${badgeColor || 'bg-white/10 text-white/70 border-white/20'}`}
+                                    {/* Card image */}
+                                    <div className="relative h-52 overflow-hidden">
+                                        <motion.img
+                                            src={image || COATING_IMG} alt={title}
+                                            loading="lazy"
+                                            className="w-full h-full object-cover opacity-70"
+                                            whileHover={{ scale: 1.12 }}
+                                            transition={{ duration: 0.8, ease: EASE }}
+                                        />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-[#0B1120] via-[#0B1120]/40 to-transparent" />
+
+                                        {/* Badge */}
+                                        {badge && (
+                                            <motion.span
+                                                initial={{ opacity: 0, y: -10 }}
+                                                whileInView={{ opacity: 1, y: 0 }}
+                                                transition={{ duration: 0.4, delay: 0.3 + idx * 0.1 }}
+                                                className={`absolute top-4 left-4 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider border ${badgeColor || 'bg-white/10 text-white/70 border-white/20'}`}
+                                            >
+                                                {badge}
+                                            </motion.span>
+                                        )}
+
+                                        {/* Floating icon with glow */}
+                                        <motion.div
+                                            className="absolute bottom-4 right-4 w-10 h-10 rounded-xl bg-white/10 backdrop-blur-sm border border-white/15 flex items-center justify-center group-hover:bg-orange-500/15 group-hover:border-orange-500/30 transition-all duration-300"
+                                            whileHover={{ rotate: 12, scale: 1.15 }}
+                                            transition={{ type: 'spring', stiffness: 300 }}
                                         >
-                                            {badge}
-                                        </motion.span>
-                                    )}
+                                            <Icon className="w-4.5 h-4.5 text-white group-hover:text-orange-400 transition-colors" />
+                                        </motion.div>
+                                    </div>
 
-                                    {/* Floating icon with glow */}
-                                    <motion.div
-                                        className="absolute bottom-4 right-4 w-10 h-10 rounded-xl bg-white/10 backdrop-blur-sm border border-white/15 flex items-center justify-center group-hover:bg-orange-500/15 group-hover:border-orange-500/30 transition-all duration-300"
-                                        whileHover={{ rotate: 12, scale: 1.15 }}
-                                        transition={{ type: 'spring', stiffness: 300 }}
-                                    >
-                                        <Icon className="w-4.5 h-4.5 text-white group-hover:text-orange-400 transition-colors" />
-                                    </motion.div>
-                                </div>
-
-                                {/* Content */}
-                                <div className="p-7 relative">
-                                    <motion.p
-                                        className="text-[10px] uppercase tracking-widest text-white/30 font-medium mb-1"
-                                        initial={{ opacity: 0 }}
-                                        whileInView={{ opacity: 1 }}
-                                        transition={{ delay: 0.2 + idx * 0.1 }}
-                                    >
-                                        {subtitle}
-                                    </motion.p>
-                                    <h3 className="text-xl font-bold text-white mb-3 group-hover:text-orange-400 transition-colors duration-300">
-                                        {title}
-                                    </h3>
-                                    <p className="text-sm text-white/40 mb-6 leading-relaxed line-clamp-3">
-                                        {desc}
-                                    </p>
-                                    {features && features.length > 0 && (
-                                        <div className="space-y-4 pt-5 border-t border-white/5">
-                                            <ul className="space-y-2.5 mb-6">
-                                                {features.map((opt: string, i: number) => (
-                                                    <motion.li
-                                                        key={i}
-                                                        custom={i}
-                                                        variants={featureItem}
-                                                        initial="hidden"
-                                                        whileInView="visible"
-                                                        viewport={{ once: true }}
-                                                        className="flex items-center gap-2.5 text-xs text-white/50 group-hover:text-white/65 transition-colors duration-300"
-                                                    >
-                                                        <motion.div
-                                                            initial={{ scale: 0 }}
-                                                            whileInView={{ scale: 1 }}
-                                                            transition={{ type: 'spring', stiffness: 400, delay: 0.5 + i * 0.1 }}
+                                    {/* Content */}
+                                    <div className="p-7 relative">
+                                        <motion.p
+                                            className="text-[10px] uppercase tracking-widest text-white/30 font-medium mb-1"
+                                            initial={{ opacity: 0 }}
+                                            whileInView={{ opacity: 1 }}
+                                            transition={{ delay: 0.2 + idx * 0.1 }}
+                                        >
+                                            {subtitle}
+                                        </motion.p>
+                                        <h3 className="text-xl font-bold text-white mb-3 group-hover:text-orange-400 transition-colors duration-300">
+                                            {title}
+                                        </h3>
+                                        <p className="text-sm text-white/40 mb-6 leading-relaxed line-clamp-3">
+                                            {desc}
+                                        </p>
+                                        {features && features.length > 0 && (
+                                            <div className="space-y-4 pt-5 border-t border-white/5">
+                                                <ul className="space-y-2.5 mb-6">
+                                                    {features.map((opt: string, i: number) => (
+                                                        <motion.li
+                                                            key={i}
+                                                            custom={i}
+                                                            variants={featureItem}
+                                                            initial="hidden"
+                                                            whileInView="visible"
+                                                            viewport={{ once: true }}
+                                                            className="flex items-center gap-2.5 text-xs text-white/50 group-hover:text-white/65 transition-colors duration-300"
                                                         >
-                                                            <CheckCircle2 className="w-3.5 h-3.5 text-orange-500/70 shrink-0" />
-                                                        </motion.div>
-                                                        {opt}
-                                                    </motion.li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
+                                                            <motion.div
+                                                                initial={{ scale: 0 }}
+                                                                whileInView={{ scale: 1 }}
+                                                                transition={{ type: 'spring', stiffness: 400, delay: 0.5 + i * 0.1 }}
+                                                            >
+                                                                <CheckCircle2 className="w-3.5 h-3.5 text-orange-500/70 shrink-0" />
+                                                            </motion.div>
+                                                            {opt}
+                                                        </motion.li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
 
-                                    <Link to="/login">
-                                        <motion.button
-                                            whileHover={{ scale: 1.02, y: -1 }}
-                                            whileTap={{ scale: 0.98 }}
-                                            className="w-full mt-4 h-11 rounded-xl text-xs font-semibold uppercase tracking-wider text-white/60 hover:text-white border border-white/10 hover:border-orange-500/40 hover:bg-orange-500/[0.08] transition-all duration-300 flex items-center justify-center gap-2 group/btn relative overflow-hidden"
-                                        >
-                                            {/* Button shimmer */}
-                                            <div className="absolute inset-0 -translate-x-full group-hover/btn:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/[0.04] to-transparent" />
-                                            Book This Service
-                                            <ArrowRight className="w-3.5 h-3.5 group-hover/btn:translate-x-1 transition-transform duration-200" />
-                                        </motion.button>
-                                    </Link>
-                                </div>
-                            </motion.div>
-                        )})}
+                                        <Link to="/login">
+                                            <motion.button
+                                                whileHover={{ scale: 1.02, y: -1 }}
+                                                whileTap={{ scale: 0.98 }}
+                                                className="w-full mt-4 h-11 rounded-xl text-xs font-semibold uppercase tracking-wider text-white/60 hover:text-white border border-white/10 hover:border-orange-500/40 hover:bg-orange-500/[0.08] transition-all duration-300 flex items-center justify-center gap-2 group/btn relative overflow-hidden"
+                                            >
+                                                {/* Button shimmer */}
+                                                <div className="absolute inset-0 -translate-x-full group-hover/btn:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/[0.04] to-transparent" />
+                                                Book This Service
+                                                <ArrowRight className="w-3.5 h-3.5 group-hover/btn:translate-x-1 transition-transform duration-200" />
+                                            </motion.button>
+                                        </Link>
+                                    </div>
+                                </motion.div>
+                            )
+                        })}
                     </div>
 
                     {/* View all services link */}
@@ -711,9 +713,9 @@ export default function LandingPage() {
             <footer className="border-t border-white/5 py-8 px-8">
                 <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                        <img 
-                            src="/images/autospf-logo.png" 
-                            alt="AutoSPF+" 
+                        <img
+                            src="/images/autospf-logo.png"
+                            alt="AutoSPF+"
                             className="h-6 object-contain opacity-50 grayscale hover:grayscale-0 hover:opacity-100 transition-all duration-300"
                         />
                     </div>
