@@ -2,15 +2,12 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { auth } from '@/config/firebase';
 
-// Backend API configuration
-// During development: Use /api which proxies to http://localhost:3000
-// During production: Use full URL from environment variable
-const isDevelopment = import.meta.env.MODE === 'development';
+// Backend API configuration — always use production Railway URL
+const RAILWAY_API = 'https://nu-capstone-project-production.up.railway.app/api';
+const RAILWAY_BASE = 'https://nu-capstone-project-production.up.railway.app';
 
 export const getBaseApiUrl = () => {
-    if (isDevelopment) return '/api';
-    let url = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || 'https://nu-capstone-project-production.up.railway.app/api';
-    return url.replace(/\/+$/, ''); // Strip trailing slashes safely
+    return import.meta.env.VITE_API_URL || RAILWAY_API;
 };
 
 export const BACKEND_API_URL = getBaseApiUrl();
@@ -22,13 +19,9 @@ const api = axios.create({
     }
 });
 
-// Socket connection URL
+// Socket connection URL — always use production Railway URL
 export const getBackendSocketUrl = () => {
-    if (isDevelopment) return '/';
-    const backendUrl = import.meta.env.VITE_BACKEND_URL
-        || (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') : '')
-        || 'https://nu-capstone-project-production.up.railway.app';
-    return backendUrl;
+    return import.meta.env.VITE_BACKEND_URL || RAILWAY_BASE;
 };
 
 // Request Interceptor: Attach Authorization Header
