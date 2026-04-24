@@ -70,7 +70,7 @@ const serviceImages = [
 ];
 
 const serviceDurations = ['~30 min', '~2 hrs', '~4 hrs', '~8 hrs', '~1.5 hrs', '~6 hrs'];
-const serviceRatings   = ['4.9', '4.8', '4.9', '5.0', '4.7', '5.0'];
+const serviceRatings = ['4.9', '4.8', '4.9', '5.0', '4.7', '5.0'];
 
 
 export default function ServicesSection() {
@@ -149,80 +149,82 @@ export default function ServicesSection() {
                             <BackgroundGradient
                                 key={key}
                                 containerClassName="rounded-[22px] w-full"
-                                className="rounded-[22px] p-5 sm:p-7 bg-zinc-900 dark:bg-zinc-900 min-h-[580px] flex flex-col group"
+                                className="rounded-[22px] p-5 sm:p-7 bg-[#0d1526]/90 backdrop-blur-xl border border-white/[0.06] min-h-[580px] flex flex-col group shadow-2xl shadow-black/40"
                             >
                                 {/* Icon + Duration row */}
                                 <div className="flex items-center justify-between mb-4">
                                     <div
                                         className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
                                         style={{
-                                            background: `${serviceAccents[i]}18`,
-                                            border: `1px solid ${serviceAccents[i]}40`,
+                                            background: `${serviceAccents[i]}12`,
+                                            border: `1px solid ${serviceAccents[i]}30`,
                                         }}
                                     >
                                         <Icon className="w-5 h-5" style={{ color: serviceAccents[i] }} />
                                     </div>
-                                    <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-neutral-500 border border-neutral-700/50 rounded-full px-3 py-1">
+                                    <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/40 border border-white/10 rounded-full px-3 py-1">
                                         {serviceDurations[i]}
                                     </span>
                                 </div>
 
-                                {/* Image — taller, zoom on hover, deep fade */}
+                                {/* Image — zoom on hover, fades into dark card background */}
                                 <div className="relative mb-5 overflow-hidden rounded-2xl h-56 shrink-0">
                                     <img
                                         src={serviceImages[i]}
                                         alt={serviceNames[i]}
                                         className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-110"
                                     />
-                                    {/* Subtle dark overlay for depth */}
-                                    <div className="absolute inset-0 bg-black/20" />
-                                    {/* Deep gradient fade into card */}
-                                    <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/50 to-transparent" />
-                                    {/* Accent tint on hover */}
+                                    {/* Fade into dark card background */}
+                                    <div className="absolute inset-0 bg-gradient-to-t from-[#0d1526] via-[#0d1526]/30 to-transparent" />
+                                    {/* Subtle accent tint on hover */}
                                     <div
                                         className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-                                        style={{ background: `linear-gradient(to top, ${serviceAccents[i]}30, transparent 60%)` }}
+                                        style={{ background: `linear-gradient(to top, ${serviceAccents[i]}12, transparent 60%)` }}
                                     />
                                     {/* Floating "Auto Detailing" label */}
                                     <div className="absolute bottom-3 left-3">
-                                        <span className="text-[8px] font-bold uppercase tracking-[0.25em] text-white/40">
+                                        <span className="text-[8px] font-bold uppercase tracking-[0.25em] text-white/70 drop-shadow-sm">
                                             Auto Detailing
                                         </span>
                                     </div>
-                                    {/* Glassmorphic rating badge */}
+                                    {/* Dark glassmorphic rating badge */}
                                     <div
                                         className="absolute top-3 right-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-[9px] font-bold"
-                                        style={{ background: 'rgba(0,0,0,0.50)', backdropFilter: 'blur(10px)', border: `1px solid ${serviceAccents[i]}40` }}
+                                        style={{
+                                            background: 'rgba(13,21,38,0.80)',
+                                            backdropFilter: 'blur(12px)',
+                                            border: `1px solid ${serviceAccents[i]}35`,
+                                        }}
                                     >
                                         <span style={{ color: serviceAccents[i] }}>★</span>
-                                        <span className="text-white">{serviceRatings[i]}</span>
+                                        <span className="text-white/80">{serviceRatings[i]}</span>
                                     </div>
                                 </div>
 
                                 {/* Badge */}
                                 {isHighlight && (
-                                    <span className="mb-2 inline-flex w-fit items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-emerald-400">
+                                    <span className="mb-2 inline-flex w-fit items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-emerald-400">
                                         {key === 'full' ? '✦ Flagship' : '✦ Popular'}
                                     </span>
                                 )}
 
                                 {/* Title */}
-                                <p className="text-base sm:text-lg font-bold text-neutral-100 leading-snug mb-1.5">
+                                <p className="text-base sm:text-lg font-bold text-white/90 leading-snug mb-1.5">
                                     {serviceNames[i]}
                                 </p>
 
                                 {/* Description */}
-                                <p className="flex-grow text-[11px] text-neutral-500 leading-relaxed mb-4">
+                                <p className="flex-grow text-[11px] text-white/40 leading-relaxed mb-4">
                                     {serviceDescs[i]}
                                 </p>
 
-                                {/* Divider */}
-                                <div className="h-px mb-4" style={{ background: `linear-gradient(to right, ${serviceAccents[i]}30, transparent)` }} />
+                                {/* Divider — accent colored */}
+                                <div className="h-px mb-4" style={{ background: `linear-gradient(to right, ${serviceAccents[i]}35, transparent)` }} />
 
                                 {/* Price + Book Now */}
                                 <div className="flex items-center justify-between gap-3">
                                     <div>
-                                        <p className="text-[8px] uppercase tracking-[0.2em] text-neutral-600 mb-0.5">From</p>
+                                        <p className="text-[8px] uppercase tracking-[0.2em] text-white/35 mb-0.5">From</p>
                                         <p className="text-xl font-black" style={{ color: serviceAccents[i] }}>
                                             {servicePrices[i]}
                                         </p>
@@ -231,28 +233,29 @@ export default function ServicesSection() {
                                         onClick={(e) => { e.stopPropagation(); setIsModalOpen(true); }}
                                         className="flex items-center rounded-full py-2 pl-5 pr-2 text-xs font-bold text-white transition-all duration-300"
                                         style={{
-                                            background: `${serviceAccents[i]}15`,
-                                            border: `1px solid ${serviceAccents[i]}45`,
+                                            background: serviceAccents[i],
+                                            boxShadow: `0 4px 14px ${serviceAccents[i]}50`,
                                         }}
                                         onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = `${serviceAccents[i]}28`;
-                                            e.currentTarget.style.boxShadow = `0 0 22px ${serviceAccents[i]}45`;
+                                            e.currentTarget.style.transform = 'translateY(-2px)';
+                                            e.currentTarget.style.boxShadow = `0 8px 24px ${serviceAccents[i]}65`;
                                         }}
                                         onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = `${serviceAccents[i]}15`;
-                                            e.currentTarget.style.boxShadow = 'none';
+                                            e.currentTarget.style.transform = 'translateY(0)';
+                                            e.currentTarget.style.boxShadow = `0 4px 14px ${serviceAccents[i]}50`;
                                         }}
                                     >
                                         <span>Book now</span>
                                         <span
                                             className="ml-2 rounded-full px-2 py-0.5 text-[0.6rem] font-bold"
-                                            style={{ background: `${serviceAccents[i]}28`, color: serviceAccents[i] }}
+                                            style={{ background: 'rgba(255,255,255,0.22)', color: 'white' }}
                                         >
                                             {servicePrices[i]}
                                         </span>
                                     </button>
                                 </div>
                             </BackgroundGradient>
+
                         );
                     })}
                 </div>

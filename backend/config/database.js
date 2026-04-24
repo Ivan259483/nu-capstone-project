@@ -42,7 +42,7 @@ const connectDB = async () => {
         const downloadDir = path.join(process.cwd(), '.mongodb-binaries');
         const replSet = await MongoMemoryReplSet.create({
           binary: { downloadDir, version: '7.0.14' },
-          instanceOpts: [{ storageEngine: 'wiredTiger' }],
+          instanceOpts: [{ ip: '127.0.0.1', storageEngine: 'wiredTiger' }],
           replSet: { count: 1, dbName: 'autospf' },
         });
         const memUri = replSet.getUri();

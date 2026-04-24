@@ -5,7 +5,7 @@ import {
   Activity,
   Plus,
   Edit,
-  Trash2,
+  Archive,
   ShieldCheck,
   MoreVertical,
   Check,
@@ -84,13 +84,13 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
   // Sheet state
   const [selectedUserDetails, setSelectedUserDetails] = useState<User | null>(null);
 
-  // Delete confirmation dialog state
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const [pendingDeleteName, setPendingDeleteName] = useState<string>('');
-  const [pendingDeleteRole, setPendingDeleteRole] = useState<string | undefined>(undefined);
-  const [isBulkDelete, setIsBulkDelete] = useState(false);
+  // Archive confirmation dialog state
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [archiveConfirmText, setArchiveConfirmText] = useState('');
+  const [pendingArchiveId, setPendingArchiveId] = useState<string | null>(null);
+  const [pendingArchiveName, setPendingArchiveName] = useState<string>('');
+  const [pendingArchiveRole, setPendingArchiveRole] = useState<string | undefined>(undefined);
+  const [isBulkArchive, setIsBulkArchive] = useState(false);
 
   // Modal State
   const [showUserModal, setShowUserModal] = useState(false);
@@ -354,112 +354,125 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
     }
   };
 
-  // Open delete confirmation dialog
-  const openDeleteConfirm = (id: string, name: string, role: string | undefined) => {
+  // Open archive confirmation dialog
+  const openArchiveConfirm = (id: string, name: string, role: string | undefined) => {
     if (!canManageUser(role)) {
-        toast.error('Insufficient permissions to delete this user role.');
+        toast.error('Insufficient permissions to archive this user role.');
         return;
     }
-    setPendingDeleteId(id);
-    setPendingDeleteName(name);
-    setPendingDeleteRole(role);
-    setIsBulkDelete(false);
-    setDeleteConfirmText('');
-    setDeleteConfirmOpen(true);
+    setPendingArchiveId(id);
+    setPendingArchiveName(name);
+    setPendingArchiveRole(role);
+    setIsBulkArchive(false);
+    setArchiveConfirmText('');
+    setArchiveConfirmOpen(true);
   };
 
-  // Execute confirmed delete
-  const executeDelete = async () => {
-    if (deleteConfirmText !== 'DELETE') return;
-    setDeleteConfirmOpen(false);
-    setDeleteConfirmText('');
+  // Execute confirmed archive
+  const executeArchive = async () => {
+    if (archiveConfirmText !== 'ARCHIVE') return;
+    setArchiveConfirmOpen(false);
+    setArchiveConfirmText('');
 
-    if (isBulkDelete) {
-      // Silently exclude the current user — the backend blocks self-deletion
-      const idsToDelete = selectedUsers.filter(id => id !== currentUserId);
-      const selfExcluded = idsToDelete.length < selectedUsers.length;
+    if (isBulkArchive) {
+      const idsToArchive = selectedUsers.filter(id => id !== currentUserId);
+      const selfExcluded = idsToArchive.length < selectedUsers.length;
 
-      if (idsToDelete.length === 0) {
-        toast.warning('No users to delete (you cannot delete your own account).');
+      if (idsToArchive.length === 0) {
+        toast.warning('No users to archive (you cannot archive your own account).');
         setSelectedUsers([]);
         return;
       }
 
-      const loadingToast = toast.loading(`Deleting ${idsToDelete.length} user${idsToDelete.length !== 1 ? 's' : ''}...`);
+      const loadingToast = toast.loading(`Archiving ${idsToArchive.length} user${idsToArchive.length !== 1 ? 's' : ''}...`);
       let successCount = 0;
       let failCount = 0;
-      for (const id of idsToDelete) {
+      for (const id of idsToArchive) {
         try {
-          const resp = await UserService.deleteUser(id);
+          const resp = await UserService.archiveUser(id);
           if (resp?.success) {
             successCount++;
           } else {
             failCount++;
-            console.warn('Failed to delete user', id, resp?.message);
+            console.warn('Failed to archive user', id, resp?.message);
           }
         } catch (err) {
           failCount++;
-          console.error('Error deleting user', id, err);
+          console.error('Error archiving user', id, err);
         }
       }
 
       if (successCount > 0) {
         const suffix = selfExcluded ? ' (your own account was skipped)' : '';
-        toast.success(`Deleted ${successCount} user${successCount !== 1 ? 's' : ''}${suffix}`, { id: loadingToast });
+        toast.success(`Archived ${successCount} user${successCount !== 1 ? 's' : ''}${suffix}`, { id: loadingToast });
       } else {
-        toast.error(`Failed to delete users`, { id: loadingToast });
+        toast.error(`Failed to archive users`, { id: loadingToast });
       }
       if (failCount > 0 && successCount > 0) {
-        toast.warning(`${failCount} user${failCount !== 1 ? 's' : ''} could not be deleted.`);
+        toast.warning(`${failCount} user${failCount !== 1 ? 's' : ''} could not be archived.`);
       }
 
       setSelectedUsers([]);
       loadData();
-    } else if (pendingDeleteId) {
-      const loadingToast = toast.loading('Deleting user...');
+    } else if (pendingArchiveId) {
+      const loadingToast = toast.loading('Archiving user...');
       try {
-        const response = await UserService.deleteUser(pendingDeleteId);
+        const response = await UserService.archiveUser(pendingArchiveId);
         if (response?.success) {
-          toast.success('User deleted successfully', { id: loadingToast });
-          setSelectedUsers(prev => prev.filter(uId => uId !== pendingDeleteId));
+          toast.success('User archived. Account is now inactive.', { id: loadingToast });
+          setSelectedUsers(prev => prev.filter(uId => uId !== pendingArchiveId));
           loadData();
         } else {
-          toast.error(response?.message || 'Failed to delete user', { id: loadingToast });
+          toast.error(response?.message || 'Failed to archive user', { id: loadingToast });
         }
       } catch {
-        toast.error('Error deleting user');
+        toast.error('Error archiving user');
       }
     }
-    setPendingDeleteId(null);
-    setPendingDeleteName('');
-    setPendingDeleteRole(undefined);
+    setPendingArchiveId(null);
+    setPendingArchiveName('');
+    setPendingArchiveRole(undefined);
   };
 
-  const handleDeleteUser = (id: string, name: string, role: string | undefined) => {
-    openDeleteConfirm(id, name, role);
+  const handleArchiveUser = (id: string, name: string, role: string | undefined) => {
+    openArchiveConfirm(id, name, role);
   };
 
-  const handleBulkAction = async (action: 'activate' | 'suspend' | 'delete') => {
+  const handleActivateUser = async (id: string, name: string) => {
+    const loadingToast = toast.loading(`Activating ${name}...`);
+    try {
+      const response = await UserService.activateUser(id);
+      if (response?.success) {
+        toast.success(`${name} is now active.`, { id: loadingToast });
+        loadData();
+      } else {
+        toast.error(response?.message || 'Failed to activate user', { id: loadingToast });
+      }
+    } catch {
+      toast.error('Error activating user', { id: loadingToast });
+    }
+  };
+
+  const handleBulkAction = async (action: 'activate' | 'suspend' | 'archive') => {
     if (selectedUsers.length === 0) return;
     
-    if (action === 'delete') {
-      setIsBulkDelete(true);
-      setPendingDeleteName(`${selectedUsers.length} users`);
-      setPendingDeleteId(null);
-      setDeleteConfirmText('');
-      setDeleteConfirmOpen(true);
+    if (action === 'archive') {
+      setIsBulkArchive(true);
+      setPendingArchiveName(`${selectedUsers.length} users`);
+      setPendingArchiveId(null);
+      setArchiveConfirmText('');
+      setArchiveConfirmOpen(true);
       return;
     }
     
     const loadingToast = toast.loading(`Processing bulk ${action}...`);
     try {
-      // Since no bulk API is known, iterate over selection
       let successCount = 0;
       for (const id of selectedUsers) {
-        const resp = await UserService.updateUser(id, { status: action === 'activate' ? 'active' : 'suspended' });
+        const resp = await UserService.activateUser(id);
         if (resp?.success) successCount++;
       }
-      toast.success(`Successfully processed ${successCount} users`, { id: loadingToast });
+      toast.success(`Successfully activated ${successCount} user${successCount !== 1 ? 's' : ''}`, { id: loadingToast });
       setSelectedUsers([]);
       loadData();
     } catch {
@@ -493,42 +506,42 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
         )}
       </AnimatePresence>
 
-      {/* ── Delete Confirmation Dialog ── */}
-      <Dialog open={deleteConfirmOpen} onOpenChange={(open) => { setDeleteConfirmOpen(open); if (!open) setDeleteConfirmText(''); }}>
+      {/* ── Archive Confirmation Dialog ── */}
+      <Dialog open={archiveConfirmOpen} onOpenChange={(open) => { setArchiveConfirmOpen(open); if (!open) setArchiveConfirmText(''); }}>
         <DialogContent className="bg-zinc-900 border border-zinc-700 text-white max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-red-400 flex items-center gap-2">
-              <Trash2 className="w-5 h-5" /> Confirm Deletion
+            <DialogTitle className="text-amber-400 flex items-center gap-2">
+              <Archive className="w-5 h-5" /> Confirm Archive
             </DialogTitle>
             <DialogDescription className="text-zinc-400 mt-1">
-              You are about to permanently delete <span className="text-white font-semibold">{pendingDeleteName}</span>. This action cannot be undone.
+              You are about to archive <span className="text-white font-semibold">{pendingArchiveName}</span>. The account will be <span className="text-amber-300 font-semibold">deactivated and suspended</span> — no data will be deleted.
             </DialogDescription>
           </DialogHeader>
           <div className="mt-4 space-y-3">
-            <p className="text-sm text-zinc-400">Type <span className="font-mono font-bold text-red-400">DELETE</span> to confirm:</p>
+            <p className="text-sm text-zinc-400">Type <span className="font-mono font-bold text-amber-400">ARCHIVE</span> to confirm:</p>
             <input
               autoFocus
               type="text"
-              value={deleteConfirmText}
-              onChange={(e) => setDeleteConfirmText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && deleteConfirmText === 'DELETE') executeDelete(); }}
-              placeholder="Type DELETE here"
-              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-600 text-white placeholder:text-zinc-500 focus:outline-none focus:border-red-500 font-mono text-sm"
+              value={archiveConfirmText}
+              onChange={(e) => setArchiveConfirmText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && archiveConfirmText === 'ARCHIVE') executeArchive(); }}
+              placeholder="Type ARCHIVE here"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-600 text-white placeholder:text-zinc-500 focus:outline-none focus:border-amber-500 font-mono text-sm"
             />
             <div className="flex gap-3 pt-1">
               <Button
                 variant="outline"
                 className="flex-1 border-zinc-600 text-zinc-300 hover:bg-zinc-800"
-                onClick={() => { setDeleteConfirmOpen(false); setDeleteConfirmText(''); }}
+                onClick={() => { setArchiveConfirmOpen(false); setArchiveConfirmText(''); }}
               >
                 Cancel
               </Button>
               <Button
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold disabled:opacity-40"
-                disabled={deleteConfirmText !== 'DELETE'}
-                onClick={executeDelete}
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold disabled:opacity-40"
+                disabled={archiveConfirmText !== 'ARCHIVE'}
+                onClick={executeArchive}
               >
-                Delete
+                Archive
               </Button>
             </div>
           </div>
@@ -774,12 +787,8 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
                   Activate
                 </Button>
                 <div className="w-px h-4 bg-white/10" />
-                <Button size="sm" variant="ghost" onClick={() => handleBulkAction('suspend')} className="h-8 text-amber-400 hover:text-amber-300 hover:bg-amber-500/20">
-                  Suspend
-                </Button>
-                <div className="w-px h-4 bg-white/10" />
-                <Button size="sm" variant="ghost" onClick={() => handleBulkAction('delete')} className="h-8 text-red-400 hover:text-red-300 hover:bg-red-500/20">
-                  Delete
+                <Button size="sm" variant="ghost" onClick={() => handleBulkAction('archive')} className="h-8 text-orange-400 hover:text-orange-300 hover:bg-orange-500/20">
+                  Archive
                 </Button>
               </motion.div>
             )}
@@ -907,12 +916,19 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
                         <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                             {isManageable && (
                                 <>
+                                    {status === 'Suspended' && (
+                                        <Button size="icon" variant="ghost" title="Activate account" onClick={(e) => { e.stopPropagation(); handleActivateUser(u.id, u.name || 'User'); }} className="h-8 w-8 rounded-md text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10">
+                                            <Activity className="w-3.5 h-3.5" />
+                                        </Button>
+                                    )}
                                     <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); handleEditUser(u); }} className="h-8 w-8 rounded-md text-zinc-400 hover:text-white hover:bg-white/10">
                                         <Edit className="w-3.5 h-3.5" />
                                     </Button>
-                                    <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); handleDeleteUser(u.id, u.name || 'User', u.role); }} className="h-8 w-8 rounded-md text-zinc-400 hover:text-red-400 hover:bg-red-500/10">
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                    </Button>
+                                    {status !== 'Suspended' && (
+                                        <Button size="icon" variant="ghost" title="Archive account" onClick={(e) => { e.stopPropagation(); handleArchiveUser(u.id, u.name || 'User', u.role); }} className="h-8 w-8 rounded-md text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10">
+                                            <Archive className="w-3.5 h-3.5" />
+                                        </Button>
+                                    )}
                                 </>
                             )}
                         </div>
@@ -1027,13 +1043,14 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme,
                 {getSafeUserRole(selectedUserDetails.role, CUSTOMER_ROLE) !== 'administrator' && (
                   <Button 
                     variant="destructive" 
-                    className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/20"
+                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/20"
+                    title="Archive account"
                     onClick={() => {
-                      handleDeleteUser(selectedUserDetails.id, selectedUserDetails.name || 'User', selectedUserDetails.role);
+                      handleArchiveUser(selectedUserDetails.id, selectedUserDetails.name || 'User', selectedUserDetails.role);
                       setSelectedUserDetails(null);
                     }}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Archive className="w-4 h-4" />
                   </Button>
                 )}
               </div>

@@ -102,7 +102,32 @@ api.interceptors.response.use(
             // If we reach here, refresh failed or no Firebase user — just reject silently.
             // AuthContext's onAuthStateChanged will handle the actual logout flow.
         } else if (response?.status === 403) {
-            // Forbidden - Access Denied
+            const code = response?.data?.code;
+
+            // ── Deactivated / archived account → force full logout ──────────────
+            if (code === 'ACCOUNT_INACTIVE') {
+                console.warn('🔒 [API 403 ACCOUNT_INACTIVE]: Account deactivated — forcing logout.');
+                localStorage.removeItem('autospf_token');
+                // Sign out of Firebase so social-login bypass is also blocked
+                try {
+                    const { signOut } = await import('firebase/auth');
+                    await signOut(auth);
+                } catch (fbErr) {
+                    console.warn('[API] Firebase signOut failed during deactivation logout:', fbErr);
+                }
+                toast.error('This account is disabled', {
+                    id: 'account-inactive',
+                    description: 'This account is disabled. Please try to contact the administrator.',
+                    duration: 6000,
+                });
+                // Give the toast a moment to render before redirecting
+                setTimeout(() => {
+                    window.location.href = '/login';
+                }, 1500);
+                return Promise.reject(error);
+            }
+
+            // Generic 403 — Forbidden
             console.warn('🚫 [API 403]: Access denied.');
             if (!suppressErrorToast) {
                 toast.error('Access Denied', {

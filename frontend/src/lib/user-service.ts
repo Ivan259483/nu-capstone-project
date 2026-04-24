@@ -36,6 +36,16 @@ export const UserService = {
         return response.data;
     },
 
+    async archiveUser(id: string) {
+        const response = await api.patch(`/users/${id}/archive`);
+        return response.data;
+    },
+
+    async activateUser(id: string) {
+        const response = await api.patch(`/users/${id}/activate`);
+        return response.data;
+    },
+
     async changePassword(userIdOrCurrent: string, currentOrNext: string, maybeNext?: string) {
         const currentPassword = maybeNext ? currentOrNext : userIdOrCurrent;
         const newPassword = maybeNext || currentOrNext;

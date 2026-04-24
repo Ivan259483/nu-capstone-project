@@ -560,10 +560,9 @@ export default function CustomerLiveTrackerPage() {
               <iconify-icon icon="solar:widget-linear" width="20"></iconify-icon>
               Dashboard
             </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2 text-slate-400 cursor-default rounded-md outline-none">
+            <button onClick={() => navigate('/customer/dashboard?section=scan')} className={navButtonClass()}>
               <iconify-icon icon="solar:scanner-linear" width="20"></iconify-icon>
               Scan Vehicle
-              <span className="ml-auto text-[9px] font-bold uppercase tracking-wider bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">Soon</span>
             </button>
             <button onClick={() => navigate('/customer/dashboard')} className={navButtonClass()}>
               <iconify-icon icon="solar:calendar-linear" width="20"></iconify-icon>
@@ -607,7 +606,7 @@ export default function CustomerLiveTrackerPage() {
                 Book Service
               </button>
               <button
-                onClick={() => {}}
+                onClick={() => navigate('/customer/dashboard?section=scan')}
                 className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium transition-colors shadow-sm"
               >
                 <iconify-icon icon="solar:scanner-linear" width="18"></iconify-icon>

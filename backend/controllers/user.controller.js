@@ -366,6 +366,124 @@ export const deleteUser = async (req, res, next) => {
 };
 
 /**
+ * Archive user — mark account as inactive/suspended without deleting data
+ */
+export const archiveUser = async (req, res, next) => {
+  try {
+    const query = getQueryByIdOrFirebaseUid(req.params.id);
+    const user = await User.findOne(query);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (isSelfUser(req, user)) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot archive your own account',
+      });
+    }
+
+    if (!canManageUserRole(req.user?.role, user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied',
+      });
+    }
+
+    // Only archive if not already archived
+    if (!user.isActive && user.status === 'suspended') {
+      return res.status(409).json({
+        success: false,
+        message: 'User is already archived/inactive',
+      });
+    }
+
+    user.isActive = false;
+    user.status = 'suspended';
+    user.archivedAt = new Date();
+    user.expoPushTokens = [];
+    await user.save();
+
+    logActivity({
+      req, type: 'user_archived', module: 'User', action: 'User Archived',
+      description: `${req.user?.name || 'Admin'} archived user ${user.name || user.email} (${user.role}).`,
+      status: 'warning', referenceId: user._id.toString(),
+      metadata: { archivedUserId: user._id, archivedEmail: user.email, archivedRole: user.role },
+    });
+
+    res.json({
+      success: true,
+      message: 'User archived successfully. The account is now inactive.',
+    });
+  } catch (error) {
+    console.error('❌ Archive User Error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Activate user — restore an archived/suspended account back to active
+ */
+export const activateUser = async (req, res, next) => {
+  try {
+    const query = getQueryByIdOrFirebaseUid(req.params.id);
+    const user = await User.findOne(query);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (isSelfUser(req, user)) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot activate your own account',
+      });
+    }
+
+    if (!canManageUserRole(req.user?.role, user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied',
+      });
+    }
+
+    if (user.isActive && user.status === 'active') {
+      return res.status(409).json({
+        success: false,
+        message: 'User is already active',
+      });
+    }
+
+    user.isActive = true;
+    user.status = 'active';
+    user.archivedAt = undefined;
+    await user.save();
+
+    logActivity({
+      req, type: 'user_activated', module: 'User', action: 'User Activated',
+      description: `${req.user?.name || 'Admin'} reactivated user ${user.name || user.email} (${user.role}).`,
+      status: 'success', referenceId: user._id.toString(),
+      metadata: { activatedUserId: user._id, activatedEmail: user.email, activatedRole: user.role },
+    });
+
+    res.json({
+      success: true,
+      message: 'User activated successfully. The account is now active.',
+    });
+  } catch (error) {
+    console.error('❌ Activate User Error:', error);
+    next(error);
+  }
+};
+
+/**
  * Create user (Admin only)
  */
 export const createUser = async (req, res, next) => {

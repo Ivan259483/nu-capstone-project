@@ -3,6 +3,15 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { NotificationService, SystemNotification } from '../lib/notification-service';
 
+type DashboardSection = 'dashboard' | 'scan' | 'settings' | 'bookings' | 'documents' | 'rewards';
+
+type ScanUpload = {
+  id: string;
+  name: string;
+  size: number;
+  preview: string;
+};
+
 // ---- STATIC DATA FOR BOOKING ----
 const VEHICLE_OPTIONS = [
   { type: "hatchback", label: "Hatchback", icon: "lucide:car-front" },
@@ -60,12 +69,97 @@ const RAW_SPF_PACKAGES = [
   }
 ];
 
+const SCAN_FLOW_STEPS = [
+  {
+    title: 'Scan Vehicle',
+    desc: 'Upload a clean exterior photo set or a quick walkaround capture.',
+    icon: 'solar:camera-add-linear',
+    tag: 'Input',
+  },
+  {
+    title: 'AI detects defects',
+    desc: 'Scratches, dents, swirl marks, chips, and paint inconsistencies are isolated panel by panel.',
+    icon: 'solar:scanner-linear',
+    tag: 'Vision',
+  },
+  {
+    title: 'System identifies problem areas',
+    desc: 'Severity is grouped into priority zones with repair recommendations for each section.',
+    icon: 'solar:danger-triangle-linear',
+    tag: 'Severity',
+  },
+  {
+    title: '3D vehicle model generation',
+    desc: 'A digital body map is assembled to anchor every detected issue in a clear layout.',
+    icon: 'solar:car-linear',
+    tag: '3D',
+  },
+  {
+    title: 'AR repair simulation',
+    desc: 'Before and after visualization helps you inspect the expected repair outcome in context.',
+    icon: 'solar:routing-2-linear',
+    tag: 'AR',
+  },
+  {
+    title: 'System calculates price',
+    desc: 'Labor, materials, and suggested services are bundled into a guided cost estimate.',
+    icon: 'solar:document-text-linear',
+    tag: 'Estimate',
+  },
+  {
+    title: 'Customer confirms',
+    desc: 'Approve the recommendation and proceed to booking with the generated estimate.',
+    icon: 'solar:check-circle-linear',
+    tag: 'Confirm',
+  },
+] as const;
+
+const SCAN_HIGHLIGHTS = [
+  { value: '14', label: 'repair zones mapped' },
+  { value: '<45s', label: 'AI review target' },
+  { value: '3D + AR', label: 'visual output layers' },
+] as const;
+
+const SCAN_DAMAGE_ZONES = [
+  { title: 'Front bumper', note: 'Impact scuffs and lower lip abrasion', tone: '#ef4444', bg: '#fef2f2' },
+  { title: 'Driver fender', note: 'Light crease with paint disruption', tone: '#f59e0b', bg: '#fffbeb' },
+  { title: 'Hood edge', note: 'Stone chip cluster and swirl build-up', tone: '#0ea5e9', bg: '#eff6ff' },
+] as const;
+
+const SCAN_PRICING: Record<string, { low: number; recommended: number; high: number }> = {
+  hatchback: { low: 18500, recommended: 21400, high: 26800 },
+  sedan: { low: 20500, recommended: 23600, high: 29800 },
+  midsized: { low: 21900, recommended: 24700, high: 31200 },
+  suv: { low: 23800, recommended: 27200, high: 34600 },
+  pickup: { low: 24400, recommended: 28100, high: 35800 },
+  largesuv: { low: 26900, recommended: 30500, high: 39200 },
+  highend: { low: 31200, recommended: 34800, high: 46500 },
+};
+
+const formatPeso = (amount: number) => `₱${amount.toLocaleString()}`;
+
+const formatFileSize = (size: number) => {
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
+
 export default function CustomerDashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
-  const [activeSection, setActiveSection] = useState<'dashboard' | 'settings'>(() => {
+  const [activeSection, setActiveSection] = useState<DashboardSection>(() => {
     const search = new URLSearchParams(location.search);
-    return search.get('section') === 'settings' ? 'settings' : 'dashboard';
+    const s = search.get('section');
+    return s === 'settings'
+      ? 'settings'
+      : s === 'bookings'
+        ? 'bookings'
+        : s === 'scan'
+          ? 'scan'
+          : s === 'documents'
+            ? 'documents'
+            : s === 'rewards'
+              ? 'rewards'
+              : 'dashboard';
   });
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
@@ -86,6 +180,24 @@ export default function CustomerDashboard() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
+  const [scanVehicleId, setScanVehicleId] = useState('');
+  const [scanUploads, setScanUploads] = useState<ScanUpload[]>([]);
+  const [scanDragActive, setScanDragActive] = useState(false);
+  const scanFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [scanAnalyzing, setScanAnalyzing] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanActiveStep, setScanActiveStep] = useState(-1);
+  const [scanComplete, setScanComplete] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [scanMode, setScanMode] = useState<'auto' | 'highend'>('auto');
+  const scanProgressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scanTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // My Bookings
+  const [myBookings, setMyBookings] = useState<any[]>([]);
+  const [myBookingsLoading, setMyBookingsLoading] = useState(false);
+  const [bookingsFilter, setBookingsFilter] = useState<'all' | 'upcoming' | 'active' | 'completed' | 'cancelled'>('all');
+  const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
 
   // Fetch vehicles from DB on mount
   useEffect(() => {
@@ -114,6 +226,33 @@ export default function CustomerDashboard() {
     };
     loadVehicles();
   }, [user]);
+
+  useEffect(() => {
+    if (vehicles.length === 0) {
+      setScanVehicleId('');
+      return;
+    }
+
+    setScanVehicleId((current) => {
+      if (current && vehicles.some((vehicle) => (vehicle._id || vehicle.id) === current)) {
+        return current;
+      }
+      return vehicles[0]?._id || vehicles[0]?.id || '';
+    });
+  }, [vehicles]);
+
+  useEffect(() => () => {
+    scanUploads.forEach((upload) => URL.revokeObjectURL(upload.preview));
+  }, [scanUploads]);
+
+  useEffect(() => () => {
+    if (scanProgressIntervalRef.current) {
+      clearInterval(scanProgressIntervalRef.current);
+      scanProgressIntervalRef.current = null;
+    }
+    scanTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    scanTimeoutsRef.current = [];
+  }, []);
 
   // ── Customer Stats (fetched from backend) ──
   const [customerStats, setCustomerStats] = useState({
@@ -297,6 +436,7 @@ export default function CustomerDashboard() {
     'hatchback': 'hatchback', 'sedan': 'sedan', 'midsized': 'midsized',
     'suv': 'suv', 'pick up': 'pickup', 'pickup': 'pickup',
     'large suv / van': 'largesuv', 'large suv': 'largesuv', 'van': 'largesuv',
+    'highend': 'highend',
     'highend sedan': 'highend', 'high-end sedan': 'highend',
   };
   const getVehiclePriceKey = (type: string) => VEHICLE_TYPE_MAP[type?.toLowerCase()] || 'hatchback';
@@ -468,6 +608,7 @@ export default function CustomerDashboard() {
   const [feedbackVehicle, setFeedbackVehicle] = useState('Tesla Model 3');
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState(false);
+  const [rewardRedeemMessage, setRewardRedeemMessage] = useState('');
 
   // Settings — Profile
   const [profile, setProfile] = useState({ fullName: user?.name || '', email: user?.email || '', phone: '+63 912 345 6789' });
@@ -547,8 +688,73 @@ export default function CustomerDashboard() {
 
   useEffect(() => {
     const search = new URLSearchParams(location.search);
-    setActiveSection(search.get('section') === 'settings' ? 'settings' : 'dashboard');
+    const s = search.get('section');
+    setActiveSection(
+      s === 'settings'
+        ? 'settings'
+        : s === 'bookings'
+          ? 'bookings'
+          : s === 'scan'
+            ? 'scan'
+            : s === 'documents'
+              ? 'documents'
+              : s === 'rewards'
+                ? 'rewards'
+                : 'dashboard'
+    );
   }, [location.search]);
+
+  // Fetch My Bookings whenever section opens
+  useEffect(() => {
+    if (!['dashboard', 'bookings', 'documents', 'rewards'].includes(activeSection) || !user) return;
+    const load = async () => {
+      setMyBookingsLoading(true);
+      try {
+        const { OrderService } = await import('../lib/order-service');
+        const res = await OrderService.getAllOrders({ suppressErrorToast: true });
+        if (res.success && Array.isArray(res.data)) {
+          const mine = res.data
+            .filter((o: any) => {
+              const cid = o.customerId || o.customer?._id || o.customer;
+              return cid === user.id || cid === user._id || o.customerName === user.name;
+            })
+            .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+          setMyBookings(mine);
+
+          const nextDocuments = mine.slice(0, 8).map((booking: any, index: number) => {
+            const serviceName = booking.serviceName || booking.serviceType || 'Service';
+            const status = (booking.status || '').toLowerCase();
+            const docType = status === 'completed' || status === 'released' ? 'report' : 'waiver';
+            return {
+              id: booking._id || booking.id || `${serviceName}-${index}`,
+              type: docType,
+              icon: docType === 'report' ? 'solar:file-text-bold' : 'solar:document-add-bold',
+              title: docType === 'report' ? `${serviceName} Completion Report` : `${serviceName} Service Intake`,
+              desc: `${booking.vehiclePlate || 'Vehicle'} • ${booking.date || 'Scheduled service'}`,
+              date: booking.date ? new Date(booking.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : 'Pending date',
+              status: docType === 'waiver' ? 'Pending' : 'Signed',
+            };
+          });
+          setDocuments(nextDocuments);
+
+          const nextActivities = mine.slice(0, 8).map((booking: any) => ({
+            id: booking._id || booking.id,
+            title: booking.serviceName || booking.serviceType || 'Service update',
+            desc: `${(booking.status || 'pending').replace('-', ' ')} • ${booking.vehiclePlate || 'Vehicle profile pending'}`,
+            time: new Date(booking.updatedAt || booking.createdAt || Date.now()).toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            }),
+          }));
+          setActivities(nextActivities);
+        }
+      } catch (e) { console.warn('[MyBookings]', e); }
+      setMyBookingsLoading(false);
+    };
+    load();
+  }, [activeSection, user]);
 
   useEffect(() => {
     if (location.pathname === '/customer/book' && !bookRouteAutoOpenRef.current) {
@@ -596,10 +802,146 @@ export default function CustomerDashboard() {
     }
   }, [bookingOpen, location.pathname, navigate]);
 
-  const nav = (section: 'dashboard' | 'settings') => {
+  const nav = (section: DashboardSection) => {
     setActiveSection(section);
     setIsSidebarOpen(false);
-    navigate(section === 'settings' ? '/customer/dashboard?section=settings' : '/customer/dashboard');
+    const urlMap: Record<DashboardSection, string> = {
+      dashboard: '/customer/dashboard',
+      scan: '/customer/dashboard?section=scan',
+      settings: '/customer/dashboard?section=settings',
+      bookings: '/customer/dashboard?section=bookings',
+      documents: '/customer/dashboard?section=documents',
+      rewards: '/customer/dashboard?section=rewards',
+    };
+    navigate(urlMap[section]);
+  };
+
+  const openScanStudio = (vehicle?: any) => {
+    const targetId = vehicle?._id || vehicle?.id;
+    if (targetId) setScanVehicleId(targetId);
+    nav('scan');
+  };
+
+  const handleScanUploadFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    setScanError('');
+    if (scanUploads.length > 0) {
+      scanUploads.forEach((upload) => URL.revokeObjectURL(upload.preview));
+    }
+
+    const nextUploads = Array.from(files)
+      .filter((file) => file.type.startsWith('image/'))
+      .slice(0, 6)
+      .map((file, index) => ({
+        id: `${file.name}-${file.size}-${index}-${Date.now()}`,
+        name: file.name,
+        size: file.size,
+        preview: URL.createObjectURL(file),
+      }));
+
+    if (nextUploads.length === 0) return;
+    setScanUploads(nextUploads);
+    setScanDragActive(false);
+    setScanAnalyzing(false);
+    setScanProgress(0);
+    setScanActiveStep(-1);
+    setScanComplete(false);
+  };
+
+  const handleScanUploadChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    handleScanUploadFiles(event.target.files);
+  };
+
+  const handleScanDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setScanDragActive(false);
+    handleScanUploadFiles(event.dataTransfer.files);
+  };
+
+  const openScanFilePicker = () => {
+    if (!scanFileInputRef.current) return;
+    scanFileInputRef.current.value = '';
+    scanFileInputRef.current.click();
+  };
+
+  const clearScanUploads = () => {
+    if (scanProgressIntervalRef.current) {
+      clearInterval(scanProgressIntervalRef.current);
+      scanProgressIntervalRef.current = null;
+    }
+    scanTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    scanTimeoutsRef.current = [];
+    scanUploads.forEach((upload) => URL.revokeObjectURL(upload.preview));
+    setScanUploads([]);
+    setScanAnalyzing(false);
+    setScanProgress(0);
+    setScanActiveStep(-1);
+    setScanComplete(false);
+    setScanError('');
+    if (scanFileInputRef.current) scanFileInputRef.current.value = '';
+  };
+
+  const startScanAnalysis = () => {
+    if (scanAnalyzing) return;
+    if (!selectedScanVehicle) {
+      setScanError('Select or add a vehicle profile before running analysis.');
+      return;
+    }
+    if (scanUploads.length === 0) {
+      setScanError('Upload at least 1 vehicle image to start AI analysis.');
+      return;
+    }
+
+    if (scanProgressIntervalRef.current) {
+      clearInterval(scanProgressIntervalRef.current);
+      scanProgressIntervalRef.current = null;
+    }
+    scanTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    scanTimeoutsRef.current = [];
+
+    setScanError('');
+    setScanAnalyzing(true);
+    setScanProgress(0);
+    setScanActiveStep(0);
+    setScanComplete(false);
+    const vehiclePriceKey = getVehiclePriceKey(selectedScanVehicle?.type || '');
+    const isHighendScanRun = scanMode === 'highend' || vehiclePriceKey === 'highend';
+    const stepDelays = isHighendScanRun
+      ? [1000, 1400, 1200, 1500, 1300, 1000, 700]
+      : [1200, 1800, 1400, 2000, 1600, 1200, 800];
+    const totalTime = stepDelays.reduce((a, b) => a + b, 0);
+    let elapsed = 0;
+    // Progress bar animation
+    scanProgressIntervalRef.current = setInterval(() => {
+      setScanProgress(prev => {
+        if (prev >= 100) {
+          if (scanProgressIntervalRef.current) {
+            clearInterval(scanProgressIntervalRef.current);
+            scanProgressIntervalRef.current = null;
+          }
+          return 100;
+        }
+        return Math.min(prev + 1, 100);
+      });
+    }, totalTime / 100);
+    // Step progression
+    stepDelays.forEach((delay, i) => {
+      elapsed += delay;
+      const timeoutId = setTimeout(() => {
+        setScanActiveStep(i + 1);
+        if (i === stepDelays.length - 1) {
+          if (scanProgressIntervalRef.current) {
+            clearInterval(scanProgressIntervalRef.current);
+            scanProgressIntervalRef.current = null;
+          }
+          setScanProgress(100);
+          setScanAnalyzing(false);
+          setScanComplete(true);
+        }
+      }, elapsed);
+      scanTimeoutsRef.current.push(timeoutId);
+    });
   };
 
   function handleFeedbackSubmit() {
@@ -617,6 +959,39 @@ export default function CustomerDashboard() {
     }, 1500);
   }
 
+  const downloadDocument = (doc: any) => {
+    const dateLabel = doc.date || new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+    const payload = [
+      `AutoSPF+ Document`,
+      `Title: ${doc.title || 'Service Document'}`,
+      `Description: ${doc.desc || 'Generated from your dashboard'}`,
+      `Date: ${dateLabel}`,
+      `Status: ${doc.status || 'Ready'}`,
+    ].join('\n');
+    const blob = new Blob([payload], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(doc.title || 'autospf-document').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const redeemReward = async (reward: { points: number; code: string; title: string }) => {
+    if (customerStats.loyaltyPoints < reward.points) {
+      setRewardRedeemMessage(`Need ${reward.points - customerStats.loyaltyPoints} more points to redeem ${reward.title}.`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(reward.code);
+      setRewardRedeemMessage(`${reward.title} redeemed! Code ${reward.code} copied.`);
+    } catch {
+      setRewardRedeemMessage(`${reward.title} redeemed! Use code: ${reward.code}`);
+    }
+  };
+
   const markNotificationAsRead = async (id: string) => {
     await NotificationService.markAsRead(id);
     setNotifications(notifications.map(n => n.id === id ? { ...n, isRead: true } : n));
@@ -626,6 +1001,27 @@ export default function CustomerDashboard() {
     await NotificationService.markAllAsRead();
     setNotifications(notifications.map(n => ({ ...n, isRead: true })));
   };
+
+  const selectedScanVehicle = vehicles.find((vehicle) => (vehicle._id || vehicle.id) === scanVehicleId) || vehicles[0] || null;
+  const selectedScanVehicleType = getVehiclePriceKey(selectedScanVehicle?.type || 'sedan');
+  const scanPricing = SCAN_PRICING[selectedScanVehicleType] || SCAN_PRICING.sedan;
+  const scanIsHighend = selectedScanVehicleType === 'highend';
+  const highendScanEnabled = scanMode === 'highend' || scanIsHighend;
+  const scanEstimateItems = [
+    { label: 'AI defect mapping & panel tagging', amount: 0, included: true },
+    { label: 'Localized panel refinishing', amount: Math.round(scanPricing.recommended * 0.48) },
+    { label: 'Paint correction blend', amount: Math.round(scanPricing.recommended * 0.26) },
+    { label: 'Final calibration & finishing', amount: scanPricing.recommended - Math.round(scanPricing.recommended * 0.48) - Math.round(scanPricing.recommended * 0.26) },
+  ];
+  const scanEstimateTotal = scanEstimateItems.reduce((total, item) => total + item.amount, 0);
+  const scanUploadTotalSize = scanUploads.reduce((total, upload) => total + upload.size, 0);
+  const rewardTier =
+    customerStats.loyaltyPoints >= 1000 ? 'Platinum' : customerStats.loyaltyPoints >= 500 ? 'Gold' : customerStats.loyaltyPoints >= 200 ? 'Silver' : 'Starter';
+  const rewardCatalog = [
+    { id: 'rw-1', title: 'Free Premium Wash', points: 150, code: 'WASH150', desc: 'Use on any maintenance wash booking.' },
+    { id: 'rw-2', title: '10% Coating Discount', points: 300, code: 'COAT10', desc: 'Applies to selected coating services.' },
+    { id: 'rw-3', title: 'Priority Booking Slot', points: 500, code: 'FASTLANE', desc: 'Get priority queue schedule access.' },
+  ];
 
   return (
     <>
@@ -653,26 +1049,31 @@ export default function CustomerDashboard() {
               <iconify-icon icon="solar:widget-linear" width="20"></iconify-icon>
               Dashboard
             </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2 text-slate-400 cursor-default rounded-md outline-none">
+            <button onClick={() => nav('scan')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'scan' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
               <iconify-icon icon="solar:scanner-linear" width="20"></iconify-icon>
               Scan Vehicle
-              <span className="ml-auto text-[9px] font-bold uppercase tracking-wider bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">Soon</span>
+              <span className="ml-auto text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">AI Lab</span>
             </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded-md transition-colors outline-none">
+            <button onClick={() => nav('bookings')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'bookings' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
               <iconify-icon icon="solar:calendar-linear" width="20"></iconify-icon>
               My Bookings
+              {myBookings.filter(b => ['pending','confirmed'].includes(b.status)).length > 0 && (
+                <span className="ml-auto text-[9px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">
+                  {myBookings.filter(b => ['pending','confirmed'].includes(b.status)).length}
+                </span>
+              )}
             </button>
             <button onClick={() => navigate('/customer/live-tracker')} className="w-full flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded-md transition-colors outline-none">
               <iconify-icon icon="solar:routing-2-linear" width="20"></iconify-icon>
               Live Tracker
             </button>
 
-            <button className="w-full flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded-md transition-colors outline-none">
+            <button onClick={() => nav('documents')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'documents' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
               <iconify-icon icon="solar:document-text-linear" width="20"></iconify-icon>
               Documents
             </button>
 
-            <button className="w-full flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded-md transition-colors outline-none">
+            <button onClick={() => nav('rewards')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'rewards' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
               <iconify-icon icon="solar:star-linear" width="20"></iconify-icon>
               Rewards
             </button>
@@ -703,13 +1104,18 @@ export default function CustomerDashboard() {
             </div>
 
             <div className="flex items-center gap-4">
+              {activeSection !== 'bookings' && (
+                <button
+                  onClick={openBookingModal}
+                  className="hidden sm:flex items-center justify-center px-4 py-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-md font-medium transition-colors shadow-sm"
+                >
+                  Book Service
+                </button>
+              )}
               <button
-                onClick={openBookingModal}
-                className="hidden sm:flex items-center justify-center px-4 py-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-md font-medium transition-colors shadow-sm"
+                onClick={() => nav('scan')}
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-md font-medium transition-colors shadow-sm"
               >
-                Book Service
-              </button>
-              <button className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium transition-colors shadow-sm">
                 <iconify-icon icon="solar:scanner-linear" width="18"></iconify-icon>
                 Scan Vehicle
               </button>
@@ -1006,7 +1412,1105 @@ export default function CustomerDashboard() {
           {/* Scrollable Area */}
           <main className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50">
 
-            {activeSection === 'settings' ? (
+            {activeSection === 'bookings' ? (
+              /* ═══════════════════════════════════════════
+                 MY BOOKINGS — Ultra-Premium UI
+              ═══════════════════════════════════════════ */
+              (() => {
+                const upcomingStatuses = ['pending','confirmed','assigned'];
+                const activeStatuses = ['in-progress','processing','checked-in'];
+                const doneStatuses = ['completed','released','done','delivered'];
+                const cancelledStatuses = ['cancelled','rejected'];
+                const filteredBookings = bookingsFilter === 'all' ? myBookings
+                  : bookingsFilter === 'upcoming' ? myBookings.filter(b => upcomingStatuses.includes(b.status))
+                  : bookingsFilter === 'active'   ? myBookings.filter(b => activeStatuses.includes(b.status))
+                  : bookingsFilter === 'completed'? myBookings.filter(b => doneStatuses.includes(b.status))
+                  : myBookings.filter(b => cancelledStatuses.includes(b.status));
+
+                const statusCfg: Record<string, { label: string; color: string; bg: string; strip: string; dot?: boolean }> = {
+                  pending:      { label: 'Pending',     color: '#92400e', bg: '#fffbeb', strip: '#f59e0b' },
+                  confirmed:    { label: 'Confirmed',   color: '#3730a3', bg: '#eef2ff', strip: '#6366f1' },
+                  assigned:     { label: 'Assigned',    color: '#3730a3', bg: '#eef2ff', strip: '#6366f1' },
+                  'in-progress':{ label: 'In Progress', color: '#1d4ed8', bg: '#eff6ff', strip: '#3b82f6', dot: true },
+                  processing:   { label: 'Processing',  color: '#1d4ed8', bg: '#eff6ff', strip: '#3b82f6', dot: true },
+                  'checked-in': { label: 'Checked In',  color: '#0369a1', bg: '#f0f9ff', strip: '#0ea5e9' },
+                  completed:    { label: 'Completed',   color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
+                  released:     { label: 'Released',    color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
+                  done:         { label: 'Done',        color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
+                  cancelled:    { label: 'Cancelled',   color: '#991b1b', bg: '#fef2f2', strip: '#ef4444' },
+                  rejected:     { label: 'Rejected',    color: '#991b1b', bg: '#fef2f2', strip: '#ef4444' },
+                };
+
+                const filterCounts = {
+                  all: myBookings.length,
+                  upcoming: myBookings.filter(b => upcomingStatuses.includes(b.status)).length,
+                  active:   myBookings.filter(b => activeStatuses.includes(b.status)).length,
+                  completed:myBookings.filter(b => doneStatuses.includes(b.status)).length,
+                  cancelled:myBookings.filter(b => cancelledStatuses.includes(b.status)).length,
+                };
+
+                return (
+                  <div className="space-y-6 pb-10">
+
+                    {/* ── Header ── */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="text-[22px] font-semibold text-slate-900 tracking-tight">My Bookings</h2>
+                        <p className="text-sm text-slate-500 mt-0.5">Track and manage all your service appointments</p>
+                      </div>
+                      <button
+                        onClick={() => openBookingModal()}
+                        className="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl text-sm font-semibold transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+                        style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 50%, #818cf8 100%)' }}
+                      >
+                        <iconify-icon icon="solar:add-circle-bold" width="16"></iconify-icon>
+                        New Booking
+                      </button>
+                    </div>
+
+                    {/* ── Stats Summary ── */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {[
+                        { label: 'Total', count: filterCounts.all, icon: 'solar:notebook-bookmark-linear', color: '#6366f1', bg: '#eef2ff' },
+                        { label: 'Upcoming', count: filterCounts.upcoming, icon: 'solar:clock-circle-linear', color: '#f59e0b', bg: '#fffbeb' },
+                        { label: 'Active', count: filterCounts.active, icon: 'solar:play-circle-linear', color: '#3b82f6', bg: '#eff6ff' },
+                        { label: 'Completed', count: filterCounts.completed, icon: 'solar:check-circle-linear', color: '#10b981', bg: '#f0fdf4' },
+                      ].map(s => (
+                        <div key={s.label} className="bg-white rounded-2xl border border-slate-100 p-4 flex items-center gap-3 shadow-sm hover:shadow-md transition-shadow">
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: s.bg }}>
+                            <iconify-icon icon={s.icon} width="20" style={{ color: s.color }}></iconify-icon>
+                          </div>
+                          <div>
+                            <p className="text-[22px] font-bold text-slate-900 leading-none">{s.count}</p>
+                            <p className="text-[11px] text-slate-500 font-medium mt-0.5">{s.label}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* ── Filter Tabs ── */}
+                    <div className="flex items-center gap-1 bg-white border border-slate-200 p-1.5 rounded-2xl w-fit overflow-x-auto shadow-sm">
+                      {(['all', 'upcoming', 'active', 'completed', 'cancelled'] as const).map(f => {
+                        const icons = { all: 'solar:layers-linear', upcoming: 'solar:clock-circle-linear', active: 'solar:play-circle-linear', completed: 'solar:check-circle-linear', cancelled: 'solar:close-circle-linear' };
+                        return (
+                          <button
+                            key={f}
+                            onClick={() => setBookingsFilter(f)}
+                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap capitalize ${
+                              bookingsFilter === f ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <iconify-icon icon={icons[f]} width="14"></iconify-icon>
+                            {f}
+                            {filterCounts[f] > 0 && (
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                                bookingsFilter === f ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                              }`}>
+                                {filterCounts[f]}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* ── Content ── */}
+                    {myBookingsLoading ? (
+                      <div className="space-y-3">
+                        {[1,2,3].map(k => (
+                          <div key={k} className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden animate-pulse">
+                            <div className="flex">
+                              <div className="w-1 bg-slate-200 shrink-0" />
+                              <div className="flex-1 p-5 space-y-3">
+                                <div className="flex justify-between gap-8">
+                                  <div className="space-y-2 flex-1">
+                                    <div className="h-3 w-20 bg-slate-100 rounded-full" />
+                                    <div className="h-4 w-44 bg-slate-200 rounded-full" />
+                                    <div className="h-3 w-32 bg-slate-100 rounded-full" />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div className="h-4 w-24 bg-slate-200 rounded-full" />
+                                    <div className="h-3 w-28 bg-slate-100 rounded-full" />
+                                  </div>
+                                </div>
+                                <div className="h-px bg-slate-100" />
+                                <div className="flex justify-between">
+                                  <div className="h-3 w-28 bg-slate-100 rounded-full" />
+                                  <div className="h-8 w-32 bg-slate-100 rounded-lg" />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : filteredBookings.length === 0 ? (
+                      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-14 text-center flex flex-col items-center">
+                        <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
+                          <iconify-icon icon="solar:calendar-minimalistic-linear" width="32" style={{ color: '#6366f1' }}></iconify-icon>
+                        </div>
+                        <h3 className="font-semibold text-slate-900 text-[16px] mb-1">
+                          {bookingsFilter === 'all' ? 'No bookings yet' : `No ${bookingsFilter} bookings`}
+                        </h3>
+                        <p className="text-sm text-slate-500 max-w-[240px] mx-auto mb-6 leading-relaxed">
+                          {bookingsFilter === 'all'
+                            ? "Book a service to get started — we'll track everything here."
+                            : `You have no ${bookingsFilter} bookings at the moment.`
+                          }
+                        </p>
+                        {bookingsFilter === 'all' && (
+                          <button
+                            onClick={() => openBookingModal()}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm"
+                          >
+                            <iconify-icon icon="solar:add-circle-linear" width="16"></iconify-icon>
+                            Book Your First Service
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {filteredBookings.map((booking: any, idx: number) => {
+                          const st = (booking.status || 'pending').toLowerCase();
+                          const cfg = statusCfg[st] || statusCfg['pending'];
+                          const bookingId = booking._id || booking.id || String(idx);
+                          const isCancelling = cancelConfirmId === bookingId;
+                          const canCancel = ['pending', 'confirmed'].includes(st);
+                          const dateStr = (() => {
+                            const raw = booking.bookingDate || booking.date;
+                            if (!raw) return 'Date TBD';
+                            try { return new Date(raw).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
+                            catch { return raw; }
+                          })();
+                          const timeStr = booking.bookingTime || booking.time || '';
+                          const serviceIcons: Record<string, string> = {
+                            'exterior': 'solar:washing-machine-linear', 'interior': 'solar:sofa-2-linear',
+                            'paint': 'solar:pallete-2-linear', 'ceramic': 'solar:shield-check-linear',
+                            'engine': 'solar:settings-linear', 'full': 'solar:star-shine-linear',
+                          };
+                          const svcName = (booking.serviceName || booking.serviceType || '').toLowerCase();
+                          const svcIcon = Object.entries(serviceIcons).find(([k]) => svcName.includes(k))?.[1] || 'solar:car-wash-linear';
+
+                          return (
+                            <div
+                              key={bookingId}
+                              className="bg-white rounded-2xl border border-slate-100 overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-[2px] group"
+                              style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03)' }}
+                            >
+                              {/* Cancel confirmation */}
+                              {isCancelling && (
+                                <div className="px-6 py-3.5 flex items-center justify-between gap-4" style={{ background: 'linear-gradient(135deg, #fef2f2, #fff1f2)' }}>
+                                  <div className="flex items-center gap-2">
+                                    <iconify-icon icon="solar:danger-triangle-linear" width="16" style={{ color: '#ef4444' }}></iconify-icon>
+                                    <p className="text-sm font-semibold text-red-700">Cancel this booking?</p>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button onClick={() => setCancelConfirmId(null)}
+                                      className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
+                                      Keep it
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          const { OrderService } = await import('../lib/order-service');
+                                          await (OrderService as any).updateOrder?.(bookingId, { status: 'cancelled' });
+                                          setMyBookings(prev => prev.map(b => (b._id || b.id) === bookingId ? { ...b, status: 'cancelled' } : b));
+                                        } catch { /* silently fail */ }
+                                        setCancelConfirmId(null);
+                                      }}
+                                      className="px-3.5 py-1.5 text-xs font-bold text-white rounded-lg transition-colors shadow-sm"
+                                      style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>
+                                      Yes, cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="flex">
+                                {/* Status strip — thicker */}
+                                <div className="w-1 shrink-0 rounded-l-2xl" style={{ background: `linear-gradient(to bottom, ${cfg.strip}, ${cfg.strip}88)` }} />
+
+                                <div className="flex-1 p-5 sm:p-6">
+                                  <div className="flex items-start gap-4">
+                                    {/* Service icon */}
+                                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105"
+                                      style={{ background: cfg.bg, border: `1px solid ${cfg.strip}25` }}>
+                                      <iconify-icon icon={svcIcon} width="22" style={{ color: cfg.strip }}></iconify-icon>
+                                    </div>
+
+                                    {/* Info */}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-1.5">
+                                        <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full"
+                                          style={{ background: cfg.bg, color: cfg.color }}>
+                                          {cfg.label}
+                                        </span>
+                                        {cfg.dot && (
+                                          <span className="relative flex h-2 w-2">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: cfg.strip }} />
+                                            <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: cfg.strip }} />
+                                          </span>
+                                        )}
+                                      </div>
+                                      <h3 className="font-bold text-slate-900 text-[16px] leading-snug">
+                                        {booking.serviceName || booking.serviceType || 'Auto Service'}
+                                      </h3>
+                                      <p className="text-[13px] text-slate-500 mt-0.5 flex items-center gap-1.5">
+                                        <iconify-icon icon="solar:car-linear" width="13"></iconify-icon>
+                                        {[booking.vehicleModel || booking.vehicleMake, booking.vehiclePlate].filter(Boolean).join(' · ') || 'Vehicle'}
+                                      </p>
+                                    </div>
+
+                                    {/* Price */}
+                                    <div className="text-right shrink-0">
+                                      <p className="font-black text-slate-900 text-[20px] tracking-tight">
+                                        {booking.price ? `₱${Number(booking.price).toLocaleString()}` : '—'}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {/* Date + Actions footer */}
+                                  <div className="flex items-center justify-between mt-5 pt-4 border-t border-slate-100/80">
+                                    <div className="flex items-center gap-4 text-xs text-slate-500">
+                                      <span className="flex items-center gap-1.5">
+                                        <iconify-icon icon="solar:calendar-linear" width="13" style={{ color: cfg.strip }}></iconify-icon>
+                                        <span className="font-medium">{dateStr}</span>
+                                      </span>
+                                      {timeStr && (
+                                        <span className="flex items-center gap-1.5">
+                                          <iconify-icon icon="solar:clock-circle-linear" width="13" style={{ color: cfg.strip }}></iconify-icon>
+                                          <span className="font-medium">{timeStr}</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      {canCancel && (
+                                        <button onClick={() => setCancelConfirmId(bookingId)}
+                                          className="text-xs font-medium text-slate-400 hover:text-red-600 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-all">
+                                          Cancel
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => navigate('/customer/live-tracker')}
+                                        className="flex items-center gap-1.5 text-xs font-bold text-white px-4 py-2 rounded-xl transition-all hover:-translate-y-0.5 shadow-sm hover:shadow-md"
+                                        style={{ background: `linear-gradient(135deg, ${cfg.strip}, ${cfg.strip}cc)` }}>
+                                        <iconify-icon icon="solar:map-arrow-right-linear" width="13"></iconify-icon>
+                                        Track
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
+            ) : activeSection === 'scan' ? (
+              <div className="space-y-8 pb-10">
+                <section
+                  className={`relative overflow-hidden rounded-[32px] border bg-white shadow-[0_24px_80px_rgba(15,23,42,0.06)] ${highendScanEnabled ? 'border-[#a855f7]/40' : 'border-slate-200'}`}
+                  style={{ 
+                    background: highendScanEnabled 
+                      ? 'linear-gradient(145deg, #0c0a1e 0%, #1e1b4b 15%, #2e1f5e 30%, #3b2566 45%, #1a1636 70%, #0f0d1a 100%)'
+                      : 'linear-gradient(135deg, #fffdf8 0%, #ffffff 45%, #eef6ff 100%)'
+                  }}
+                >
+                  <div className="pointer-events-none absolute -left-16 top-10 h-44 w-44 rounded-full bg-amber-200/20 blur-3xl" style={{ animation: 'heroFloatA 8s ease-in-out infinite' }} />
+                  <div className="pointer-events-none absolute right-0 top-0 h-56 w-56 rounded-full bg-sky-200/25 blur-3xl" style={{ animation: 'heroFloatB 10s ease-in-out infinite' }} />
+                  <div className="pointer-events-none absolute bottom-0 right-20 h-48 w-48 rounded-full bg-slate-200/40 blur-3xl" style={{ animation: 'heroFloatA 9s ease-in-out infinite reverse' }} />
+                  <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(110deg, transparent 25%, rgba(255,255,255,0.45) 45%, transparent 65%)', transform: 'translateX(-120%)', animation: 'heroSweep 7s ease-in-out infinite' }} />
+                  {highendScanEnabled && (
+                    <>
+                      <div className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-gradient-to-br from-violet-500/20 via-purple-500/15 to-amber-500/10 blur-3xl" style={{ animation: 'heroFloatA 14s ease-in-out infinite' }} />
+                      <div className="pointer-events-none right-10 top-0 h-64 w-64 rounded-full bg-gradient-to-bl from-amber-400/10 via-rose-400/5 to-transparent blur-3xl" style={{ animation: 'heroFloatB 11s ease-in-out infinite reverse' }} />
+                      <div className="pointer-events-none absolute -right-20 bottom-20 h-56 w-56 rounded-full bg-gradient-to-tl from-violet-600/15 to-transparent blur-3xl" style={{ animation: 'heroFloatA 9s ease-in-out infinite' }} />
+                      <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(139,92,246,0.12) 0%, transparent 60%)' }} />
+                      <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(180deg, transparent 0%, rgba(251,191,36,0.02) 50%, transparent 100%)' }} />
+                      <div className="pointer-events-none absolute inset-0 border rounded-[32px]" style={{ borderColor: 'rgba(251,191,36,0.08)' }} />
+                    </>
+                  )}
+
+                  <div className="relative grid gap-8 p-6 sm:p-8 lg:grid-cols-[1.15fr,0.85fr] lg:p-10">
+                    <div className="max-w-3xl">
+                      <div className={`inline-flex items-center gap-3 rounded-full border px-5 py-2 text-[10px] font-semibold uppercase tracking-[0.32em] shadow-sm backdrop-blur ${highendScanEnabled ? 'border-violet-500/40 bg-violet-950/60 text-violet-200' : 'border-slate-200 bg-white/80 text-slate-500'}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${highendScanEnabled ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24] animate-pulse' : 'bg-emerald-500'}`} />
+                        {highendScanEnabled ? 'Concierge AI Suite • Global Standards • Bespoke Analysis' : 'AI Based Damage Detection • Cost Estimation • AR Visualization'}
+                      </div>
+                      {highendScanEnabled && (
+                        <div className="mt-4 flex flex-wrap items-center gap-3">
+                          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-gradient-to-r from-amber-950/70 to-amber-900/50 px-5 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-300 shadow-[0_0_30px_rgba(251,191,36,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]" style={{ animation: 'glowPulse 2.5s ease-in-out infinite' }}>
+                            <iconify-icon icon="solar:crown-bold" width="13" className="text-amber-400" />
+                            <span className="text-amber-200">Maison Class</span>
+                            <span className="ml-1 text-amber-500/60">|</span>
+                            <span className="text-amber-400/80">International</span>
+                          </div>
+                          <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-950/40 px-3 py-1.5 text-[9px] font-medium uppercase tracking-[0.16em] text-emerald-400">
+                            <iconify-icon icon="solar:shield-check-linear" width="11" />
+                            <span>White-Glove Service</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <h2 className={`mt-6 max-w-2xl font-semibold leading-[0.92] tracking-[-0.05em] ${highendScanEnabled ? 'text-white sm:text-[48px] text-[32px]' : 'text-slate-950 sm:text-[44px]'}`}>
+                        {highendScanEnabled 
+                          ? 'Bespoke vehicle intelligence. Concierge-grade precision.' 
+                          : 'Scan your vehicle, map the damage, and preview the repair outcome in one premium flow.'}
+                      </h2>
+
+                      <p className={`mt-5 max-w-2xl text-[16px] leading-[1.7] ${highendScanEnabled ? 'text-violet-300/80' : 'text-slate-600'}`}>
+                        {highendScanEnabled
+                          ? (
+                            <>
+                              Our proprietary AI suite delivers museum-grade assessment for discerning clients. Each scan is personally overseen by our master technicians with discrete, confidential service befitting the world's finest vehicles.
+                            </>
+                          )
+                          : 'Upload your vehicle photos, let AI isolate the affected panels, generate a 3D repair view, and review an estimated service cost before you confirm.'}
+                      </p>
+
+                      {highendScanEnabled && (
+                        <div className="mt-6 flex flex-wrap gap-4">
+                          {[
+                            { icon: 'solar:user-star-bold', label: 'Dedicated Specialist', desc: 'Personal concierge assigned' },
+                            { icon: 'solar:clock-square-bold', label: '24/7 Availability', desc: 'Around the clock booking' },
+                            { icon: 'solar:certificate-bold', label: 'Lifetime Guarantee', desc: 'Service warranty included' },
+                          ].map((item) => (
+                            <div key={item.label} className="flex items-center gap-2.5 rounded-2xl border border-violet-500/25 bg-violet-950/30 px-3.5 py-2.5">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-600/10 border border-amber-500/30">
+                                <iconify-icon icon={item.icon} width="16" className="text-amber-400" />
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300/90">{item.label}</p>
+                                <p className="text-[9px] text-violet-400/60">{item.desc}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+<div className="mt-6 flex flex-wrap items-center gap-3">
+                        <div className={`flex items-center gap-3 rounded-2xl border px-4 py-3.5 shadow-sm ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/40' : 'border-slate-200 bg-white'}`}>
+                          <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${highendScanEnabled ? 'bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-white shadow-lg' : 'bg-slate-900 text-white'}`}>
+                            <iconify-icon icon="solar:car-linear" width="20"></iconify-icon>
+                          </div>
+                          <div>
+                            <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>Selected Vehicle</p>
+                            <p className={`text-[15px] font-semibold ${highendScanEnabled ? 'text-white' : 'text-slate-900'}`}>
+                              {selectedScanVehicle ? selectedScanVehicle.name : 'No vehicle selected'}
+                            </p>
+                            <p className={`text-[11px] ${highendScanEnabled ? 'text-violet-400/60' : 'text-slate-500'}`}>
+                              {selectedScanVehicle ? [selectedScanVehicle.plate, selectedScanVehicle.type].filter(Boolean).join(' • ') : 'Add a vehicle to begin'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {SCAN_HIGHLIGHTS.map((highlight) => (
+                          <div key={highlight.label} className={`rounded-2xl border px-4 py-3 shadow-sm backdrop-blur ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/40' : 'border-slate-200 bg-white/85'}`}>
+                            <p className={`text-xl font-semibold tracking-[-0.03em] ${highendScanEnabled ? 'text-amber-400' : 'text-slate-950'}`}>{highlight.value}</p>
+                            <p className={`text-[10px] uppercase tracking-[0.2em] ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-400'}`}>{highlight.label}</p>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          disabled={scanAnalyzing || scanIsHighend}
+                          onClick={() => setScanMode((prev) => (prev === 'highend' ? 'auto' : 'highend'))}
+                          className={`rounded-2xl border px-4 py-3 text-left transition-all group ${highendScanEnabled 
+                            ? 'border-amber-500/40 bg-gradient-to-br from-amber-950/60 via-violet-950/40 to-violet-900/30 text-amber-200 hover:border-amber-400 hover:shadow-[0_0_25px_rgba(251,191,36,0.25)]' 
+                            : 'border-slate-200 bg-white text-slate-600 hover:-translate-y-0.5 hover:border-violet-300 hover:text-violet-700'} ${scanAnalyzing || scanIsHighend ? 'cursor-not-allowed opacity-70' : 'hover:-translate-y-0.5'}`}
+                          title={scanIsHighend ? 'Auto enabled for high-end vehicle' : 'Toggle premium scan profile'}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${highendScanEnabled ? 'bg-gradient-to-br from-amber-500/30 to-amber-600/10 border border-amber-500/30' : 'bg-slate-100'}`}>
+                              <iconify-icon icon="solar:crown-bold" width="15" className={highendScanEnabled ? 'text-amber-400' : 'text-slate-400'}></iconify-icon>
+                            </div>
+                            <div>
+                              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-500">Scan Profile</p>
+                              <p className="text-sm font-semibold">{highendScanEnabled ? 'Maison Class' : 'Standard'}</p>
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+
+                      <div className="mt-8 flex flex-wrap gap-3">
+                        <button
+                          onClick={openScanFilePicker}
+                          className={`inline-flex items-center gap-2.5 rounded-2xl px-6 py-3.5 text-sm font-semibold shadow-[0_16px_32px_rgba(15,23,42,0.18)] transition-all hover:-translate-y-1 hover:shadow-[0_20px_40px_rgba(15,23,42,0.22)] ${highendScanEnabled 
+                              ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 text-slate-950 hover:from-amber-300 hover:via-amber-400 hover:to-amber-500' 
+                              : 'bg-slate-950 text-white hover:bg-slate-800'}`}
+                        >
+                          <iconify-icon icon="solar:camera-add-linear" width="18"></iconify-icon>
+                          {highendScanEnabled ? 'Schedule Private Scan' : 'Upload Scan Set'}
+                        </button>
+                        <button
+                          onClick={() => openBookingModal(selectedScanVehicle || undefined)}
+                          className={`inline-flex items-center gap-2.5 rounded-2xl border px-5 py-3.5 text-sm font-semibold shadow-sm transition-all hover:-translate-y-1 ${highendScanEnabled 
+                              ? 'border-amber-500/40 bg-gradient-to-br from-violet-950/50 via-violet-900/40 to-violet-800/30 text-amber-200 hover:border-amber-400 hover:bg-violet-900/50' 
+                              : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:text-slate-900'}`}
+                        >
+                          <iconify-icon icon="solar:calendar-add-linear" width="18"></iconify-icon>
+                          Private Appointment
+                        </button>
+                        {highendScanEnabled && (
+                          <button
+                            className="inline-flex items-center gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-950/30 px-4 py-2.5 text-xs font-semibold text-emerald-400/90"
+                          >
+                            <iconify-icon icon="solar:phone-rounded-bold" width="14" />
+                            <span>Concierge Line</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className={`rounded-[28px] border p-5 shadow-[0_20px_60px_rgba(15,23,42,0.05)] backdrop-blur sm:col-span-2 ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/30' : 'border-slate-200 bg-white/90'}`}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>AI Detection Engine</p>
+                            <p className={`mt-2 text-[36px] font-semibold tracking-[-0.06em] ${highendScanEnabled ? 'text-amber-400' : 'text-slate-950'}`}>99.7%</p>
+                            <p className={`mt-1 text-sm leading-6 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Museum-grade precision for luxury and exotic vehicles. Sub-micron scratch detection with OEM-matched paint calibration.' : 'High-confidence visual segmentation for dents, scratches, paint fade, and chip clusters.'}</p>
+                          </div>
+                          <div className={`flex h-14 w-14 items-center justify-center rounded-[22px] shadow-lg ${highendScanEnabled ? 'bg-gradient-to-br from-amber-400 to-amber-600 text-white' : 'bg-slate-950 text-white'}`}>
+                            <iconify-icon icon="solar:scanner-linear" width="24"></iconify-icon>
+                          </div>
+                        </div>
+                      <div className="mt-5 h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full rounded-full" style={{ 
+                          width: '97%', 
+                          background: highendScanEnabled 
+                            ? 'linear-gradient(90deg, #f59e0b 0%, #fbbf24 50%, #fcd34d 100%)' 
+                            : 'linear-gradient(90deg, #0f172a 0%, #0ea5e9 100%)', 
+                          backgroundSize: '200% 100%', 
+                          animation: 'gradientMove 2.8s linear infinite' 
+                        }} />
+                        </div>
+                        <div className={`mt-2 flex items-center justify-between text-[11px] ${highendScanEnabled ? 'text-amber-300/70' : 'text-slate-500'}`}>
+                          <span>{highendScanEnabled ? 'Precision calibration status' : 'Panel recognition'}</span>
+                          <span className="font-medium">97% scan completeness</span>
+                        </div>
+                      </div>
+
+                      <div className={`rounded-[28px] border p-5 shadow-sm ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/30' : 'border-slate-200 bg-white/85'}`}>
+                        <p className={`text-[11px] font-bold uppercase tracking-[0.2em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>3D Body Graph</p>
+                        <div className={`relative mt-4 flex h-32 items-center justify-center overflow-hidden rounded-[24px] border ${highendScanEnabled ? 'border-violet-500/30 bg-slate-900' : 'border-slate-100 bg-slate-50'}`}>
+                          <div className={`absolute h-24 w-24 rounded-full border ${highendScanEnabled ? 'border-violet-500/40' : 'border-sky-200'}`} />
+                          <div className={`absolute h-16 w-16 rounded-full border ${highendScanEnabled ? 'border-violet-400/60' : 'border-slate-300'}`} />
+                          <div className={`flex h-12 w-12 items-center justify-center rounded-full shadow-md ${highendScanEnabled ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-white' : 'bg-white text-slate-900'}`}>
+                            <iconify-icon icon="solar:car-linear" width="22" style={{ color: highendScanEnabled ? '#fff' : '#0f172a' }}></iconify-icon>
+                          </div>
+                        </div>
+                        <p className={`mt-4 text-sm font-semibold ${highendScanEnabled ? 'text-white' : 'text-slate-900'}`}>{highendScanEnabled ? 'Precision 3D body mapping' : '3D vehicle model generation'}</p>
+                        <p className={`mt-1 text-xs leading-5 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Sub-millimeter accuracy with OEM geometry matching for luxury vehicles.' : 'Body geometry clusters detected issues into an easy-to-review digital repair map.'}</p>
+                      </div>
+
+                      <div className={`rounded-[28px] border p-5 shadow-sm ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/20' : 'border-slate-200 bg-white/85'}`}>
+                        <div className="flex items-center justify-between">
+                          <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>3D Body Matrix</p>
+                          {highendScanEnabled && (
+                            <div className="flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-950/30 px-2 py-0.5">
+                              <span className="h-1 w-1 rounded-full bg-amber-400 animate-pulse" />
+                              <span className="text-[8px] font-semibold uppercase tracking-[0.1em] text-amber-400">Live</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className={`relative mt-4 flex h-32 items-center justify-center overflow-hidden rounded-[24px] border ${highendScanEnabled ? 'border-violet-500/30 bg-slate-950/50' : 'border-slate-100 bg-slate-50'}`}>
+                          {highendScanEnabled ? (
+                            <>
+                              <div className="absolute h-28 w-28 rounded-full border border-violet-500/30 animate-[spin_12s_linear_infinite]" />
+                              <div className="absolute h-20 w-20 rounded-full border border-amber-500/20 animate-[spin_8s_linear_infinite_reverse]" />
+                              <div className="absolute h-14 w-14 rounded-full border border-violet-400/40" />
+                            </>
+                          ) : (
+                            <>
+                              <div className="absolute h-24 w-24 rounded-full border border-sky-200" />
+                              <div className="absolute h-16 w-16 rounded-full border border-slate-300" />
+                            </>
+                          )}
+                          <div className={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg ${highendScanEnabled ? 'bg-gradient-to-br from-amber-400 to-amber-600 text-white' : 'bg-white text-slate-900'}`}>
+                            <iconify-icon icon="solar:car-linear" width="22"></iconify-icon>
+                          </div>
+                        </div>
+                        <p className={`mt-4 text-sm font-semibold ${highendScanEnabled ? 'text-white' : 'text-slate-900'}`}>{highendScanEnabled ? 'Precision 3D Digital Twin' : '3D vehicle model generation'}</p>
+                        <p className={`mt-1 text-xs leading-5 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Sub-millimeter geometry with OEM database matching.' : 'Body geometry clusters detected issues into an easy-to-review digital repair map.'}</p>
+                      </div>
+
+                      <div className={`rounded-[28px] border p-5 shadow-sm ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/20' : 'border-slate-200 bg-white/85'}`}>
+                        <div className="flex items-center justify-between">
+                          <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>AR Visualization</p>
+                          {highendScanEnabled && (
+                            <span className="text-[8px] font-semibold uppercase tracking-[0.1em] text-emerald-400">Real-time</span>
+                          )}
+                        </div>
+                        <div className="mt-4 grid grid-cols-2 gap-2.5">
+                          <div className={`rounded-2xl border p-3 ${highendScanEnabled ? 'border-rose-500/30 bg-rose-950/20' : 'border-rose-100 bg-rose-50'}`}>
+                            <div className="flex items-center justify-between">
+                              <p className={`text-[9px] font-bold uppercase tracking-[0.18em] ${highendScanEnabled ? 'text-rose-400' : 'text-rose-500'}`}>Before</p>
+                              <span className={`text-[8px] px-1.5 py-0.5 rounded ${highendScanEnabled ? 'bg-rose-950/50 text-rose-500' : 'bg-rose-100 text-rose-600'}`}>Original</span>
+                            </div>
+                            <div className={`mt-3 flex h-16 items-center justify-center rounded-2xl ${highendScanEnabled ? 'bg-slate-900/60 border border-rose-500/20' : 'bg-white'}`}>
+                              <iconify-icon icon="solar:car-linear" width="26" style={{ color: '#ef4444' }}></iconify-icon>
+                            </div>
+                          </div>
+                          <div className={`rounded-2xl border p-3 ${highendScanEnabled ? 'border-emerald-500/30 bg-emerald-950/20' : 'border-emerald-100 bg-emerald-50'}`}>
+                            <div className="flex items-center justify-between">
+                              <p className={`text-[9px] font-bold uppercase tracking-[0.18em] ${highendScanEnabled ? 'text-emerald-400' : 'text-emerald-500'}`}>After</p>
+                              <span className={`text-[8px] px-1.5 py-0.5 rounded ${highendScanEnabled ? 'bg-emerald-950/50 text-emerald-500' : 'bg-emerald-100 text-emerald-600'}`}>Restored</span>
+                            </div>
+                            <div className={`mt-3 flex h-16 items-center justify-center rounded-2xl ${highendScanEnabled ? 'bg-slate-900/60 border border-emerald-500/20' : 'bg-white'}`}>
+                              <iconify-icon icon="solar:car-linear" width="26" style={{ color: '#10b981' }}></iconify-icon>
+                            </div>
+                          </div>
+                        </div>
+                        <p className={`mt-4 text-sm font-semibold ${highendScanEnabled ? 'text-white' : 'text-slate-900'}`}>{highendScanEnabled ? 'Augmented Reality Simulation' : 'Before and after visualization'}</p>
+                        <p className={`mt-1 text-xs leading-5 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Factory-finish quality preview with color-matched rendering.' : 'AR shows the projected finish quality before you approve the work.'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <div className="grid gap-6 xl:grid-cols-[1.08fr,0.92fr]">
+                  <section className={`rounded-[30px] border p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] ${highendScanEnabled ? 'border-violet-500/30 bg-slate-950/70' : 'border-slate-200 bg-white'}`}>
+                    <div className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: highendScanEnabled ? 'rgba(139,92,246,0.2)' : '#f1f5f9' }}>
+                      <div>
+                        <p className={`text-[10px] font-bold uppercase tracking-[0.24em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>{highendScanEnabled ? 'Private Image Transfer' : 'Scan Vehicle (upload)'}</p>
+                        <h3 className={`mt-2 text-[28px] font-semibold tracking-[-0.04em] ${highendScanEnabled ? 'text-white' : 'text-slate-950'}`}>{highendScanEnabled ? 'Secure Image Upload' : 'Upload your scan set'}</h3>
+                        <p className={`mt-1 text-sm leading-6 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Encrypted transfer. Your privacy is paramount.' : 'Use clear front, rear, side, and angled shots. Upload up to 6 images for the best AI analysis.'}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {vehicles.length > 0 ? (
+                          vehicles.slice(0, 4).map((vehicle) => {
+                            const vehicleId = vehicle._id || vehicle.id;
+                            const isActive = vehicleId === (selectedScanVehicle?._id || selectedScanVehicle?.id);
+                            return (
+                              <button
+                                key={vehicleId}
+                                onClick={() => setScanVehicleId(vehicleId)}
+                                className={`rounded-2xl border px-4 py-2 text-left transition-all ${isActive 
+                                  ? highendScanEnabled 
+                                    ? 'border-amber-500/50 bg-amber-950/40 text-amber-200' 
+                                    : 'border-slate-900 bg-slate-900 text-white shadow-lg'
+                                  : highendScanEnabled 
+                                    ? 'border-violet-500/30 bg-violet-950/30 text-violet-300'
+                                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'}`}
+                              >
+                                <p className="text-xs font-semibold">{vehicle.plate || 'Vehicle'}</p>
+                                <p className={`text-[11px] ${isActive ? (highendScanEnabled ? 'text-amber-300/80' : 'text-slate-300') : (highendScanEnabled ? 'text-violet-400/60' : 'text-slate-400')}`}>{vehicle.name || vehicle.type || 'Vehicle profile'}</p>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <button
+                            onClick={() => setAddVehicleOpen(true)}
+                            className={`rounded-2xl border border-dashed px-4 py-2 text-sm font-semibold transition-colors ${highendScanEnabled 
+                              ? 'border-violet-500/40 bg-violet-950/20 text-violet-300 hover:border-violet-400 hover:bg-violet-900/30' 
+                              : 'border-slate-300 bg-slate-50 text-slate-600 hover:border-slate-400 hover:text-slate-900'}`}
+                          >
+                            Add vehicle profile
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div
+                      className={`mt-6 block overflow-hidden rounded-[30px] border-2 border-dashed p-5 transition-all sm:p-6 ${scanUploads.length === 0 ? 'cursor-pointer' : ''} ${scanDragActive ? 'border-slate-900 bg-slate-100 shadow-lg' : 'border-slate-200 bg-[linear-gradient(145deg,#ffffff_0%,#f8fafc_100%)] hover:border-slate-300 hover:bg-slate-50'}`}
+                      onDragOver={(event) => { event.preventDefault(); setScanDragActive(true); }}
+                      onDragEnter={() => setScanDragActive(true)}
+                      onDragLeave={() => setScanDragActive(false)}
+                      onDrop={handleScanDrop}
+                    >
+                      <input
+                        ref={scanFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="sr-only"
+                        onChange={handleScanUploadChange}
+                      />
+
+                      {scanUploads.length === 0 ? (
+                        <button
+                          type="button"
+                          onClick={openScanFilePicker}
+                          className={`flex min-h-[320px] w-full flex-col items-center justify-center rounded-[26px] border px-6 text-center shadow-inner transition-transform hover:-translate-y-1 ${highendScanEnabled 
+                            ? 'border-violet-500/30 bg-gradient-to-b from-slate-900/80 to-slate-950/60' 
+                            : 'border-slate-100 bg-white'}`}
+                        >
+                          <div className={`flex h-16 w-16 items-center justify-center rounded-[24px] shadow-lg ${highendScanEnabled 
+                            ? 'bg-gradient-to-br from-amber-400 to-amber-600 text-white' 
+                            : 'bg-slate-900 text-white'}`}>
+                            <iconify-icon icon="solar:camera-add-linear" width="28"></iconify-icon>
+                          </div>
+                          <h4 className={`mt-5 text-xl font-semibold tracking-[-0.03em] ${highendScanEnabled ? 'text-white' : 'text-slate-950'}`}>{highendScanEnabled ? 'Securely transfer your images' : 'Drop your vehicle photos here'}</h4>
+                          <p className={`mt-2 max-w-md text-sm leading-6 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>
+                            {highendScanEnabled 
+                              ? 'Private, encrypted transfer. Your images are processed with strict confidentiality.' 
+                              : 'AI detects defects, identifies problem areas, and prepares your 3D and AR preview from the uploaded scan set.'}
+                          </p>
+                          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                            {highendScanEnabled ? (
+                              <>
+                                <span className="rounded-full border border-violet-500/30 bg-violet-950/30 px-3 py-1 text-[11px] font-semibold text-violet-300">Front</span>
+                                <span className="rounded-full border border-violet-500/30 bg-violet-950/30 px-3 py-1 text-[11px] font-semibold text-violet-300">Rear</span>
+                                <span className="rounded-full border border-violet-500/30 bg-violet-950/30 px-3 py-1 text-[11px] font-semibold text-violet-300">Sides</span>
+                                <span className="rounded-full border border-violet-500/30 bg-violet-950/30 px-3 py-1 text-[11px] font-semibold text-violet-300">Detail</span>
+                              </>
+                            ) : (
+                              <>
+                                {['Front angle', 'Rear angle', 'Left side', 'Right side', 'Close-up damage'].map((item) => (
+                                  <span key={item} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-500">
+                                    {item}
+                                  </span>
+                                ))}
+                              </>
+                            )}
+                          </div>
+                          <span className={`mt-6 inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] ${highendScanEnabled 
+                            ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950' 
+                            : 'bg-slate-950 text-white'}`}>
+                            <iconify-icon icon="solar:scanner-linear" width="16"></iconify-icon>
+                            {highendScanEnabled ? 'Begin Private Scan' : 'Start scan'}
+                          </span>
+                        </button>
+                      ) : (
+                        <div className="space-y-5">
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            {scanUploads.map((upload, index) => (
+                              <div
+                                key={upload.id}
+                                className={`${index === 0 ? 'sm:col-span-2 sm:row-span-2 min-h-[280px]' : 'min-h-[132px]'} group relative overflow-hidden rounded-[24px] border border-slate-200 bg-slate-100`}
+                                style={{ animation: `floatCard ${3.2 + (index * 0.45)}s ease-in-out infinite` }}
+                              >
+                                <img src={upload.preview} alt={upload.name} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent" />
+
+                                {/* Scanning overlay animation */}
+                                {scanAnalyzing && (
+                                  <div className="absolute inset-0 z-10">
+                                    <div className="absolute inset-0 bg-slate-950/30 backdrop-blur-[1px]" />
+                                    <div className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent"
+                                      style={{ animation: 'scanLine 2s ease-in-out infinite', top: '0%' }} />
+                                    <div className="absolute left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-300 to-transparent opacity-80"
+                                      style={{ animation: 'scanLine 2.7s ease-in-out infinite', top: '0%' }} />
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                      <div className="flex items-center gap-2 rounded-full bg-white/90 px-4 py-2 backdrop-blur shadow-lg">
+                                        <iconify-icon icon="line-md:loading-twotone-loop" width="16" style={{ color: '#0f172a' }}></iconify-icon>
+                                        <span className="text-xs font-bold text-slate-900">Analyzing...</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                                {scanComplete && (
+                                  <div className="absolute inset-0 z-10 flex items-center justify-center">
+                                    <div className="flex items-center gap-2 rounded-full bg-emerald-500/90 px-4 py-2 backdrop-blur shadow-lg" style={{ animation: 'fadeInScale 0.4s ease-out' }}>
+                                      <iconify-icon icon="solar:check-circle-bold" width="16" style={{ color: '#fff' }}></iconify-icon>
+                                      <span className="text-xs font-bold text-white">Analyzed</span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="absolute left-4 right-4 top-4 flex items-start justify-between gap-3">
+                                  <span className="rounded-full bg-white/85 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-700 backdrop-blur">
+                                    {index === 0 ? 'Primary angle' : `Panel ${index + 1}`}
+                                  </span>
+                                  <span className="rounded-full bg-slate-950/70 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white backdrop-blur">
+                                    {formatFileSize(upload.size)}
+                                  </span>
+                                </div>
+                                <div className="absolute bottom-4 left-4 right-4">
+                                  <p className="truncate text-sm font-semibold text-white">{upload.name}</p>
+                                  <p className="text-xs text-white/75">{scanComplete ? '✓ Defects mapped' : scanAnalyzing ? 'Scanning...' : 'Queued for AI analysis'}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="space-y-3">
+                            {/* Progress bar */}
+                            {(scanAnalyzing || scanComplete) && (
+                              <div className="overflow-hidden rounded-full bg-slate-200 h-2">
+                                <div className="h-full rounded-full transition-all duration-300 ease-out"
+                                  style={{
+                                    width: `${scanProgress}%`,
+                                    background: scanComplete ? 'linear-gradient(90deg, #10b981, #34d399)' : 'linear-gradient(90deg, #0f172a, #0ea5e9)',
+                                  }} />
+                              </div>
+                            )}
+
+                            <div className="flex flex-col gap-4 rounded-[26px] border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+                                <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 font-semibold text-slate-900 shadow-sm">
+                                  <iconify-icon icon="solar:folder-with-files-linear" width="16"></iconify-icon>
+                                  {scanUploads.length} image{scanUploads.length > 1 ? 's' : ''} uploaded
+                                </span>
+                                <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-600">
+                                  Total size {formatFileSize(scanUploadTotalSize)}
+                                </span>
+                                {scanAnalyzing && (
+                                  <span className="inline-flex items-center gap-2 rounded-full bg-cyan-50 border border-cyan-200 px-3 py-2 font-bold text-cyan-700 text-xs">
+                                    <iconify-icon icon="line-md:loading-twotone-loop" width="14"></iconify-icon>
+                                    Analyzing {scanProgress}%
+                                  </span>
+                                )}
+                                {scanComplete && (
+                                  <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-2 font-bold text-emerald-700 text-xs">
+                                    <iconify-icon icon="solar:check-circle-bold" width="14"></iconify-icon>
+                                    Analysis complete
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {!scanAnalyzing && !scanComplete && (
+                                  <button
+                                    onClick={startScanAnalysis}
+                                    className="inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-bold text-white shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl"
+                                    style={{ background: highendScanEnabled ? 'linear-gradient(135deg, #7c3aed, #1d4ed8)' : 'linear-gradient(135deg, #0ea5e9, #6366f1)' }}
+                                  >
+                                    <iconify-icon icon="solar:scanner-linear" width="16"></iconify-icon>
+                                    {highendScanEnabled ? 'Run High-End AI Analysis' : 'Run AI Analysis'}
+                                  </button>
+                                )}
+                                {scanComplete && (
+                                  <button
+                                    onClick={startScanAnalysis}
+                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:text-slate-900"
+                                  >
+                                    Re-analyze
+                                  </button>
+                                )}
+                                <button
+                                  onClick={openScanFilePicker}
+                                  disabled={scanAnalyzing}
+                                  className={`rounded-2xl px-4 py-2.5 text-sm font-semibold transition-all ${scanAnalyzing ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-slate-950 text-white hover:-translate-y-0.5 hover:bg-slate-800'}`}
+                                >
+                                  Replace Uploads
+                                </button>
+                                <button
+                                  onClick={clearScanUploads}
+                                  disabled={scanAnalyzing}
+                                  className={`rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold transition-colors ${scanAnalyzing ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:text-slate-900'}`}
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                            </div>
+                            {scanError && (
+                              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-semibold text-rose-700">
+                                {scanError}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)]">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">System Automatically</p>
+                        <h3 className="mt-2 text-[26px] font-semibold tracking-[-0.04em] text-slate-950">AI analysis pipeline</h3>
+                      </div>
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-right">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-500">Status</p>
+                        <p className="text-sm font-semibold text-emerald-700">
+                          {scanAnalyzing
+                            ? 'Analyzing in progress'
+                            : scanComplete
+                              ? 'Analysis complete'
+                              : scanUploads.length > 0
+                                ? 'Ready to analyze'
+                                : 'Waiting for upload'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 space-y-3">
+                      {SCAN_FLOW_STEPS.map((step, index) => {
+                        const isComplete = scanActiveStep > index;
+                        const isActive = scanActiveStep === index;
+
+                        return (
+                          <div
+                            key={step.title}
+                            className={`rounded-[24px] border p-4 transition-all duration-500 ${isComplete ? 'border-emerald-200 bg-emerald-50/80' : isActive ? 'border-slate-900 bg-slate-950 text-white shadow-xl' : 'border-slate-200 bg-slate-50/70 text-slate-700'}`}
+                            style={{ animation: isActive ? 'activePulse 1.2s ease-in-out infinite' : 'none' }}
+                          >
+                            <div className="flex items-start gap-4">
+                              <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl transition-all duration-500 ${isComplete ? 'bg-emerald-600 text-white' : isActive ? 'bg-white text-slate-950' : 'bg-white text-slate-500'}`}>
+                                {isComplete ? (
+                                  <iconify-icon icon="solar:check-circle-bold" width="20"></iconify-icon>
+                                ) : isActive && scanAnalyzing ? (
+                                  <iconify-icon icon="line-md:loading-twotone-loop" width="20"></iconify-icon>
+                                ) : (
+                                  <iconify-icon icon={step.icon} width="20"></iconify-icon>
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className={`text-sm font-semibold ${isActive ? 'text-white' : isComplete ? 'text-emerald-900' : 'text-slate-900'}`}>{step.title}</p>
+                                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${isActive ? 'bg-white/15 text-white' : isComplete ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-400'}`}>
+                                    {isComplete ? 'Done' : isActive ? (scanAnalyzing ? 'Running' : step.tag) : step.tag}
+                                  </span>
+                                </div>
+                                <p className={`mt-1 text-xs leading-5 ${isActive ? 'text-white/75' : isComplete ? 'text-emerald-800/80' : 'text-slate-500'}`}>{step.desc}</p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {scanError && (
+                      <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+                        {scanError}
+                      </div>
+                    )}
+                  </section>
+                </div>
+
+                <div className="grid gap-6 xl:grid-cols-[0.9fr,0.9fr,0.85fr]">
+                  <section className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)]">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">AI Based Damage Detection</p>
+                    <h3 className="mt-2 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">Detected problem areas</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-500">The system automatically identifies affected panels and suggests the recommended repair areas.</p>
+
+                    <div className="relative mt-6 h-48 overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(145deg,#ffffff_0%,#f8fafc_100%)]">
+                      <div className="absolute left-1/2 top-1/2 h-28 w-56 -translate-x-1/2 -translate-y-1/2 rounded-[42px] border border-slate-300 bg-white shadow-inner" />
+                      <div className="absolute left-1/2 top-1/2 h-20 w-40 -translate-x-1/2 -translate-y-1/2 rounded-[34px] border border-slate-200" />
+                      <div className="absolute left-1/2 top-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-slate-950 text-white shadow-lg">
+                        <iconify-icon icon="solar:car-linear" width="22"></iconify-icon>
+                      </div>
+                      {[
+                        { top: '32%', left: '24%', color: '#ef4444' },
+                        { top: '46%', left: '70%', color: '#f59e0b' },
+                        { top: '58%', left: '44%', color: '#0ea5e9' },
+                      ].map((point, index) => (
+                        <div key={index} className="absolute" style={{ top: point.top, left: point.left }}>
+                          <span className="absolute -inset-2 rounded-full opacity-20" style={{ background: point.color }} />
+                          <span className="relative block h-3.5 w-3.5 rounded-full border-2 border-white shadow-lg" style={{ background: point.color }} />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-5 space-y-3">
+                      {SCAN_DAMAGE_ZONES.map((zone) => (
+                        <div key={zone.title} className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+                          <span className="mt-1 h-2.5 w-2.5 rounded-full" style={{ background: zone.tone }} />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-semibold text-slate-900">{zone.title}</p>
+                              <span className="rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ background: zone.bg, color: zone.tone }}>
+                                Recommended
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-slate-500">{zone.note}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)]">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">AR Shows Repair Simulation</p>
+                    <h3 className="mt-2 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">Before and after visualization</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-500">Review the projected finish quality after repainting, blending, and final correction.</p>
+
+                    <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-[26px] border border-rose-100 bg-rose-50 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-rose-500">Before</p>
+                          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-rose-500">Damage visible</span>
+                        </div>
+                        <div className="mt-4 flex h-32 items-center justify-center rounded-[22px] border border-white/80 bg-white shadow-sm">
+                          <iconify-icon icon="solar:car-linear" width="48" style={{ color: '#ef4444' }}></iconify-icon>
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {['Scratch', 'Dent', 'Paint chip'].map((tag) => (
+                            <span key={tag} className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-rose-500 shadow-sm">{tag}</span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-[26px] border border-emerald-100 bg-emerald-50 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-500">After</p>
+                          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-500">Repair simulation</span>
+                        </div>
+                        <div className="mt-4 flex h-32 items-center justify-center rounded-[22px] border border-white/80 bg-white shadow-sm">
+                          <iconify-icon icon="solar:car-linear" width="48" style={{ color: '#10b981' }}></iconify-icon>
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {['Surface restored', 'Color blend', 'Gloss finish'].map((tag) => (
+                            <span key={tag} className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-emerald-600 shadow-sm">{tag}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 rounded-[26px] border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">3D vehicle model generation</p>
+                          <p className="mt-1 text-xs text-slate-500">Anchors every repair recommendation to a precise panel location.</p>
+                        </div>
+                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-white">
+                          <iconify-icon icon="solar:scanner-linear" width="20"></iconify-icon>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)]">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">System Calculates Price</p>
+                    <h3 className="mt-2 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">Estimate and confirm</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-500">A guided estimate is prepared from the detected damage severity and recommended service mix.</p>
+
+                    <div className="mt-5 rounded-[28px] border border-slate-200 bg-[linear-gradient(145deg,#ffffff_0%,#f8fafc_100%)] p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Estimated range</p>
+                          <p className="mt-2 text-[30px] font-semibold tracking-[-0.05em] text-slate-950">
+                            {formatPeso(scanPricing.low)} - {formatPeso(scanPricing.high)}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-right">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-600">Recommended</p>
+                          <p className="text-sm font-semibold text-amber-700">{formatPeso(scanEstimateTotal)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-5 space-y-3">
+                        {scanEstimateItems.map((item) => (
+                          <div key={item.label} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                              <p className="text-xs text-slate-500">Aligned to the uploaded damage map and panel severity</p>
+                            </div>
+                            <p className="text-sm font-semibold text-slate-900">{item.included ? 'Included' : formatPeso(item.amount)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-5 rounded-[28px] border border-slate-200 bg-slate-950 p-5 text-white shadow-xl">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Customer Confirms</p>
+                      <h4 className="mt-2 text-xl font-semibold tracking-[-0.03em]">Ready to move forward?</h4>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">
+                        Confirm the AI recommendation to continue to booking with the selected vehicle and estimated cost context.
+                      </p>
+
+                      <div className="mt-5 flex flex-col gap-3">
+                        <button
+                          onClick={() => openBookingModal(selectedScanVehicle || undefined)}
+                          disabled={!scanComplete}
+                          className={`rounded-2xl px-4 py-3 text-sm font-semibold transition-all ${!scanComplete ? 'cursor-not-allowed bg-white/10 text-slate-500' : 'bg-white text-slate-950 shadow-lg hover:-translate-y-0.5'}`}
+                        >
+                          {scanComplete ? '✓ Confirm and Book Service' : scanAnalyzing ? 'Analysis in progress...' : 'Complete AI analysis to proceed'}
+                        </button>
+                        <button
+                          onClick={() => setAddVehicleOpen(true)}
+                          className="rounded-2xl border border-white/15 px-4 py-3 text-sm font-semibold text-white/85 transition-colors hover:border-white/30 hover:text-white"
+                        >
+                          Update vehicle profile
+                        </button>
+                      </div>
+
+                      <p className="mt-4 text-xs text-slate-400">
+                        {scanUploads.length > 0
+                          ? `Estimate prepared for ${selectedScanVehicle?.name || 'your selected vehicle'}.`
+                          : 'Upload at least one vehicle image to unlock the AI estimate flow.'}
+                      </p>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            ) : activeSection === 'documents' ? (
+              <div className="space-y-6 pb-10">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-[22px] font-semibold text-slate-900 tracking-tight">Documents</h2>
+                    <p className="text-sm text-slate-500 mt-0.5">Download service records, intake forms, and generated reports.</p>
+                  </div>
+                  <span className="text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded-full px-3 py-1">
+                    {documents.length} file{documents.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+                  {documents.length === 0 ? (
+                    <div className="p-10 text-center">
+                      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-50">
+                        <iconify-icon icon="solar:document-text-linear" width="24" className="text-slate-300"></iconify-icon>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-900">No documents available yet</p>
+                      <p className="text-xs text-slate-500 mt-1">Book a service or run a scan to generate your first document.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100">
+                      {documents.map((doc) => (
+                        <div key={doc.id} className="flex items-start gap-4 p-4 hover:bg-slate-50 transition-colors">
+                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${doc.type === 'report' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                            <iconify-icon icon={doc.icon || 'solar:file-text-bold'} width="20"></iconify-icon>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-slate-900 truncate">{doc.title}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{doc.desc}</p>
+                            <p className="text-xs text-slate-400 mt-1">{doc.date}</p>
+                          </div>
+                          <button
+                            onClick={() => downloadDocument(doc)}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:border-slate-300 transition-colors"
+                          >
+                            Download
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : activeSection === 'rewards' ? (
+              <div className="space-y-6 pb-10">
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Loyalty</p>
+                  <h2 className="mt-2 text-[26px] font-semibold tracking-[-0.04em] text-slate-950">Rewards Center</h2>
+                  <p className="mt-1 text-sm text-slate-500">Earn points from completed services and redeem premium perks.</p>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
+                      <iconify-icon icon="solar:star-bold" width="16"></iconify-icon>
+                      {customerStats.loyaltyPoints.toLocaleString()} points
+                    </span>
+                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700">
+                      Tier: {rewardTier}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  {rewardCatalog.map((reward) => {
+                    const canRedeem = customerStats.loyaltyPoints >= reward.points;
+                    return (
+                      <div key={reward.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">{reward.points} pts</p>
+                        <h3 className="mt-2 text-base font-semibold text-slate-900">{reward.title}</h3>
+                        <p className="mt-1 text-xs text-slate-500">{reward.desc}</p>
+                        <button
+                          onClick={() => redeemReward(reward)}
+                          className={`mt-4 w-full rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${canRedeem ? 'bg-slate-900 text-white hover:bg-slate-800' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                        >
+                          {canRedeem ? `Redeem (${reward.code})` : 'Not enough points'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                {rewardRedeemMessage && (
+                  <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-700">
+                    {rewardRedeemMessage}
+                  </div>
+                )}
+              </div>
+            ) : activeSection === 'settings' ? (
               <div className="max-w-2xl mx-auto space-y-8 pb-12">
                 <div>
                   <h2 className="text-xl font-semibold text-slate-900 mb-1">Account Settings</h2>
@@ -1394,7 +2898,10 @@ export default function CustomerDashboard() {
 
                               {/* Actions */}
                               <div className="mt-4 grid grid-cols-3 gap-1 border-t border-slate-100 pt-3">
-                                <button className="flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700 transition-colors py-1.5 rounded-lg hover:bg-slate-50">
+                                <button
+                                  onClick={() => openScanStudio(v)}
+                                  className="flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700 transition-colors py-1.5 rounded-lg hover:bg-slate-50"
+                                >
                                   <iconify-icon icon="solar:scanner-linear" width="17"></iconify-icon>
                                   <span className="text-[11px] font-medium">Scan</span>
                                 </button>
@@ -1429,7 +2936,7 @@ export default function CustomerDashboard() {
                   <section>
                     <div className="flex items-center justify-between mb-4">
                       <h2 className="text-lg font-medium tracking-tight text-slate-900">AI &amp; Documents</h2>
-                      <a href="#" className="text-sm text-slate-500 hover:text-slate-900">View all</a>
+                      <button onClick={() => nav('documents')} className="text-sm text-slate-500 hover:text-slate-900">View all</button>
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-lg shadow-sm">
@@ -2036,6 +3543,54 @@ export default function CustomerDashboard() {
         20% { transform: rotate(-10deg); }
         25% { transform: rotate(0); }
         100% { transform: rotate(0); }
+      }
+      @keyframes scanLine {
+        0% { top: 0%; opacity: 0; }
+        10% { opacity: 1; }
+        90% { opacity: 1; }
+        100% { top: 100%; opacity: 0; }
+      }
+      @keyframes fadeInScale {
+        from { opacity: 0; transform: scale(0.7); }
+        to { opacity: 1; transform: scale(1); }
+      }
+      @keyframes heroFloatA {
+        0%, 100% { transform: translate3d(0, 0, 0); }
+        50% { transform: translate3d(0, -12px, 0); }
+      }
+      @keyframes heroFloatB {
+        0%, 100% { transform: translate3d(0, 0, 0); }
+        50% { transform: translate3d(-10px, 10px, 0); }
+      }
+      @keyframes heroSweep {
+        0% { transform: translateX(-120%); opacity: 0; }
+        20% { opacity: 1; }
+        80% { opacity: 1; }
+        100% { transform: translateX(120%); opacity: 0; }
+      }
+      @keyframes gradientMove {
+        0% { background-position: 0% 50%; }
+        100% { background-position: 100% 50%; }
+      }
+      @keyframes floatCard {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-4px); }
+      }
+      @keyframes activePulse {
+        0%, 100% { box-shadow: 0 16px 30px rgba(15, 23, 42, 0.18); }
+        50% { box-shadow: 0 24px 40px rgba(14, 165, 233, 0.28); }
+      }
+      @keyframes glowPulse {
+        0%, 100% { box-shadow: 0 0 20px rgba(251, 191, 36, 0.25); }
+        50% { box-shadow: 0 0 35px rgba(251, 191, 36, 0.45); }
+      }
+      @keyframes shimmerGlow {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+      }
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
       }
     `}</style>
 

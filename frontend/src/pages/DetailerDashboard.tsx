@@ -188,7 +188,7 @@ export default function DetailerDashboard() {
     const [activeTab, setActiveTab] = useState<TabType>(() => {
         const hash = window.location.hash.replace('#', '');
         if (validTabs.includes(hash as TabType)) return hash as TabType;
-        
+
         try {
             const savedSettings = localStorage.getItem('detailer_settings');
             if (savedSettings) {
@@ -201,7 +201,7 @@ export default function DetailerDashboard() {
                     if (defaultTab === 'history') return 'records' as TabType; // map history to records tab
                 }
             }
-        } catch (e) {}
+        } catch (e) { }
 
         return 'dashboard';
     });
@@ -1205,8 +1205,8 @@ export default function DetailerDashboard() {
             //     confirm repair recommendations
             return [
                 { id: 'dashboard', label: "Today's Jobs", icon: LayoutDashboard, badge: finalPendingJobs.length > 0 ? finalPendingJobs.length : undefined },
-                { id: 'photos',    label: 'Before / After',   icon: Camera },
-                { id: 'notes',     label: 'Customer Notes',   icon: MessageSquare },
+                { id: 'photos', label: 'Before / After', icon: Camera },
+                { id: 'notes', label: 'Customer Notes', icon: MessageSquare },
                 { id: 'ai_damage_detection', label: 'AI Scan & AR', icon: Zap },
             ];
         }
@@ -1217,8 +1217,8 @@ export default function DetailerDashboard() {
             //     deductions, low-stock alerts (all inside the Inventory tab)
             //   • Supports: voice assistant inventory logging
             return [
-                { id: 'inventory',       label: 'Inventory',        icon: Package },
-                { id: 'voice_assistant', label: 'Voice Assistant',  icon: Mic },
+                { id: 'inventory', label: 'Inventory', icon: Package },
+                { id: 'voice_assistant', label: 'Voice Assistant', icon: Mic },
             ];
         }
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Car, LogIn, UserPlus, Mail, Lock, User, Loader2, ArrowLeft, ShieldCheck, RefreshCw, AlertTriangle, LockKeyhole, Clock } from "lucide-react";
-import { signInWithPopup } from "firebase/auth";
+import { signInWithPopup, signOut } from "firebase/auth";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
@@ -231,6 +231,7 @@ export default function Login() {
 
             // ── Call backend /social-login to sync user + get JWT ──
             let didRedirect = false;
+            let didBlock = false; // True if account is suspended — prevents "Welcome back!" fallback
             try {
                 const backendUrl = getBaseApiUrl();
                 const resp = await fetch(`${backendUrl}/auth/social-login`, {
@@ -255,6 +256,22 @@ export default function Login() {
                     }
 
                     if (backendUser) {
+                        // Block suspended/inactive accounts before setting session
+                        if (backendUser.isActive === false) {
+                            didBlock = true;
+                            await signOut(auth).catch(() => {});
+                            markLoginComplete();
+                            localStorage.removeItem('autospf_token');
+                            localStorage.removeItem('autospf_backend_user');
+                            localStorage.removeItem('autospf_session_cache');
+                            toast.error('Account Suspended', {
+                                description: 'This account is disabled. Please try to contact the administrator.',
+                                duration: 6000,
+                            });
+                            setIsLoading(false);
+                            return;
+                        }
+
                         localStorage.setItem('autospf_backend_user', JSON.stringify(backendUser));
 
                         // Build the user object for AuthContext
@@ -296,13 +313,29 @@ export default function Login() {
                     }
                     console.log('✅ [Login] Backend social-login synced successfully');
                 } else {
+                    // Handle 403 ACCOUNT_INACTIVE from backend
+                    const errBody = await resp.json().catch(() => ({}));
+                    if (resp.status === 403 && errBody?.code === 'ACCOUNT_INACTIVE') {
+                        didBlock = true;
+                        await signOut(auth).catch(() => {});
+                        markLoginComplete();
+                        localStorage.removeItem('autospf_token');
+                        localStorage.removeItem('autospf_backend_user');
+                        localStorage.removeItem('autospf_session_cache');
+                        toast.error('Account Suspended', {
+                            description: errBody?.message || 'This account is disabled. Please try to contact the administrator.',
+                            duration: 6000,
+                        });
+                        setIsLoading(false);
+                        return;
+                    }
                     console.warn('⚠️ [Login] Backend social-login returned', resp.status);
                 }
             } catch (backendErr) {
                 console.warn('⚠️ [Login] Backend social-login call failed:', backendErr);
             }
 
-            if (!didRedirect) {
+            if (!didRedirect && !didBlock) {
                 // Fallback: let onAuthStateChanged handle the rest
                 markLoginComplete();
                 toast.success("Welcome back!");

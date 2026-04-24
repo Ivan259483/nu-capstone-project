@@ -51,6 +51,20 @@ router.delete('/:id', authenticate, authorizeStaffManagers, userController.delet
 router.post('/', authenticate, authorizeStaffManagers, userController.createUser);
 
 /**
+ * @route PATCH /api/users/:id/archive
+ * @desc Archive (deactivate) a user account without deleting data
+ * @access Private - Staff managers
+ */
+router.patch('/:id/archive', authenticate, authorizeStaffManagers, userController.archiveUser);
+
+/**
+ * @route PATCH /api/users/:id/activate
+ * @desc Reactivate an archived/suspended user account
+ * @access Private - Staff managers
+ */
+router.patch('/:id/activate', authenticate, authorizeStaffManagers, userController.activateUser);
+
+/**
  * @route PATCH /api/users/change-password
  * @desc Change user password
  * @access Private

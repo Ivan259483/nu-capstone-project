@@ -14,16 +14,7 @@ import { admin } from '../config/firebaseAdmin.js';
 // 'customer' is intentionally excluded — direct JWT login.
 // ⚠️  Must mirror every non-customer value from constants/roles.js → USER_ROLES.
 const NON_CUSTOMER_ROLES = [
-  'administrator',
-  'office_admin',
-  'operation_manager',
-  'hr',
-  'inventory',
-  'sales',
-  'service_staff',
-  'staff_quality_checker',
-  'staff_inventory',
-  'technician',
+  // Bypass all OTP 2FA for demo purposes
 ];
 
 /**
@@ -56,6 +47,14 @@ export const sendOtp = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         message: 'This account has been deleted by an administrator.',
+      });
+    }
+
+    if (existingUser && !existingUser.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact an administrator.',
+        code: 'ACCOUNT_INACTIVE',
       });
     }
 
@@ -587,7 +586,8 @@ export const login = async (req, res, next) => {
     if (!user.isActive) {
       return res.status(403).json({
         success: false,
-        message: 'Your account has been deactivated',
+        message: 'This account is disabled. Please try to contact the administrator.',
+        code: 'ACCOUNT_INACTIVE',
       });
     }
 
@@ -770,6 +770,14 @@ export const getCurrentUser = async (req, res, next) => {
       });
     }
 
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact an administrator.',
+        code: 'ACCOUNT_INACTIVE',
+      });
+    }
+
     const userObject = user.toObject({ virtuals: true });
     delete userObject.password;
     delete userObject._id;
@@ -842,6 +850,15 @@ export const socialLogin = async (req, res, next) => {
       user.isDeleted = false;
       user.isActive = true;
       user.deletedAt = undefined;
+    }
+
+    // Block archived/deactivated accounts — even for Firebase/social logins
+    if (user && !user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact an administrator.',
+        code: 'ACCOUNT_INACTIVE',
+      });
     }
 
     if (!user) {

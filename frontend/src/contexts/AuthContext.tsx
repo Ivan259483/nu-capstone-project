@@ -173,6 +173,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     // ── Ultra-fast path: session cache hit ──
                     const cached = getSessionCache();
                     if (cached && cached.user.id === firebaseUser.uid) {
+                        // Strictly reject suspended/inactive accounts even on cache hit
+                        if (cached.user.isActive === false) {
+                            console.warn('🔒 [AuthContext] Session cache hit but user is inactive — forcing logout.');
+                            clearSessionCache();
+                            localStorage.removeItem('autospf_token');
+                            localStorage.removeItem('autospf_backend_user');
+                            userStorage.setCurrentUser(null);
+                            setUser(null);
+                            await signOut(auth).catch(() => {});
+                            setIsLoading(false);
+                            setIsFirebaseAuthReady(true);
+                            return;
+                        }
                         console.log(`⚡ [AuthContext] Session cache hit — instant restore, role: ${cached.user.role}`);
                         const sanitized = sanitizeUser(cached.user);
                         userStorage.setCurrentUser(sanitized);
@@ -219,6 +232,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             const backendUser = syncJson.data?.user;
                             const backendToken = syncJson.data?.token;
 
+                            // Block suspended/inactive accounts immediately
+                            if (backendUser && backendUser.isActive === false) {
+                                console.warn('🔒 [AuthContext] Backend sync returned inactive user — forcing logout.');
+                                clearSessionCache();
+                                localStorage.removeItem('autospf_token');
+                                localStorage.removeItem('autospf_backend_user');
+                                userStorage.setCurrentUser(null);
+                                setUser(null);
+                                await signOut(auth).catch(() => {});
+                                setIsLoading(false);
+                                setIsFirebaseAuthReady(true);
+                                return;
+                            }
+
                             if (backendToken) {
                                 localStorage.setItem('autospf_token', backendToken);
                                 console.log('✅ [onAuth] Fresh backend JWT saved');
@@ -238,8 +265,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                                 console.log(`✅ [onAuth] Backend sync OK — role: ${resolvedRole}`);
                             }
                         } else {
-                            // ── Backend returned 4xx/5xx — DO NOT sign out ──
-                            const errText = await syncResp.text().catch(() => '');
+                            // ── Backend returned 4xx/5xx ──
+                            const errBody = await syncResp.json().catch(() => ({}));
+                            // If specifically ACCOUNT_INACTIVE, force logout
+                            if (syncResp.status === 403 && errBody?.code === 'ACCOUNT_INACTIVE') {
+                                console.warn('🔒 [AuthContext] socialLogin returned ACCOUNT_INACTIVE — forcing logout.');
+                                clearSessionCache();
+                                localStorage.removeItem('autospf_token');
+                                localStorage.removeItem('autospf_backend_user');
+                                userStorage.setCurrentUser(null);
+                                setUser(null);
+                                await signOut(auth).catch(() => {});
+                                setIsLoading(false);
+                                setIsFirebaseAuthReady(true);
+                                return;
+                            }
+                            const errText = JSON.stringify(errBody);
                             console.warn(`⚠️ [onAuth] Backend sync returned ${syncResp.status} — keeping Firebase session alive. Body: ${errText}`);
                         }
                     } catch (syncErr) {
@@ -304,6 +345,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     console.log('ℹ️ [AuthContext] No Firebase session but backend token found — restoring backend-only user.');
                     try {
                         const parsed = JSON.parse(backendUserRaw);
+
+                        // Block suspended/inactive backend-only accounts
+                        if (parsed.isActive === false) {
+                            console.warn('🔒 [AuthContext] Backend-only user is inactive — clearing session.');
+                            userStorage.setCurrentUser(null);
+                            setUser(null);
+                            localStorage.removeItem('autospf_token');
+                            localStorage.removeItem('autospf_backend_user');
+                            clearSessionCache();
+                            setIsLoading(false);
+                            setIsFirebaseAuthReady(true);
+                            return;
+                        }
+
                         const restoredUser: User = {
                             id: parsed._id || parsed.id || '',
                             _id: parsed._id || parsed.id || '',
@@ -361,6 +416,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 ? json.data.find((u: any) => u.email?.toLowerCase() === email.toLowerCase())
                 : json.data;
             if (!found) return;
+
+            // If the account was deactivated while the user is active, force logout immediately
+            if (found.isActive === false) {
+                console.warn('🔒 [AuthContext] Background refresh detected inactive account — forcing logout.');
+                clearSessionCache();
+                localStorage.removeItem('autospf_token');
+                localStorage.removeItem('autospf_backend_user');
+                userStorage.setCurrentUser(null);
+                setUser(null);
+                await signOut(auth).catch(() => {});
+                window.location.href = '/login';
+                return;
+            }
 
             const migratedRole = migrateLegacyUserRole(found.role);
             const newRole = migratedRole || currentUser.role;
@@ -451,11 +519,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 };
             }
 
+            // ── Check backend 403 ACCOUNT_INACTIVE: suspended/archived account ──
+            if (backendStatus === 403 && backendBody?.code === 'ACCOUNT_INACTIVE') {
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                if (firebaseCred.status === 'fulfilled') {
+                    await signOut(auth);
+                }
+                clearSessionCache();
+                localStorage.removeItem('autospf_token');
+                localStorage.removeItem('autospf_backend_user');
+                userStorage.setCurrentUser(null);
+                setUser(null);
+                return {
+                    success: false,
+                    message: backendBody.message || 'This account is disabled. Please try to contact the administrator.',
+                };
+            }
+
             // ── Firebase MUST succeed for normal login flow ──
             // EXCEPTION: If the backend returned a 2FA OTP challenge (requiresOTP),
             // we must honour it even if Firebase rejected — staff/admin accounts
             // created via the admin panel may not exist in Firebase Auth.
             if (firebaseCred.status === 'rejected') {
+                // ── ACCOUNT_INACTIVE intercept (Firebase rejected, backend returned 403) ──
+                if (backendStatus === 403 && backendBody?.code === 'ACCOUNT_INACTIVE') {
+                    loginInProgressRef.current = false;
+                    loginResolvedRef.current = false;
+                    clearSessionCache();
+                    localStorage.removeItem('autospf_token');
+                    localStorage.removeItem('autospf_backend_user');
+                    userStorage.setCurrentUser(null);
+                    setUser(null);
+                    return {
+                        success: false,
+                        message: backendBody.message || 'This account is disabled. Please try to contact the administrator.',
+                    };
+                }
+
                 // ── 2FA intercept: backend succeeded with OTP challenge ──
                 if (backendBody?.data?.requiresOTP) {
                     console.log('🔐 [DEBUG-login] Firebase rejected but backend returned OTP challenge — honouring 2FA');
@@ -472,6 +573,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         userId: backendBody.data.userId,
                         maskedEmail: backendBody.data.maskedEmail,
                     };
+                }
+
+                // ── Backend-only login: Firebase rejected but backend returned 200 with JWT ──
+                // Staff/admin accounts created via admin panel may not exist in Firebase Auth.
+                // If backend succeeded with a token + user, log them in via backend-only session.
+                if (backendPayload?.ok && backendBody?.success && backendBody?.data?.token && backendBody?.data?.user) {
+                    const bUser = backendBody.data.user;
+                    const bToken = backendBody.data.token;
+
+                    // Block suspended accounts
+                    if (bUser.isActive === false) {
+                        loginInProgressRef.current = false;
+                        loginResolvedRef.current = false;
+                        clearSessionCache();
+                        localStorage.removeItem('autospf_token');
+                        localStorage.removeItem('autospf_backend_user');
+                        userStorage.setCurrentUser(null);
+                        setUser(null);
+                        return {
+                            success: false,
+                            message: 'This account is disabled. Please try to contact the administrator.',
+                        };
+                    }
+
+                    console.log('✅ [DEBUG-login] Firebase rejected but backend OK — backend-only login for staff account');
+                    localStorage.setItem('autospf_token', bToken);
+                    localStorage.setItem('autospf_backend_user', JSON.stringify(bUser));
+
+                    const migratedRole = migrateLegacyUserRole(bUser.role);
+                    const finalRole = migratedRole || CUSTOMER_ROLE;
+                    const userData: User = {
+                        id: bUser._id || bUser.id || '',
+                        _id: bUser._id || bUser.id || '',
+                        email: bUser.email || '',
+                        name: bUser.name || '',
+                        role: finalRole as import('@/types').UserRole,
+                        createdAt: bUser.createdAt || new Date().toISOString(),
+                        password: '',
+                        isActive: bUser.isActive ?? true,
+                        lastActive: bUser.lastActive || new Date().toISOString(),
+                        avatar: bUser.avatar || undefined,
+                    };
+
+                    const sanitized = sanitizeUser(userData);
+                    userStorage.setCurrentUser(sanitized);
+                    setSessionCache(userData, bToken);
+
+                    loginResolvedRef.current = true;
+                    loginInProgressRef.current = false;
+
+                    setUser(userData);
+                    setIsLoading(false);
+                    return { success: true, role: finalRole };
                 }
 
                 loginInProgressRef.current = false;
@@ -610,6 +764,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // ── Build user immediately from backend response ──
             let resolvedRole: string | undefined;
             if (backendUser) {
+                // ── Safety net: block suspended/inactive accounts even if backend returned 200 ──
+                if (backendUser.isActive === false) {
+                    console.warn('🔒 [login] Backend user isActive=false — blocking login.');
+                    loginInProgressRef.current = false;
+                    loginResolvedRef.current = false;
+                    await signOut(auth).catch(() => {});
+                    clearSessionCache();
+                    localStorage.removeItem('autospf_token');
+                    localStorage.removeItem('autospf_backend_user');
+                    userStorage.setCurrentUser(null);
+                    setUser(null);
+                    return {
+                        success: false,
+                        message: 'This account is disabled. Please try to contact the administrator.',
+                    };
+                }
+
                 const rawRole = backendUser.role;
                 const migratedRole = migrateLegacyUserRole(rawRole);
                 const finalRole = migratedRole || CUSTOMER_ROLE;

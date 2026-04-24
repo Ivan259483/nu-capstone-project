@@ -211,9 +211,9 @@ const startServer = async () => {
     initSocket(httpServer);
     initChangeStreams(mongoose.connection);
 
-    // Start listening on all interfaces (0.0.0.0)
-    const server = httpServer.listen(config.port, '0.0.0.0', () => {
-      console.log(`✅ Server running on http://0.0.0.0:${config.port}`);
+    // Start listening on 127.0.0.1 to avoid EPERM on 0.0.0.0
+    const server = httpServer.listen(config.port, '127.0.0.1', () => {
+      console.log(`✅ Server running on http://127.0.0.1:${config.port}`);
       console.log(`📍 Locally accessible at http://localhost:${config.port} and http://127.0.0.1:${config.port}`);
       console.log(`📍 API Base: http://localhost:${config.port}/api`);
       console.log(`📍 Environment: ${config.nodeEnv}`);
@@ -240,6 +240,7 @@ const startServer = async () => {
 
     server.on('error', (err) => {
       console.error('❌ Server startup error:', err);
+      process.exit(1); // Force exit so nodemon can restart cleanly
     });
 
   } catch (error) {

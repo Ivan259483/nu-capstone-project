@@ -67,6 +67,14 @@ const userSchema = new mongoose.Schema(
     deletedAt: {
       type: Date,
     },
+    status: {
+      type: String,
+      enum: ['active', 'suspended', 'pending'],
+      default: 'active',
+    },
+    archivedAt: {
+      type: Date,
+    },
     referralCode: {
       type: String,
       unique: true,
