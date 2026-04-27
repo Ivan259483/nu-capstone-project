@@ -331,6 +331,7 @@ const finalizePayment = async (payment, order, payload = {}) => {
           message: `Payment ${payment.invoiceId} received successfully.`,
           type: 'success',
           recipientRole: 'customer',
+          recipientUserId: customerId,
           link: '/customer/dashboard?tab=bookings',
           metadata: {
             paymentId: payment._id,

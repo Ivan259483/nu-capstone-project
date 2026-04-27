@@ -2,19 +2,47 @@ import Notification from '../models/notification.model.js';
 import { getNotificationAudiencesForRole } from '../constants/roles.js';
 
 /**
- * Get notifications for the current user's role
+ * Get notifications for the current user's role (+ per-user targeting)
+ *
+ * - Admin/staff roles see role-based broadcasts (recipientUserId is null)
+ * - Customer-targeted notifications ALWAYS require recipientUserId match
+ *   (prevents old broadcast-style customer notifs from leaking to all accounts)
  */
 export const getNotifications = async (req, res, next) => {
   try {
     const role = req.user.role;
+    const userId = req.user._id || req.user.id;
     const recipientRoles = getNotificationAudiencesForRole(role);
-    const notifications = await Notification.find({
-      recipientRole: { $in: recipientRoles }
-    }).sort({ createdAt: -1 }).limit(50);
+
+    // Filter out 'customer' from broadcast audiences — those must be per-user
+    const broadcastRoles = recipientRoles.filter(r => r !== 'customer');
+
+    const query = {
+      $or: [
+        // 1. Role-based broadcasts (admin_family, all, etc.) — never 'customer'
+        ...(broadcastRoles.length > 0
+          ? [{
+              recipientRole: { $in: broadcastRoles },
+              $or: [
+                { recipientUserId: null },
+                { recipientUserId: { $exists: false } },
+              ],
+            }]
+          : []),
+        // 2. Notifications specifically targeted to this user
+        {
+          recipientUserId: userId,
+        },
+      ],
+    };
+
+    const notifications = await Notification.find(query)
+      .sort({ createdAt: -1 })
+      .limit(50);
 
     const unreadCount = await Notification.countDocuments({
-      recipientRole: { $in: recipientRoles },
-      isRead: false
+      ...query,
+      isRead: false,
     });
 
     res.json({ success: true, data: notifications, unreadCount });
@@ -48,9 +76,26 @@ export const markAsRead = async (req, res, next) => {
 export const markAllAsRead = async (req, res, next) => {
   try {
     const role = req.user.role;
+    const userId = req.user._id || req.user.id;
     const recipientRoles = getNotificationAudiencesForRole(role);
+    const broadcastRoles = recipientRoles.filter(r => r !== 'customer');
+
     await Notification.updateMany(
-      { recipientRole: { $in: recipientRoles }, isRead: false },
+      {
+        $or: [
+          ...(broadcastRoles.length > 0
+            ? [{
+                recipientRole: { $in: broadcastRoles },
+                $or: [
+                  { recipientUserId: null },
+                  { recipientUserId: { $exists: false } },
+                ],
+              }]
+            : []),
+          { recipientUserId: userId },
+        ],
+        isRead: false,
+      },
       { isRead: true }
     );
     res.json({ success: true, message: 'All notifications marked as read' });

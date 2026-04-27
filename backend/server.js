@@ -44,6 +44,8 @@ import supplierRoutes from './routes/suppliers.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import systemRoutes from './routes/system.routes.js';
+import qcRoutes from './routes/qc.routes.js';
+import slotRoutes from './routes/slot.routes.js';
 
 const app = express();
 
@@ -176,6 +178,8 @@ app.use('/api/suppliers', supplierRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/system', systemRoutes);
+app.use('/api/qc', qcRoutes);
+app.use('/api/slots', slotRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -195,6 +199,24 @@ const startServer = async () => {
     await connectDB();
     console.log('✅ MongoDB connected successfully');
     await migrateLegacyUserRoles();
+
+    // ── One-time fix: ensure admin@test.com has correct role ─────────
+    try {
+      const User = (await import('./models/user.model.js')).default;
+      const adminFixes = [
+        { email: 'admin@test.com', role: 'administrator' },
+        { email: 'testoperationalmanager@gmail.com', role: 'operation_manager' },
+      ];
+      for (const fix of adminFixes) {
+        const result = await User.updateOne(
+          { email: fix.email, role: { $ne: fix.role } },
+          { $set: { role: fix.role, status: 'active' } }
+        );
+        if (result.modifiedCount > 0) {
+          console.log(`[ROLE_FIX] ✅ Fixed ${fix.email} → role: ${fix.role}`);
+        }
+      }
+    } catch (e) { /* non-fatal */ }
 
     // Initialize Resend mailer
     console.log('\n📧 Initializing Resend mailer...');

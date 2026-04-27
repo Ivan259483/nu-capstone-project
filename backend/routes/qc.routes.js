@@ -1,0 +1,54 @@
+import express from 'express';
+import { authenticate, authorize } from '../middleware/auth.middleware.js';
+import {
+  getQCJobs,
+  getQCStats,
+  approveJob,
+  returnJob,
+  updateQCChecklist,
+} from '../controllers/qc.controller.js';
+
+const router = express.Router();
+
+// All QC routes require authentication
+router.use(authenticate);
+
+// QC role + admin can access these endpoints
+const QC_ALLOWED_ROLES = ['staff_quality_checker', 'administrator', 'operation_manager'];
+
+/**
+ * @route   GET /api/qc/jobs
+ * @desc    Get all jobs awaiting QC review
+ * @access  QC Checker, Admin
+ */
+router.get('/jobs', authorize(...QC_ALLOWED_ROLES), getQCJobs);
+
+/**
+ * @route   GET /api/qc/dashboard/stats
+ * @desc    Get aggregated QC dashboard KPIs
+ * @access  QC Checker, Admin
+ */
+router.get('/dashboard/stats', authorize(...QC_ALLOWED_ROLES), getQCStats);
+
+/**
+ * @route   PATCH /api/qc/jobs/:id/approve
+ * @desc    Approve a job — mark as completed
+ * @access  QC Checker, Admin
+ */
+router.patch('/jobs/:id/approve', authorize(...QC_ALLOWED_ROLES), approveJob);
+
+/**
+ * @route   PATCH /api/qc/jobs/:id/return
+ * @desc    Return a job to the technician with a reason
+ * @access  QC Checker, Admin
+ */
+router.patch('/jobs/:id/return', authorize(...QC_ALLOWED_ROLES), returnJob);
+
+/**
+ * @route   PATCH /api/qc/jobs/:id/checklist
+ * @desc    Save QC checklist items for a job
+ * @access  QC Checker, Admin
+ */
+router.patch('/jobs/:id/checklist', authorize(...QC_ALLOWED_ROLES), updateQCChecklist);
+
+export default router;

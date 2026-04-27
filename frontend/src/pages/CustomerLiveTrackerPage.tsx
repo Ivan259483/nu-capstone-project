@@ -24,9 +24,9 @@ import type { Booking, User } from '@/types';
 const BRAND_ORANGE = '#E8650A';
 const LUXURY_EASE = [0.22, 1, 0.36, 1] as const;
 const LIVE_STATUS_CUSTOMER_STATES = new Set(['washing', 'detailing', 'finishing', 'ready', 'in-progress']);
-const LIVE_STATUS_BOOKING_STATES = new Set(['received', 'in_progress', 'in-progress', 'completed', 'paid']);
+const LIVE_STATUS_BOOKING_STATES = new Set(['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress', 'completed', 'paid']);
 
-type TrackerStepId = 'confirmed' | 'received' | 'in_progress' | 'completed' | 'paid';
+type TrackerStepId = 'awaiting_vehicle' | 'confirmed' | 'received' | 'in_progress' | 'completed' | 'paid';
 
 type TrackerStep = {
   id: TrackerStepId;
@@ -40,7 +40,8 @@ type ResolvedTrackerStep = TrackerStep & {
 };
 
 const TRACKER_STEPS: TrackerStep[] = [
-  { id: 'confirmed', title: 'Booking Confirmed' },
+  { id: 'awaiting_vehicle', title: 'Waiting for Your Vehicle to Arrive' },
+  { id: 'confirmed', title: 'Vehicle Check-In' },
   { id: 'received', title: 'Vehicle Received' },
   { id: 'in_progress', title: 'Service In Progress' },
   { id: 'completed', title: 'Quality Check' },
@@ -48,11 +49,14 @@ const TRACKER_STEPS: TrackerStep[] = [
 ];
 
 const STATUS_PRIORITY: Record<string, number> = {
-  paid: 5,
-  completed: 4,
-  in_progress: 3,
-  'in-progress': 3,
-  received: 2,
+  paid: 6,
+  completed: 5,
+  in_progress: 4,
+  'in-progress': 4,
+  received: 3,
+  confirmed: 2,
+  assigned: 2,
+  approved: 1,
 };
 
 const navButtonClass = (active = false) =>
@@ -245,16 +249,19 @@ function getCurrentStepIndex(booking: Booking | null) {
   const status = String(booking.status || '').toLowerCase();
   const customerStatus = String(booking.customerStatus || '').toLowerCase();
 
-  if (status === 'paid' || customerStatus === 'ready') return 4;
-  if (status === 'completed' || customerStatus === 'finishing') return 3;
-  if (status === 'in_progress' || status === 'in-progress' || customerStatus === 'washing' || customerStatus === 'detailing' || customerStatus === 'in-progress') return 2;
-  if (status === 'received') return 1;
+  if (status === 'paid' || customerStatus === 'ready') return 5;
+  if (status === 'completed' || customerStatus === 'finishing') return 4;
+  if (status === 'in_progress' || status === 'in-progress' || customerStatus === 'washing' || customerStatus === 'detailing' || customerStatus === 'in-progress') return 3;
+  if (status === 'received') return 2;
+  if (status === 'confirmed' || status === 'assigned') return 1;
+  // approved — waiting for vehicle
   return 0;
 }
 
 function getStepTimestamps(booking: Booking | null) {
   if (!booking) {
     return {
+      awaiting_vehicle: '',
       confirmed: '',
       received: '',
       in_progress: '',
@@ -270,7 +277,8 @@ function getStepTimestamps(booking: Booking | null) {
   const readyAt = booking.paidAt || booking.updatedAt || qcAt;
 
   return {
-    confirmed: booking.createdAt || bookingBaseDate,
+    awaiting_vehicle: (booking as any).approvedAt || booking.createdAt || bookingBaseDate,
+    confirmed: (booking as any).approvedAt || booking.createdAt || bookingBaseDate,
     received: ingressTime,
     in_progress: workStartedAt,
     completed: qcAt,
@@ -288,19 +296,24 @@ function getResolvedSteps(booking: Booking | null, estimatedCompletion?: string 
       return {
         ...step,
         state: 'completed' as const,
-        timestamp: formatStepTimestamp(timestamps[step.id], bookingBaseDate),
+        timestamp: formatStepTimestamp(timestamps[step.id as keyof typeof timestamps], bookingBaseDate),
       };
     }
 
     if (index === currentIndex) {
-      const helperText = step.id === 'in_progress' || step.id === 'completed' || step.id === 'paid'
-        ? formatEtaLabel(estimatedCompletion, bookingBaseDate)
-        : 'Live updates are enabled';
+      let helperText: string;
+      if (step.id === 'awaiting_vehicle') {
+        helperText = `Please arrive by ${booking?.bookingTime || 'your scheduled time'} on ${booking?.bookingDate || 'your appointment date'}`;
+      } else if (step.id === 'in_progress' || step.id === 'completed' || step.id === 'paid') {
+        helperText = formatEtaLabel(estimatedCompletion, bookingBaseDate);
+      } else {
+        helperText = 'Live updates are enabled';
+      }
 
       return {
         ...step,
         state: 'active' as const,
-        timestamp: formatStepTimestamp(timestamps[step.id], bookingBaseDate),
+        timestamp: formatStepTimestamp(timestamps[step.id as keyof typeof timestamps], bookingBaseDate),
         helperText,
       };
     }
@@ -479,6 +492,7 @@ export default function CustomerLiveTrackerPage() {
   const bayAssignment = getBayAssignment(activeBooking);
   const currentStageTitle = resolvedSteps.find((step) => step.state === 'active')?.title || TRACKER_STEPS[0].title;
   const trackerProgress = activeBooking ? ((getCurrentStepIndex(activeBooking) + 1) / TRACKER_STEPS.length) * 100 : 0;
+  const isAwaitingVehicle = activeBooking && ['approved', 'confirmed', 'assigned'].includes(String(activeBooking.status || '').toLowerCase());
   const liveStatusMeta = isLoading
     ? {
       label: 'Syncing',
@@ -488,6 +502,15 @@ export default function CustomerLiveTrackerPage() {
       border: '#c7d2fe',
       text: '#4338ca',
     }
+    : isAwaitingVehicle
+      ? {
+        label: 'Booking Approved',
+        description: `Please bring your vehicle on ${activeBooking?.bookingDate || 'your appointment date'} at ${activeBooking?.bookingTime || 'your scheduled time'}`,
+        dotColor: '#16a34a',
+        background: '#f0fdf4',
+        border: '#86efac',
+        text: '#15803d',
+      }
     : activeBooking
       ? {
         label: 'In Progress',

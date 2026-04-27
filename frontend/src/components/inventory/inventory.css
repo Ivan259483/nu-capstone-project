@@ -1,0 +1,332 @@
+/* ================================================================
+   DetailStock Inventory UI — Premium Scoped Styles
+   AutoSPF+ Vite Frontend — Brand-New Smooth Design
+   ================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+/* ── Root Layout ────────────────────────────────────────────────── */
+.inv-root {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, sans-serif;
+  background: #f4f6fa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Sidebar ────────────────────────────────────────────────────── */
+.inv-sidebar {
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-right: 1px solid rgba(0, 0, 0, 0.04);
+  box-shadow: 1px 0 16px rgba(0, 0, 0, 0.03);
+  transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.inv-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.inv-nav-item:hover {
+  background: rgba(37, 99, 235, 0.05);
+  color: #334155;
+  transform: translateX(2px);
+}
+.inv-nav-item.active {
+  background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.25),
+              0 2px 4px rgba(37, 99, 235, 0.1);
+  transform: none;
+}
+
+/* ── Glass Cards ────────────────────────────────────────────────── */
+.inv-root .glass-card {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03),
+              0 4px 16px rgba(0, 0, 0, 0.02);
+}
+.inv-root .glass-card-hover {
+  transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.inv-root .glass-card-hover:hover {
+  background: rgba(255, 255, 255, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04),
+              0 12px 32px rgba(37, 99, 235, 0.06);
+  transform: translateY(-1px);
+}
+
+/* ── Shadow hierarchy ───────────────────────────────────────────── */
+.inv-root .shadow-card {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03),
+              0 2px 8px rgba(0, 0, 0, 0.02),
+              0 8px 24px rgba(0, 0, 0, 0.02);
+}
+
+/* ── Gradients ──────────────────────────────────────────────────── */
+.inv-root .gradient-primary {
+  background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
+}
+.inv-root .gradient-success {
+  background: linear-gradient(135deg, #10b981 0%, #2563EB 100%);
+}
+.inv-root .gradient-warning {
+  background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+}
+.inv-root .gradient-text {
+  background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.inv-root .glow-blue {
+  box-shadow: 0 0 16px rgba(37, 99, 235, 0.2),
+              0 4px 12px rgba(37, 99, 235, 0.15);
+}
+.inv-root .glow-green {
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.2);
+}
+.inv-root .glow-red {
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.2);
+}
+
+/* ── Status badges (soft pills) ─────────────────────────────────── */
+.inv-root .status-in-stock {
+  background: rgba(16, 185, 129, 0.08);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.12);
+}
+.inv-root .status-low-stock {
+  background: rgba(245, 158, 11, 0.08);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.12);
+}
+.inv-root .status-critical {
+  background: rgba(239, 68, 68, 0.08);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.12);
+}
+.inv-root .status-out-of-stock {
+  background: rgba(107, 114, 128, 0.08);
+  color: #4b5563;
+  border: 1px solid rgba(107, 114, 128, 0.12);
+}
+.inv-root .status-on-order {
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+/* ── Table — Completely Borderless Seamless Design ──────────────── */
+.inv-root table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Header — ultra-subtle separator */
+.inv-root thead tr {
+  background: rgba(248, 250, 253, 0.65) !important;
+}
+.inv-root thead th {
+  border: none !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.06em;
+}
+
+/* Rows — completely borderless */
+.inv-root tbody tr {
+  transition: background 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  border: none !important;
+  border-bottom: none !important;
+}
+.inv-root tbody tr:hover {
+  background: rgba(37, 99, 235, 0.025) !important;
+}
+
+/* Cells — no borders whatsoever */
+.inv-root tbody td {
+  border: none !important;
+  border-bottom: none !important;
+  border-top: none !important;
+}
+
+/* Kill ALL Tailwind border classes inside the table */
+.inv-root table .border-b,
+.inv-root table .border-t,
+.inv-root table [style*="border"] {
+  border-color: transparent !important;
+}
+.inv-root table .border-gray-50,
+.inv-root table .border-gray-100,
+.inv-root table .border-gray-200 {
+  border-color: transparent !important;
+}
+
+/* Pagination footer — subtle top line only */
+.inv-root .border-t.border-gray-100,
+.inv-root .border-t {
+  border-top-color: rgba(0, 0, 0, 0.03) !important;
+}
+
+/* Search/filter bar borders — soften */
+.inv-root .border.border-gray-200 {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+.inv-root .border.border-gray-200:focus-within {
+  border-color: rgba(37, 99, 235, 0.25) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.06);
+}
+
+/* Category filter pill borders */
+.inv-root .border.border-gray-100\/80,
+.inv-root [class*="border-gray-100"] {
+  border-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* ── Category pill tabs ─────────────────────────────────────────── */
+.inv-root button[class*="rounded-xl"][class*="text-sm"][class*="font-semibold"] {
+  transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── Search / filter inputs ─────────────────────────────────────── */
+.inv-root input[type="text"],
+.inv-root input[type="number"],
+.inv-root select {
+  transition: all 0.2s ease;
+}
+.inv-root input[type="text"]:focus,
+.inv-root input[type="number"]:focus {
+  outline: none;
+}
+
+/* ── Pagination ─────────────────────────────────────────────────── */
+.inv-root .bg-gray-50\/40 {
+  background: rgba(248, 250, 252, 0.6) !important;
+  backdrop-filter: blur(8px);
+}
+
+/* ── Animations ─────────────────────────────────────────────────── */
+.inv-root .page-enter {
+  animation: inv-pageEnter 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes inv-pageEnter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.inv-root .card-enter {
+  animation: inv-cardEnter 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes inv-cardEnter {
+  from { opacity: 0; transform: translateY(12px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.inv-root .slide-up {
+  animation: inv-slideUp 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes inv-slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.inv-root .modal-enter {
+  animation: inv-modalEnter 0.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes inv-modalEnter {
+  from { opacity: 0; transform: scale(0.96) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes inv-pulseRing {
+  0%   { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35); }
+  70%  { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+.inv-root .pulse-red { animation: inv-pulseRing 2s infinite; }
+
+/* ── Skeleton loader ────────────────────────────────────────────── */
+.inv-root .skeleton {
+  background: linear-gradient(90deg, #f0f4ff 25%, #e8effe 50%, #f0f4ff 75%);
+  background-size: 200% 100%;
+  animation: inv-shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+@keyframes inv-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ── Progress bar animation ─────────────────────────────────────── */
+.inv-root .progress-animated {
+  animation: inv-progressFill 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes inv-progressFill {
+  from { width: 0%; }
+  to   { width: var(--target-width); }
+}
+
+/* ── Tabular numbers for data ───────────────────────────────────── */
+.inv-root .font-tabular { font-variant-numeric: tabular-nums; }
+
+/* ── Premium scrollbar ──────────────────────────────────────────── */
+.inv-root ::-webkit-scrollbar { width: 5px; height: 5px; }
+.inv-root ::-webkit-scrollbar-track { background: transparent; }
+.inv-root ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+}
+.inv-root ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* ── Rounded card container override ────────────────────────────── */
+.inv-root .rounded-2xl {
+  border-radius: 16px;
+}
+.inv-root .overflow-hidden.rounded-2xl {
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+/* ── Button press effect ────────────────────────────────────────── */
+.inv-root .active\:scale-95:active {
+  transform: scale(0.97);
+}
+
+/* ── Row hover action reveal smooth ─────────────────────────────── */
+.inv-root tbody tr .opacity-0 {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  transform: translateX(4px);
+}
+.inv-root tbody tr:hover .opacity-0 {
+  opacity: 1 !important;
+  transform: translateX(0);
+}

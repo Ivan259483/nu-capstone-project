@@ -718,3 +718,447 @@ html.dark * {
         transform: translateY(0) scale(1);
     }
 }
+
+
+/* ═══════════════════════════════════════════════════════
+   SALES DASHBOARD — Premium Animation System
+   Micro-interactions & motion for a luxury feel.
+═══════════════════════════════════════════════════════ */
+
+/* ── Keyframes ─────────────────────────────────────── */
+@keyframes sales-row-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes sales-fade-up {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes sales-slide-right {
+    from { transform: scaleX(0); opacity: 0; }
+    to   { transform: scaleX(1); opacity: 1; }
+}
+@keyframes sales-card-in {
+    from { opacity: 0; transform: translateY(16px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+@keyframes sales-badge-pop {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.06); }
+    100% { transform: scale(1); }
+}
+
+/* ── Stat cards — staggered entrance ─────────────────── */
+.sales-layout .stat-card-animate {
+    animation: sales-card-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.sales-layout .stat-card-animate:nth-child(1) { animation-delay: 0.05s; }
+.sales-layout .stat-card-animate:nth-child(2) { animation-delay: 0.10s; }
+.sales-layout .stat-card-animate:nth-child(3) { animation-delay: 0.15s; }
+.sales-layout .stat-card-animate:nth-child(4) { animation-delay: 0.20s; }
+
+/* ── Table row stagger ────────────────────────────────── */
+/* NOTE: <tr> does NOT support position:relative or ::before in browsers.
+   Use box-shadow:inset instead — it works on <tr> and creates the accent effect. */
+.sales-layout .txn-row {
+    animation: sales-row-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+    transition:
+        background-color 0.18s ease,
+        box-shadow 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Stagger delays for rows */
+.sales-layout .txn-row:nth-child(1)  { animation-delay: 0.04s; }
+.sales-layout .txn-row:nth-child(2)  { animation-delay: 0.07s; }
+.sales-layout .txn-row:nth-child(3)  { animation-delay: 0.10s; }
+.sales-layout .txn-row:nth-child(4)  { animation-delay: 0.13s; }
+.sales-layout .txn-row:nth-child(5)  { animation-delay: 0.16s; }
+.sales-layout .txn-row:nth-child(6)  { animation-delay: 0.19s; }
+.sales-layout .txn-row:nth-child(7)  { animation-delay: 0.22s; }
+.sales-layout .txn-row:nth-child(8)  { animation-delay: 0.25s; }
+.sales-layout .txn-row:nth-child(9)  { animation-delay: 0.28s; }
+.sales-layout .txn-row:nth-child(10) { animation-delay: 0.31s; }
+
+/* ── Row hover — inset left accent + blue tint bg ─────── */
+.sales-layout .txn-row:hover {
+    background-color: rgba(239, 246, 255, 0.65) !important;
+    box-shadow: inset 3px 0 0 #3b82f6;  /* left accent — works on <tr> */
+}
+.sales-layout .txn-row.bg-blue-50\/40:hover {
+    box-shadow: inset 3px 0 0 #1d4ed8;
+}
+
+
+/* ── Payment badge hover ───────────────────────────────── */
+.sales-layout .pm-badge {
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+}
+.sales-layout .pm-badge:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    transform: translateY(-1px);
+}
+
+/* ── Sidebar nav item hover ──────────────────────────── */
+.sales-layout .nav-item {
+    transition: background-color 0.15s cubic-bezier(0.22, 1, 0.36, 1),
+                color 0.15s ease,
+                transform 0.15s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.sales-layout .nav-item:hover {
+    transform: translateX(2px);
+}
+
+/* ── Main content entrance ───────────────────────────── */
+.sales-layout .page-enter {
+    animation: sales-fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Action button hover ─────────────────────────────── */
+.sales-layout .action-btn {
+    transition: background-color 0.15s ease,
+                color 0.15s ease,
+                transform 0.15s cubic-bezier(0.22, 1, 0.36, 1),
+                box-shadow 0.15s ease;
+}
+.sales-layout .action-btn:hover {
+    transform: scale(1.15);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
+}
+
+/* ── Premium global border override ─────────────────────────────
+   Everything inside .sales-layout inherits softer, premium borders.
+   This replaces Tailwind's slate-200 (#e2e8f0) with a ghost-level color.
+─────────────────────────────────────────────────────────────── */
+
+/* All border-slate-200 → ghost border */
+.sales-layout .border-slate-200,
+.sales-layout [class*="border-slate-200"] {
+    border-color: rgba(226, 232, 240, 0.70) !important;
+}
+/* All border-slate-100 → near-invisible */
+.sales-layout .border-slate-100,
+.sales-layout [class*="border-slate-100"] {
+    border-color: rgba(241, 245, 249, 0.7) !important;
+}
+/* All shadow-sm → layered ambient shadow (no hard outline) */
+.sales-layout .shadow-sm {
+    box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.03),
+        0 4px 14px -3px rgba(0, 0, 0, 0.06) !important;
+}
+/* Divide lines */
+.sales-layout .divide-y > * + * {
+    border-top-color: rgba(226, 232, 240, 0.4) !important;
+}
+.sales-layout .divide-slate-50 > * + * {
+    border-top-color: rgba(248, 250, 252, 0.8) !important;
+}
+/* Rounded panels — upgrade to rounder corners */
+.sales-layout .rounded-xl {
+    border-radius: 1rem !important;
+}
+.sales-layout .rounded-2xl {
+    border-radius: 1.125rem !important;
+}
+/* Input borders — excludes checkboxes */
+.sales-layout input:not([type="checkbox"]),
+.sales-layout textarea,
+.sales-layout select {
+    border-color: rgba(226, 232, 240, 0.6) !important;
+    transition: border-color 0.15s, box-shadow 0.15s !important;
+}
+.sales-layout input:not([type="checkbox"]):focus,
+.sales-layout textarea:focus,
+.sales-layout select:focus {
+    border-color: rgba(59, 130, 246, 0.5) !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.08) !important;
+    outline: none !important;
+}
+
+/* ── Premium Checkbox ──────────────────────────────────
+   Custom styled checkboxes — smooth, modern, premium.
+──────────────────────────────────────────────────────── */
+.sales-layout input[type="checkbox"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    border: 1.5px solid rgba(203, 213, 225, 0.9);   /* slate-300 at 90% */
+    border-radius: 50%;
+    background-color: #ffffff;
+    cursor: pointer;
+    position: relative;
+    transition:
+        border-color 0.15s ease,
+        background-color 0.15s ease,
+        box-shadow 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+}
+.sales-layout input[type="checkbox"]:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.10);
+}
+.sales-layout input[type="checkbox"]:checked {
+    background-color: #1d4ed8;
+    border-color: #1d4ed8;
+    box-shadow: 0 1px 4px rgba(29, 78, 216, 0.30);
+}
+/* Checkmark via ::after */
+.sales-layout input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 1.5px;
+    width: 5px;
+    height: 8px;
+    border: 2px solid #ffffff;
+    border-top: none;
+    border-left: none;
+    transform: rotate(42deg);
+    border-radius: 1px;
+}
+/* Indeterminate (select-all partial) */
+.sales-layout input[type="checkbox"]:indeterminate {
+    background-color: #dbeafe;
+    border-color: #3b82f6;
+}
+.sales-layout input[type="checkbox"]:indeterminate::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 6px;
+    width: 8px;
+    height: 2px;
+    background-color: #1d4ed8;
+    border-radius: 1px;
+}
+.sales-layout input[type="checkbox"]:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+
+/* Layout helpers */
+.card-base {
+    background-color: #ffffff;
+    border-radius: 1rem;                         /* 16px — rounder = softer */
+    border: 1px solid rgba(226, 232, 240, 0.6);  /* ghost border — barely visible */
+    box-shadow:
+        0 0 0 1px rgba(148, 163, 184, 0.04),     /* micro rim */
+        0 1px 2px rgba(0, 0, 0, 0.03),           /* base lift */
+        0 4px 12px -2px rgba(0, 0, 0, 0.05),     /* soft depth */
+        0 12px 32px -8px rgba(0, 0, 0, 0.04);    /* ambient spread */
+    transition: box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.card-base:hover {
+    box-shadow:
+        0 0 0 1px rgba(148, 163, 184, 0.06),
+        0 2px 4px rgba(0, 0, 0, 0.04),
+        0 8px 20px -4px rgba(0, 0, 0, 0.08),
+        0 20px 48px -12px rgba(0, 0, 0, 0.07);
+    transform: translateY(-1px);
+}
+/* POS panels: disable hover lift to prevent jitter */
+.sales-layout .pos-panel.card-base:hover {
+    transform: none;
+    box-shadow:
+        0 0 0 1px rgba(148, 163, 184, 0.04),
+        0 1px 2px rgba(0, 0, 0, 0.03),
+        0 4px 12px -2px rgba(0, 0, 0, 0.05),
+        0 12px 32px -8px rgba(0, 0, 0, 0.04);
+}
+
+
+/* Buttons */
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #1d4ed8;
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.875rem;
+    border-radius: 0.5rem;
+    padding: 0.625rem 1rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s, transform 0.15s;
+}
+.btn-primary:hover { background-color: #1e40af; }
+.btn-primary:active { transform: scale(0.97); }
+
+.btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #fff;
+    color: #374151;
+    font-weight: 500;
+    font-size: 0.875rem;
+    border-radius: 0.5rem;
+    padding: 0.625rem 1rem;
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+    transition: background-color 0.15s, transform 0.15s;
+}
+.btn-secondary:hover { background-color: #f8fafc; }
+.btn-secondary:active { transform: scale(0.97); }
+
+/* Input */
+.input-base {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.875rem;
+    border-radius: 0.5rem;
+    border: 1px solid #e2e8f0;
+    background-color: #fff;
+    font-size: 0.875rem;
+    color: #0f172a;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    outline: none;
+}
+.input-base::placeholder { color: #94a3b8; }
+.input-base:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* Status badges — for TransactionsTable (getStatusColor) */
+.sales-badge-completed {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.625rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background-color: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+}
+
+.sales-badge-pending {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.625rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background-color: #fffbeb;
+    color: #b45309;
+    border: 1px solid #fde68a;
+}
+
+.sales-badge-processing {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.625rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background-color: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
+
+.sales-badge-voided {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.625rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background-color: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+}
+
+/* Metric helpers */
+.metric-value {
+    font-size: 1.875rem;
+    font-weight: 700;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+
+.metric-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.font-tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+}
+
+/* Thin scrollbar for sales panels */
+.scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #e2e8f0 transparent;
+}
+.scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background-color: #e2e8f0; border-radius: 3px; }
+
+/* Modal shadow */
+.shadow-modal {
+    box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0,0,0,0.05);
+}
+
+/* Slide-up animation for sales modals */
+@keyframes sales-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+@keyframes sales-slide-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: sales-fade-in 0.15s ease-out forwards; }
+.animate-slide-up { animation: sales-slide-up 0.2s ease-out forwards; }
+
+/* ── Sidebar link classes (used by SalesSidebar / Topbar dropdowns) ── */
+.sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #475569;
+    text-decoration: none;
+    transition: background-color 0.15s, color 0.15s;
+    cursor: pointer;
+}
+.sidebar-link:hover {
+    background-color: #f1f5f9;
+    color: #0f172a;
+}
+
+.sidebar-link-active {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    background-color: #eff6ff;
+    color: #1d4ed8;
+    text-decoration: none;
+    transition: background-color 0.15s, color 0.15s;
+    cursor: pointer;
+}

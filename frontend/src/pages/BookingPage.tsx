@@ -32,17 +32,14 @@ const timeSlots = ["8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "1:00 PM", "2:0
 const CAR_COLORS = ['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Other'];
 const YEARS = Array.from({ length: 30 }, (_, i) => String(2025 - i));
 
-function getAvailableDates(): Date[] {
-    const dates: Date[] = [];
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    while (dates.length < 30) {
-        if (d.getDay() !== 0) dates.push(new Date(d));
-        d.setDate(d.getDate() + 1);
-    }
-    return dates;
+function getDateStatus(d: Date): 'available' | 'closed' | 'full' {
+    const day = d.getDay();
+    const dateNum = d.getDate();
+    if (day === 0) return 'closed';       // Sunday
+    if (day === 6) return 'closed';       // Saturday
+    if (dateNum % 5 === 0) return 'full'; // mock full days
+    return 'available';
 }
-const AVAILABLE_DATES = getAvailableDates();
 
 /* ─────────────────────── Helpers ─────────────────────── */
 function generatePreviewRef(): string {
@@ -252,6 +249,8 @@ export default function BookingPage() {
     const [submitted, setSubmitted] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [downpaymentProof, setDownpaymentProof] = useState<string | null>(null);
+    const today = new Date();
+    const [calMonth, setCalMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
     
     // DB Services
     const [dbServices, setDbServices] = useState<BookingService[]>([]);
@@ -290,11 +289,7 @@ export default function BookingPage() {
 
     const [form, setForm] = useState({
         service: "",
-        vehicleType: "",
-        vehicleMake: "",
-        vehicleModel: "",
-        vehicleYear: "",
-        vehicleColor: "",
+        carModelAndColor: "",
         vehiclePlate: "",
         date: "",
         time: "",
@@ -302,6 +297,8 @@ export default function BookingPage() {
         phone: "",
         notes: "",
     });
+
+    const [agreed, setAgreed] = useState(false);
 
     useEffect(() => {
         if (user && !form.name) {
@@ -316,7 +313,7 @@ export default function BookingPage() {
     const selectedPrice = selectedService?.basePrice || 0;
     const fmt = (n: number) => '₱' + n.toLocaleString();
 
-    const isComplete = form.service && form.vehicleModel && form.vehicleYear && form.vehicleColor && form.date && form.time && form.name && form.phone;
+    const isComplete = form.service && form.carModelAndColor && form.date && form.time && form.name && form.phone && agreed;
 
     const previewRef = useMemo(() => generatePreviewRef(), []);
 
@@ -343,11 +340,11 @@ export default function BookingPage() {
                 customer: user.id,
                 customerName: form.name || user.name || 'Guest User',
                 customerPhone: form.phone,
-                vehicleYear: form.vehicleYear,
-                vehicleMake: form.vehicleMake || form.vehicleModel.split(' ')[0] || '',
-                vehicleModel: form.vehicleModel,
-                vehicleColor: form.vehicleColor,
-                vehiclePlate: form.vehiclePlate,
+                vehicleYear: "N/A",
+                vehicleMake: form.carModelAndColor.split(' ')[0] || 'Unknown',
+                vehicleModel: form.carModelAndColor,
+                vehicleColor: "N/A",
+                vehiclePlate: form.vehiclePlate || "N/A",
                 serviceType: selectedService?.name || form.service,
                 price: selectedPrice,
                 bookingDate: form.date,
@@ -423,8 +420,8 @@ export default function BookingPage() {
                                 <div className="bk-success-icon">
                                     <CheckCircle size={40} color="#fff" />
                                 </div>
-                                <h2>Booking Confirmed!</h2>
-                                <p>Your appointment has been submitted. We'll confirm it shortly.</p>
+                                <h2>Your booking is successful.</h2>
+                                <p>Saved as "Pending". Your request has been forwarded to our Sales Dashboard. We will confirm your booking in 1 to 3 minutes.</p>
                                 <div className="bk-success-ref">
                                     <Bookmark size={16} color="#FF6B35" />
                                     <span>{previewRef}</span>
@@ -447,22 +444,23 @@ export default function BookingPage() {
                                         </div>
                                         <div className="bk-form-row cols-2">
                                             <div>
-                                                <label className="bk-label">Full Name</label>
+                                                <label className="bk-label">FULL NAME</label>
                                                 <input
                                                     className="bk-input"
                                                     value={form.name}
-                                                    onChange={e => update('name', e.target.value)}
-                                                    placeholder="Juan dela Cruz"
+                                                    disabled
+                                                    style={{ opacity: 0.7, cursor: 'not-allowed' }}
+                                                    placeholder="Auto-filled from account"
                                                 />
                                             </div>
                                             <div>
-                                                <label className="bk-label">Contact Number</label>
+                                                <label className="bk-label">CONTACT NO.</label>
                                                 <input
                                                     className="bk-input"
                                                     type="tel"
                                                     value={form.phone}
                                                     onChange={e => update('phone', e.target.value)}
-                                                    placeholder="+63 912 345 6789"
+                                                    placeholder="e.g. +63 912 345 6789"
                                                 />
                                             </div>
                                         </div>
@@ -474,48 +472,23 @@ export default function BookingPage() {
                                             <div className="bk-card-icon"><Car size={16} /></div>
                                             <span className="bk-card-title">Vehicle Information</span>
                                         </div>
-                                        <div className="bk-form-row cols-2" style={{ marginBottom: '0.875rem' }}>
+                                        <div className="bk-form-row cols-2">
                                             <div>
-                                                <label className="bk-label">Make</label>
+                                                <label className="bk-label">CAR MODEL & COLOR</label>
                                                 <input
                                                     className="bk-input"
-                                                    value={form.vehicleMake}
-                                                    onChange={e => update('vehicleMake', e.target.value)}
-                                                    placeholder="e.g. Toyota"
+                                                    value={form.carModelAndColor}
+                                                    onChange={e => update('carModelAndColor', e.target.value)}
+                                                    placeholder="e.g. Toyota GR86 - White"
                                                 />
                                             </div>
                                             <div>
-                                                <label className="bk-label">Model</label>
-                                                <input
-                                                    className="bk-input"
-                                                    value={form.vehicleModel}
-                                                    onChange={e => update('vehicleModel', e.target.value)}
-                                                    placeholder="e.g. GR86"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="bk-form-row cols-3">
-                                            <div>
-                                                <label className="bk-label">Year</label>
-                                                <select className="bk-input" value={form.vehicleYear} onChange={e => update('vehicleYear', e.target.value)}>
-                                                    <option value="" disabled>Year</option>
-                                                    {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="bk-label">Color</label>
-                                                <select className="bk-input" value={form.vehicleColor} onChange={e => update('vehicleColor', e.target.value)}>
-                                                    <option value="" disabled>Color</option>
-                                                    {CAR_COLORS.map(c => <option key={c} value={c}>{c}</option>)}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="bk-label">Plate Number</label>
+                                                <label className="bk-label">CAR PLATE</label>
                                                 <input
                                                     className="bk-input"
                                                     value={form.vehiclePlate}
                                                     onChange={e => update('vehiclePlate', e.target.value)}
-                                                    placeholder="ABC 1234"
+                                                    placeholder="e.g. ABC 1234"
                                                 />
                                             </div>
                                         </div>
@@ -556,21 +529,73 @@ export default function BookingPage() {
                                             <div className="bk-card-icon"><Calendar size={16} /></div>
                                             <span className="bk-card-title">Preferred Date</span>
                                         </div>
-                                        <div className="bk-date-grid">
-                                            {AVAILABLE_DATES.map(d => {
-                                                const iso = d.toISOString().split('T')[0];
-                                                return (
+
+                                        {/* Month navigation */}
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                                            <button
+                                                onClick={() => setCalMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+                                                style={{ background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', color: '#aaa', fontSize: 16, lineHeight: 1 }}
+                                            >‹</button>
+                                            <span style={{ color: '#fff', fontWeight: 700, fontSize: '0.9rem', letterSpacing: '0.05em' }}>
+                                                {calMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase()}
+                                            </span>
+                                            <button
+                                                onClick={() => setCalMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+                                                style={{ background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', color: '#aaa', fontSize: 16, lineHeight: 1 }}
+                                            >›</button>
+                                        </div>
+
+                                        {/* Day-of-week headers */}
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+                                            {['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d => (
+                                                <div key={d} style={{ textAlign: 'center', fontSize: '0.6rem', fontWeight: 700, color: '#555', letterSpacing: '0.08em', paddingBottom: 4 }}>{d}</div>
+                                            ))}
+                                        </div>
+
+                                        {/* Calendar grid */}
+                                        {(() => {
+                                            const year = calMonth.getFullYear();
+                                            const month = calMonth.getMonth();
+                                            const firstDay = new Date(year, month, 1).getDay();
+                                            const daysInMonth = new Date(year, month + 1, 0).getDate();
+                                            const cells: React.ReactNode[] = [];
+                                            // leading blanks
+                                            for (let i = 0; i < firstDay; i++) cells.push(<div key={`b${i}`} />);
+                                            // day cells
+                                            for (let d = 1; d <= daysInMonth; d++) {
+                                                const date = new Date(year, month, d);
+                                                const iso = date.toISOString().split('T')[0];
+                                                const isPast = date < new Date(new Date().toDateString());
+                                                const status = isPast ? 'closed' : getDateStatus(date);
+                                                const disabled = isPast || status !== 'available';
+                                                const isSelected = form.date === iso;
+                                                const dotColor = status === 'available' ? '#22c55e' : status === 'full' ? '#ef4444' : '#f97316';
+                                                cells.push(
                                                     <button
                                                         key={iso}
-                                                        onClick={() => update('date', iso)}
-                                                        className={`bk-date-btn ${form.date === iso ? 'active' : ''}`}
+                                                        disabled={disabled}
+                                                        onClick={() => !disabled && update('date', iso)}
+                                                        style={{
+                                                            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                                            padding: '6px 2px', borderRadius: 10, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+                                                            background: isSelected ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'rgba(255,255,255,0.04)',
+                                                            opacity: isPast ? 0.3 : 1,
+                                                            transition: 'all 0.15s',
+                                                            outline: isSelected ? '2px solid #f59e0b' : 'none',
+                                                        }}
                                                     >
-                                                        <span className="dw">{d.toLocaleDateString('en-PH', { weekday: 'short' })}</span>
-                                                        <span className="dd">{d.getDate()}</span>
-                                                        <span className="dm">{d.toLocaleDateString('en-PH', { month: 'short' })}</span>
+                                                        <span style={{ fontSize: '0.8rem', fontWeight: isSelected ? 700 : 500, color: isSelected ? '#fff' : disabled ? '#555' : '#ddd', lineHeight: 1.2 }}>{d}</span>
+                                                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: isSelected ? 'rgba(255,255,255,0.7)' : dotColor, marginTop: 3, display: 'inline-block' }} />
                                                     </button>
                                                 );
-                                            })}
+                                            }
+                                            return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>{cells}</div>;
+                                        })()}
+
+                                        <div className="bk-calendar-legend" style={{ marginTop: '1rem' }}>
+                                            <div className="legend-item"><span className="dot green" /> Available</div>
+                                            <div className="legend-item"><span className="dot orange" /> Closed</div>
+                                            <div className="legend-item"><span className="dot red" /> Full</div>
                                         </div>
 
                                         <div style={{ marginTop: '1.25rem' }}>
@@ -596,8 +621,18 @@ export default function BookingPage() {
                                     <div className="bk-card bk-animate bk-animate-d4">
                                         <div className="bk-card-header">
                                             <div className="bk-card-icon"><Upload size={16} /></div>
-                                            <span className="bk-card-title">GCash Downpayment</span>
+                                            <span className="bk-card-title">Down payment via QR CODE PAYMENT</span>
                                             <span style={{ fontSize: '0.65rem', color: '#555', marginLeft: 'auto', fontWeight: 600 }}>OPTIONAL</span>
+                                        </div>
+
+                                        <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', marginBottom: '1.5rem', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '1rem', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                            <div style={{ width: '100px', height: '100px', background: '#fff', padding: '0.5rem', borderRadius: '0.5rem', flexShrink: 0 }}>
+                                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=AutoSPFPayment" alt="GCash QR" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            </div>
+                                            <div style={{ flex: 1, fontSize: '0.85rem', color: '#bbb' }}>
+                                                <p style={{ color: '#fff', fontWeight: 600, marginBottom: '0.25rem' }}>Scan to Pay</p>
+                                                <p>Please scan the QR code using your payment app to make your down payment. Upload the receipt below to confirm.</p>
+                                            </div>
                                         </div>
 
                                         <input
@@ -675,7 +710,7 @@ export default function BookingPage() {
                                             {[
                                                 { icon: <User size={14} />, label: 'Customer', value: form.name },
                                                 { icon: <Phone size={14} />, label: 'Contact', value: form.phone },
-                                                { icon: <Car size={14} />, label: 'Vehicle', value: [form.vehicleYear, form.vehicleMake, form.vehicleModel].filter(Boolean).join(' ') },
+                                                { icon: <Car size={14} />, label: 'Vehicle', value: form.carModelAndColor },
                                                 { icon: <Sparkles size={14} />, label: 'Service', value: selectedService?.name },
                                                 { icon: <Calendar size={14} />, label: 'Date', value: form.date ? new Date(form.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '' },
                                                 { icon: <Clock size={14} />, label: 'Time', value: form.time },
@@ -726,6 +761,18 @@ export default function BookingPage() {
                                                 </span>
                                             </div>
 
+                                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', marginTop: '1.25rem', padding: '0.5rem', cursor: 'pointer' }}>
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={agreed} 
+                                                    onChange={e => setAgreed(e.target.checked)} 
+                                                    style={{ marginTop: '0.2rem', accentColor: '#f59e0b', width: '16px', height: '16px' }} 
+                                                />
+                                                <span style={{ fontSize: '0.75rem', color: '#aaa', lineHeight: 1.4 }}>
+                                                    I agree to the terms and conditions and accept the booking policy. I understand that my booking is subject to approval.
+                                                </span>
+                                            </label>
+
                                             {/* Confirm */}
                                             <button
                                                 className="bk-confirm-btn"
@@ -743,7 +790,7 @@ export default function BookingPage() {
                                             </button>
                                             {!isComplete && (
                                                 <div className="bk-confirm-hint">
-                                                    Please fill out all required fields above.
+                                                    Please fill out all required fields and agree to the terms above.
                                                 </div>
                                             )}
 

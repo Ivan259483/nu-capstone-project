@@ -15,6 +15,8 @@ const notificationSchema = new mongoose.Schema({
     enum: NOTIFICATION_RECIPIENT_ROLES, 
     default: 'admin_family' 
   },
+  // Per-user targeting: when set, only this specific user sees the notification
+  recipientUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   link: String,
   metadata: mongoose.Schema.Types.Mixed
 }, { timestamps: true });

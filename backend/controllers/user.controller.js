@@ -1,5 +1,7 @@
 import crypto from 'crypto';
+import bcryptjs from 'bcryptjs';
 import User from '../models/user.model.js';
+import { encrypt, decrypt } from '../utils/encryption.utils.js';
 import Order from '../models/order.model.js';
 import Customer from '../models/customer.model.js';
 import Vehicle from '../models/vehicle.model.js';
@@ -96,7 +98,7 @@ export const getUserById = async (req, res, next) => {
  */
 export const updateUser = async (req, res, next) => {
   try {
-    const { name, email, role, avatar, phone, address } = req.body;
+    const { name, email, role, avatar, phone, address, status, isActive } = req.body;
     const requestedId = req.params.id;
     const actorRole = req.user?.role;
 
@@ -123,6 +125,8 @@ export const updateUser = async (req, res, next) => {
     if (typeof avatar !== 'undefined') updatePayload.avatar = avatar;
     if (typeof phone !== 'undefined') updatePayload.phone = phone;
     if (typeof address !== 'undefined') updatePayload.address = address;
+    if (typeof status !== 'undefined') updatePayload.status = status;
+    if (typeof isActive !== 'undefined') updatePayload.isActive = isActive;
 
     let user = null;
 
@@ -220,6 +224,14 @@ export const updateUser = async (req, res, next) => {
       });
     }
 
+    // Manually encrypt PII fields before update (findByIdAndUpdate bypasses pre-save hooks)
+    if (typeof updatePayload.phone !== 'undefined' && updatePayload.phone) {
+      updatePayload.phone = encrypt(updatePayload.phone);
+    }
+    if (typeof updatePayload.address !== 'undefined' && updatePayload.address) {
+      updatePayload.address = encrypt(updatePayload.address);
+    }
+
     // Execute the actual update on the existing user
     if (process.env.NODE_ENV === 'development') console.log(`   -> Executing findByIdAndUpdate for _id:`, user._id);
     const updatedUser = await User.findByIdAndUpdate(
@@ -227,6 +239,12 @@ export const updateUser = async (req, res, next) => {
       updatePayload,
       { new: true }
     ).select('-password');
+
+    // Decrypt PII fields in the returned doc (findByIdAndUpdate doesn't trigger post-init)
+    if (updatedUser) {
+      if (updatedUser.phone) updatedUser.phone = decrypt(updatedUser.phone);
+      if (updatedUser.address) updatedUser.address = decrypt(updatedUser.address);
+    }
 
     // Detect role change
     if (typeof requestedRole !== 'undefined' && requestedRole !== user.role) {
@@ -236,6 +254,26 @@ export const updateUser = async (req, res, next) => {
         status: 'warning', referenceId: user._id?.toString(),
         metadata: { targetUserId: user._id, previousRole: user.role, newRole: requestedRole },
       });
+
+      // Real-time: notify the affected user so their dashboard switches automatically
+      try {
+        const io = (await import('../utils/socket.utils.js')).getIO();
+        const targetUserId = user._id?.toString();
+        const targetFirebaseUid = user.firebaseUid;
+        const payload = {
+          newRole: requestedRole,
+          previousRole: user.role,
+          user: updatedUser,
+        };
+        // Emit to both possible user room IDs (MongoDB _id and Firebase UID)
+        if (targetUserId) io.to(`user:${targetUserId}`).emit('user:role_changed', payload);
+        if (targetFirebaseUid && targetFirebaseUid !== targetUserId) {
+          io.to(`user:${targetFirebaseUid}`).emit('user:role_changed', payload);
+        }
+        console.log(`📡 [UserController] Emitted user:role_changed to user ${targetUserId} (${user.email}): ${user.role} → ${requestedRole}`);
+      } catch (socketErr) {
+        console.warn('⚠️ [UserController] Could not emit role_changed socket event:', socketErr.message);
+      }
     } else if (Object.keys(updatePayload).length > 0) {
       logActivity({
         req, type: 'user_edited', module: 'User', action: 'User Updated',
@@ -394,11 +432,11 @@ export const archiveUser = async (req, res, next) => {
       });
     }
 
-    // Only archive if not already archived
-    if (!user.isActive && user.status === 'suspended') {
+    // Only archive if not already archived/suspended
+    if (!user.isActive && ['archived', 'suspended'].includes(user.status)) {
       return res.status(409).json({
         success: false,
-        message: 'User is already archived/inactive',
+        message: 'User is already archived',
       });
     }
 
@@ -510,9 +548,8 @@ export const createUser = async (req, res, next) => {
     if (userExists) {
       // If previously soft-deleted, restore instead of rejecting
       if (userExists.isDeleted) {
-        const bcrypt = await import('bcryptjs');
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
+        const salt = await bcryptjs.genSalt(10);
+        const hashedPassword = await bcryptjs.hash(password, salt);
 
         const restored = await User.findByIdAndUpdate(
           userExists._id,
@@ -567,6 +604,9 @@ export const createUser = async (req, res, next) => {
       role: requestedRole,
       avatar,
       isVerified: true, // Admin created users are verified by default
+      isActive: true,
+      status: 'active',
+      isFirstLogin: requestedRole !== 'customer', // Staff must change password on first login
     };
 
     if (firebaseUid) {

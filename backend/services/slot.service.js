@@ -1,0 +1,299 @@
+/**
+ * slot.service.js
+ *
+ * Core slot generation and availability computation.
+ * This is the single source of truth for all slot logic —
+ * used by both the slot controller and the booking/approval validators.
+ */
+
+import BusinessSettings from '../models/businessSettings.model.js';
+import Order from '../models/order.model.js';
+
+// ── Day name map ──────────────────────────────────────────────────────────────
+const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+// ── Statuses that consume a slot ──────────────────────────────────────────────
+export const SLOT_CONSUMING_STATUSES = [
+  'pending_confirmation',
+  'confirmed',
+  'approved',
+  'assigned',
+  'received',
+  'in_progress',
+  'queued',
+  'processing',
+  'quality_check',
+];
+
+// ── Parse 'HH:MM' into total minutes since midnight ───────────────────────────
+function toMinutes(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+// ── Format total minutes back to 'HH:MM' ─────────────────────────────────────
+function fromMinutes(totalMins) {
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/**
+ * generateTimeSlots(dayConfig, slotDuration)
+ * Returns an ordered array of 'HH:MM' strings for a given day's config.
+ * Returns [] if the day is closed.
+ */
+export function generateTimeSlots(dayConfig, slotDuration) {
+  if (!dayConfig?.isOpen) return [];
+  const openMin = toMinutes(dayConfig.open);
+  const closeMin = toMinutes(dayConfig.close);
+  const slots = [];
+  for (let t = openMin; t < closeMin; t += slotDuration) {
+    slots.push(fromMinutes(t));
+  }
+  return slots;
+}
+
+/**
+ * getSlotsForDate(dateStr)
+ *
+ * Returns full slot availability for a single YYYY-MM-DD date.
+ * Shape: {
+ *   date, isClosed,
+ *   slots: [{ time, capacity, booked, available, status }]
+ * }
+ *
+ * Status values:
+ *   AVAILABLE   — booked < capacity
+ *   ALMOST_FULL — booked/capacity >= 0.8 but < 1.0
+ *   FULL        — booked >= capacity
+ *   CLOSED      — day is closed
+ */
+export async function getSlotsForDate(dateStr) {
+  const settings = await BusinessSettings.getSettings();
+
+  // ── Is this a manually closed date? ──────────────────────────────────
+  if (settings.closedDates.includes(dateStr)) {
+    return { date: dateStr, isClosed: true, slots: [] };
+  }
+
+  // ── Get day of week ───────────────────────────────────────────────────
+  // Parse as local date to avoid UTC shift
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const dateObj = new Date(year, month - 1, day);
+  const dayName = DAY_NAMES[dateObj.getDay()];
+  const dayConfig = settings.openingHours?.[dayName];
+
+  if (!dayConfig?.isOpen) {
+    return { date: dateStr, isClosed: true, slots: [] };
+  }
+
+  // ── Generate time slots ───────────────────────────────────────────────
+  const times = generateTimeSlots(dayConfig, settings.slotDuration);
+
+  if (times.length === 0) {
+    return { date: dateStr, isClosed: true, slots: [] };
+  }
+
+  // ── Fetch bookings for this date in ONE query ─────────────────────────
+  const bookings = await Order.find({
+    bookingDate: dateStr,
+    status: { $in: SLOT_CONSUMING_STATUSES },
+  }).select('bookingTime').lean();
+
+  // Count bookings per time slot
+  const bookedCountByTime = {};
+  for (const b of bookings) {
+    if (!b.bookingTime) continue;
+    bookedCountByTime[b.bookingTime] = (bookedCountByTime[b.bookingTime] || 0) + 1;
+  }
+
+  // Build custom capacity lookup: 'time' → capacity
+  const customCapMap = {};
+  for (const cc of (settings.customSlotCapacities || [])) {
+    if (cc.date === dateStr) {
+      customCapMap[cc.time] = cc.capacity;
+    }
+  }
+
+  // ── Build slot array ──────────────────────────────────────────────────
+  const slots = times.map((time) => {
+    const capacity = customCapMap[time] ?? settings.defaultSlotCapacity;
+    const booked = bookedCountByTime[time] || 0;
+    const available = Math.max(0, capacity - booked);
+    const ratio = capacity > 0 ? booked / capacity : 1;
+
+    let status;
+    if (booked >= capacity) status = 'FULL';
+    else if (ratio >= 0.8) status = 'ALMOST_FULL';
+    else status = 'AVAILABLE';
+
+    return { time, capacity, booked, available, status };
+  });
+
+  return { date: dateStr, isClosed: false, slots };
+}
+
+/**
+ * getSlotsForRange(startStr, endStr)
+ *
+ * Returns a summary array for each date in the range.
+ * Optimised: fetches all bookings for the range in ONE query.
+ *
+ * Shape: [{
+ *   date, isClosed, totalSlots, bookedSlots,
+ *   availableSlots, almostFullSlots, fullSlots,
+ *   pendingCount, status
+ * }]
+ */
+export async function getSlotsForRange(startStr, endStr) {
+  const settings = await BusinessSettings.getSettings();
+
+  const [sy, sm, sd] = startStr.split('-').map(Number);
+  const [ey, em, ed] = endStr.split('-').map(Number);
+  const startDate = new Date(sy, sm - 1, sd);
+  const endDate = new Date(ey, em - 1, ed);
+
+  // Collect all dates in the range
+  const dates = [];
+  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+    dates.push(d.toLocaleDateString('en-CA')); // YYYY-MM-DD
+  }
+
+  // Fetch all bookings in the date range in one query
+  const bookings = await Order.find({
+    bookingDate: { $in: dates },
+    status: { $in: SLOT_CONSUMING_STATUSES },
+  }).select('bookingDate bookingTime status').lean();
+
+  // Also get pending counts (a subset of SLOT_CONSUMING)
+  const pendingBookings = await Order.find({
+    bookingDate: { $in: dates },
+    status: 'pending_confirmation',
+  }).select('bookingDate').lean();
+
+  // Group booked slots by date
+  const bookedByDate = {};
+  for (const b of bookings) {
+    if (!b.bookingDate) continue;
+    if (!bookedByDate[b.bookingDate]) bookedByDate[b.bookingDate] = [];
+    bookedByDate[b.bookingDate].push(b.bookingTime);
+  }
+
+  // Group pending by date
+  const pendingByDate = {};
+  for (const b of pendingBookings) {
+    pendingByDate[b.bookingDate] = (pendingByDate[b.bookingDate] || 0) + 1;
+  }
+
+  const customCapMap = {};
+  for (const cc of (settings.customSlotCapacities || [])) {
+    if (!customCapMap[cc.date]) customCapMap[cc.date] = {};
+    customCapMap[cc.date][cc.time] = cc.capacity;
+  }
+
+  return dates.map((dateStr) => {
+    // Check closed
+    if (settings.closedDates.includes(dateStr)) {
+      return { date: dateStr, isClosed: true, totalSlots: 0, bookedSlots: 0, availableSlots: 0, fullSlots: 0, almostFullSlots: 0, pendingCount: 0, status: 'CLOSED' };
+    }
+
+    const [yr, mo, dy] = dateStr.split('-').map(Number);
+    const dayName = DAY_NAMES[new Date(yr, mo - 1, dy).getDay()];
+    const dayConfig = settings.openingHours?.[dayName];
+
+    if (!dayConfig?.isOpen) {
+      return { date: dateStr, isClosed: true, totalSlots: 0, bookedSlots: 0, availableSlots: 0, fullSlots: 0, almostFullSlots: 0, pendingCount: 0, status: 'CLOSED' };
+    }
+
+    const times = generateTimeSlots(dayConfig, settings.slotDuration);
+    const bookedTimesArr = bookedByDate[dateStr] || [];
+
+    // Count bookings per time
+    const countByTime = {};
+    for (const t of bookedTimesArr) {
+      if (t) countByTime[t] = (countByTime[t] || 0) + 1;
+    }
+
+    let fullSlots = 0, almostFullSlots = 0, availableSlots = 0, totalBooked = 0;
+    for (const time of times) {
+      const cap = customCapMap[dateStr]?.[time] ?? settings.defaultSlotCapacity;
+      const booked = countByTime[time] || 0;
+      totalBooked += booked;
+      const ratio = cap > 0 ? booked / cap : 1;
+      if (booked >= cap) fullSlots++;
+      else if (ratio >= 0.8) almostFullSlots++;
+      else availableSlots++;
+    }
+
+    const totalSlots = times.length;
+
+    let status;
+    if (totalSlots === 0) status = 'CLOSED';
+    else if (fullSlots === totalSlots) status = 'FULL';
+    else if (almostFullSlots + fullSlots >= Math.ceil(totalSlots * 0.8)) status = 'ALMOST_FULL';
+    else status = 'AVAILABLE';
+
+    return {
+      date: dateStr,
+      isClosed: false,
+      totalSlots,
+      bookedSlots: totalBooked,
+      availableSlots,
+      almostFullSlots,
+      fullSlots,
+      pendingCount: pendingByDate[dateStr] || 0,
+      status,
+    };
+  });
+}
+
+/**
+ * validateSlotAvailability(bookingDate, bookingTime)
+ *
+ * Atomically checks if a slot can accept ONE more booking.
+ * Returns { ok: true } or { ok: false, errorCode, message }.
+ *
+ * Must be called inside the same request that creates/approves a booking
+ * to minimize the race window (DB index provides the final guard).
+ */
+export async function validateSlotAvailability(bookingDate, bookingTime) {
+  if (!bookingDate || !bookingTime) return { ok: true }; // no slot constraint
+
+  const settings = await BusinessSettings.getSettings();
+
+  // Check closed dates
+  if (settings.closedDates.includes(bookingDate)) {
+    return { ok: false, errorCode: 'SLOT_CLOSED', message: 'The business is closed on this date.' };
+  }
+
+  // Check day open
+  const [yr, mo, dy] = bookingDate.split('-').map(Number);
+  const dayName = DAY_NAMES[new Date(yr, mo - 1, dy).getDay()];
+  if (!settings.openingHours?.[dayName]?.isOpen) {
+    return { ok: false, errorCode: 'SLOT_CLOSED', message: 'The business is closed on this day.' };
+  }
+
+  // Get effective capacity for this specific slot
+  const customCap = (settings.customSlotCapacities || []).find(
+    cc => cc.date === bookingDate && cc.time === bookingTime
+  );
+  const capacity = customCap ? customCap.capacity : settings.defaultSlotCapacity;
+
+  // Atomic count of active bookings in this slot
+  const activeCount = await Order.countDocuments({
+    bookingDate,
+    bookingTime,
+    status: { $in: SLOT_CONSUMING_STATUSES },
+  });
+
+  if (activeCount >= capacity) {
+    return {
+      ok: false,
+      errorCode: 'SLOT_FULL',
+      message: 'Slot is no longer available. Please select another time.',
+    };
+  }
+
+  return { ok: true, remaining: capacity - activeCount };
+}

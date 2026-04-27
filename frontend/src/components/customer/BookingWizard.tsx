@@ -10,7 +10,9 @@ import {
     CreditCard,
     Info,
     X,
-    Check
+    Check,
+    UploadCloud,
+    FileSignature
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -73,6 +75,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [bookedSlots, setBookedSlots] = useState<string[]>([]);
     const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+    const [gcashProof, setGcashProof] = useState<File | null>(null);
+    const [waiverSigned, setWaiverSigned] = useState(false);
 
     // Fetch available slots when date changes
     useEffect(() => {
@@ -129,6 +133,14 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
             toast.error("Please select a service");
             return;
         }
+        if (!gcashProof) {
+            toast.error("Please upload your GCash proof of payment.");
+            return;
+        }
+        if (!waiverSigned) {
+            toast.error("Please sign the digital waiver to proceed.");
+            return;
+        }
 
         // Placeholder for a validation function, if needed.
         // If validateBooking() returns true, it means there's an error and we should stop.
@@ -169,6 +181,11 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
             formData.append('bookingTime', time);
             formData.append('shippingAddress', 'In-Store Service');
             formData.append('notes', notes);
+            formData.append('paymentMethod', 'gcash'); // Hardcoded based on new flow
+            if (gcashProof) {
+                formData.append('proofOfPayment', gcashProof);
+            }
+            formData.append('waiverSigned', waiverSigned ? 'true' : 'false');
 
             // Important for the new generic Order flow
             formData.append('items', JSON.stringify([{
@@ -468,7 +485,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                         <ChevronLeft className="w-4 h-4 mr-2" /> Back
                     </Button>
                     <Button onClick={handleNext} disabled={isSubmitting} className="bg-indigo-600 text-white hover:bg-indigo-700">
-                        Proceed to Payment <ChevronRight className="w-4 h-4 ml-2" />
+                        Proceed to Payment & Waiver <ChevronRight className="w-4 h-4 ml-2" />
                     </Button>
                 </div>
             </div>
@@ -512,12 +529,72 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                     </div>
                 </div>
 
-                {/* Info / Policy Box */}
-                <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/25 rounded-xl">
-                    <Info className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                    <p className="text-sm text-amber-200/80 leading-relaxed">
-                        <span className="font-semibold text-amber-300">Note:</span> To avoid cancellation, please arrive <span className="font-semibold text-amber-300">15 minutes before</span> your scheduled time. Payment will be collected strictly <span className="font-semibold text-amber-300">on-site via Cash or GCash</span>.
-                    </p>
+                {/* GCash Payment Upload */}
+                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
+                    <div className="flex items-center gap-2 border-b border-zinc-800 pb-3">
+                        <CreditCard className="w-5 h-5 text-indigo-400" />
+                        <h3 className="font-bold text-white">GCash Payment</h3>
+                    </div>
+                    <div className="flex flex-col items-center justify-center p-4 border border-dashed border-zinc-700 rounded-lg bg-zinc-900/50">
+                        <p className="text-sm text-zinc-400 text-center mb-4">Please scan the QR code to pay <strong className="text-white">{formatCurrency(selectedService?.basePrice || 0)}</strong> and upload the screenshot of your transaction below.</p>
+                        
+                        <div className="w-32 h-32 bg-white p-2 rounded-lg mb-4">
+                            {/* Placeholder QR Code */}
+                            <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=GCASH_09123456789" alt="GCash QR" className="w-full h-full object-contain" />
+                        </div>
+                        
+                        <label className="cursor-pointer bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                            <UploadCloud className="w-4 h-4" />
+                            <span className="text-sm font-medium">{gcashProof ? 'Change Screenshot' : 'Upload Screenshot'}</span>
+                            <input 
+                                type="file" 
+                                accept="image/*" 
+                                className="hidden" 
+                                onChange={(e) => {
+                                    if (e.target.files && e.target.files[0]) {
+                                        setGcashProof(e.target.files[0]);
+                                    }
+                                }}
+                            />
+                        </label>
+                        {gcashProof && (
+                            <p className="text-xs text-green-400 mt-2 flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" /> {gcashProof.name} attached
+                            </p>
+                        )}
+                    </div>
+                </div>
+
+                {/* Digital Waiver */}
+                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
+                    <div className="flex items-center gap-2 border-b border-zinc-800 pb-3">
+                        <FileSignature className="w-5 h-5 text-indigo-400" />
+                        <h3 className="font-bold text-white">Digital Waiver</h3>
+                    </div>
+                    <div className="bg-zinc-950 p-4 rounded-lg h-32 overflow-y-auto text-xs text-zinc-400 space-y-2 border border-zinc-800">
+                        <p><strong>AutoSPF+ Service Agreement & Waiver</strong></p>
+                        <p>By proceeding with this booking, I acknowledge and agree to the following terms and conditions:</p>
+                        <ul className="list-disc pl-4 space-y-1">
+                            <li>I authorize AutoSPF+ to perform the requested detailing/protection services on my vehicle.</li>
+                            <li>I have removed all personal and valuable items from the vehicle prior to service. AutoSPF+ is not liable for any lost or damaged personal property.</li>
+                            <li>I acknowledge that pre-existing damage, including scratches, dents, or interior wear, will be documented prior to service, and AutoSPF+ cannot be held responsible for such conditions.</li>
+                            <li>The payment made via GCash is non-refundable if cancellation occurs less than 24 hours before the appointment.</li>
+                        </ul>
+                    </div>
+                    <label className="flex items-start gap-3 cursor-pointer pt-2">
+                        <div className="relative flex items-center justify-center mt-0.5">
+                            <input 
+                                type="checkbox" 
+                                className="peer appearance-none w-5 h-5 border-2 border-zinc-600 rounded checked:bg-indigo-600 checked:border-indigo-600 transition-colors"
+                                checked={waiverSigned}
+                                onChange={(e) => setWaiverSigned(e.target.checked)}
+                            />
+                            <Check className="w-3.5 h-3.5 text-white absolute pointer-events-none opacity-0 peer-checked:opacity-100" strokeWidth={3} />
+                        </div>
+                        <span className="text-sm text-zinc-300 select-none">
+                            I have read, understood, and electronically sign the AutoSPF+ Service Agreement & Waiver.
+                        </span>
+                    </label>
                 </div>
             </div>
 

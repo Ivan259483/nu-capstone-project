@@ -87,6 +87,7 @@ export const SUPPLIER_MANAGER_ROLES = Object.freeze([
 
 export const SERVICE_OPERATION_ROLES = Object.freeze([
   'administrator',
+  'operation_manager',
   'service_staff',
   'staff_quality_checker',
   'staff_inventory',

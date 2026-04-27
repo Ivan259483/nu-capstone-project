@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { NotificationService, SystemNotification } from '../lib/notification-service';
+import { toast } from 'sonner';
 
-type DashboardSection = 'dashboard' | 'scan' | 'settings' | 'bookings' | 'documents' | 'rewards';
+type DashboardSection = 'dashboard' | 'scan' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker';
 
 type ScanUpload = {
   id: string;
@@ -177,6 +178,9 @@ export default function CustomerDashboard() {
 
   // Bookings & Documents
   const [hasActiveBooking, setHasActiveBooking] = useState(false);
+  const [pendingConfirmationBooking, setPendingConfirmationBooking] = useState<any>(null);
+  const [approvedBooking, setApprovedBooking] = useState<any>(null);
+  const [rejectedBooking, setRejectedBooking] = useState<any>(null);
   const [documents, setDocuments] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -277,16 +281,15 @@ export default function CustomerDashboard() {
         });
 
         // Current status: find active booking (in-progress, assigned, checked-in, etc.)
-        const activeStatuses = ['in-progress', 'assigned', 'checked-in', 'processing', 'confirmed'];
+        const activeStatuses = ['in-progress', 'assigned', 'checked-in', 'processing', 'confirmed', 'approved', 'in_progress'];
         const activeOrder = myOrders.find((o: any) => activeStatuses.includes(o.status));
         let currentStatus = '';
         if (activeOrder) {
           const statusMap: Record<string, string> = {
-            'in-progress': 'In Shop — In Progress',
-            'assigned': 'Assigned — Waiting',
-            'checked-in': 'Checked In',
-            'processing': 'Processing',
-            'confirmed': 'Confirmed — Scheduled',
+            'in-progress': 'In Shop — In Progress', 'in_progress': 'In Shop — In Progress',
+            'assigned': 'Assigned — Waiting', 'checked-in': 'Checked In',
+            'processing': 'Processing', 'confirmed': 'Confirmed — Scheduled',
+            'approved': 'Approved — Scheduled',
           };
           currentStatus = statusMap[activeOrder.status] || activeOrder.status;
           if (activeOrder.serviceName && activeOrder.serviceName !== 'Service') {
@@ -321,8 +324,22 @@ export default function CustomerDashboard() {
         // Loyalty points: 50 pts per completed booking
         const loyaltyPoints = completed.length * 50;
 
-        // Update active booking flag for Live Tracker
-        setHasActiveBooking(!!activeOrder);
+        // Update active booking flag — only in-service bookings show live tracker
+        const trackerStatuses = ['received', 'in_progress', 'in-progress'];
+        const trackerOrder = myOrders.find((o: any) => trackerStatuses.includes(o.status));
+        setHasActiveBooking(!!trackerOrder);
+
+        // Approved/Confirmed/Assigned — booking is locked in, waiting for vehicle to arrive
+        const approvedOrder = myOrders.find((o: any) => ['approved', 'confirmed', 'assigned'].includes(o.status));
+        setApprovedBooking(approvedOrder || null);
+
+        // Pending confirmation — show waiting screen instead of tracker
+        const pendingOrder = myOrders.find((o: any) => o.status === 'pending_confirmation');
+        setPendingConfirmationBooking(pendingOrder || null);
+
+        // Rejected — show re-book prompt
+        const rejected = myOrders.find((o: any) => o.status === 'rejected');
+        setRejectedBooking(rejected || null);
 
         setCustomerStats({ currentStatus, nextAppointment, lastService, loyaltyPoints });
       } catch (err) {
@@ -343,6 +360,8 @@ export default function CustomerDashboard() {
   const [bookingDone, setBookingDone] = useState(false);
   const [bookingVehicleType, setBookingVehicleType] = useState<string>('hatchback');
   const [bookingSelectedVehicleIdx, setBookingSelectedVehicleIdx] = useState<number>(-1);
+  const [bookingAgreed, setBookingAgreed] = useState(false);
+  const [bookingDownpaymentProof, setBookingDownpaymentProof] = useState<string | null>(null);
 
   // Vehicle History Modal
   const [vehicleHistoryOpen, setVehicleHistoryOpen] = useState(false);
@@ -429,6 +448,7 @@ export default function CustomerDashboard() {
   const [bookingForm, setBookingForm] = useState({
     service: '', serviceName: '', servicePrice: 0,
     vehicleMake: '', vehicleModel: '', vehicleYear: '', vehicleColor: '', vehiclePlate: '',
+    contactNo: '',
     date: '', time: '', notes: '',
   });
   // Map vehicle type labels → pricing keys
@@ -442,14 +462,27 @@ export default function CustomerDashboard() {
   const getVehiclePriceKey = (type: string) => VEHICLE_TYPE_MAP[type?.toLowerCase()] || 'hatchback';
 
   const BOOKING_TIMES = ['8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'];
-  const BOOKING_DATES = (() => {
-    const dates: Date[] = []; const d = new Date(); d.setDate(d.getDate() + 1);
-    while (dates.length < 14) { if (d.getDay() !== 0) dates.push(new Date(d)); d.setDate(d.getDate() + 1); }
-    return dates;
-  })();
+  const CAR_BRANDS = ['Toyota', 'Honda', 'Mitsubishi', 'Ford', 'Hyundai', 'Kia', 'Nissan', 'Suzuki', 'Mazda', 'Isuzu', 'Chevrolet', 'BMW', 'Mercedes-Benz', 'Audi', 'Subaru', 'Volkswagen', 'Lexus', 'Jeep', 'RAM', 'Other'];
+  const [bookingCalMonth, setBookingCalMonth] = useState(() => {
+    const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), 1);
+  });
+  // Raw booked strings kept for monthAvailability logic
+  const [bookedSlots, setBookedSlots] = useState<string[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [step2Errors, setStep2Errors] = useState<Record<string, string>>({});
+  // Structured per-slot statuses for the selected date
+  type SlotStatus = 'AVAILABLE' | 'FULL' | 'CLOSED';
+  type TimeSlot = { time: string; status: SlotStatus };
+  const [slotStatuses, setSlotStatuses] = useState<TimeSlot[]>([]);
+  const [slotError, setSlotError] = useState<string>('');
+  // Per-date availability: 'available' | 'full' | 'closed'
+  const [monthAvailability, setMonthAvailability] = useState<Record<string, 'available' | 'full' | 'closed'>>({});
+  const [monthAvailLoading, setMonthAvailLoading] = useState(false);
 
   const openBookingModal = async (preSelectedVehicle?: any) => {
     setBookingOpen(true); setBookingStep(1); setBookingDone(false);
+    setBookingAgreed(false); setBookingDownpaymentProof(null);
+    setSlotStatuses([]); setBookedSlots([]); setSlotError(''); setMonthAvailability({});
     const targetVehicle = preSelectedVehicle || vehicles[0];
     const detectedKey = targetVehicle ? getVehiclePriceKey(targetVehicle.type) : 'hatchback';
     setBookingVehicleType(detectedKey);
@@ -466,8 +499,109 @@ export default function CustomerDashboard() {
       vehicleYear: '',
       vehicleColor: targetVehicle ? (targetVehicle.color || '') : '',
       vehiclePlate: targetVehicle ? targetVehicle.plate : '',
+      contactNo: profile.phone || user?.phone || '',
       date: '', time: '', notes: '',
     });
+  };
+
+  const fetchSlotsForDate = async (dateIso: string, currentSelectedTime?: string) => {
+    if (!dateIso) return;
+    setSlotsLoading(true);
+    setSlotError('');
+    try {
+      const res = await fetch(`/api/orders/available-slots?date=${dateIso}`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('authToken')}` }
+      });
+      const data = await res.json();
+      const apiBooked: string[] = Array.isArray(data.bookedSlots) ? data.bookedSlots : [];
+      setBookedSlots(apiBooked);
+
+      // Derive AVAILABLE / FULL / CLOSED for every slot
+      const now = new Date();
+      const isToday = dateIso === now.toISOString().split('T')[0];
+      const currentHour = now.getHours();
+      const currentMin = now.getMinutes();
+
+      const parseHour = (t: string) => {
+        const [time, period] = t.split(' ');
+        let [h] = time.split(':').map(Number);
+        if (period === 'PM' && h !== 12) h += 12;
+        if (period === 'AM' && h === 12) h = 0;
+        return h;
+      };
+
+      const derived: TimeSlot[] = BOOKING_TIMES.map(t => {
+        if (apiBooked.includes(t)) return { time: t, status: 'FULL' as SlotStatus };
+        if (isToday) {
+          const slotHour = parseHour(t);
+          const isPastSlot = slotHour < currentHour || (slotHour === currentHour && currentMin >= 0);
+          if (isPastSlot) return { time: t, status: 'CLOSED' as SlotStatus };
+        }
+        return { time: t, status: 'AVAILABLE' as SlotStatus };
+      });
+      setSlotStatuses(derived);
+
+      // Check if the currently selected time became unavailable
+      if (currentSelectedTime) {
+        const nowStatus = derived.find(s => s.time === currentSelectedTime)?.status;
+        if (nowStatus && nowStatus !== 'AVAILABLE') {
+          const msg = `"${currentSelectedTime}" is no longer available. Please select another time.`;
+          setSlotError(msg);
+          setBookingForm(f => ({ ...f, time: '' }));
+          toast.warning('Time slot unavailable', { description: msg, duration: 4000 });
+        }
+      }
+    } catch {
+      setBookedSlots([]);
+      setSlotStatuses(BOOKING_TIMES.map(t => ({ time: t, status: 'AVAILABLE' as SlotStatus })));
+      toast.warning('Could not load time slots', {
+        description: 'Slots may not reflect live availability. Please try again.',
+        duration: 4000,
+      });
+    } finally {
+      setSlotsLoading(false);
+    }
+  };
+
+  const fetchMonthAvailability = async (year: number, month: number) => {
+    setMonthAvailLoading(true);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const token = localStorage.getItem('authToken');
+    const result: Record<string, 'available' | 'full' | 'closed'> = {};
+
+    // Build list of dates to fetch (skip weekends and past dates)
+    const datesToFetch: string[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(year, month, d);
+      const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+      const isPast = date < today;
+      if (isWeekend || isPast) {
+        result[iso] = 'closed';
+      } else {
+        datesToFetch.push(iso);
+      }
+    }
+
+    // Parallel fetch for all workday dates
+    try {
+      await Promise.all(datesToFetch.map(async (iso) => {
+        try {
+          const res = await fetch(`/api/orders/available-slots?date=${iso}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          const booked: string[] = Array.isArray(data.bookedSlots) ? data.bookedSlots : [];
+          result[iso] = booked.length >= BOOKING_TIMES.length ? 'full' : 'available';
+        } catch {
+          result[iso] = 'available'; // fail-open: allow selection if API fails
+        }
+      }));
+    } finally {
+      setMonthAvailability(result);
+      setMonthAvailLoading(false);
+    }
   };
 
   const openVehicleHistory = async (v: any) => {
@@ -497,21 +631,86 @@ export default function CustomerDashboard() {
   const submitBooking = async () => {
     if (!user) return;
     setBookingSubmitting(true);
+    const loadingId = toast.loading('Submitting your booking…');
     try {
       const { OrderService } = await import('../lib/order-service');
       const payload = {
-        customer: user.id, customerName: user.name || '', customerPhone: '',
+        customer: user.id, customerName: user.name || '', customerPhone: bookingForm.contactNo || '',
         vehicleYear: bookingForm.vehicleYear, vehicleMake: bookingForm.vehicleMake,
         vehicleModel: bookingForm.vehicleModel, vehicleColor: bookingForm.vehicleColor,
         vehiclePlate: bookingForm.vehiclePlate, serviceType: bookingForm.serviceName,
         price: bookingForm.servicePrice, bookingDate: bookingForm.date,
         bookingTime: bookingForm.time, notes: bookingForm.notes,
-        items: JSON.stringify([{ product: bookingForm.service, quantity: 1, price: bookingForm.servicePrice }])
+        items: JSON.stringify([{ product: bookingForm.service, quantity: 1, price: bookingForm.servicePrice }]),
+        // GCash proof — sent as base64 data URL so Sales can verify the payment screenshot
+        downpaymentProof: bookingDownpaymentProof || undefined,
+        paymentProofUrl: bookingDownpaymentProof || undefined,
       };
       const res = await OrderService.createOrder(payload);
-      if (res?.success) { setBookingDone(true); setHasActiveBooking(true); }
-    } catch (e) { console.error(e); } finally { setBookingSubmitting(false); }
+
+      if (res?.success) {
+        toast.dismiss(loadingId);
+        toast.success('Booking submitted! 📩', {
+          description: res.data?.bookingReference
+            ? `Ref: ${res.data.bookingReference} — Your GCash payment is being reviewed. We'll confirm within 1–3 minutes.`
+            : 'Booking submitted! Our team will verify your payment shortly.',
+          duration: 7000,
+        });
+        setBookingDone(true);
+        // Refresh myBookings so the pending_confirmation card appears
+        try {
+          const { OrderService: OS } = await import('../lib/order-service');
+          const r = await OS.getAllOrders({ suppressErrorToast: true });
+          if (r.success && Array.isArray(r.data)) {
+            const mine = r.data.filter((o: any) => {
+              const cid = o.customerId || o.customer?._id || o.customer;
+              return cid === user?.id || cid === user?._id || o.customerName === user?.name;
+            });
+            setMyBookings(mine);
+            const pc = mine.find((o: any) => o.status === 'pending_confirmation');
+            setPendingConfirmationBooking(pc || null);
+          }
+        } catch { /* silent */ }
+
+      } else if (res?.status === 409 || res?.message?.toLowerCase().includes('slot')) {
+        const serverMsg = res.message || 'Slot is no longer available. Please select another time.';
+        toast.dismiss(loadingId);
+        toast.error('Time slot no longer available', { description: serverMsg, duration: 5000 });
+        setSlotError(serverMsg);
+        setBookingForm(f => ({ ...f, time: '' }));
+        if (bookingForm.date) fetchSlotsForDate(bookingForm.date);
+        setBookingStep(3);
+      } else {
+        toast.dismiss(loadingId);
+        toast.error('Booking failed', {
+          description: res?.message || 'Something went wrong. Please try again.',
+          duration: 5000,
+        });
+      }
+    } catch (e: any) {
+      toast.dismiss(loadingId);
+      const msg = e?.response?.data?.message || e?.message || '';
+      if (e?.response?.status === 409 || msg.toLowerCase().includes('slot')) {
+        toast.error('Time slot no longer available', {
+          description: msg || 'Please select a different time.',
+          duration: 5000,
+        });
+        setSlotError(msg || 'Slot is no longer available. Please select another time.');
+        setBookingForm(f => ({ ...f, time: '' }));
+        if (bookingForm.date) fetchSlotsForDate(bookingForm.date);
+        setBookingStep(3);
+      } else {
+        toast.error('Booking failed', {
+          description: msg || 'An unexpected error occurred. Please try again.',
+          duration: 5000,
+        });
+        console.error('[submitBooking]', e);
+      }
+    } finally {
+      setBookingSubmitting(false);
+    }
   };
+
 
   const handleAddVehicleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -611,13 +810,13 @@ export default function CustomerDashboard() {
   const [rewardRedeemMessage, setRewardRedeemMessage] = useState('');
 
   // Settings — Profile
-  const [profile, setProfile] = useState({ fullName: user?.name || '', email: user?.email || '', phone: '+63 912 345 6789' });
+  const [profile, setProfile] = useState({ fullName: user?.name || '', email: user?.email || '', phone: (user as any)?.phone || '' });
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   const [profileSaved, setProfileSaved] = useState(false);
 
   useEffect(() => {
     if (user) {
-      setProfile(p => ({ ...p, fullName: user.name || '', email: user.email || '' }));
+      setProfile(p => ({ ...p, fullName: user.name || '', email: user.email || '', phone: (user as any).phone || p.phone }));
     }
   }, [user]);
 
@@ -632,9 +831,8 @@ export default function CustomerDashboard() {
 
   function validateProfile() {
     const errs: Record<string, string> = {};
-    if (!profile.fullName.trim() || profile.fullName.trim().length < 2) errs.fullName = 'Full name must be at least 2 characters.';
-    if (!profile.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email)) errs.email = 'Enter a valid email address.';
-    if (!profile.phone.trim() || !/^[+\d\s\-()]{7,20}$/.test(profile.phone)) errs.phone = 'Enter a valid phone number.';
+    if (!(profile.fullName || '').trim() || (profile.fullName || '').trim().length < 2) errs.fullName = 'Full name must be at least 2 characters.';
+    if (!(profile.phone || '').trim() || !/^[+\d\s\-()]{7,20}$/.test(profile.phone || '')) errs.phone = 'Enter a valid phone number.';
     setProfileErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -653,12 +851,15 @@ export default function CustomerDashboard() {
       const result = await updateUser({
         ...user,
         name: profile.fullName,
-        email: profile.email
+        email: profile.email,
+        phone: profile.phone,
       });
 
-      if (result.success) {
+      if (result.success && !result.offline) {
         setProfileSaved(true);
         setTimeout(() => setProfileSaved(false), 3000);
+      } else if (result.offline) {
+        setProfileErrors({ form: 'Changes saved locally but failed to sync with server. Please try again.' });
       } else {
         setProfileErrors({ form: result.message || 'Failed to update profile' });
       }
@@ -700,13 +901,15 @@ export default function CustomerDashboard() {
               ? 'documents'
               : s === 'rewards'
                 ? 'rewards'
-                : 'dashboard'
+                : s === 'tracker'
+                  ? 'tracker'
+                  : 'dashboard'
     );
   }, [location.search]);
 
   // Fetch My Bookings whenever section opens
   useEffect(() => {
-    if (!['dashboard', 'bookings', 'documents', 'rewards'].includes(activeSection) || !user) return;
+    if (!['dashboard', 'bookings', 'documents', 'rewards', 'tracker'].includes(activeSection) || !user) return;
     const load = async () => {
       setMyBookingsLoading(true);
       try {
@@ -812,6 +1015,7 @@ export default function CustomerDashboard() {
       bookings: '/customer/dashboard?section=bookings',
       documents: '/customer/dashboard?section=documents',
       rewards: '/customer/dashboard?section=rewards',
+      tracker: '/customer/dashboard?section=tracker',
     };
     navigate(urlMap[section]);
   };
@@ -1057,13 +1261,13 @@ export default function CustomerDashboard() {
             <button onClick={() => nav('bookings')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'bookings' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
               <iconify-icon icon="solar:calendar-linear" width="20"></iconify-icon>
               My Bookings
-              {myBookings.filter(b => ['pending','confirmed'].includes(b.status)).length > 0 && (
+              {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length > 0 && (
                 <span className="ml-auto text-[9px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">
-                  {myBookings.filter(b => ['pending','confirmed'].includes(b.status)).length}
+                  {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length}
                 </span>
               )}
             </button>
-            <button onClick={() => navigate('/customer/live-tracker')} className="w-full flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded-md transition-colors outline-none">
+            <button onClick={() => nav('tracker')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'tracker' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
               <iconify-icon icon="solar:routing-2-linear" width="20"></iconify-icon>
               Live Tracker
             </button>
@@ -1236,11 +1440,8 @@ export default function CustomerDashboard() {
                           </div>
                           <div className="h-px bg-slate-100 mx-2 my-0.5"></div>
                           <div className="px-1.5 py-0.5">
-                            <button onClick={() => { setProfileMenuOpen(false); setProfileSubMenu(null); nav('settings'); }} className="w-full flex items-center gap-2.5 px-2.5 py-[7px] rounded-md hover:bg-slate-50 transition-colors">
-                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><iconify-icon icon="solar:settings-linear" width="18" style={{ color: '#475569' }}></iconify-icon></div>
-                              <span className="flex-1 text-left text-[13px] font-medium text-slate-800">Settings & privacy</span>
-                              <iconify-icon icon="solar:alt-arrow-right-linear" width="16" style={{ color: '#94a3b8' }}></iconify-icon>
-                            </button>
+
+
                             <button onClick={() => setProfileSubMenu('help')} className="w-full flex items-center gap-2.5 px-2.5 py-[7px] rounded-md hover:bg-slate-50 transition-colors">
                               <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><iconify-icon icon="solar:question-circle-linear" width="18" style={{ color: '#475569' }}></iconify-icon></div>
                               <span className="flex-1 text-left text-[13px] font-medium text-slate-800">Help & support</span>
@@ -1417,36 +1618,36 @@ export default function CustomerDashboard() {
                  MY BOOKINGS — Ultra-Premium UI
               ═══════════════════════════════════════════ */
               (() => {
-                const upcomingStatuses = ['pending','confirmed','assigned'];
-                const activeStatuses = ['in-progress','processing','checked-in'];
-                const doneStatuses = ['completed','released','done','delivered'];
-                const cancelledStatuses = ['cancelled','rejected'];
+                const upcomingStatuses = ['pending_confirmation', 'pending', 'confirmed', 'approved', 'assigned'];
+                const activeStatuses = ['in-progress', 'in_progress', 'processing', 'checked-in', 'received'];
+                const doneStatuses = ['completed', 'released', 'done', 'delivered', 'paid'];
+                const cancelledStatuses = ['cancelled', 'rejected'];
                 const filteredBookings = bookingsFilter === 'all' ? myBookings
                   : bookingsFilter === 'upcoming' ? myBookings.filter(b => upcomingStatuses.includes(b.status))
-                  : bookingsFilter === 'active'   ? myBookings.filter(b => activeStatuses.includes(b.status))
-                  : bookingsFilter === 'completed'? myBookings.filter(b => doneStatuses.includes(b.status))
-                  : myBookings.filter(b => cancelledStatuses.includes(b.status));
+                    : bookingsFilter === 'active' ? myBookings.filter(b => activeStatuses.includes(b.status))
+                      : bookingsFilter === 'completed' ? myBookings.filter(b => doneStatuses.includes(b.status))
+                        : myBookings.filter(b => cancelledStatuses.includes(b.status));
 
                 const statusCfg: Record<string, { label: string; color: string; bg: string; strip: string; dot?: boolean }> = {
-                  pending:      { label: 'Pending',     color: '#92400e', bg: '#fffbeb', strip: '#f59e0b' },
-                  confirmed:    { label: 'Confirmed',   color: '#3730a3', bg: '#eef2ff', strip: '#6366f1' },
-                  assigned:     { label: 'Assigned',    color: '#3730a3', bg: '#eef2ff', strip: '#6366f1' },
-                  'in-progress':{ label: 'In Progress', color: '#1d4ed8', bg: '#eff6ff', strip: '#3b82f6', dot: true },
-                  processing:   { label: 'Processing',  color: '#1d4ed8', bg: '#eff6ff', strip: '#3b82f6', dot: true },
-                  'checked-in': { label: 'Checked In',  color: '#0369a1', bg: '#f0f9ff', strip: '#0ea5e9' },
-                  completed:    { label: 'Completed',   color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
-                  released:     { label: 'Released',    color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
-                  done:         { label: 'Done',        color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
-                  cancelled:    { label: 'Cancelled',   color: '#991b1b', bg: '#fef2f2', strip: '#ef4444' },
-                  rejected:     { label: 'Rejected',    color: '#991b1b', bg: '#fef2f2', strip: '#ef4444' },
+                  pending: { label: 'Pending', color: '#92400e', bg: '#fffbeb', strip: '#f59e0b' },
+                  confirmed: { label: 'Confirmed', color: '#3730a3', bg: '#eef2ff', strip: '#6366f1' },
+                  assigned: { label: 'Assigned', color: '#3730a3', bg: '#eef2ff', strip: '#6366f1' },
+                  'in-progress': { label: 'In Progress', color: '#1d4ed8', bg: '#eff6ff', strip: '#3b82f6', dot: true },
+                  processing: { label: 'Processing', color: '#1d4ed8', bg: '#eff6ff', strip: '#3b82f6', dot: true },
+                  'checked-in': { label: 'Checked In', color: '#0369a1', bg: '#f0f9ff', strip: '#0ea5e9' },
+                  completed: { label: 'Completed', color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
+                  released: { label: 'Released', color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
+                  done: { label: 'Done', color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
+                  cancelled: { label: 'Cancelled', color: '#991b1b', bg: '#fef2f2', strip: '#ef4444' },
+                  rejected: { label: 'Rejected', color: '#991b1b', bg: '#fef2f2', strip: '#ef4444' },
                 };
 
                 const filterCounts = {
                   all: myBookings.length,
                   upcoming: myBookings.filter(b => upcomingStatuses.includes(b.status)).length,
-                  active:   myBookings.filter(b => activeStatuses.includes(b.status)).length,
-                  completed:myBookings.filter(b => doneStatuses.includes(b.status)).length,
-                  cancelled:myBookings.filter(b => cancelledStatuses.includes(b.status)).length,
+                  active: myBookings.filter(b => activeStatuses.includes(b.status)).length,
+                  completed: myBookings.filter(b => doneStatuses.includes(b.status)).length,
+                  cancelled: myBookings.filter(b => cancelledStatuses.includes(b.status)).length,
                 };
 
                 return (
@@ -1496,16 +1697,14 @@ export default function CustomerDashboard() {
                           <button
                             key={f}
                             onClick={() => setBookingsFilter(f)}
-                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap capitalize ${
-                              bookingsFilter === f ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                            }`}
+                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap capitalize ${bookingsFilter === f ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                              }`}
                           >
                             <iconify-icon icon={icons[f]} width="14"></iconify-icon>
                             {f}
                             {filterCounts[f] > 0 && (
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                                bookingsFilter === f ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
-                              }`}>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${bookingsFilter === f ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                                }`}>
                                 {filterCounts[f]}
                               </span>
                             )}
@@ -1517,7 +1716,7 @@ export default function CustomerDashboard() {
                     {/* ── Content ── */}
                     {myBookingsLoading ? (
                       <div className="space-y-3">
-                        {[1,2,3].map(k => (
+                        {[1, 2, 3].map(k => (
                           <div key={k} className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden animate-pulse">
                             <div className="flex">
                               <div className="w-1 bg-slate-200 shrink-0" />
@@ -1690,7 +1889,7 @@ export default function CustomerDashboard() {
                                         </button>
                                       )}
                                       <button
-                                        onClick={() => navigate('/customer/live-tracker')}
+                                        onClick={() => nav('tracker')}
                                         className="flex items-center gap-1.5 text-xs font-bold text-white px-4 py-2 rounded-xl transition-all hover:-translate-y-0.5 shadow-sm hover:shadow-md"
                                         style={{ background: `linear-gradient(135deg, ${cfg.strip}, ${cfg.strip}cc)` }}>
                                         <iconify-icon icon="solar:map-arrow-right-linear" width="13"></iconify-icon>
@@ -1712,8 +1911,8 @@ export default function CustomerDashboard() {
               <div className="space-y-8 pb-10">
                 <section
                   className={`relative overflow-hidden rounded-[32px] border bg-white shadow-[0_24px_80px_rgba(15,23,42,0.06)] ${highendScanEnabled ? 'border-[#a855f7]/40' : 'border-slate-200'}`}
-                  style={{ 
-                    background: highendScanEnabled 
+                  style={{
+                    background: highendScanEnabled
                       ? 'linear-gradient(145deg, #0c0a1e 0%, #1e1b4b 15%, #2e1f5e 30%, #3b2566 45%, #1a1636 70%, #0f0d1a 100%)'
                       : 'linear-gradient(135deg, #fffdf8 0%, #ffffff 45%, #eef6ff 100%)'
                   }}
@@ -1755,8 +1954,8 @@ export default function CustomerDashboard() {
                       )}
 
                       <h2 className={`mt-6 max-w-2xl font-semibold leading-[0.92] tracking-[-0.05em] ${highendScanEnabled ? 'text-white sm:text-[48px] text-[32px]' : 'text-slate-950 sm:text-[44px]'}`}>
-                        {highendScanEnabled 
-                          ? 'Bespoke vehicle intelligence. Concierge-grade precision.' 
+                        {highendScanEnabled
+                          ? 'Bespoke vehicle intelligence. Concierge-grade precision.'
                           : 'Scan your vehicle, map the damage, and preview the repair outcome in one premium flow.'}
                       </h2>
 
@@ -1790,7 +1989,7 @@ export default function CustomerDashboard() {
                         </div>
                       )}
 
-<div className="mt-6 flex flex-wrap items-center gap-3">
+                      <div className="mt-6 flex flex-wrap items-center gap-3">
                         <div className={`flex items-center gap-3 rounded-2xl border px-4 py-3.5 shadow-sm ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/40' : 'border-slate-200 bg-white'}`}>
                           <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${highendScanEnabled ? 'bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-white shadow-lg' : 'bg-slate-900 text-white'}`}>
                             <iconify-icon icon="solar:car-linear" width="20"></iconify-icon>
@@ -1816,8 +2015,8 @@ export default function CustomerDashboard() {
                           type="button"
                           disabled={scanAnalyzing || scanIsHighend}
                           onClick={() => setScanMode((prev) => (prev === 'highend' ? 'auto' : 'highend'))}
-                          className={`rounded-2xl border px-4 py-3 text-left transition-all group ${highendScanEnabled 
-                            ? 'border-amber-500/40 bg-gradient-to-br from-amber-950/60 via-violet-950/40 to-violet-900/30 text-amber-200 hover:border-amber-400 hover:shadow-[0_0_25px_rgba(251,191,36,0.25)]' 
+                          className={`rounded-2xl border px-4 py-3 text-left transition-all group ${highendScanEnabled
+                            ? 'border-amber-500/40 bg-gradient-to-br from-amber-950/60 via-violet-950/40 to-violet-900/30 text-amber-200 hover:border-amber-400 hover:shadow-[0_0_25px_rgba(251,191,36,0.25)]'
                             : 'border-slate-200 bg-white text-slate-600 hover:-translate-y-0.5 hover:border-violet-300 hover:text-violet-700'} ${scanAnalyzing || scanIsHighend ? 'cursor-not-allowed opacity-70' : 'hover:-translate-y-0.5'}`}
                           title={scanIsHighend ? 'Auto enabled for high-end vehicle' : 'Toggle premium scan profile'}
                         >
@@ -1836,18 +2035,18 @@ export default function CustomerDashboard() {
                       <div className="mt-8 flex flex-wrap gap-3">
                         <button
                           onClick={openScanFilePicker}
-                          className={`inline-flex items-center gap-2.5 rounded-2xl px-6 py-3.5 text-sm font-semibold shadow-[0_16px_32px_rgba(15,23,42,0.18)] transition-all hover:-translate-y-1 hover:shadow-[0_20px_40px_rgba(15,23,42,0.22)] ${highendScanEnabled 
-                              ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 text-slate-950 hover:from-amber-300 hover:via-amber-400 hover:to-amber-500' 
-                              : 'bg-slate-950 text-white hover:bg-slate-800'}`}
+                          className={`inline-flex items-center gap-2.5 rounded-2xl px-6 py-3.5 text-sm font-semibold shadow-[0_16px_32px_rgba(15,23,42,0.18)] transition-all hover:-translate-y-1 hover:shadow-[0_20px_40px_rgba(15,23,42,0.22)] ${highendScanEnabled
+                            ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 text-slate-950 hover:from-amber-300 hover:via-amber-400 hover:to-amber-500'
+                            : 'bg-slate-950 text-white hover:bg-slate-800'}`}
                         >
                           <iconify-icon icon="solar:camera-add-linear" width="18"></iconify-icon>
                           {highendScanEnabled ? 'Schedule Private Scan' : 'Upload Scan Set'}
                         </button>
                         <button
                           onClick={() => openBookingModal(selectedScanVehicle || undefined)}
-                          className={`inline-flex items-center gap-2.5 rounded-2xl border px-5 py-3.5 text-sm font-semibold shadow-sm transition-all hover:-translate-y-1 ${highendScanEnabled 
-                              ? 'border-amber-500/40 bg-gradient-to-br from-violet-950/50 via-violet-900/40 to-violet-800/30 text-amber-200 hover:border-amber-400 hover:bg-violet-900/50' 
-                              : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:text-slate-900'}`}
+                          className={`inline-flex items-center gap-2.5 rounded-2xl border px-5 py-3.5 text-sm font-semibold shadow-sm transition-all hover:-translate-y-1 ${highendScanEnabled
+                            ? 'border-amber-500/40 bg-gradient-to-br from-violet-950/50 via-violet-900/40 to-violet-800/30 text-amber-200 hover:border-amber-400 hover:bg-violet-900/50'
+                            : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:text-slate-900'}`}
                         >
                           <iconify-icon icon="solar:calendar-add-linear" width="18"></iconify-icon>
                           Private Appointment
@@ -1875,15 +2074,15 @@ export default function CustomerDashboard() {
                             <iconify-icon icon="solar:scanner-linear" width="24"></iconify-icon>
                           </div>
                         </div>
-                      <div className="mt-5 h-2 overflow-hidden rounded-full bg-slate-100">
-                        <div className="h-full rounded-full" style={{ 
-                          width: '97%', 
-                          background: highendScanEnabled 
-                            ? 'linear-gradient(90deg, #f59e0b 0%, #fbbf24 50%, #fcd34d 100%)' 
-                            : 'linear-gradient(90deg, #0f172a 0%, #0ea5e9 100%)', 
-                          backgroundSize: '200% 100%', 
-                          animation: 'gradientMove 2.8s linear infinite' 
-                        }} />
+                        <div className="mt-5 h-2 overflow-hidden rounded-full bg-slate-100">
+                          <div className="h-full rounded-full" style={{
+                            width: '97%',
+                            background: highendScanEnabled
+                              ? 'linear-gradient(90deg, #f59e0b 0%, #fbbf24 50%, #fcd34d 100%)'
+                              : 'linear-gradient(90deg, #0f172a 0%, #0ea5e9 100%)',
+                            backgroundSize: '200% 100%',
+                            animation: 'gradientMove 2.8s linear infinite'
+                          }} />
                         </div>
                         <div className={`mt-2 flex items-center justify-between text-[11px] ${highendScanEnabled ? 'text-amber-300/70' : 'text-slate-500'}`}>
                           <span>{highendScanEnabled ? 'Precision calibration status' : 'Panel recognition'}</span>
@@ -1986,11 +2185,11 @@ export default function CustomerDashboard() {
                               <button
                                 key={vehicleId}
                                 onClick={() => setScanVehicleId(vehicleId)}
-                                className={`rounded-2xl border px-4 py-2 text-left transition-all ${isActive 
-                                  ? highendScanEnabled 
-                                    ? 'border-amber-500/50 bg-amber-950/40 text-amber-200' 
+                                className={`rounded-2xl border px-4 py-2 text-left transition-all ${isActive
+                                  ? highendScanEnabled
+                                    ? 'border-amber-500/50 bg-amber-950/40 text-amber-200'
                                     : 'border-slate-900 bg-slate-900 text-white shadow-lg'
-                                  : highendScanEnabled 
+                                  : highendScanEnabled
                                     ? 'border-violet-500/30 bg-violet-950/30 text-violet-300'
                                     : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'}`}
                               >
@@ -2002,8 +2201,8 @@ export default function CustomerDashboard() {
                         ) : (
                           <button
                             onClick={() => setAddVehicleOpen(true)}
-                            className={`rounded-2xl border border-dashed px-4 py-2 text-sm font-semibold transition-colors ${highendScanEnabled 
-                              ? 'border-violet-500/40 bg-violet-950/20 text-violet-300 hover:border-violet-400 hover:bg-violet-900/30' 
+                            className={`rounded-2xl border border-dashed px-4 py-2 text-sm font-semibold transition-colors ${highendScanEnabled
+                              ? 'border-violet-500/40 bg-violet-950/20 text-violet-300 hover:border-violet-400 hover:bg-violet-900/30'
                               : 'border-slate-300 bg-slate-50 text-slate-600 hover:border-slate-400 hover:text-slate-900'}`}
                           >
                             Add vehicle profile
@@ -2032,19 +2231,19 @@ export default function CustomerDashboard() {
                         <button
                           type="button"
                           onClick={openScanFilePicker}
-                          className={`flex min-h-[320px] w-full flex-col items-center justify-center rounded-[26px] border px-6 text-center shadow-inner transition-transform hover:-translate-y-1 ${highendScanEnabled 
-                            ? 'border-violet-500/30 bg-gradient-to-b from-slate-900/80 to-slate-950/60' 
+                          className={`flex min-h-[320px] w-full flex-col items-center justify-center rounded-[26px] border px-6 text-center shadow-inner transition-transform hover:-translate-y-1 ${highendScanEnabled
+                            ? 'border-violet-500/30 bg-gradient-to-b from-slate-900/80 to-slate-950/60'
                             : 'border-slate-100 bg-white'}`}
                         >
-                          <div className={`flex h-16 w-16 items-center justify-center rounded-[24px] shadow-lg ${highendScanEnabled 
-                            ? 'bg-gradient-to-br from-amber-400 to-amber-600 text-white' 
+                          <div className={`flex h-16 w-16 items-center justify-center rounded-[24px] shadow-lg ${highendScanEnabled
+                            ? 'bg-gradient-to-br from-amber-400 to-amber-600 text-white'
                             : 'bg-slate-900 text-white'}`}>
                             <iconify-icon icon="solar:camera-add-linear" width="28"></iconify-icon>
                           </div>
                           <h4 className={`mt-5 text-xl font-semibold tracking-[-0.03em] ${highendScanEnabled ? 'text-white' : 'text-slate-950'}`}>{highendScanEnabled ? 'Securely transfer your images' : 'Drop your vehicle photos here'}</h4>
                           <p className={`mt-2 max-w-md text-sm leading-6 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>
-                            {highendScanEnabled 
-                              ? 'Private, encrypted transfer. Your images are processed with strict confidentiality.' 
+                            {highendScanEnabled
+                              ? 'Private, encrypted transfer. Your images are processed with strict confidentiality.'
                               : 'AI detects defects, identifies problem areas, and prepares your 3D and AR preview from the uploaded scan set.'}
                           </p>
                           <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
@@ -2065,8 +2264,8 @@ export default function CustomerDashboard() {
                               </>
                             )}
                           </div>
-                          <span className={`mt-6 inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] ${highendScanEnabled 
-                            ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950' 
+                          <span className={`mt-6 inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] ${highendScanEnabled
+                            ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950'
                             : 'bg-slate-950 text-white'}`}>
                             <iconify-icon icon="solar:scanner-linear" width="16"></iconify-icon>
                             {highendScanEnabled ? 'Begin Private Scan' : 'Start scan'}
@@ -2510,6 +2709,132 @@ export default function CustomerDashboard() {
                   </div>
                 )}
               </div>
+            ) : activeSection === 'tracker' ? (
+              /* ═══ Live Tracker ═══ */
+              (() => {
+                const activeBooking = myBookings.find(b => ['confirmed', 'received', 'in_progress', 'in-progress', 'completed', 'paid'].includes(b.status));
+                const TRACKER_STEPS = [
+                  { id: 'confirmed', label: 'Booking Confirmed', icon: 'solar:check-circle-bold' },
+                  { id: 'received', label: 'Vehicle Received', icon: 'solar:garage-bold' },
+                  { id: 'in_progress', label: 'Service In Progress', icon: 'solar:wrench-bold' },
+                  { id: 'completed', label: 'Quality Check', icon: 'solar:shield-check-bold' },
+                  { id: 'paid', label: 'Ready for Pickup', icon: 'solar:car-bold' },
+                ];
+                const statusToStep: Record<string, number> = { confirmed: 0, received: 1, in_progress: 2, 'in-progress': 2, completed: 3, paid: 4 };
+                const currentStep = activeBooking ? (statusToStep[activeBooking.status] ?? 0) : -1;
+
+                return (
+                  <div className="max-w-3xl mx-auto pb-12 space-y-6">
+                    <div>
+                      <h2 className="text-xl font-semibold text-slate-900 mb-1">Live Tracker</h2>
+                      <p className="text-sm text-slate-500">Track your vehicle service in real time.</p>
+                    </div>
+
+                    {!activeBooking ? (
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-10 text-center">
+                        <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <iconify-icon icon="solar:routing-2-linear" width="28" style={{ color: '#94a3b8' }}></iconify-icon>
+                        </div>
+                        <h3 className="text-lg font-semibold text-slate-900 mb-1">No Active Service</h3>
+                        <p className="text-sm text-slate-500 mb-4">You don't have a vehicle currently being serviced. Book a service to start tracking.</p>
+                        <button onClick={() => nav('bookings')} className="px-5 py-2 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-700 transition-colors">
+                          View My Bookings
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Status Banner */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="relative">
+                                <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                                <div className="absolute inset-0 w-3 h-3 rounded-full bg-emerald-400 animate-ping"></div>
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">Service In Progress</p>
+                                <p className="text-xs text-slate-500">Live updates enabled</p>
+                              </div>
+                            </div>
+                            <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">LIVE</span>
+                          </div>
+
+                          {/* Vehicle Info */}
+                          <div className="px-6 py-4 flex items-center justify-between border-b border-slate-50">
+                            <div>
+                              <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-1">Vehicle</p>
+                              <p className="text-sm font-semibold text-slate-900">{[activeBooking.vehicleYear, activeBooking.vehicleMake, activeBooking.vehicleModel].filter(Boolean).join(' ') || activeBooking.vehicleInfo || '—'}</p>
+                              <p className="text-xs text-slate-500">{activeBooking.vehicleColor || ''} {activeBooking.vehiclePlate ? `• ${activeBooking.vehiclePlate}` : ''}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-1">Service</p>
+                              <p className="text-sm font-semibold text-slate-900">{activeBooking.serviceName || '—'}</p>
+                            </div>
+                          </div>
+
+                          {/* Progress Steps */}
+                          <div className="px-6 py-5">
+                            <div className="space-y-0">
+                              {TRACKER_STEPS.map((step, idx) => {
+                                const isDone = idx < currentStep;
+                                const isActive = idx === currentStep;
+                                const isPending = idx > currentStep;
+                                return (
+                                  <div key={step.id} className="flex items-start gap-4">
+                                    {/* Vertical line + dot */}
+                                    <div className="flex flex-col items-center">
+                                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${isDone ? 'bg-emerald-500 text-white' : isActive ? 'bg-slate-900 text-white ring-4 ring-slate-200' : 'bg-slate-100 text-slate-400'}`}>
+                                        {isDone ? (
+                                          <iconify-icon icon="solar:check-read-bold" width="16"></iconify-icon>
+                                        ) : (
+                                          <iconify-icon icon={step.icon} width="16"></iconify-icon>
+                                        )}
+                                      </div>
+                                      {idx < TRACKER_STEPS.length - 1 && (
+                                        <div className={`w-0.5 h-8 ${isDone ? 'bg-emerald-300' : 'bg-slate-200'}`}></div>
+                                      )}
+                                    </div>
+                                    {/* Text */}
+                                    <div className="pt-1 pb-4">
+                                      <p className={`text-sm font-semibold ${isDone ? 'text-emerald-700' : isActive ? 'text-slate-900' : 'text-slate-400'}`}>{step.label}</p>
+                                      {isActive && <p className="text-xs text-amber-600 mt-0.5 font-medium">● Current stage</p>}
+                                      {isDone && <p className="text-xs text-slate-400 mt-0.5">Completed</p>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Detailer Info */}
+                        {activeBooking.assignedDetailer && typeof activeBooking.assignedDetailer === 'object' && (
+                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                            <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-3">Assigned Specialist</p>
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-sm">
+                                {((activeBooking.assignedDetailer as any).name || 'S').charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">{(activeBooking.assignedDetailer as any).name || 'Specialist'}</p>
+                                <p className="text-xs text-slate-500 capitalize">{(activeBooking.assignedDetailer as any).role || 'Detailer'}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Notes */}
+                        {activeBooking.notes && (
+                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                            <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-2">Staff Notes</p>
+                            <p className="text-sm text-slate-700 leading-relaxed">{activeBooking.notes}</p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })()
             ) : activeSection === 'settings' ? (
               <div className="max-w-2xl mx-auto space-y-8 pb-12">
                 <div>
@@ -2528,9 +2853,11 @@ export default function CustomerDashboard() {
 
                     {/* Avatar Upload */}
                     <div className="flex items-center gap-5 pb-4 border-b border-slate-100">
-                      <div className="relative group cursor-pointer">
+                      <div className="relative group cursor-pointer" onClick={() => document.getElementById('avatar-upload-input')?.click()}>
                         <div className="w-20 h-20 rounded-full bg-[#eff6ff] flex items-center justify-center text-[#1d4ed8] font-bold text-3xl shadow-sm overflow-hidden border border-slate-200">
-                          {user?.avatar ? (
+                          {(profile as any).avatarPreview ? (
+                            <img src={(profile as any).avatarPreview} alt="Profile" className="w-full h-full object-cover" />
+                          ) : user?.avatar ? (
                             <img src={user.avatar} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                           ) : (
                             (user?.name || 'C').charAt(0).toUpperCase()
@@ -2543,13 +2870,27 @@ export default function CustomerDashboard() {
                       <div>
                         <h4 className="text-sm font-medium text-slate-900">Profile Photo</h4>
                         <p className="text-xs text-slate-500 mt-0.5 mb-2">Recommended: Square JPG or PNG, max 2MB.</p>
+                        <input id="avatar-upload-input" type="file" accept="image/*" className="hidden" onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 2 * 1024 * 1024) {
+                              setProfileErrors({ form: 'Image must be under 2MB.' });
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onloadend = () => setProfile(p => ({ ...p, avatarPreview: reader.result as string }));
+                            reader.readAsDataURL(file);
+                          }
+                        }} />
                         <div className="flex items-center gap-2">
-                          <button type="button" className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-md transition-colors shadow-sm">
+                          <button type="button" onClick={() => document.getElementById('avatar-upload-input')?.click()} className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-md transition-colors shadow-sm">
                             Upload Photo
                           </button>
-                          <button type="button" className="px-3 py-1.5 text-slate-500 hover:text-red-600 text-xs font-medium transition-colors">
-                            Remove
-                          </button>
+                          {((profile as any).avatarPreview || user?.avatar) && (
+                            <button type="button" onClick={() => setProfile(p => ({ ...p, avatarPreview: '' }))} className="px-3 py-1.5 text-slate-500 hover:text-red-600 text-xs font-medium transition-colors">
+                              Remove
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -2562,11 +2903,13 @@ export default function CustomerDashboard() {
                       {profileErrors.fullName && <p className="mt-1 text-xs text-red-600 flex items-center gap-1"><iconify-icon icon="solar:danger-circle-linear" width="14"></iconify-icon>{profileErrors.fullName}</p>}
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1.5">Email Address</label>
-                      <input type="email" value={profile.email} onChange={e => { setProfile(p => ({ ...p, email: e.target.value })); setProfileErrors(er => ({ ...er, email: '' })); }}
-                        className={`w-full px-3 py-2 rounded-md border text-sm bg-white text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors ${profileErrors.email ? 'border-red-400 bg-red-50' : 'border-slate-200'}`}
-                        placeholder="you@email.com" />
-                      {profileErrors.email && <p className="mt-1 text-xs text-red-600 flex items-center gap-1"><iconify-icon icon="solar:danger-circle-linear" width="14"></iconify-icon>{profileErrors.email}</p>}
+                      <label className="block text-xs font-medium text-slate-700 mb-1.5">Email Address <span className="text-[10px] text-slate-400 font-normal ml-1">— cannot be changed</span></label>
+                      <div className="relative">
+                        <input type="email" value={profile.email} readOnly disabled
+                          className="w-full px-3 py-2 pr-9 rounded-md border border-slate-200 text-sm bg-slate-50 text-slate-500 outline-none cursor-not-allowed"
+                          placeholder="you@email.com" />
+                        <iconify-icon icon="solar:lock-keyhole-bold" width="14" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1' }}></iconify-icon>
+                      </div>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1.5">Phone Number</label>
@@ -2676,74 +3019,356 @@ export default function CustomerDashboard() {
                   </div>
                 </div>
 
-                {/* Live Service Tracker */}
-                {hasActiveBooking && (
-                  <section>
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-lg font-medium tracking-tight text-slate-900">Live Service: 2023 Tesla Model 3</h2>
-                      <span className="text-xs font-medium px-2 py-1 bg-indigo-50 text-indigo-700 rounded border border-indigo-100">Est. completion: 2:30 PM</span>
-                    </div>
 
-                    <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm overflow-x-auto">
-                      <div className="min-w-[600px] flex items-center">
-
-                        {/* Step 1: Done */}
-                        <div className="flex flex-col items-center relative z-10 w-24">
-                          <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center mb-2">
-                            <iconify-icon icon="solar:check-read-linear" width="16"></iconify-icon>
-                          </div>
-                          <span className="text-xs font-medium text-slate-900 text-center">Checked-in</span>
-                          <span className="text-xs text-slate-500">8:45 AM</span>
+                {/* ── PENDING CONFIRMATION card ── */}
+                {pendingConfirmationBooking && !hasActiveBooking && (() => {
+                  const ref = pendingConfirmationBooking.bookingReference || pendingConfirmationBooking.orderNumber || '—';
+                  const dateStr = pendingConfirmationBooking.bookingDate
+                    ? new Date(pendingConfirmationBooking.bookingDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                    : '—';
+                  return (
+                    <section style={{ marginBottom: 32 }}>
+                      <style dangerouslySetInnerHTML={{
+                        __html: `
+                        @keyframes pcPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(1.12)}}
+                        @keyframes pcSlide{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+                        @keyframes pcSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+                        @keyframes pcShimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+                      `}} />
+                      <div style={{ background: 'linear-gradient(145deg,#0c1220 0%,#121a2e 50%,#0a1018 100%)', borderRadius: 24, overflow: 'hidden', boxShadow: '0 32px 64px -16px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.07)', animation: 'pcSlide .5s ease-out', position: 'relative' }}>
+                        {/* Aurora glows */}
+                        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+                          <div style={{ position: 'absolute', top: -80, right: -60, width: 320, height: 320, borderRadius: '50%', background: 'radial-gradient(circle,rgba(99,102,241,.1) 0%,transparent 65%)' }} />
+                          <div style={{ position: 'absolute', bottom: -100, left: -40, width: 280, height: 280, borderRadius: '50%', background: 'radial-gradient(circle,rgba(245,158,11,.07) 0%,transparent 65%)' }} />
                         </div>
 
-                        <div className="flex-1 h-px bg-slate-900 -mx-6 mb-8 relative z-0"></div>
-
-                        {/* Step 2: Done */}
-                        <div className="flex flex-col items-center relative z-10 w-24">
-                          <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center mb-2">
-                            <iconify-icon icon="solar:check-read-linear" width="16"></iconify-icon>
+                        <div style={{ padding: '28px 28px 24px', position: 'relative', zIndex: 2 }}>
+                          {/* Top row */}
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                {/* Spinning amber loader */}
+                                <div style={{ width: 16, height: 16, borderRadius: '50%', border: '2.5px solid rgba(245,158,11,.25)', borderTop: '2.5px solid #f59e0b', animation: 'pcSpin 1s linear infinite', flexShrink: 0 }} />
+                                <span style={{ fontSize: 9, fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '.14em' }}>Awaiting Confirmation</span>
+                              </div>
+                              <h2 style={{ fontSize: 20, fontWeight: 900, color: '#fff', margin: '0 0 4px', letterSpacing: '-.03em', lineHeight: 1.1 }}>Payment Under Review</h2>
+                              <p style={{ fontSize: 12, color: 'rgba(255,255,255,.4)', margin: 0, fontWeight: 500 }}>Our team is verifying your GCash payment. Please wait 1–3 minutes.</p>
+                            </div>
+                            <div style={{ background: 'rgba(245,158,11,.1)', border: '1px solid rgba(245,158,11,.3)', borderRadius: 12, padding: '10px 16px', textAlign: 'center', flexShrink: 0 }}>
+                              <p style={{ fontSize: 9, color: 'rgba(245,158,11,.7)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', margin: '0 0 2px' }}>Reference</p>
+                              <p style={{ fontSize: 13, color: '#fbbf24', fontWeight: 800, margin: 0, letterSpacing: '.02em' }}>{ref}</p>
+                            </div>
                           </div>
-                          <span className="text-xs font-medium text-slate-900 text-center">Washing</span>
-                          <span className="text-xs text-slate-500">9:15 AM</span>
+
+                          {/* Info row */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+                            {[
+                              { icon: 'solar:calendar-bold', label: 'Date', value: dateStr },
+                              { icon: 'solar:clock-circle-bold', label: 'Time', value: pendingConfirmationBooking.bookingTime || '—' },
+                              { icon: 'solar:shield-star-bold', label: 'Service', value: pendingConfirmationBooking.serviceType || pendingConfirmationBooking.serviceName || '—' },
+                            ].map((item) => (
+                              <div key={item.label} style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12, padding: '12px 14px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                  <iconify-icon icon={item.icon} width="12" style={{ color: '#f59e0b' }}></iconify-icon>
+                                  <span style={{ fontSize: 9, color: 'rgba(255,255,255,.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em' }}>{item.label}</span>
+                                </div>
+                                <p style={{ fontSize: 12, fontWeight: 700, color: '#e5e7eb', margin: 0, letterSpacing: '-.01em' }}>{item.value}</p>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Progress dots */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              {['Payment Received', 'Verifying Proof', 'Booking Approved'].map((label, i) => (
+                                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                                    <div style={{ width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: i === 0 ? 'linear-gradient(135deg,#16a34a,#22c55e)' : i === 1 ? 'rgba(245,158,11,.15)' : 'rgba(255,255,255,.05)', border: i === 1 ? '2px solid rgba(245,158,11,.4)' : i === 0 ? '2px solid rgba(22,163,74,.3)' : '2px solid rgba(255,255,255,.08)' }}>
+                                      {i === 0
+                                        ? <iconify-icon icon="solar:check-circle-bold" width="12" style={{ color: '#fff' }}></iconify-icon>
+                                        : i === 1
+                                          ? <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', animation: 'pcPulse 1.5s ease-in-out infinite' }} />
+                                          : <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(255,255,255,.15)' }} />}
+                                    </div>
+                                    <span style={{ fontSize: 9, color: i === 0 ? '#4ade80' : i === 1 ? '#fbbf24' : 'rgba(255,255,255,.2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', whiteSpace: 'nowrap' }}>{label}</span>
+                                  </div>
+                                  {i < 2 && <div style={{ width: 32, height: 1, background: i === 0 ? 'rgba(34,197,94,.3)' : 'rgba(255,255,255,.07)', marginBottom: 14 }} />}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="flex-1 h-px bg-indigo-600 -mx-6 mb-8 relative z-0"></div>
-
-                        {/* Step 3: Active */}
-                        <div className="flex flex-col items-center relative z-10 w-24">
-                          <div className="w-8 h-8 rounded-full bg-indigo-600 text-white border-4 border-indigo-100 flex items-center justify-center mb-2 shadow-sm">
-                            <div className="w-2 h-2 bg-white rounded-full"></div>
-                          </div>
-                          <span className="text-xs font-medium text-indigo-700 text-center">Detailing</span>
-                          <span className="text-xs text-indigo-500">In Progress</span>
+                        <div style={{ borderTop: '1px solid rgba(255,255,255,.05)', padding: '12px 28px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <iconify-icon icon="solar:bell-bold" width="12" style={{ color: 'rgba(255,255,255,.3)' }}></iconify-icon>
+                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', fontWeight: 500 }}>You will be notified once your booking is confirmed. Check your phone for updates.</span>
                         </div>
+                      </div>
+                    </section>
+                  );
+                })()}
 
-                        <div className="flex-1 h-px bg-slate-200 -mx-6 mb-8 relative z-0"></div>
-
-                        {/* Step 4: Pending */}
-                        <div className="flex flex-col items-center relative z-10 w-24 opacity-50">
-                          <div className="w-8 h-8 rounded-full bg-white border-2 border-slate-300 text-slate-400 flex items-center justify-center mb-2">
-                            <span className="text-xs font-medium">4</span>
-                          </div>
-                          <span className="text-xs font-medium text-slate-500 text-center">Quality Check</span>
-                          <span className="text-xs text-slate-400">Pending</span>
+                {/* ── REJECTED booking card ── */}
+                {rejectedBooking && !hasActiveBooking && !pendingConfirmationBooking && (
+                  <section style={{ marginBottom: 32 }}>
+                    <div style={{ background: 'linear-gradient(145deg,#1a0a0a 0%,#1e0f0f 100%)', borderRadius: 20, overflow: 'hidden', boxShadow: '0 16px 40px rgba(239,68,68,.1), 0 0 0 1px rgba(239,68,68,.15)', position: 'relative', padding: '24px 24px 20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                        <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <iconify-icon icon="solar:close-circle-bold" width="22" style={{ color: '#ef4444' }}></iconify-icon>
                         </div>
-
-                        <div className="flex-1 h-px bg-slate-200 -mx-6 mb-8 relative z-0"></div>
-
-                        {/* Step 5: Pending */}
-                        <div className="flex flex-col items-center relative z-10 w-24 opacity-50">
-                          <div className="w-8 h-8 rounded-full bg-white border-2 border-slate-300 text-slate-400 flex items-center justify-center mb-2">
-                            <span className="text-xs font-medium">5</span>
-                          </div>
-                          <span className="text-xs font-medium text-slate-500 text-center">Ready</span>
-                          <span className="text-xs text-slate-400">Pending</span>
+                        <div style={{ flex: 1 }}>
+                          <h3 style={{ fontSize: 15, fontWeight: 800, color: '#fff', margin: '0 0 4px', letterSpacing: '-.02em' }}>Booking Not Confirmed</h3>
+                          <p style={{ fontSize: 12, color: 'rgba(255,255,255,.4)', margin: '0 0 12px', fontWeight: 500 }}>
+                            {rejectedBooking.rejectionReason || 'Your payment proof could not be verified.'}
+                          </p>
+                          <button onClick={() => { setBookingOpen(true); setBookingStep(1); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.3)', borderRadius: 10, padding: '8px 16px', color: '#a5b4fc', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                            <iconify-icon icon="solar:restart-bold" width="13"></iconify-icon>
+                            Book Again
+                          </button>
                         </div>
-
                       </div>
                     </div>
                   </section>
                 )}
+
+                {/* ── APPROVED / CONFIRMED — Bring your vehicle card ── */}
+                {approvedBooking && !hasActiveBooking && (() => {
+                  const ref = approvedBooking.bookingReference || approvedBooking.orderNumber || '—';
+                  const dateStr = approvedBooking.bookingDate
+                    ? new Date(approvedBooking.bookingDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+                    : '—';
+                  return (
+                    <section style={{ marginBottom: 32 }}>
+                      <div style={{ background: 'linear-gradient(145deg,#052e16 0%,#064e3b 50%,#022c22 100%)', borderRadius: 24, overflow: 'hidden', boxShadow: '0 32px 64px -16px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.08)', position: 'relative', padding: '28px 28px 20px' }}>
+                        {/* Glows */}
+                        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+                          <div style={{ position: 'absolute', top: -80, right: -60, width: 300, height: 300, borderRadius: '50%', background: 'radial-gradient(circle,rgba(34,197,94,.15) 0%,transparent 65%)' }} />
+                        </div>
+                        {/* Header */}
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, position: 'relative', zIndex: 2 }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 0 3px rgba(34,197,94,.2)' }} />
+                              <span style={{ fontSize: 9, fontWeight: 800, color: '#22c55e', textTransform: 'uppercase', letterSpacing: '.14em' }}>Booking Confirmed</span>
+                            </div>
+                            <h2 style={{ fontSize: 20, fontWeight: 900, color: '#fff', margin: '0 0 4px', letterSpacing: '-.03em', lineHeight: 1.1 }}>Please Bring Your Vehicle</h2>
+                            <p style={{ fontSize: 12, color: 'rgba(255,255,255,.5)', margin: 0, fontWeight: 500 }}>Your GCash payment has been verified. We're ready for you!</p>
+                          </div>
+                          <div style={{ background: 'rgba(34,197,94,.1)', border: '1px solid rgba(34,197,94,.3)', borderRadius: 12, padding: '10px 16px', textAlign: 'center', flexShrink: 0 }}>
+                            <p style={{ fontSize: 9, color: 'rgba(34,197,94,.7)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', margin: '0 0 2px' }}>Reference</p>
+                            <p style={{ fontSize: 13, color: '#4ade80', fontWeight: 800, margin: 0, letterSpacing: '.02em' }}>{ref}</p>
+                          </div>
+                        </div>
+                        {/* Date/Time/Service row */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20, position: 'relative', zIndex: 2 }}>
+                          {[
+                            { icon: 'solar:calendar-bold', label: 'Appointment', value: dateStr },
+                            { icon: 'solar:clock-circle-bold', label: 'Time', value: approvedBooking.bookingTime || '—' },
+                            { icon: 'solar:shield-star-bold', label: 'Service', value: approvedBooking.serviceType || approvedBooking.serviceName || '—' },
+                          ].map((item) => (
+                            <div key={item.label} style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 12, padding: '12px 14px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                <iconify-icon icon={item.icon} width="12" style={{ color: '#22c55e' }}></iconify-icon>
+                                <span style={{ fontSize: 9, color: 'rgba(255,255,255,.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em' }}>{item.label}</span>
+                              </div>
+                              <p style={{ fontSize: 12, fontWeight: 700, color: '#e5e7eb', margin: 0, letterSpacing: '-.01em' }}>{item.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                        {/* CTA */}
+                        <div style={{ position: 'relative', zIndex: 2 }}>
+                          <button
+                            onClick={() => { window.location.href = '/customer/live-tracker'; }}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#16a34a,#22c55e)', border: 'none', borderRadius: 12, padding: '11px 20px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 20px rgba(34,197,94,.3)' }}
+                          >
+                            <iconify-icon icon="solar:routing-2-bold" width="16"></iconify-icon>
+                            Open Live Tracker
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+                  );
+                })()}
+
+                {/* ── Live Service Tracker — Ultra Premium ── */}
+                {hasActiveBooking && (() => {
+                  const STEPS = [
+                    { id: 1, label: 'Checked In', sub: 'Vehicle received', icon: 'solar:check-circle-bold', time: '8:45 AM', status: 'done' },
+                    { id: 2, label: 'Washing', sub: 'Exterior & interior', icon: 'solar:waterdrops-bold', time: '9:15 AM', status: 'done' },
+                    { id: 3, label: 'Detailing', sub: 'Premium coating applied', icon: 'solar:magic-stick-bold', time: 'Now', status: 'active' },
+                    { id: 4, label: 'Quality Check', sub: 'Inspection & finishing', icon: 'solar:shield-check-bold', time: '~1:45 PM', status: 'pending' },
+                    { id: 5, label: 'Ready for Pickup', sub: 'Awaiting your arrival', icon: 'solar:star-ring-bold', time: '~2:30 PM', status: 'pending' },
+                  ];
+                  const activeIdx = STEPS.findIndex(s => s.status === 'active');
+                  const pct = activeIdx >= 0 ? Math.round((activeIdx / (STEPS.length - 1)) * 100) : 0;
+
+                  return (
+                    <section style={{ marginBottom: 32 }}>
+                      <style dangerouslySetInnerHTML={{
+                        __html: `
+                        @keyframes shimmerLine{0%{background-position:-200% 0}100%{background-position:200% 0}}
+                        @keyframes orbPulse{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.7);opacity:0}}
+                        @keyframes goldRing{0%{transform:scale(1);opacity:.8}100%{transform:scale(2.6);opacity:0}}
+                        @keyframes breathe{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.6)}50%{box-shadow:0 0 0 14px rgba(245,158,11,0)}}
+                        @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+                        @keyframes rotateConic{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+                        @keyframes auroraShift{0%,100%{opacity:.5;transform:translate(0,0) scale(1)}33%{opacity:.8;transform:translate(20px,-15px) scale(1.1)}66%{opacity:.4;transform:translate(-10px,20px) scale(.95)}}
+                        @keyframes cardIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
+                        @keyframes counterSpin{from{stroke-dashoffset:220}to{stroke-dashoffset:0}}
+                        .tracker-step-card:hover{transform:translateX(4px) scale(1.01)!important;transition:all .25s ease!important}
+                      `}} />
+
+                      <div style={{ background: 'linear-gradient(145deg,#060c1a 0%,#0d1528 40%,#080e1c 100%)', borderRadius: 24, overflow: 'hidden', boxShadow: '0 40px 80px -20px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.07)', animation: 'slideUp .5s ease-out', position: 'relative' }}>
+
+                        {/* Aurora mesh background */}
+                        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+                          <div style={{ position: 'absolute', top: -100, right: -80, width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle,rgba(245,158,11,.09) 0%,transparent 65%)', animation: 'auroraShift 8s ease-in-out infinite' }} />
+                          <div style={{ position: 'absolute', bottom: -120, left: -60, width: 350, height: 350, borderRadius: '50%', background: 'radial-gradient(circle,rgba(99,102,241,.07) 0%,transparent 65%)', animation: 'auroraShift 10s ease-in-out infinite reverse' }} />
+                          <div style={{ position: 'absolute', top: '40%', left: '35%', width: 250, height: 250, borderRadius: '50%', background: 'radial-gradient(circle,rgba(34,197,94,.05) 0%,transparent 65%)', animation: 'auroraShift 12s ease-in-out infinite 2s' }} />
+                        </div>
+
+                        {/* Top header bar */}
+                        <div style={{ padding: '22px 28px 0', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', position: 'relative', zIndex: 2 }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                              <div style={{ position: 'relative', width: 8, height: 8 }}>
+                                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#22c55e' }} />
+                                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#22c55e', animation: 'orbPulse 2s ease-in-out infinite' }} />
+                              </div>
+                              <span style={{ fontSize: 9, fontWeight: 800, color: '#22c55e', textTransform: 'uppercase', letterSpacing: '.14em' }}>Live Tracking</span>
+                            </div>
+                            <h2 style={{ fontSize: 22, fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '-.035em', lineHeight: 1.1 }}>Service<br /><span style={{ background: 'linear-gradient(90deg,#f59e0b,#fbbf24,#f59e0b)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundSize: '200%', animation: 'shimmerLine 3s linear infinite' }}>In Progress</span></h2>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                            <div style={{ background: 'rgba(245,158,11,.1)', border: '1px solid rgba(245,158,11,.3)', borderRadius: 999, padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <iconify-icon icon="solar:clock-circle-bold" width="13" style={{ color: '#f59e0b' }}></iconify-icon>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>Est. 2:30 PM</span>
+                            </div>
+                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', fontWeight: 500 }}>Step {activeIdx + 1} of {STEPS.length}</span>
+                          </div>
+                        </div>
+
+                        {/* Main body — two columns */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 0, padding: '20px 28px 24px', position: 'relative', zIndex: 2 }}>
+
+                          {/* LEFT — circular ring progress */}
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingRight: 24, borderRight: '1px solid rgba(255,255,255,.06)' }}>
+                            {/* SVG Ring */}
+                            <div style={{ position: 'relative', width: 120, height: 120, marginBottom: 16 }}>
+                              <svg width="120" height="120" style={{ transform: 'rotate(-90deg)' }}>
+                                <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,.05)" strokeWidth="8" />
+                                <circle cx="60" cy="60" r="50" fill="none" stroke="url(#goldGrad)" strokeWidth="8"
+                                  strokeLinecap="round"
+                                  strokeDasharray={`${2 * Math.PI * 50}`}
+                                  strokeDashoffset={`${2 * Math.PI * 50 * (1 - pct / 100)}`}
+                                  style={{ transition: 'stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1)', filter: 'drop-shadow(0 0 8px rgba(245,158,11,.6))' }} />
+                                <defs>
+                                  <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" stopColor="#f59e0b" />
+                                    <stop offset="100%" stopColor="#fbbf24" />
+                                  </linearGradient>
+                                </defs>
+                              </svg>
+                              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                                <span style={{ fontSize: 26, fontWeight: 900, color: '#fff', letterSpacing: '-.04em', lineHeight: 1 }}>{pct}%</span>
+                                <span style={{ fontSize: 9, color: 'rgba(255,255,255,.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', marginTop: 2 }}>Done</span>
+                              </div>
+                            </div>
+                            {/* Vehicle info */}
+                            <div style={{ textAlign: 'center' }}>
+                              <p style={{ fontSize: 13, fontWeight: 700, color: '#fff', margin: '0 0 2px', letterSpacing: '-.02em' }}>
+                                {bookingForm.vehicleMake || '2023 Toyota'}
+                              </p>
+                              <p style={{ fontSize: 10, color: 'rgba(255,255,255,.35)', margin: '0 0 10px', fontWeight: 500 }}>
+                                {bookingForm.vehiclePlate || 'ABC 1234'} · {bookingForm.vehicleColor || 'White'}
+                              </p>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(34,197,94,.1)', border: '1px solid rgba(34,197,94,.2)', borderRadius: 8, padding: '4px 12px' }}>
+                                <iconify-icon icon="solar:user-bold" width="11" style={{ color: '#22c55e' }}></iconify-icon>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: '#22c55e' }}>Juan Santos</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* RIGHT — vertical step cards */}
+                          <div style={{ paddingLeft: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {STEPS.map((step, i) => {
+                              const isDone = step.status === 'done';
+                              const isActive = step.status === 'active';
+                              const isLast = i === STEPS.length - 1;
+                              return (
+                                <div key={step.id} className="tracker-step-card" style={{
+                                  position: 'relative', display: 'flex', alignItems: 'center', gap: 14,
+                                  padding: isActive ? '13px 16px' : '10px 14px',
+                                  borderRadius: 14,
+                                  background: isDone ? 'rgba(22,163,74,.06)' : isActive ? 'rgba(245,158,11,.07)' : 'rgba(255,255,255,.025)',
+                                  border: isDone ? '1px solid rgba(22,163,74,.2)' : isActive ? '1px solid rgba(245,158,11,.3)' : '1px solid rgba(255,255,255,.05)',
+                                  boxShadow: isActive ? '0 8px 32px rgba(245,158,11,.15), inset 0 1px 0 rgba(255,255,255,.06)' : isDone ? '0 2px 8px rgba(22,163,74,.1)' : 'none',
+                                  transition: 'all .3s ease',
+                                  animation: `cardIn .4s ease-out ${i * 0.07}s both`,
+                                  overflow: 'hidden',
+                                }}>
+                                  {/* Active card shimmer overlay */}
+                                  {isActive && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg,transparent,rgba(245,158,11,.04),transparent)', backgroundSize: '200% 100%', animation: 'shimmerLine 2.5s linear infinite', borderRadius: 14, pointerEvents: 'none' }} />}
+
+                                  {/* Icon badge */}
+                                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                                    {/* Spinning conic border for active */}
+                                    {isActive && (
+                                      <div style={{ position: 'absolute', inset: -3, borderRadius: '50%', background: 'conic-gradient(from 0deg,#f59e0b,#fbbf24,transparent,transparent,#f59e0b)', animation: 'rotateConic 2s linear infinite', zIndex: 0 }} />
+                                    )}
+                                    <div style={{
+                                      width: isActive ? 40 : 34, height: isActive ? 40 : 34, borderRadius: '50%', position: 'relative', zIndex: 1,
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      background: isDone ? 'linear-gradient(135deg,#16a34a,#15803d)' : isActive ? 'linear-gradient(135deg,#d97706,#f59e0b)' : 'rgba(255,255,255,.05)',
+                                      boxShadow: isActive ? '0 0 20px rgba(245,158,11,.5)' : isDone ? '0 0 14px rgba(22,163,74,.4)' : 'none',
+                                      animation: isActive ? 'breathe 2.5s ease-in-out infinite' : 'none',
+                                    }}>
+                                      <iconify-icon icon={step.icon} width={isActive ? "18" : "15"} style={{ color: isDone || isActive ? '#fff' : 'rgba(255,255,255,.2)' }}></iconify-icon>
+                                    </div>
+                                  </div>
+
+                                  {/* Text */}
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <p style={{ margin: 0, fontSize: isActive ? 13 : 12, fontWeight: isActive ? 800 : isDone ? 600 : 500, color: isActive ? '#fbbf24' : isDone ? '#e5e7eb' : 'rgba(255,255,255,.25)', letterSpacing: '-.01em' }}>{step.label}</p>
+                                    <p style={{ margin: '1px 0 0', fontSize: 10, color: isActive ? 'rgba(251,191,36,.6)' : isDone ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.12)', fontWeight: 500 }}>{step.sub}</p>
+                                  </div>
+
+                                  {/* Time badge */}
+                                  <div style={{ flexShrink: 0, padding: '3px 10px', borderRadius: 999, background: isActive ? 'rgba(245,158,11,.15)' : isDone ? 'rgba(22,163,74,.1)' : 'rgba(255,255,255,.04)', border: isActive ? '1px solid rgba(245,158,11,.3)' : isDone ? '1px solid rgba(22,163,74,.2)' : '1px solid rgba(255,255,255,.06)' }}>
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: isActive ? '#fbbf24' : isDone ? '#4ade80' : 'rgba(255,255,255,.2)' }}>{step.time}</span>
+                                  </div>
+
+                                  {/* Done checkmark */}
+                                  {isDone && <iconify-icon icon="solar:check-circle-bold" width="16" style={{ color: '#22c55e', flexShrink: 0 }}></iconify-icon>}
+                                  {isActive && (
+                                    <div style={{ position: 'relative', width: 8, height: 8, flexShrink: 0 }}>
+                                      <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#f59e0b' }} />
+                                      <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#f59e0b', animation: 'orbPulse 1.5s ease-in-out infinite' }} />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Bottom bar */}
+                        <div style={{ borderTop: '1px solid rgba(255,255,255,.05)', padding: '12px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', zIndex: 2 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <iconify-icon icon="solar:shield-star-bold" width="13" style={{ color: 'rgba(255,255,255,.3)' }}></iconify-icon>
+                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', fontWeight: 500 }}>AutoSPF+ Premium Service</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(245,158,11,.08)', borderRadius: 10, padding: '5px 14px', border: '1px solid rgba(245,158,11,.15)' }}>
+                            <iconify-icon icon="solar:graph-up-bold" width="12" style={{ color: '#f59e0b' }}></iconify-icon>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '.08em' }}>{pct}% Complete</span>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  );
+                })()}
+
+
 
                 {/* Your Vehicles */}
                 <section>
@@ -3080,6 +3705,36 @@ export default function CustomerDashboard() {
                 </div>
               </div>
 
+              {/* ── Live Price Preview Panel (shows when type is selected) ── */}
+              {newVehicle.type && (() => {
+                const priceKey = getVehiclePriceKey(newVehicle.type);
+                return (
+                  <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 12, padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                      <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#f59e0b' }}></iconify-icon>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: '#f59e0b', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {newVehicle.type} Pricing — Locked to this vehicle
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                      {RAW_SPF_PACKAGES.map(pkg => (
+                        <div key={pkg.id} style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: '8px 10px' }}>
+                          <p style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginBottom: 2, lineHeight: 1.3 }}>
+                            {pkg.name.split('—')[0].trim()}
+                          </p>
+                          <p style={{ fontSize: 14, fontWeight: 900, color: '#fff', letterSpacing: '-0.01em' }}>
+                            ₱{(pkg.prices[priceKey as keyof typeof pkg.prices] || 0).toLocaleString()}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                    <p style={{ fontSize: 10, color: '#475569', marginTop: 8, textAlign: 'center' }}>
+                      These prices will apply when you book for this vehicle
+                    </p>
+                  </div>
+                );
+              })()}
+
               {/* Make & Model */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -3135,46 +3790,162 @@ export default function CustomerDashboard() {
       {/* Book Service Modal */}
       {bookingOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,.45)', backdropFilter: 'blur(5px)' }} onClick={() => { if (!bookingSubmitting) { setBookingOpen(false); } }}>
-          <div className="bg-white rounded-xl w-full max-w-lg shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()} style={{ animation: 'modalIn .2s ease-out', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()} style={{ animation: 'modalIn .2s ease-out', maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px -12px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.04)' }}>
 
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-              {bookingDone ? (
-                <h3 className="text-[15px] font-semibold text-gray-900">Booking Confirmed!</h3>
-              ) : (
+            {/* Header — hidden when success screen is active (hero fills the top) */}
+            {!bookingDone && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px 14px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
                 <div>
-                  <h3 className="text-[15px] font-semibold text-gray-900">Book a Service</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">Step {bookingStep} of 4</p>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' }}>Book a Service</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, fontWeight: 500 }}>
+                    Step {bookingStep} of 6 &mdash; {
+                      bookingStep === 1 ? 'Choose Service' :
+                      bookingStep === 2 ? 'Your Details' :
+                      bookingStep === 3 ? 'Pick Date & Time' :
+                      bookingStep === 4 ? 'Review Booking' :
+                      bookingStep === 5 ? 'Terms & Conditions' :
+                      'GCash Downpayment'
+                    }
+                  </div>
                 </div>
-              )}
-              {!bookingSubmitting && (
-                <button onClick={() => setBookingOpen(false)} className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-                  <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
-                </button>
-              )}
-            </div>
+                {!bookingSubmitting && (
+                  <button onClick={() => { setBookingOpen(false); setBookingAgreed(false); setBookingDownpaymentProof(null); }}
+                    style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#94a3b8', flexShrink: 0 }}>
+                    <iconify-icon icon="solar:close-circle-linear" width="16"></iconify-icon>
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Progress bar */}
             {!bookingDone && (
-              <div className="w-full h-0.5 bg-gray-100 shrink-0">
-                <div className="h-full bg-gray-900 transition-all duration-300" style={{ width: bookingStep === 1 ? '25%' : bookingStep === 2 ? '50%' : bookingStep === 3 ? '75%' : '100%' }} />
+              <div style={{ width: '100%', height: 2, background: '#f1f5f9', flexShrink: 0 }}>
+                <div style={{ height: '100%', background: 'linear-gradient(90deg,#f59e0b,#d97706)', borderRadius: 999, transition: 'width 0.4s cubic-bezier(0.4,0,0.2,1)', width: bookingStep === 1 ? '17%' : bookingStep === 2 ? '33%' : bookingStep === 3 ? '50%' : bookingStep === 4 ? '67%' : bookingStep === 5 ? '83%' : '100%' }} />
               </div>
             )}
 
             {/* Body */}
             <div className="overflow-y-auto flex-1 booking-body" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-              <style dangerouslySetInnerHTML={{ __html: `.booking-body::-webkit-scrollbar { display: none; }` }} />
+              <style dangerouslySetInnerHTML={{ __html: `.booking-body::-webkit-scrollbar { display: none; } @keyframes spin { to { transform: rotate(360deg); } }` }} />
               {bookingDone ? (
-                /* ── Success ── */
-                <div className="flex flex-col items-center justify-center py-10 px-6 text-center">
-                  <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center mb-4">
-                    <iconify-icon icon="solar:check-circle-bold" width="32" style={{ color: '#16a34a' }}></iconify-icon>
+                /* ── Success Receipt — Premium Dark Luxury ── */
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+
+                  {/* Hero Header */}
+                  <div style={{ background: 'linear-gradient(135deg,#0f172a 0%,#1e293b 60%,#0f172a 100%)', padding: '32px 24px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', overflow: 'hidden' }}>
+                    {/* Decorative rings */}
+                    <div style={{ position: 'absolute', top: -40, right: -40, width: 140, height: 140, borderRadius: '50%', border: '1px solid rgba(245,158,11,0.12)' }} />
+                    <div style={{ position: 'absolute', bottom: -30, left: -30, width: 100, height: 100, borderRadius: '50%', border: '1px solid rgba(245,158,11,0.08)' }} />
+
+                    {/* Animated check badge */}
+                    <div style={{ position: 'relative', marginBottom: 14 }}>
+                      <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'linear-gradient(135deg,#16a34a,#15803d)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 0 8px rgba(22,163,74,0.15), 0 8px 24px rgba(22,163,74,0.3)' }}>
+                        <iconify-icon icon="solar:check-circle-bold" width="34" style={{ color: '#fff' }}></iconify-icon>
+                      </div>
+                      {/* Gold ring pulse */}
+                      <div style={{ position: 'absolute', inset: -6, borderRadius: '50%', border: '2px solid rgba(245,158,11,0.4)', animation: 'ping 1.5s ease-out 1' }} />
+                    </div>
+
+                    <p style={{ fontSize: 18, fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.02em' }}>Booking Confirmed!</p>
+                    <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', margin: '4px 0 0', fontWeight: 500 }}>We will confirm within 1–3 minutes</p>
+
+                    {/* Status pill */}
+                    <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 999, padding: '5px 14px' }}>
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', animation: 'pulse 2s infinite' }} />
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Pending Confirmation</span>
+                    </div>
                   </div>
-                  <h4 className="text-lg font-semibold text-gray-900 mb-1">Booking Submitted!</h4>
-                  <p className="text-sm text-gray-500 mb-2">Your appointment has been submitted. We'll confirm it shortly.</p>
-                  <p className="text-sm font-medium text-gray-700">{bookingForm.serviceName} — {bookingForm.date} at {bookingForm.time}</p>
-                  <button onClick={() => setBookingOpen(false)} className="mt-6 px-5 py-2 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-gray-700 transition-colors">Done</button>
+
+                  {/* Receipt Body */}
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px 20px', background: '#fff' }}>
+
+                    {/* Schedule Card */}
+                    <div style={{ border: '1px solid #f1f5f9', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
+                      <div style={{ background: '#f8fafc', padding: '7px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <iconify-icon icon="solar:calendar-bold" width="12" style={{ color: '#94a3b8' }}></iconify-icon>
+                        <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Schedule</p>
+                      </div>
+                      <div>
+                        {[
+                          { icon: 'solar:calendar-date-bold', label: 'Date', value: bookingForm.date ? new Date(bookingForm.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : '—' },
+                          { icon: 'solar:clock-circle-bold', label: 'Time', value: bookingForm.time || '—' },
+                        ].map(({ icon, label, value }) => (
+                          <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #f8fafc' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                              <iconify-icon icon={icon} width="13" style={{ color: '#94a3b8' }}></iconify-icon>
+                              <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>{label}</span>
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#111827', textAlign: 'right', maxWidth: '60%' }}>{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Vehicle Card */}
+                    <div style={{ border: '1px solid #f1f5f9', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
+                      <div style={{ background: '#f8fafc', padding: '7px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <iconify-icon icon="solar:car-bold" width="12" style={{ color: '#94a3b8' }}></iconify-icon>
+                        <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Vehicle</p>
+                      </div>
+                      <div>
+                        {[
+                          { icon: 'solar:user-bold', label: 'Owner', value: user?.name || '—' },
+                          { icon: 'solar:car-bold', label: 'Model', value: [bookingForm.vehicleMake, bookingForm.vehicleModel].filter(Boolean).join(' ') || '—' },
+                          { icon: 'solar:palette-bold', label: 'Color', value: bookingForm.vehicleColor || '—' },
+                          { icon: 'solar:tag-bold', label: 'Plate', value: bookingForm.vehiclePlate || '—' },
+                        ].map(({ icon, label, value }) => (
+                          <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #f8fafc' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                              <iconify-icon icon={icon} width="13" style={{ color: '#94a3b8' }}></iconify-icon>
+                              <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>{label}</span>
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#111827' }}>{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Service + Price Banner */}
+                    <div style={{ borderRadius: 14, overflow: 'hidden', border: '1px solid #1e293b' }}>
+                      <div style={{ background: '#f8fafc', padding: '7px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <iconify-icon icon="solar:shield-star-bold" width="12" style={{ color: '#94a3b8' }}></iconify-icon>
+                        <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Service</p>
+                      </div>
+                      <div style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Package</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#111827' }}>{bookingForm.serviceName || '—'}</span>
+                      </div>
+                      {/* Price row — dark */}
+                      <div style={{ background: 'linear-gradient(135deg,#1e293b,#0f172a)', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <iconify-icon icon="solar:wallet-money-bold" width="16" style={{ color: '#f59e0b' }}></iconify-icon>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.65)' }}>Total Price</span>
+                        </div>
+                        <span style={{ fontSize: 22, fontWeight: 900, color: '#fff', letterSpacing: '-0.03em' }}>
+                          ₱{bookingForm.servicePrice.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Downpayment note */}
+                    <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 12, background: '#fffbeb', border: '1px solid #fde68a', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                      <iconify-icon icon="solar:info-circle-bold" width="14" style={{ color: '#d97706', flexShrink: 0, marginTop: 1 }}></iconify-icon>
+                      <p style={{ fontSize: 11, color: '#92400e', margin: 0, lineHeight: 1.5 }}>
+                        Your downpayment has been received. Our team will reach out to <strong>{bookingForm.contactNo}</strong> to confirm your appointment.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* CTA Footer */}
+                  <div style={{ padding: '14px 20px', borderTop: '1px solid #f1f5f9', background: '#fff', flexShrink: 0 }}>
+                    <button
+                      onClick={() => { setBookingOpen(false); setBookingAgreed(false); setBookingDownpaymentProof(null); }}
+                      style={{ width: '100%', padding: '13px 0', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg,#1e293b,#0f172a)', color: '#fff', fontSize: 14, fontWeight: 700, letterSpacing: '0.01em', cursor: 'pointer', boxShadow: '0 4px 16px rgba(15,23,42,0.2)', transition: 'all 0.2s' }}>
+                      Done — Back to Dashboard
+                    </button>
+                  </div>
                 </div>
+
               ) : bookingStep === 1 ? (
                 /* ── Step 1: Service ── */
                 <div className="p-5">
@@ -3266,152 +4037,754 @@ export default function CustomerDashboard() {
                   </div>
                 </div>
               ) : bookingStep === 2 ? (
-                /* ── Step 2: Vehicle ── */
-                <div className="p-5 space-y-3">
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Vehicle Details</p>
-
-                  {/* Make & Model — single combined field like Add Vehicle */}
+                /* ── Step 2: Vehicle Details ── */
+                <div className="p-5 space-y-4">
+                  {/* Locked Customer Name */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Make & Model <span className="text-red-500">*</span></label>
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Full Name</p>
+                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                      <iconify-icon icon="solar:user-bold" width="16" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
+                      <span className="text-sm font-semibold text-gray-700 flex-1">{user?.name || '—'}</span>
+                      <iconify-icon icon="solar:lock-keyhole-bold" width="14" style={{ color: '#d1d5db' }}></iconify-icon>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1 pl-1">Auto-filled from your profile</p>
+                  </div>
+
+                  {/* Contact No */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Contact No. <span className="text-red-500">*</span></label>
                     <input
-                      type="text"
-                      placeholder="e.g. 2023 Toyota Camry"
-                      value={bookingForm.vehicleModel}
-                      onChange={e => setBookingForm(f => ({ ...f, vehicleModel: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400"
+                      type="tel"
+                      placeholder="09XXXXXXXXX"
+                      value={bookingForm.contactNo}
+                      onChange={e => {
+                        setBookingForm(f => ({ ...f, contactNo: e.target.value }));
+                        if (step2Errors.contactNo) setStep2Errors(err => ({ ...err, contactNo: '' }));
+                      }}
+                      className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 ${step2Errors.contactNo ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
                     />
+                    {step2Errors.contactNo
+                      ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.contactNo}</p>
+                      : (user as any)?.phone && bookingForm.contactNo === (user as any).phone && (
+                        <p className="text-[10px] text-gray-400 mt-1 pl-1">Auto-filled from your profile</p>
+                      )}
+                  </div>
+
+                  {/* Brand + Model */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Brand <span className="text-red-500">*</span></label>
+                      <select
+                        value={bookingForm.vehicleMake}
+                        onChange={e => {
+                          setBookingForm(f => ({ ...f, vehicleMake: e.target.value }));
+                          if (step2Errors.vehicleMake) setStep2Errors(err => ({ ...err, vehicleMake: '' }));
+                        }}
+                        className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none ${step2Errors.vehicleMake ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                      >
+                        <option value="">Select brand</option>
+                        {CAR_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                      </select>
+                      {step2Errors.vehicleMake && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleMake}</p>}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Model <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Vios, Civic"
+                        value={bookingForm.vehicleModel}
+                        onChange={e => {
+                          setBookingForm(f => ({ ...f, vehicleModel: e.target.value }));
+                          if (step2Errors.vehicleModel) setStep2Errors(err => ({ ...err, vehicleModel: '' }));
+                        }}
+                        className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 ${step2Errors.vehicleModel ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                      />
+                      {step2Errors.vehicleModel && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleModel}</p>}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Color <span className="text-red-500">*</span></label>
-                      <select value={bookingForm.vehicleColor} onChange={e => setBookingForm(f => ({ ...f, vehicleColor: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none">
-                        <option value="" disabled>Select color</option>
-                        {['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Other'].map(c => <option key={c} value={c}>{c}</option>)}
+                      <select
+                        value={bookingForm.vehicleColor}
+                        onChange={e => {
+                          setBookingForm(f => ({ ...f, vehicleColor: e.target.value }));
+                          if (step2Errors.vehicleColor) setStep2Errors(err => ({ ...err, vehicleColor: '' }));
+                        }}
+                        className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none ${step2Errors.vehicleColor ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                      >
+                        <option value="">Select color</option>
+                        {['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Brown', 'Other'].map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
+                      {step2Errors.vehicleColor && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleColor}</p>}
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Plate Number</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Plate No. <span className="text-red-500">*</span></label>
                       <input
                         type="text"
-                        placeholder="e.g. ABC 1234"
+                        placeholder="ABC 1234"
                         value={bookingForm.vehiclePlate}
-                        onChange={e => setBookingForm(f => ({ ...f, vehiclePlate: e.target.value }))}
-                        className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400"
+                        onChange={e => {
+                          setBookingForm(f => ({ ...f, vehiclePlate: e.target.value.toUpperCase() }));
+                          if (step2Errors.vehiclePlate) setStep2Errors(err => ({ ...err, vehiclePlate: '' }));
+                        }}
+                        className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 ${step2Errors.vehiclePlate ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
                       />
+                      {step2Errors.vehiclePlate
+                        ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehiclePlate}</p>
+                        : <p className="text-[10px] text-gray-400 mt-1 pl-1">Format: ABC123 or ABC 1234</p>}
                     </div>
                   </div>
 
-                  {/* Garage quick-pick */}
-                  {vehicles.length > 0 && (
-                    <div className="mt-2">
-                      <p className="text-xs font-medium text-gray-500 mb-2">Or pick from your garage:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {vehicles.map((v: any, i: number) => (
-                          <button key={i} type="button"
-                            onClick={() => setBookingForm(f => ({
-                              ...f,
-                              vehicleModel: v.name,
-                              vehicleColor: v.color || '',
-                              vehiclePlate: v.plate || '',
-                            }))}
-                            className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:border-gray-400 text-gray-700 transition-colors">
-                            {v.name} ({v.plate})
-                          </button>
-                        ))}
-                      </div>
+                  {/* Service - with Edit button */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Car Service</p>
+                      <button type="button" onClick={() => setBookingStep(1)} className="text-[11px] font-semibold text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors">
+                        <iconify-icon icon="solar:pen-linear" width="13"></iconify-icon>
+                        Edit Service
+                      </button>
                     </div>
-                  )}
+                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                      <iconify-icon icon="solar:shield-check-bold" width="16" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
+                      <span className="text-sm font-semibold text-gray-700 flex-1">{bookingForm.serviceName || '—'}</span>
+                      <span className="text-xs font-bold text-gray-500">₱{bookingForm.servicePrice.toLocaleString()}</span>
+                    </div>
+                  </div>
                 </div>
 
               ) : bookingStep === 3 ? (
-                /* ── Step 3: Date & Time ── */
-                <div className="p-5 space-y-4">
-                  <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Choose a Date</p>
-                    <div className="grid grid-cols-7 gap-1.5">
-                      {BOOKING_DATES.map(d => {
-                        const iso = d.toISOString().split('T')[0];
+                /* ── Step 3 — Calendar (real-time availability) ── */
+                <div style={{ padding: '20px 20px 16px' }}>
+
+                  {/* Month nav — triggers availability fetch */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                    <button type="button"
+                      disabled={monthAvailLoading}
+                      onClick={() => {
+                        const prev = new Date(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth() - 1, 1);
+                        setBookingCalMonth(prev);
+                        fetchMonthAvailability(prev.getFullYear(), prev.getMonth());
+                      }}
+                      style={{ width: 32, height: 32, borderRadius: 8, border: 'none', background: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: monthAvailLoading ? 'default' : 'pointer', color: '#94a3b8', fontSize: 20, lineHeight: 1, flexShrink: 0 }}>
+                      ‹
+                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.02em' }}>
+                        {bookingCalMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                      </span>
+                      {monthAvailLoading && (
+                        <div style={{ width: 14, height: 14, border: '2px solid #e2e8f0', borderTopColor: '#0f172a', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                      )}
+                    </div>
+                    <button type="button"
+                      disabled={monthAvailLoading}
+                      onClick={() => {
+                        const next = new Date(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth() + 1, 1);
+                        setBookingCalMonth(next);
+                        fetchMonthAvailability(next.getFullYear(), next.getMonth());
+                      }}
+                      style={{ width: 32, height: 32, borderRadius: 8, border: 'none', background: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: monthAvailLoading ? 'default' : 'pointer', color: '#94a3b8', fontSize: 20, lineHeight: 1, flexShrink: 0 }}>
+                      ›
+                    </button>
+                  </div>
+
+                  {/* Day-of-week headers */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 4 }}>
+                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                      <div key={i} style={{ textAlign: 'center', fontSize: 11, fontWeight: 600, color: '#b0b8c4', paddingBottom: 8 }}>{d}</div>
+                    ))}
+                  </div>
+
+                  {/* Date grid — driven by monthAvailability from real API */}
+                  {(() => {
+                    const year = bookingCalMonth.getFullYear();
+                    const month = bookingCalMonth.getMonth();
+                    const firstDay = new Date(year, month, 1).getDay();
+                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+                    const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+                    const todayIso = todayD.toISOString().split('T')[0];
+                    const cells: React.ReactNode[] = [];
+                    for (let i = 0; i < firstDay; i++) cells.push(<div key={`bl${i}`} />);
+                    for (let day = 1; day <= daysInMonth; day++) {
+                      const date = new Date(year, month, day);
+                      date.setHours(0, 0, 0, 0);
+                      const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                      const isToday = iso === todayIso;
+                      // Use API-driven status; fall back to closed for past/weekend while loading
+                      const status: 'available' | 'full' | 'closed' = monthAvailability[iso] || 'closed';
+                      const disabled = status === 'closed' || status === 'full';
+                      const isSelected = bookingForm.date === iso;
+                      const dotColor = status === 'full' ? '#ef4444' : status === 'closed' ? 'transparent' : '#22c55e';
+                      cells.push(
+                        <button key={iso} type="button" disabled={disabled}
+                          title={status === 'full' ? 'Fully booked' : status === 'closed' ? 'Unavailable' : undefined}
+                          onClick={() => {
+                            if (disabled) return;
+                            const prevTime = bookingForm.time;
+                            setBookingForm(f => ({ ...f, date: iso, time: '' }));
+                            setSlotStatuses([]);
+                            setSlotError('');
+                            fetchSlotsForDate(iso, prevTime);
+                          }}
+                          style={{
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                            gap: 3, width: '100%', aspectRatio: '1', borderRadius: '50%', border: 'none',
+                            cursor: disabled ? 'default' : 'pointer',
+                            opacity: monthAvailLoading ? 0.4 : 1,
+                            background: isSelected ? '#0f172a'
+                              : isToday && !disabled ? 'rgba(15,23,42,0.06)'
+                                : 'transparent',
+                            transition: 'all 0.15s',
+                          }}>
+                          <span style={{
+                            fontSize: 14,
+                            fontWeight: isSelected ? 700 : isToday ? 700 : 500,
+                            color: isSelected ? '#fff'
+                              : status === 'closed' ? '#d1d5db'
+                                : status === 'full' ? '#fca5a5'
+                                  : isToday ? '#0f172a'
+                                    : '#374151',
+                            lineHeight: 1,
+                          }}>{day}</span>
+                          {status !== 'closed' && (
+                            <span style={{
+                              width: 4, height: 4, borderRadius: '50%',
+                              background: isSelected ? 'rgba(255,255,255,0.6)' : dotColor,
+                            }} />
+                          )}
+                        </button>
+                      );
+                    }
+                    return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>{cells}</div>;
+                  })()}
+
+                  {/* Legend — 3 real states */}
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 12 }}>
+                    {[
+                      { c: '#22c55e', l: 'Available' },
+                      { c: '#ef4444', l: 'Fully Booked' },
+                      { c: '#d1d5db', l: 'Closed' },
+                    ].map(({ c, l }) => (
+                      <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: c }} />
+                        <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500 }}>{l}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Divider */}
+                  <div style={{ height: 1, background: '#f1f5f9', margin: '16px 0' }} />
+
+                  {/* Time picker — status-driven from API */}
+                  <p style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>Preferred Time</p>
+
+                  {/* Stale-selection error banner */}
+                  {slotError && (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 12px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', marginBottom: 10 }}>
+                      <iconify-icon icon="solar:danger-triangle-bold" width="16" style={{ color: '#d97706', flexShrink: 0, marginTop: 1 }}></iconify-icon>
+                      <span style={{ fontSize: 12, color: '#92400e', lineHeight: 1.5 }}>{slotError}</span>
+                    </div>
+                  )}
+
+                  {!bookingForm.date ? (
+                    <p style={{ fontSize: 12, color: '#cbd5e1', textAlign: 'center', padding: '12px 0' }}>Select a date to see available times</p>
+                  ) : slotsLoading ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                      {BOOKING_TIMES.map(t => (
+                        <div key={t} style={{
+                          padding: '10px 4px', borderRadius: 8, border: '1px solid #f1f5f9',
+                          background: '#f8fafc', height: 40, animation: 'pulse 1.5s ease-in-out infinite'
+                        }} />
+                      ))}
+                    </div>
+                  ) : slotStatuses.length === 0 ? (
+                    <p style={{ fontSize: 12, color: '#cbd5e1', textAlign: 'center', padding: '12px 0' }}>No slots available for this date</p>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                      {slotStatuses.map(({ time: t, status }) => {
+                        const isDisabled = status !== 'AVAILABLE';
+                        const isActive = bookingForm.time === t && !isDisabled;
+                        const bgColor = isActive ? '#0f172a'
+                          : status === 'FULL' ? '#fef2f2'
+                            : status === 'CLOSED' ? '#f8fafc'
+                              : '#fff';
+                        const textColor = isActive ? '#fff'
+                          : status === 'FULL' ? '#fca5a5'
+                            : status === 'CLOSED' ? '#d1d5db'
+                              : '#374151';
+                        const label = status === 'FULL' ? 'Full' : status === 'CLOSED' ? 'Closed' : t;
                         return (
-                          <button key={iso} type="button" onClick={() => setBookingForm(f => ({ ...f, date: iso }))}
-                            className={`flex flex-col items-center py-2 px-1 rounded-lg border text-center transition-colors ${bookingForm.date === iso ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 hover:border-gray-400 text-gray-700'}`}>
-                            <span className="text-[10px] font-medium uppercase">{d.toLocaleDateString('en', { weekday: 'short' })}</span>
-                            <span className="text-sm font-bold">{d.getDate()}</span>
-                            <span className="text-[10px]">{d.toLocaleDateString('en', { month: 'short' })}</span>
+                          <button key={t} type="button"
+                            disabled={isDisabled}
+                            title={status === 'FULL' ? 'This slot is fully booked' : status === 'CLOSED' ? 'This slot is unavailable' : t}
+                            onClick={() => {
+                              if (isDisabled) return;
+                              setSlotError('');
+                              setBookingForm(f => ({ ...f, time: t }));
+                            }}
+                            style={{
+                              padding: '8px 4px', borderRadius: 8,
+                              border: isActive ? 'none' : `1px solid ${status === 'FULL' ? '#fecaca' : status === 'CLOSED' ? '#f1f5f9' : '#e5e7eb'}`,
+                              fontSize: 11, fontWeight: 600, lineHeight: 1.3, transition: 'all 0.15s',
+                              cursor: isDisabled ? 'not-allowed' : 'pointer',
+                              background: bgColor, color: textColor,
+                              textDecoration: status === 'FULL' ? 'line-through' : 'none',
+                              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                            }}>
+                            <span>{t}</span>
+                            {status !== 'AVAILABLE' && (
+                              <span style={{ fontSize: 9, fontWeight: 500, color: status === 'FULL' ? '#fca5a5' : '#d1d5db', textDecoration: 'none' }}>
+                                {label === t ? '' : label}
+                              </span>
+                            )}
                           </button>
                         );
                       })}
                     </div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Choose a Time</p>
-                    <div className="grid grid-cols-4 gap-2">
-                      {BOOKING_TIMES.map(t => (
-                        <button key={t} type="button" onClick={() => setBookingForm(f => ({ ...f, time: t }))}
-                          className={`py-2 rounded-lg border text-sm font-medium transition-colors ${bookingForm.time === t ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 hover:border-gray-400 text-gray-700'}`}>
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Special Requests <span className="text-gray-400 font-normal">(optional)</span></label>
-                    <textarea rows={3} value={bookingForm.notes} onChange={e => setBookingForm(f => ({ ...f, notes: e.target.value }))} placeholder="Any specific instructions..." className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 resize-none" />
-                  </div>
-                </div>
-              ) : (
-                /* ── Step 4: Confirm ── */
-                <div className="p-5">
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Booking Summary</p>
-                  <div className="space-y-2">
+                  )}
+
+                  {/* Time slot legend */}
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginTop: 10 }}>
                     {[
-                      { label: 'Service', value: bookingForm.serviceName },
-                      { label: 'Price', value: `₱${bookingForm.servicePrice.toLocaleString()}` },
-                      { label: 'Vehicle', value: [bookingForm.vehicleYear, bookingForm.vehicleMake, bookingForm.vehicleModel].filter(Boolean).join(' ') || '—' },
-                      { label: 'Plate', value: bookingForm.vehiclePlate || '—' },
-                      { label: 'Color', value: bookingForm.vehicleColor || '—' },
-                      { label: 'Date', value: bookingForm.date ? new Date(bookingForm.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : '—' },
-                      { label: 'Time', value: bookingForm.time || '—' },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                        <span className="text-xs font-medium text-gray-500">{label}</span>
-                        <span className="text-sm font-semibold text-gray-900">{value}</span>
+                      { c: '#374151', l: 'Available' },
+                      { c: '#fca5a5', l: 'Full' },
+                      { c: '#d1d5db', l: 'Closed' },
+                    ].map(({ c, l }) => (
+                      <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: c, border: '1px solid #e5e7eb' }} />
+                        <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500 }}>{l}</span>
                       </div>
                     ))}
                   </div>
-                  {bookingForm.notes && <div className="mt-3 p-3 bg-gray-50 rounded-lg text-xs text-gray-600"><span className="font-medium">Notes:</span> {bookingForm.notes}</div>}
+
+
+                  {/* Notes */}
+                  <div style={{ marginTop: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                        Notes <span style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 0, color: '#cbd5e1' }}>(optional)</span>
+                      </p>
+                      <span style={{ fontSize: 10, color: bookingForm.notes.length > 180 ? '#ef4444' : '#cbd5e1' }}>{bookingForm.notes.length}/200</span>
+                    </div>
+                    <textarea rows={2}
+                      maxLength={200}
+                      value={bookingForm.notes}
+                      onChange={e => setBookingForm(f => ({ ...f, notes: e.target.value }))}
+                      placeholder="Any special requests..."
+                      style={{
+                        width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #e5e7eb',
+                        fontSize: 13, color: '#1e293b', background: '#fff', resize: 'none',
+                        outline: 'none', fontFamily: 'inherit', lineHeight: 1.5, boxSizing: 'border-box',
+                      }}
+                      onFocus={e => e.currentTarget.style.borderColor = '#0f172a'}
+                      onBlur={e => e.currentTarget.style.borderColor = '#e5e7eb'}
+                    />
+                  </div>
+                </div>
+
+
+              ) : bookingStep === 4 ? (
+                /* ── Step 4: Booking Summary ── */
+                <div style={{ padding: '20px' }}>
+                  {/* Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,#1e293b,#0f172a)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <iconify-icon icon="solar:clipboard-check-bold" width="18" style={{ color: '#fff' }}></iconify-icon>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0, lineHeight: 1.2 }}>Review Your Booking</p>
+                      <p style={{ fontSize: 11, color: '#94a3b8', margin: 0, marginTop: 2 }}>Please confirm all details before proceeding</p>
+                    </div>
+                  </div>
+
+                  {/* Customer Card */}
+                  <div style={{ border: '1px solid #f1f5f9', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
+                    <div style={{ background: '#f8fafc', padding: '8px 14px', borderBottom: '1px solid #f1f5f9' }}>
+                      <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Customer</p>
+                    </div>
+                    <div style={{ padding: '4px 0' }}>
+                      {[
+                        { icon: 'solar:user-bold', label: 'Name', value: user?.name || '—' },
+                        { icon: 'solar:phone-bold', label: 'Contact', value: bookingForm.contactNo || '—' },
+                      ].map(({ icon, label, value }) => (
+                        <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f8fafc' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <iconify-icon icon={icon} width="13" style={{ color: '#94a3b8' }}></iconify-icon>
+                            <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>{label}</span>
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: '#111827' }}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Vehicle Card */}
+                  <div style={{ border: '1px solid #f1f5f9', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
+                    <div style={{ background: '#f8fafc', padding: '8px 14px', borderBottom: '1px solid #f1f5f9' }}>
+                      <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Vehicle</p>
+                    </div>
+                    <div style={{ padding: '4px 0' }}>
+                      {[
+                        { icon: 'solar:car-bold', label: 'Brand & Model', value: [bookingForm.vehicleMake, bookingForm.vehicleModel].filter(Boolean).join(' ') || '—' },
+                        { icon: 'solar:palette-bold', label: 'Color', value: bookingForm.vehicleColor || '—' },
+                        { icon: 'solar:tag-bold', label: 'Plate', value: bookingForm.vehiclePlate || '—' },
+                      ].map(({ icon, label, value }) => (
+                        <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f8fafc' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <iconify-icon icon={icon} width="13" style={{ color: '#94a3b8' }}></iconify-icon>
+                            <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>{label}</span>
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: '#111827' }}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Service + Schedule Card */}
+                  <div style={{ border: '1px solid #f1f5f9', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
+                    <div style={{ background: '#f8fafc', padding: '8px 14px', borderBottom: '1px solid #f1f5f9' }}>
+                      <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Service & Schedule</p>
+                    </div>
+                    <div style={{ padding: '4px 0' }}>
+                      {[
+                        { icon: 'solar:shield-star-bold', label: 'Service', value: bookingForm.serviceName || '—' },
+                        { icon: 'solar:calendar-bold', label: 'Date', value: bookingForm.date ? new Date(bookingForm.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : '—' },
+                        { icon: 'solar:clock-circle-bold', label: 'Time', value: bookingForm.time || '—' },
+                      ].map(({ icon, label, value }) => (
+                        <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f8fafc' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <iconify-icon icon={icon} width="13" style={{ color: '#94a3b8' }}></iconify-icon>
+                            <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>{label}</span>
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: '#111827', textAlign: 'right', maxWidth: '60%' }}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Payment Breakdown Banner */}
+                  {(() => {
+                    const RESERVATION_FEE = 500;
+                    const balance = bookingForm.servicePrice - RESERVATION_FEE;
+                    return (
+                      <div style={{ borderRadius: 16, overflow: 'hidden', marginBottom: bookingForm.notes ? 10 : 0 }}>
+                        {/* Header */}
+                        <div style={{ background: 'linear-gradient(135deg,#1e293b,#0f172a)', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <iconify-icon icon="solar:wallet-money-bold" width="18" style={{ color: '#f59e0b' }}></iconify-icon>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>Total Service Price</span>
+                          </div>
+                          <span style={{ fontSize: 20, fontWeight: 800, color: '#fff', letterSpacing: '-0.03em' }}>₱{bookingForm.servicePrice.toLocaleString()}</span>
+                        </div>
+                        {/* Breakdown rows */}
+                        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderTop: 'none', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <iconify-icon icon="solar:smartphone-bold" width="14" style={{ color: '#d97706' }}></iconify-icon>
+                            <div>
+                              <p style={{ fontSize: 11, fontWeight: 700, color: '#92400e', margin: 0 }}>GCash Reservation Fee — Due Now</p>
+                              <p style={{ fontSize: 10, color: '#b45309', margin: 0, marginTop: 1 }}>Fixed fee to secure your slot</p>
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 15, fontWeight: 800, color: '#d97706', letterSpacing: '-0.02em' }}>₱500</span>
+                        </div>
+                        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderTop: 'none', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <iconify-icon icon="solar:shop-bold" width="14" style={{ color: '#16a34a' }}></iconify-icon>
+                            <div>
+                              <p style={{ fontSize: 11, fontWeight: 700, color: '#166534', margin: 0 }}>Balance — Pay Onsite</p>
+                              <p style={{ fontSize: 10, color: '#15803d', margin: 0, marginTop: 1 }}>Settle in full on your appointment day</p>
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 15, fontWeight: 800, color: '#16a34a', letterSpacing: '-0.02em' }}>₱{balance.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Notes */}
+                  {bookingForm.notes && (
+                    <div style={{ padding: '10px 14px', borderRadius: 12, background: '#fffbeb', border: '1px solid #fde68a' }}>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 3 }}>Special Requests</p>
+                      <p style={{ fontSize: 12, color: '#78350f', lineHeight: 1.5, margin: 0 }}>{bookingForm.notes}</p>
+                    </div>
+                  )}
+
+                </div>
+
+              ) : bookingStep === 5 ? (
+                /* ── Step 5: Terms & Conditions ── */
+                <div className="p-5">
+                  {/* T&C with scroll-to-agree */}
+                  <div className="mt-4">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Paint Protection Film General Terms and Conditions</p>
+                    <div
+                      id="tc-scroll-box"
+                      onScroll={(e) => {
+                        const el = e.currentTarget;
+                        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 10) {
+                          const cb = document.getElementById('tc-checkbox') as HTMLInputElement | null;
+                          if (cb) cb.disabled = false;
+                        }
+                      }}
+                      style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 14px', fontSize: 11, color: '#6b7280', lineHeight: 1.7, background: '#fafbfc' }}
+                    >
+                      <p style={{ marginBottom: 8, color: '#374151' }}>Paint protection film is a complicated installation procedure. This document serves to set expectations on your installation, and can serve as a reference point in the future.</p>
+
+                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>About Paint Protection Film</p>
+                      <p style={{ marginBottom: 10 }}>Paint protection film is a film designed to protect your vehicle{"'s"} paint from future paint chip, scratches and swirl mark. It is applied to the exterior of your vehicle paint. The customer understands that PPF is a sacrificial layer of your vehicle, not a completely invisible or matte layer.</p>
+
+                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Drying Time</p>
+                      <p style={{ marginBottom: 10 }}>Your new paint protection film will take 3-4 weeks to fully cure depending on weather conditions. Do not wash the vehicle for the first 7 days. You may notice some telltale signs of water under the film. If you see some water spots under the film, avoid touching them. They will evaporate. Any air left behind we can easily remove once the film is fully dried.</p>
+
+                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Warranty</p>
+                      <p style={{ marginBottom: 10 }}>PPF installed on your vehicle carries a 5-year warranty against yellowing, cracking, and fading. All PPF will turn yellow eventually. It{"'s"} the rate at which it turns to yellow is what the warranty covers. Warranty does <strong>NOT</strong> cover abuse (such as getting too close with a pressure washer, too much sun exposure, improper maintenance, negligence and cutting/lifting the film), accidents, or from debris. The film is designed to sacrifice itself to save your paint.</p>
+
+                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Existing Rock Chips</p>
+                      <p style={{ marginBottom: 10 }}>Please note that existing paint chips will appear as PPF imperfections if we install PPF over them. This is especially true on dark or black vehicles, as the {"\"dots\""} show as a light gray/white spec. We have installed PPF on 5-7-year-old vehicles without issue, and we have installed it on cars with less than 1000 kms that have had a ton of rock chip imperfections.</p>
+
+                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Badge and Trim Removal</p>
+                      <p style={{ marginBottom: 10 }}>On certain installations we may have to remove badging or other parts of the car to provide the best experience for you. All attempts will be made to retain all OEM badges and lettering unless the customer wishes otherwise. We make every attempt to NOT remove badging unless absolutely necessary or requested.</p>
+
+                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Imperfections</p>
+                      <p style={{ marginBottom: 10 }}>We strive for perfection in our installations, but due to the nature of covering an entire vehicle in an adhesive film, it is likely that you will see some degree of dust, contamination, or other debris under the film after installing. We attempt to take every precaution possible to make a near-perfect install, with the understanding that no installation will actually be perfect.</p>
+
+                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Booking Policy</p>
+                      <p>A non-refundable downpayment is required to secure your reservation slot. All bookings are subject to availability and approval by the sales team. Customers must arrive within 30 minutes of their scheduled time. By proceeding, you confirm that all information provided is accurate and complete.</p>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1 italic">↑ Scroll to the bottom to enable the checkbox</p>
+                  </div>
+
+                  <label className="flex items-start gap-2.5 mt-3 cursor-pointer select-none">
+                    <input
+                      id="tc-checkbox"
+                      type="checkbox"
+                      disabled
+                      checked={bookingAgreed}
+                      onChange={e => setBookingAgreed(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded accent-gray-900 cursor-pointer flex-shrink-0 disabled:opacity-40"
+                    />
+                    <span className="text-[12px] text-gray-500 leading-relaxed">
+                      I have read and agree to the <span className="text-gray-900 font-semibold">terms and conditions</span>.
+                    </span>
+                  </label>
+                </div>
+              ) : (
+                /* ── Step 6: GCash Downpayment ── */
+                <div className="p-5">
+
+                  {/* Amount Summary Card */}
+                  {(() => {
+                    const RESERVATION_FEE = 500;
+                    const balance = bookingForm.servicePrice - RESERVATION_FEE;
+                    return (
+                      <div style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 16, border: '1px solid #fde68a' }}>
+                        <div style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <iconify-icon icon="solar:smartphone-bold" width="18" style={{ color: '#fff' }}></iconify-icon>
+                            <div>
+                              <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', margin: 0, fontWeight: 500 }}>Send via GCash Now</p>
+                              <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', margin: 0 }}>Fixed reservation fee to confirm your slot</p>
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 26, fontWeight: 900, color: '#fff', letterSpacing: '-0.03em' }}>₱500</span>
+                        </div>
+                        <div style={{ background: '#fffbeb', padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <iconify-icon icon="solar:shop-bold" width="13" style={{ color: '#92400e' }}></iconify-icon>
+                            <span style={{ fontSize: 11, color: '#92400e', fontWeight: 600 }}>Remaining balance due onsite</span>
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>₱{balance.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* QR Code */}
+                  <div className="w-full flex flex-col items-center mb-4">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Scan to Pay via GCash</p>
+                    <div className="p-2 bg-white rounded-2xl shadow-sm border border-gray-100" style={{ boxShadow: '0 4px 20px -5px rgba(0,0,0,0.08)' }}>
+                      <img src="/gcash-qr.png" alt="GCash QR Code" className="w-44 h-44 object-contain rounded-xl" onError={(e) => { e.currentTarget.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=AutoSPFPayment'; }} />
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-2">Screenshot the QR or scan directly from GCash app</p>
+                  </div>
+
+                  {/* Upload Proof */}
+                  <div className="w-full">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <p className="text-[11px] font-bold text-gray-700 uppercase tracking-wide">Upload GCash Receipt</p>
+                      {!bookingDownpaymentProof && <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>Required</span>}
+                      {bookingDownpaymentProof && <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}><iconify-icon icon="solar:check-circle-bold" width="12"></iconify-icon> Uploaded</span>}
+                    </div>
+                    <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed rounded-xl transition-colors cursor-pointer relative overflow-hidden group" style={{ borderColor: bookingDownpaymentProof ? '#86efac' : '#d1d5db', background: bookingDownpaymentProof ? '#f0fdf4' : '#f9fafb' }}>
+                      <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => setBookingDownpaymentProof(reader.result as string);
+                          reader.readAsDataURL(file);
+                        }
+                      }} />
+                      {bookingDownpaymentProof ? (
+                        <>
+                          <img src={bookingDownpaymentProof} alt="Proof" className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-30 transition-opacity" />
+                          <div className="z-10 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-sm flex items-center gap-2">
+                            <iconify-icon icon="solar:check-circle-bold" style={{ color: '#16a34a' }}></iconify-icon>
+                            <span className="text-xs font-semibold text-gray-800">Tap to Change</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center gap-1.5">
+                          <div className="w-9 h-9 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400">
+                            <iconify-icon icon="solar:upload-minimalistic-bold" width="18"></iconify-icon>
+                          </div>
+                          <p className="text-xs font-semibold text-gray-500">Tap to upload GCash receipt</p>
+                          <p className="text-[10px] text-gray-400">JPG or PNG photo of your transaction</p>
+                        </div>
+                      )}
+                    </label>
+                  </div>
+
+                  {/* Info note */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7, marginTop: 12, padding: '10px 12px', borderRadius: 10, background: '#f0f9ff', border: '1px solid #bae6fd' }}>
+                    <iconify-icon icon="solar:info-circle-bold" width="14" style={{ color: '#0284c7', flexShrink: 0, marginTop: 1 }}></iconify-icon>
+                    <p style={{ fontSize: 10.5, color: '#0369a1', lineHeight: 1.6, margin: 0 }}>
+                      Your booking will be <strong>pending confirmation</strong> until our team verifies your payment. The remaining balance is collected <strong>on the day of your appointment</strong> at our shop.
+                    </p>
+                  </div>
+
                 </div>
               )}
             </div>
 
             {/* Footer */}
-            {!bookingDone && (
-              <div className="px-5 py-4 border-t border-gray-100 flex gap-2 shrink-0 bg-white">
-                {bookingStep > 1 && (
-                  <button type="button" onClick={() => setBookingStep(s => s - 1)} disabled={bookingSubmitting}
-                    className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
-                    Back
-                  </button>
-                )}
-                {bookingStep < 4 ? (
-                  <button type="button"
-                    disabled={
-                      (bookingStep === 1 && !bookingForm.service) ||
-                      (bookingStep === 2 && (!bookingForm.vehicleModel || !bookingForm.vehicleColor)) ||
-                      (bookingStep === 3 && (!bookingForm.date || !bookingForm.time))
-                    }
-                    onClick={() => setBookingStep(s => s + 1)}
-                    className="flex-1 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                    Continue
-                  </button>
-                ) : (
-                  <button type="button" onClick={submitBooking} disabled={bookingSubmitting}
-                    className="flex-1 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-60">
-                    {bookingSubmitting ? 'Submitting...' : 'Confirm Booking'}
-                  </button>
-                )}
-              </div>
-            )}
+            {!bookingDone && (() => {
+              // ── Per-step validity — single source of truth ──────────────────
+              const phPhone = /^09\d{9}$/;
+              const plateRx = /^[A-Z]{3}\s?\d{3,4}$/i;
+              const step1Valid = !!bookingForm.service;
+              const step2Valid =
+                !!(bookingForm.contactNo || '').trim() &&
+                phPhone.test((bookingForm.contactNo || '').replace(/\s/g, '')) &&
+                !!bookingForm.vehicleMake &&
+                !!(bookingForm.vehicleModel || '').trim() &&
+                !!bookingForm.vehicleColor &&
+                !!(bookingForm.vehiclePlate || '').trim() &&
+                plateRx.test((bookingForm.vehiclePlate || '').trim());
+              const selectedSlotStatus = slotStatuses.find(s => s.time === bookingForm.time)?.status;
+              const step3Valid =
+                !!bookingForm.date &&
+                !!bookingForm.time &&
+                selectedSlotStatus === 'AVAILABLE' &&
+                !slotError;
+              const step4Valid = true; // Summary step — always passable, just review
+              const step5Valid = bookingAgreed;
+              const step6Valid = !!bookingDownpaymentProof && !bookingSubmitting;
+
+              const isStepInvalid =
+                (bookingStep === 1 && !step1Valid) ||
+                (bookingStep === 2 && !step2Valid) ||
+                (bookingStep === 3 && !step3Valid) ||
+                (bookingStep === 5 && !step5Valid);
+
+              // Hint shown below button when blocked
+              const hintText =
+                bookingStep === 1 ? (!step1Valid ? 'Select a service to continue' : '') :
+                  bookingStep === 2 ? (!step2Valid ? 'Complete all required fields above' : '') :
+                    bookingStep === 3 ? (
+                      !bookingForm.date ? 'Select a date' :
+                        slotError ? 'Your selected time is no longer available' :
+                          !bookingForm.time ? 'Select an available time slot' :
+                            selectedSlotStatus !== 'AVAILABLE' ? 'Selected slot is no longer available' : ''
+                    ) :
+                      bookingStep === 5 ? (!step5Valid ? 'Agree to the terms to continue' : '') : '';
+
+              return (
+                <div style={{ padding: '14px 20px', borderTop: '1px solid #f1f5f9', flexShrink: 0, background: '#fff' }}>
+                  <div style={{ display: 'flex', gap: 10, marginBottom: hintText ? 6 : 0 }}>
+                    {bookingStep > 1 && (
+                      <button type="button"
+                        onClick={() => { setSlotError(''); setStep2Errors({}); setBookingStep(s => s - 1); }}
+                        disabled={bookingSubmitting}
+                        style={{ padding: '10px 18px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: 13, fontWeight: 600, color: '#64748b', cursor: bookingSubmitting ? 'not-allowed' : 'pointer', flexShrink: 0, transition: 'all 0.15s' }}>
+                        Back
+                      </button>
+                    )}
+
+                    {bookingStep < 6 ? (
+                      <button type="button"
+                        disabled={isStepInvalid}
+                        onClick={() => {
+                          if (bookingStep === 2) {
+                            // Trigger inline errors on fields even if button was somehow clickable
+                            const errs: Record<string, string> = {};
+                            if (!(bookingForm.contactNo || '').trim()) errs.contactNo = 'Contact number is required.';
+                            else if (!phPhone.test(bookingForm.contactNo.replace(/\s/g, ''))) errs.contactNo = 'Must be a valid PH number (09XXXXXXXXX).';
+                            if (!bookingForm.vehicleMake) errs.vehicleMake = 'Select a brand.';
+                            if (!(bookingForm.vehicleModel || '').trim()) errs.vehicleModel = 'Model is required.';
+                            if (!bookingForm.vehicleColor) errs.vehicleColor = 'Select a color.';
+                            if (!(bookingForm.vehiclePlate || '').trim()) errs.vehiclePlate = 'Plate number is required.';
+                            else if (!plateRx.test((bookingForm.vehiclePlate || '').trim())) errs.vehiclePlate = 'Format: ABC123 or ABC 1234.';
+                            if (Object.keys(errs).length > 0) {
+                              setStep2Errors(errs);
+                              const firstErr = Object.values(errs)[0];
+                              toast.warning('Please fix the form', { description: firstErr, duration: 3500 });
+                              return;
+                            }
+                            setStep2Errors({});
+                          }
+                          // Guard: prevent Step 3 advance if slot is invalid
+                          if (bookingStep === 3 && !step3Valid) return;
+                          const nextStep = bookingStep + 1;
+                          if (nextStep === 3) {
+                            fetchMonthAvailability(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth());
+                          }
+                          setBookingStep(nextStep);
+                        }}
+                        style={{
+                          flex: 1, padding: '11px 0', borderRadius: 10, border: 'none',
+                          fontSize: 13, fontWeight: 700, letterSpacing: '0.01em', transition: 'all 0.2s',
+                          cursor: isStepInvalid ? 'not-allowed' : 'pointer',
+                          background: isStepInvalid ? '#e2e8f0' : 'linear-gradient(135deg,#1e293b,#0f172a)',
+                          color: isStepInvalid ? '#94a3b8' : '#fff',
+                          boxShadow: isStepInvalid ? 'none' : '0 4px 14px rgba(15,23,42,0.18)',
+                          opacity: isStepInvalid ? 0.7 : 1,
+                        }}>
+                        Continue →
+                      </button>
+                    ) : (
+                      <button type="button" onClick={submitBooking} disabled={!step6Valid}
+                        style={{
+                          flex: 1, padding: '11px 0', borderRadius: 10, border: 'none',
+                          fontSize: 13, fontWeight: 700, letterSpacing: '0.01em', transition: 'all 0.2s',
+                          cursor: step6Valid ? 'pointer' : 'not-allowed',
+                          background: step6Valid ? 'linear-gradient(135deg,#1e293b,#0f172a)' : '#e2e8f0',
+                          color: step6Valid ? '#fff' : '#94a3b8',
+                          boxShadow: step6Valid ? '0 4px 14px rgba(15,23,42,0.18)' : 'none',
+                          opacity: step6Valid ? 1 : 0.7,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                        }}>
+                        {bookingSubmitting ? (
+                          <>
+                            <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
+                            Submitting…
+                          </>
+                        ) : 'Confirm Booking'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Inline hint — what's blocking the button */}
+                  {hintText && (
+                    <p style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', fontWeight: 500, letterSpacing: '0.01em' }}>
+                      {hintText}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+
           </div>
         </div>
       )}

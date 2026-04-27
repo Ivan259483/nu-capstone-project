@@ -349,6 +349,17 @@ export const verifyOtp = async (req, res, next) => {
     otpRecord.verified = true;
     await otpRecord.save();
 
+    // Activate the user account if this was a registration OTP
+    const user = await User.findOne({ email });
+    if (user && !user.isVerified) {
+      user.isVerified = true;
+      user.status = 'active';
+      await user.save();
+      console.log(`✅ [verifyOtp] Activated account for ${email}`);
+      // Send welcome email non-blocking
+      sendWelcomeEmail(email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
+    }
+
     console.log(`✅ OTP verified successfully for ${email}`);
 
     res.json({
@@ -357,6 +368,8 @@ export const verifyOtp = async (req, res, next) => {
       data: {
         email,
         verified: true,
+        role: user?.role || 'customer',
+        isFirstLogin: user?.isFirstLogin || false,
       },
     });
   } catch (error) {
@@ -370,19 +383,12 @@ export const verifyOtp = async (req, res, next) => {
 };
 
 /**
- * User Registration (after OTP verification)
+ * User Registration (Customer self-register — sends OTP, creates pending account)
  * POST /api/auth/register
  */
 export const register = async (req, res, next) => {
   try {
-    const { name, email, password, role, otp, referralCode } = req.body;
-
-    if (typeof role !== 'undefined' && !isValidUserRole(role)) {
-      return res.status(400).json({
-        success: false,
-        message: getInvalidUserRoleMessage(),
-      });
-    }
+    const { name, email, password, referralCode } = req.body;
 
     // Validate required fields
     if (!name || !email || !password) {
@@ -409,7 +415,7 @@ export const register = async (req, res, next) => {
       });
     }
 
-    // Server-side password policy enforcement (mirrors frontend requirements)
+    // Server-side password policy enforcement
     const passwordErrors = [];
     if (password.length < 8) passwordErrors.push('at least 8 characters');
     if (!/[A-Z]/.test(password)) passwordErrors.push('one uppercase letter');
@@ -423,17 +429,6 @@ export const register = async (req, res, next) => {
       });
     }
 
-    // Check if OTP is verified (if OTP flow is enabled)
-    if (config.emailProvider !== 'console') {
-      const otpRecord = await OTP.findOne({ email, verified: true });
-      if (!otpRecord) {
-        return res.status(400).json({
-          success: false,
-          message: 'Please verify your email with OTP first',
-        });
-      }
-    }
-
     // Check if user exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -443,19 +438,61 @@ export const register = async (req, res, next) => {
           message: 'An account with this email was deleted. Please contact support.',
         });
       }
+      if (!existingUser.isVerified) {
+        // Account exists but unverified — resend OTP
+        const otp = generateOTP(config.otpLength);
+        await OTP.deleteMany({ email });
+        await OTP.create({
+          email,
+          otp,
+          expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
+          attempts: 0,
+          maxAttempts: 5,
+          verified: false,
+        });
+        if (process.env.NODE_ENV === 'development') console.log(`🔑 [Register] OTP for ${email}: ${otp}`);
+        await sendOtpEmail(email, otp).catch(err => console.warn('OTP email failed:', err.message));
+        return res.status(200).json({
+          success: true,
+          message: 'A new verification code has been sent to your email.',
+          data: { email, requiresOtp: true },
+        });
+      }
       return res.status(409).json({
         success: false,
-        message: 'An account with this email already exists. If you recently deleted this account, please contact support.',
+        message: 'An account with this email already exists.',
       });
     }
 
-    // Create new user with verified status
+    // ── Firebase stale-account cleanup ────────────────────────────────────
+    // The email is not in MongoDB, but it may still exist in Firebase Auth
+    // (e.g., account was deleted from MongoDB but Firebase was never cleaned up).
+    // If we don't purge it here, createUserWithEmailAndPassword on the client
+    // will throw "auth/email-already-in-use" even though MongoDB has no record.
+    if (admin) {
+      try {
+        const fbUser = await admin.auth().getUserByEmail(email);
+        // Found a stale Firebase record — delete it so registration can proceed.
+        await admin.auth().deleteUser(fbUser.uid);
+        console.log(`🧹 [Register] Purged stale Firebase account for ${email} (uid: ${fbUser.uid})`);
+      } catch (fbErr) {
+        // getUserByEmail throws 'auth/user-not-found' when there's no record — that's fine.
+        if (fbErr.code !== 'auth/user-not-found') {
+          // Log unexpected Firebase errors but don't block registration.
+          console.warn(`⚠️ [Register] Firebase stale-account check failed for ${email}:`, fbErr.message);
+        }
+      }
+    }
+
+    // Create new PENDING customer account
     const user = new User({
       name,
       email,
-      password, // Will be hashed by User model pre-save hook
-      role: role || 'customer',
-      isVerified: true, // User has verified OTP
+      password, // hashed by pre-save hook
+      role: 'customer',
+      isVerified: false,
+      isActive: true,
+      status: 'pending',
     });
 
     // Handle Referral Logic
@@ -463,49 +500,44 @@ export const register = async (req, res, next) => {
       const referrer = await User.findOne({ referralCode: referralCode.toUpperCase() });
       if (referrer) {
         user.referredBy = referrer._id;
-        user.loyaltyPoints = 100; // Welcome points
-        referrer.loyaltyPoints = (referrer.loyaltyPoints || 0) + 500; // Reward for referring
+        user.loyaltyPoints = 100;
+        referrer.loyaltyPoints = (referrer.loyaltyPoints || 0) + 500;
         await referrer.save();
       }
     }
 
     await user.save();
 
-    // Delete used OTP
-    if (config.emailProvider !== 'console') {
-      await OTP.deleteOne({ email });
+    // Generate & send OTP
+    const otp = generateOTP(config.otpLength);
+    await OTP.deleteMany({ email });
+    await OTP.create({
+      email,
+      otp,
+      expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
+      attempts: 0,
+      maxAttempts: 5,
+      verified: false,
+    });
+
+    if (process.env.NODE_ENV === 'development') console.log(`🔑 [Register] OTP for ${email}: ${otp}`);
+
+    const emailResult = await sendOtpEmail(email, otp);
+    if (!emailResult.success) {
+      console.error('❌ OTP email failed:', emailResult.error);
+      // Don't fail registration — dev can get OTP from console
     }
 
-    // Send welcome email (non-blocking — don't fail registration if it fails)
-    sendWelcomeEmail(email, name).catch(err =>
-      console.warn('⚠️ Welcome email failed (non-fatal):', err.message)
-    );
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: user._id, email: user.email, role: user.role },
-      config.jwtSecret,
-      { expiresIn: '7d' }
-    );
-
-    const userObject = user.toObject({ virtuals: true });
-    delete userObject.password;
-    delete userObject._id;
-    delete userObject.__v;
-    
     logActivity({
       userId: user._id, userName: user.name || email, userRole: user.role,
       type: 'customer_registered', module: 'Auth', action: 'User Registered',
-      description: `New ${user.role} account created: ${user.name || email}.`, status: 'success',
+      description: `New customer account created: ${user.name || email}. Awaiting OTP verification.`, status: 'success',
     });
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
-      data: {
-        user: userObject,
-        token,
-      },
+      message: 'Account created! Please check your email for a verification code.',
+      data: { email, requiresOtp: true },
     });
   } catch (error) {
     console.error('❌ Registration Error:', error);
@@ -561,9 +593,25 @@ export const login = async (req, res, next) => {
 
     // Check if user is verified
     if (!user.isVerified) {
-      return res.status(403).json({
-        success: false,
-        message: 'Please verify your email before logging in',
+      // Unverified — generate & resend OTP then prompt verification
+      const otp = generateOTP(config.otpLength);
+      const otpHash = await bcrypt.hash(otp, 10);
+      await OTP.deleteMany({ email });
+      await OTP.create({
+        email,
+        otp,
+        otpHash,
+        expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
+        attempts: 0,
+        maxAttempts: 5,
+        verified: false,
+      });
+      if (process.env.NODE_ENV === 'development') console.log(`🔑 [Login] OTP for unverified ${email}: ${otp}`);
+      await sendOtpEmail(email, otp).catch(err => console.warn('OTP email failed:', err.message));
+      return res.status(200).json({
+        success: true,
+        message: 'Please verify your email. A verification code has been sent.',
+        data: { requiresOtp: true, email },
       });
     }
 
@@ -646,6 +694,20 @@ export const login = async (req, res, next) => {
       await user.save();
     }
 
+    // ── Staff first login: force password change ────────────────────────
+    if (user.isFirstLogin && user.role !== 'customer') {
+      const token = jwt.sign(
+        { id: user._id, email: user.email, role: user.role, requiresPasswordChange: true },
+        config.jwtSecret,
+        { expiresIn: '1h' }
+      );
+      return res.json({
+        success: true,
+        message: 'Please set your own password to continue.',
+        data: { requiresPasswordChange: true, token },
+      });
+    }
+
     // ── 2FA Branch ─────────────────────────────────────────────────────────
     // Non-customer roles must verify an OTP before receiving a JWT.
     console.log('🔐 [Login 2FA] ROLE CHECK:', {
@@ -655,6 +717,33 @@ export const login = async (req, res, next) => {
       allOtpRoles: NON_CUSTOMER_ROLES,
     });
     if (NON_CUSTOMER_ROLES.includes(user.role)) {
+      // ── DEV MODE: skip OTP email and issue JWT directly ─────────────────
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🔑 [Login DEV] Skipping 2FA for ${email} (role: ${user.role})`);
+        const token = jwt.sign(
+          { id: user._id, email: user.email, role: user.role },
+          config.jwtSecret,
+          { expiresIn: '7d' }
+        );
+        const userObject = user.toObject({ virtuals: true });
+        delete userObject.password;
+        delete userObject._id;
+        delete userObject.__v;
+
+        logActivity({
+          userId: user._id, userName: user.name || email, userRole: user.role,
+          type: 'login', module: 'Auth', action: 'User Login (DEV)',
+          description: `${user.name || email} logged in (dev mode, 2FA skipped).`, status: 'success',
+        });
+
+        return res.json({
+          success: true,
+          message: 'Login successful',
+          data: { user: userObject, token },
+        });
+      }
+
+      // ── PRODUCTION: full OTP flow ───────────────────────────────────────
       const otp = generateOTP(6);
       const otpHash = await bcrypt.hash(otp, 10);
 
@@ -871,6 +960,7 @@ export const socialLogin = async (req, res, next) => {
 
       // Auto-create user for social logins — Firebase authenticated them, trust it.
       const randomPassword = crypto.randomBytes(16).toString('hex');
+      const validProviderId = providerId && providerId !== 'undefined' ? providerId : undefined;
       user = await User.create({
         name: name || email.split('@')[0],
         email,
@@ -878,7 +968,7 @@ export const socialLogin = async (req, res, next) => {
         role: 'customer',
         isVerified: true,
         isActive: true,
-        firebaseUid: providerId,
+        ...(validProviderId ? { firebaseUid: validProviderId } : {}),
         avatar: req.body.photoURL || undefined,
       });
       console.log(`[socialLogin] Auto-created new user for ${email}`);
@@ -1266,5 +1356,167 @@ export const resendLoginOtp = async (req, res) => {
   } catch (error) {
     console.error('❌ [resendLoginOtp] Error:', error);
     return res.status(500).json({ success: false, message: 'Failed to resend code. Please try again.' });
+  }
+};
+
+/**
+ * Create Staff Account (Admin only)
+ * POST /api/auth/create-staff
+ */
+export const createStaff = async (req, res) => {
+  try {
+    const { name, email, phone, role, password } = req.body;
+
+    if (!name || !email || !role || !password) {
+      return res.status(400).json({ success: false, message: 'Name, email, role, and password are required.' });
+    }
+
+    const STAFF_ROLES = ['administrator', 'office_admin', 'operation_manager', 'hr', 'inventory', 'sales', 'service_staff', 'staff_quality_checker', 'staff_inventory', 'technician'];
+    if (!STAFF_ROLES.includes(role)) {
+      return res.status(400).json({ success: false, message: `Invalid role. Allowed staff roles: ${STAFF_ROLES.join(', ')}` });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ success: false, message: 'Invalid email address.' });
+    }
+
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
+    }
+
+    const user = new User({
+      name,
+      email,
+      password, // hashed by pre-save hook
+      role,
+      phone: phone || undefined,
+      isVerified: false,
+      isActive: true,
+      status: 'pending',
+      isFirstLogin: true,
+    });
+    await user.save();
+
+    logActivity({
+      userId: req.user?.id, userName: req.user?.name || req.user?.email, userRole: req.user?.role,
+      type: 'staff_created', module: 'Auth', action: 'Create Staff Account',
+      description: `Staff account created for ${name} (${role}) by ${req.user?.email}.`, status: 'success',
+    });
+
+    const userObject = user.toObject({ virtuals: true });
+    delete userObject.password;
+    delete userObject.__v;
+
+    res.status(201).json({
+      success: true,
+      message: `Staff account created for ${name}. Share credentials personally.`,
+      data: { user: userObject },
+    });
+  } catch (error) {
+    console.error('❌ [createStaff] Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to create staff account.', error: error.message });
+  }
+};
+
+/**
+ * Set Password (Staff first login)
+ * POST /api/auth/set-password
+ * Requires valid JWT with requiresPasswordChange: true
+ */
+export const setPassword = async (req, res) => {
+  try {
+    const { newPassword, confirmPassword } = req.body;
+    const userId = req.user?.id;
+
+    if (!newPassword || !confirmPassword) {
+      return res.status(400).json({ success: false, message: 'New password and confirmation are required.' });
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, message: 'Passwords do not match.' });
+    }
+
+    const passwordErrors = [];
+    if (newPassword.length < 8) passwordErrors.push('at least 8 characters');
+    if (!/[A-Z]/.test(newPassword)) passwordErrors.push('one uppercase letter');
+    if (!/[a-z]/.test(newPassword)) passwordErrors.push('one lowercase letter');
+    if (!/[0-9]/.test(newPassword)) passwordErrors.push('one number');
+    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(newPassword)) passwordErrors.push('one special character');
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({ success: false, message: `Password must contain: ${passwordErrors.join(', ')}` });
+    }
+
+    const user = await User.findById(userId);
+    if (!user || user.isDeleted || !user.isActive) {
+      return res.status(403).json({ success: false, message: 'Account not accessible.' });
+    }
+
+    user.password = newPassword; // hashed by pre-save hook
+    user.isFirstLogin = false;
+    user.isVerified = true;
+    user.status = 'active';
+    await user.save();
+
+    // Issue a fresh full-access JWT
+    const token = jwt.sign(
+      { id: user._id, email: user.email, role: user.role },
+      config.jwtSecret,
+      { expiresIn: '7d' }
+    );
+
+    const userObject = user.toObject({ virtuals: true });
+    delete userObject.password;
+    delete userObject._id;
+    delete userObject.__v;
+
+    logActivity({
+      userId: user._id, userName: user.name || user.email, userRole: user.role,
+      type: 'password_set', module: 'Auth', action: 'Set Password (First Login)',
+      description: `${user.name || user.email} set their own password on first login.`, status: 'success',
+    });
+
+    res.json({
+      success: true,
+      message: 'Password updated successfully! Welcome to AutoSPF+.',
+      data: { user: userObject, token },
+    });
+  } catch (error) {
+    console.error('❌ [setPassword] Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to set password.', error: error.message });
+  }
+};
+
+/**
+ * Resend OTP (registration / account verification)
+ * POST /api/auth/resend-otp
+ */
+export const resendOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: 'Email is required.' });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ success: false, message: 'No account found with this email.' });
+    if (user.isVerified) return res.status(400).json({ success: false, message: 'Account is already verified.' });
+
+    const otp = generateOTP(config.otpLength);
+    await OTP.deleteMany({ email });
+    await OTP.create({
+      email,
+      otp,
+      expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
+      attempts: 0,
+      maxAttempts: 5,
+      verified: false,
+    });
+
+    if (process.env.NODE_ENV === 'development') console.log(`🔑 [resendOtp] OTP for ${email}: ${otp}`);
+    await sendOtpEmail(email, otp).catch(err => console.warn('OTP email failed:', err.message));
+
+    res.json({ success: true, message: 'A new verification code has been sent.', data: { expiresIn: config.otpExpiry } });
+  } catch (error) {
+    console.error('❌ [resendOtp] Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to resend OTP.' });
   }
 };

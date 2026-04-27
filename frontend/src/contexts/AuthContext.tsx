@@ -13,6 +13,7 @@ import {
     onAuthStateChanged
 } from 'firebase/auth';
 import { getBaseApiUrl } from '@/lib/api';
+import { getSharedSocket, refreshSocketAuth, destroySharedSocket } from '@/hooks/useRealtimeSync';
 
 // NOTE: Firestore is intentionally NOT used for role lookup.
 // Role is sourced from the MongoDB backend API (GET /api/users?email=...)
@@ -25,11 +26,13 @@ const BACKEND_URL = getBaseApiUrl();
    ═══════════════════════════════════════════════════════ */
 const SESSION_CACHE_KEY = 'autospf_session_cache';
 const SESSION_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+const SESSION_CACHE_VERSION = 2; // Bump to invalidate stale caches
 
 interface SessionCache {
     user: User;
     token: string;
     timestamp: number;
+    version?: number;
 }
 
 function getSessionCache(): SessionCache | null {
@@ -41,6 +44,16 @@ function getSessionCache(): SessionCache | null {
             localStorage.removeItem(SESSION_CACHE_KEY);
             return null;
         }
+        // Invalidate caches from older versions (stale/corrupted data)
+        if ((parsed.version || 0) < SESSION_CACHE_VERSION) {
+            localStorage.removeItem(SESSION_CACHE_KEY);
+            return null;
+        }
+        // Ensure cached user has minimal required fields
+        if (!parsed.user?.id || !parsed.user?.email) {
+            localStorage.removeItem(SESSION_CACHE_KEY);
+            return null;
+        }
         return parsed;
     } catch {
         return null;
@@ -48,7 +61,7 @@ function getSessionCache(): SessionCache | null {
 }
 
 function setSessionCache(user: User, token: string): void {
-    const cache: SessionCache = { user, token, timestamp: Date.now() };
+    const cache: SessionCache = { user, token, timestamp: Date.now(), version: SESSION_CACHE_VERSION };
     try { localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(cache)); } catch { /* quota */ }
 }
 
@@ -63,7 +76,7 @@ interface AuthContextType {
     isLoading: boolean;
     /** True once Firebase's onAuthStateChanged has fired at least once and resolved. */
     isFirebaseAuthReady: boolean;
-    login: (email: string, password: string) => Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }>;
+    login: (email: string, password: string) => Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; data?: { requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; email?: string; remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }>;
     signup: (email: string, password: string, name: string) => Promise<{ success: boolean; message?: string }>;
     resetPassword: (email: string) => Promise<{ success: boolean; message?: string }>;
     logout: () => void;
@@ -257,6 +270,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                                 if (backendUser.name) resolvedName = backendUser.name;
                                 mongoPayload = {
                                     avatar: backendUser.avatar,
+                                    phone: backendUser.phone,
                                     createdAt: backendUser.createdAt,
                                     isActive: backendUser.isActive ?? true,
                                     lastActive: backendUser.updatedAt || new Date().toISOString(),
@@ -318,6 +332,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         isActive: mongoPayload.isActive ?? existingStored?.isActive ?? true,
                         lastActive: mongoPayload.lastActive || existingStored?.lastActive || new Date().toISOString(),
                         avatar: mongoPayload.avatar || existingStored?.avatar || firebaseUser.photoURL || undefined,
+                        phone: mongoPayload.phone || existingStored?.phone || undefined,
                     };
                     const sanitized = sanitizeUser(userData);
                     userStorage.setCurrentUser(sanitized);
@@ -400,6 +415,84 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return () => unsubscribe();
     }, [sanitizeUser]);
 
+    /* ═══════════════════════════════════════════════════════
+       REAL-TIME ROLE CHANGE LISTENER
+       When an admin changes this user's role via AdminHub,
+       the backend emits a 'user:role_changed' socket event.
+       We update the local session and redirect automatically.
+       Works on all pages, all dashboards, and survives reconnections.
+       ═══════════════════════════════════════════════════════ */
+    useEffect(() => {
+        if (!user) return;
+
+        let socket: ReturnType<typeof getSharedSocket> | null = null;
+        try {
+            socket = getSharedSocket();
+        } catch {
+            // Socket not ready yet — skip
+            return;
+        }
+
+        // ── Room joining (runs immediately + on every reconnect) ──
+        const joinUserRooms = () => {
+            if (!socket) return;
+            if (user.id) socket.emit('join_room', `user:${user.id}`);
+            if (user._id && user._id !== user.id) socket.emit('join_room', `user:${user._id}`);
+            console.log('🏠 [AuthContext] Joined user rooms:', { id: user.id, _id: user._id });
+        };
+
+        joinUserRooms();
+        socket.on('connect', joinUserRooms);
+
+        // ── Role change handler ──
+        const handleRoleChanged = (payload: { newRole: string; previousRole: string; user?: any }) => {
+            console.log('🔄 [AuthContext] Received user:role_changed event:', payload);
+
+            const migratedNewRole = migrateLegacyUserRole(payload.newRole);
+            if (!migratedNewRole || migratedNewRole === user.role) return;
+
+            // Build updated user object
+            const backendUser = payload.user;
+            const updatedUser: User = {
+                ...user,
+                role: migratedNewRole as import('@/types').UserRole,
+                ...(backendUser?.name ? { name: backendUser.name } : {}),
+                ...(backendUser?.avatar ? { avatar: backendUser.avatar } : {}),
+            };
+
+            // Update all caches
+            const sanitized = sanitizeUser(updatedUser);
+            userStorage.setCurrentUser(sanitized);
+            const token = localStorage.getItem('autospf_token') || '';
+            setSessionCache(updatedUser, token);
+
+            // Also update the backend-only user cache if it exists
+            const backendUserRaw = localStorage.getItem('autospf_backend_user');
+            if (backendUserRaw) {
+                try {
+                    const parsed = JSON.parse(backendUserRaw);
+                    parsed.role = migratedNewRole;
+                    localStorage.setItem('autospf_backend_user', JSON.stringify(parsed));
+                } catch { /* ignore parse errors */ }
+            }
+
+            // Update React state — this triggers re-renders across the app
+            setUser(updatedUser);
+
+            // Redirect to the correct dashboard for the new role
+            const newDashboardPath = getDashboardPathForRole(migratedNewRole);
+            console.log(`🚀 [AuthContext] Role changed: ${payload.previousRole} → ${migratedNewRole}. Redirecting to ${newDashboardPath}`);
+            window.location.href = newDashboardPath;
+        };
+
+        socket.on('user:role_changed', handleRoleChanged);
+
+        return () => {
+            socket?.off('connect', joinUserRooms);
+            socket?.off('user:role_changed', handleRoleChanged);
+        };
+    }, [user, sanitizeUser]);
+
     /**
      * Background refresh: silently update user data from backend
      * without blocking the UI or navigation.
@@ -443,6 +536,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     name: found.name || currentUser.name,
                     role: newRole as import('@/types').UserRole,
                     avatar: found.avatar || currentUser.avatar,
+                    phone: found.phone || currentUser.phone,
                     isActive: found.isActive ?? currentUser.isActive,
                     lastActive: found.updatedAt || currentUser.lastActive,
                 };
@@ -459,7 +553,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [sanitizeUser]);
 
 
-    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; data?: { remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }> => {
+    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; data?: { requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; email?: string; remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }> => {
         try {
             // ── CRITICAL: Signal that login() owns the auth flow ──
             // onAuthStateChanged MUST NOT resolve or redirect during this window.
@@ -572,6 +666,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         requiresOTP: true,
                         userId: backendBody.data.userId,
                         maskedEmail: backendBody.data.maskedEmail,
+                    };
+                }
+
+                // ── Unverified account: backend returned requiresOtp ──
+                if (backendBody?.success && backendBody?.data?.requiresOtp) {
+                    loginInProgressRef.current = false;
+                    loginResolvedRef.current = false;
+                    clearSessionCache();
+                    localStorage.removeItem('autospf_token');
+                    localStorage.removeItem('autospf_backend_user');
+                    userStorage.setCurrentUser(null);
+                    setUser(null);
+                    return {
+                        success: true,
+                        requiresOtp: true,
+                        data: { requiresOtp: true, email: backendBody.data.email },
+                    };
+                }
+
+                // ── Staff first login: backend returned requiresPasswordChange ──
+                if (backendBody?.success && backendBody?.data?.requiresPasswordChange) {
+                    loginInProgressRef.current = false;
+                    loginResolvedRef.current = false;
+                    clearSessionCache();
+                    localStorage.removeItem('autospf_token');
+                    localStorage.removeItem('autospf_backend_user');
+                    userStorage.setCurrentUser(null);
+                    setUser(null);
+                    return {
+                        success: true,
+                        requiresPasswordChange: true,
+                        data: { requiresPasswordChange: true, token: backendBody.data.token },
                     };
                 }
 
@@ -740,6 +866,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 };
             }
 
+            // ── Unverified account: backend returned requiresOtp ──
+            if (backendBody?.success && backendBody?.data?.requiresOtp) {
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                if (firebaseCred.status === 'fulfilled') await signOut(auth).catch(() => {});
+                clearSessionCache();
+                localStorage.removeItem('autospf_token');
+                localStorage.removeItem('autospf_backend_user');
+                userStorage.setCurrentUser(null);
+                setUser(null);
+                return {
+                    success: true,
+                    requiresOtp: true,
+                    data: { requiresOtp: true, email: backendBody.data.email },
+                };
+            }
+
+            // ── Staff first login: backend returned requiresPasswordChange ──
+            if (backendBody?.success && backendBody?.data?.requiresPasswordChange) {
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                if (firebaseCred.status === 'fulfilled') await signOut(auth).catch(() => {});
+                clearSessionCache();
+                localStorage.removeItem('autospf_token');
+                localStorage.removeItem('autospf_backend_user');
+                userStorage.setCurrentUser(null);
+                setUser(null);
+                return {
+                    success: true,
+                    requiresPasswordChange: true,
+                    data: { requiresPasswordChange: true, token: backendBody.data.token },
+                };
+            }
+
             // ── Process successful backend response ──
             let backendToken = '';
             let backendUser: any = null;
@@ -806,6 +966,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     isActive: backendUser.isActive ?? true,
                     lastActive: backendUser.updatedAt || new Date().toISOString(),
                     avatar: backendUser.avatar || undefined,
+                    phone: backendUser.phone || undefined,
                 };
                 console.log('👤 [DEBUG-login] Final userData being set:', JSON.stringify({ role: userData.role, email: userData.email, name: userData.name }, null, 2));
 
@@ -821,6 +982,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setUser(userData);
                 setIsLoading(false);
                 console.log(`✅ [DEBUG-login] setUser() called. loginResolvedRef=${loginResolvedRef.current}`);
+
+                // Refresh the socket auth so the backend auto-joins this user's rooms
+                refreshSocketAuth();
             } else {
                 console.error('❌ [DEBUG-login] backendUser is null/undefined — this should not happen!');
             }
@@ -962,6 +1126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const logout = useCallback(async () => {
         try {
+            destroySharedSocket();
             await signOut(auth);
             localStorage.removeItem('autospf_token');
             userStorage.setCurrentUser(null);
@@ -1028,18 +1193,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const response = await UserService.updateUser(updatedUser.id, {
                 name: updatedUser.name,
                 email: updatedUser.email,
-                avatar: updatedUser.avatar
+                avatar: updatedUser.avatar,
+                phone: updatedUser.phone,
             });
 
             console.log('✅ [Frontend] Update User API Response Data:', response.data);
 
             if (response.success) {
-                const updatedData = response.data || updatedUser;
-                console.log('✨ [Frontend] Applying updated data format to state:', updatedData);
-                applyLocalUpdate(updatedData);
+                // Merge backend response with existing user state to preserve frontend-only fields
+                // (e.g., id = Firebase UID, which the Mongoose document returns as _id)
+                const backendData = response.data || {};
+                const mergedData: User = {
+                    ...updatedUser,
+                    ...backendData,
+                    id: updatedUser.id, // Always preserve the Firebase UID as `id`
+                    _id: backendData._id || updatedUser._id,
+                    phone: backendData.phone || updatedUser.phone,
+                };
+                console.log('✨ [Frontend] Applying merged data to state:', mergedData);
+                applyLocalUpdate(mergedData);
                 // Update session cache too
                 const token = localStorage.getItem('autospf_token') || '';
-                setSessionCache(updatedData, token);
+                setSessionCache(mergedData, token);
                 return { success: true };
             }
             return { success: false, message: response.message || 'Update failed' };
@@ -1049,6 +1224,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const isTimeout = error?.code === 'ECONNABORTED' || /timeout/i.test(message);
             const isNetwork = !error?.response || /network/i.test(message);
             const reason: 'timeout' | 'network' | 'error' = isTimeout ? 'timeout' : isNetwork ? 'network' : 'error';
+            // Apply local update as offline fallback but signal to caller it was not persisted
             applyLocalUpdate(updatedUser);
             return { success: true, offline: true, reason };
         }

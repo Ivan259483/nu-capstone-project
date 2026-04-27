@@ -19,10 +19,12 @@ import {
   isFullAdminRole,
   isPosManagerRole,
   isServiceStaffRole,
+  isStaffRole,
 } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { decrypt } from '../utils/encryption.utils.js';
+import { validateSlotAvailability } from '../services/slot.service.js';
 
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
@@ -248,7 +250,7 @@ export const getAllOrders = async (req, res, next) => {
 
     if (isCustomerRole(req.user.role)) {
       query.customer = req.user.id;
-    } else if (isServiceStaffRole(req.user.role)) {
+    } else if (isStaffRole(req.user.role)) {
       query.assignedDetailer = req.user.id;
     } else if (!isBookingManagerRole(req.user.role) && !isPosManagerRole(req.user.role)) {
       return res.status(403).json({
@@ -304,11 +306,12 @@ export const getAvailableSlots = async (req, res, next) => {
       });
     }
 
-    // Find all bookings on that date that aren't cancelled or failed
+    // Find all bookings on that date that block the slot.
+    // Rejected + cancelled bookings free up the slot.
     const bookings = await Order.find({
       bookingDate: date,
-      status: { $nin: ['cancelled', 'failed'] }
-    }).select('bookingTime').lean();
+      status: { $nin: ['cancelled', 'failed', 'rejected'] }
+    }).select('bookingTime status').lean();
 
     // Extract just the time slots that are taken
     const bookedSlots = bookings
@@ -360,11 +363,11 @@ export const cleanupStaleBookings = async (req, res, next) => {
 export const getActiveJobs = async (req, res, next) => {
   try {
     let query = {
-      status: { $in: ['pending', 'confirmed', 'received', 'in_progress'] }
+      status: { $in: ['pending_confirmation', 'pending', 'approved', 'confirmed', 'received', 'in_progress'] }
     };
 
-    if (isServiceStaffRole(req.user.role)) {
-      // Service staff sees their assigned jobs PLUS unassigned pending jobs
+    if (isStaffRole(req.user.role)) {
+      // Staff sees their assigned jobs PLUS unassigned pending jobs
       query = {
         $or: [
           { assignedDetailer: req.user.id, status: { $in: ['confirmed', 'received', 'in_progress'] } },
@@ -376,7 +379,7 @@ export const getActiveJobs = async (req, res, next) => {
           }
         ]
       };
-    } else if (!isBookingManagerRole(req.user.role)) {
+    } else if (!isBookingManagerRole(req.user.role) && !isPosManagerRole(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied',
@@ -480,8 +483,10 @@ export const createOrder = async (req, res, next) => {
       serviceName: serviceNameInput,
       totalPrice: totalPriceInput,
       price: priceInput,
-      downpaymentProof: downpaymentProofInput
+      downpaymentProof: downpaymentProofInput,
+      paymentProofUrl: paymentProofUrlInput
     } = req.body;
+
 
     // Always trust the authenticated user for customer bookings.
     // Only admins can create bookings on behalf of another customer.
@@ -634,27 +639,23 @@ export const createOrder = async (req, res, next) => {
     }
 
     const safeTotalPrice = finalTotalPrice;
-    const initialStatus = 'pending';
+    // Always start as pending_confirmation — Sales must approve before service flow begins
+    const initialStatus = 'pending_confirmation';
+    const resolvedCustomerPhone = (typeof customerPhoneInput === 'string' && customerPhoneInput.trim()) || '';
 
-    // ── Anti-Double Booking Validation (Create) ─────────────────────
+    // ── Slot Availability Check (dynamic — reads BusinessSettings capacity) ─
     if (bookingDate && bookingTime) {
-      const existingBooking = await Order.findOne({
-        bookingDate,
-        bookingTime,
-        status: { $nin: ['cancelled', 'failed'] }
-      });
-
-      if (existingBooking) {
-        return res.status(400).json({
+      const slotCheck = await validateSlotAvailability(bookingDate, bookingTime);
+      if (!slotCheck.ok) {
+        return res.status(409).json({
           success: false,
-          message: 'This time slot is already booked. Please select another time.'
+          errorCode: slotCheck.errorCode,
+          message: slotCheck.message,
         });
       }
     }
-    // ────────────────────────────────────────────────────────────────
 
-    const resolvedCustomerPhone = (typeof customerPhoneInput === 'string' && customerPhoneInput.trim()) || '';
-
+    // ── Create Order ──────────────────────────────────────────────────
     const order = new Order({
       orderNumber: `ORD-${Date.now()}`,
       bookingReference: generateBookingReference(),
@@ -665,44 +666,23 @@ export const createOrder = async (req, res, next) => {
       items: finalItems,
       totalAmount: finalTotalAmount,
       totalPrice: safeTotalPrice,
-      status: initialStatus,
-      shippingAddress, // Optional for service bookings
+      status: initialStatus, // 'pending_confirmation' — awaits sales approval
+      shippingAddress,
       notes,
-      ...finalVehicleData, // Spread vehicle details
+      ...finalVehicleData,
       bookingDate,
       bookingTime,
       downpaymentProof: typeof downpaymentProofInput === 'string' ? downpaymentProofInput : undefined,
+      paymentProofUrl: typeof paymentProofUrlInput === 'string' ? paymentProofUrlInput : undefined,
     });
 
     const checklist = generateOperationsChecklist(finalServiceType);
     order.operationsChecklist = checklist;
-
-    // Auto-assign a default available detailer when possible
-    if (isCustomerRole(req.user.role)) {
-      const detailers = await User.find({ role: 'service_staff', isActive: true }).select('_id name');
-      let availableDetailer = null;
-
-      for (const detailer of detailers) {
-        const activeBooking = await Order.findOne({
-          assignedDetailer: detailer._id,
-          status: { $in: ['confirmed', 'received', 'in_progress'] }
-        });
-        if (!activeBooking) {
-          availableDetailer = detailer;
-          break;
-        }
-      }
-
-      if (availableDetailer) {
-        order.assignedDetailer = availableDetailer._id;
-        order.status = 'confirmed';
-        if (!order.serviceSteps || order.serviceSteps.length === 0) {
-          order.serviceSteps = DEFAULT_SERVICE_STEPS.map(step => ({ ...step }));
-        }
-      }
-    }
+    // ⚠️ Technician assignment is intentionally deferred until Sales APPROVES the booking.
+    // Auto-assign was removed to prevent unconfirmed bookings entering the service queue.
 
     await order.save();
+
 
     // ⚠️ Bug #3 fix: Wrapped debug log in dev-only guard — never runs in production.
     if (process.env.NODE_ENV === 'development') {
@@ -960,7 +940,7 @@ export const updateOrder = async (req, res, next) => {
 
     // Check ownership, assigned detailer, or admin status
     const isOwner = order.customer && order.customer.toString() === req.user.id;
-    const isAdmin = isBookingManagerRole(req.user.role);
+    const isAdmin = isBookingManagerRole(req.user.role) || isPosManagerRole(req.user.role);
     const assignedDetailerId = order.assignedDetailer
       ? (typeof order.assignedDetailer === 'object' ? order.assignedDetailer._id?.toString() : order.assignedDetailer.toString())
       : null;
@@ -1020,6 +1000,7 @@ export const updateOrder = async (req, res, next) => {
             message: `Your booking ${order.orderNumber || order._id} is confirmed and paid. Your detailer will be assigned shortly.`,
             type: 'payment',
             recipientRole: 'customer',
+            recipientUserId: customerId,
             link: '/customer/dashboard?tab=tracking',
             metadata: {
               orderId: order._id,
@@ -1069,6 +1050,7 @@ export const updateOrder = async (req, res, next) => {
             message: `Your booking ${order.orderNumber || order._id} is confirmed.`,
             type: 'booking',
             recipientRole: 'customer',
+            recipientUserId: customerId,
             link: '/customer/dashboard?tab=bookings',
             metadata: {
               orderId: order._id,
@@ -1222,6 +1204,7 @@ export const assignDetailerAndMarkPaid = async (req, res, next) => {
           message: 'Your detailer has been assigned and is working on your car! Please check Live Tracking to track your vehicle\'s progress.',
           type: 'booking',
           recipientRole: 'customer',
+          recipientUserId: customerId,
           link: '/customer/dashboard?tab=tracking',
           metadata: {
             orderId: order._id,
@@ -2583,8 +2566,212 @@ export const confirmBooking = async (req, res, next) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════
+//  APPROVE BOOKING — Sales confirms GCash proof is valid
+// ═══════════════════════════════════════════════════════════════════════
+export const approveBooking = async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.id).populate('customer', 'name email avatar');
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    if (order.status !== 'pending_confirmation') {
+      return res.status(400).json({ success: false, message: `Cannot approve booking with status '${order.status}'.` });
+    }
+
+    // ── Re-validate slot capacity before approving ────────────────────
+    if (order.bookingDate && order.bookingTime) {
+      const slotCheck = await validateSlotAvailability(order.bookingDate, order.bookingTime);
+      if (!slotCheck.ok) {
+        return res.status(409).json({
+          success: false,
+          errorCode: slotCheck.errorCode || 'SLOT_FULL',
+          message: slotCheck.message || 'Slot is no longer available.',
+        });
+      }
+    }
+
+    const previousStatus = order.status;
+    const { assignedDetailer: manualDetailerId } = req.body || {};
+    let detailerId = manualDetailerId;
+
+    if (!detailerId) {
+      const detailers = await User.find({ role: 'service_staff', isActive: true }).select('_id name');
+      for (const d of detailers) {
+        const busy = await Order.findOne({ assignedDetailer: d._id, status: { $in: ['confirmed', 'received', 'in_progress'] } });
+        if (!busy) { detailerId = d._id; break; }
+      }
+    }
+
+    order.status = detailerId ? 'confirmed' : 'approved';
+    order.approvedAt = new Date();
+    order.approvedBy = req.user.id;
+    if (detailerId) order.assignedDetailer = detailerId;
+    if (!order.serviceSteps || order.serviceSteps.length === 0) {
+      order.serviceSteps = DEFAULT_SERVICE_STEPS.map(s => ({ ...s }));
+    }
+
+    await order.save();
+
+    // ── Clean up GCash proof images from DB after approval ────────────
+    // Base64 images can be 200–500KB each. Once approved, the proof is no
+    // longer needed and keeping it causes document bloat that can slow
+    // queries and eventually crash the app. We $unset them atomically.
+    await Order.updateOne(
+      { _id: order._id },
+      { $unset: { downpaymentProof: '', paymentProofUrl: '' } }
+    );
+
+    emitCustomerStatusUpdate(order);
+
+    // Emit booking_updated for calendar real-time refresh
+    try {
+      const io = getIO();
+      if (io && order.bookingDate) {
+        io.emit('booking_updated', { date: order.bookingDate, orderId: order._id.toString(), status: order.status });
+      }
+    } catch (_) {}
+
+    onOrderStatusChange(order, previousStatus, req.user).catch(err =>
+      console.error('[WORKFLOW] approveBooking error:', err.message)
+    );
+
+    try {
+      const scheduleInfo = order.bookingDate && order.bookingTime
+        ? ` Your appointment is on ${order.bookingDate} at ${order.bookingTime}.`
+        : '';
+      await Notification.create({
+        title: '✅ Booking Approved — Live Tracker Active!',
+        message: `Your GCash payment for booking ${order.orderNumber} has been verified.${scheduleInfo} Please bring your vehicle on your appointment day. You can now track your service progress in the Live Tracker.`,
+        type: 'booking',
+        recipient: order.customer?._id || order.customer,
+        metadata: { orderId: order._id }
+      });
+    } catch (_) {}
+
+    logActivity({ req, type: 'status_change', module: 'Booking', action: 'BOOKING_APPROVED',
+      description: `${req.user?.name} approved booking ${order.orderNumber}.`, status: 'success',
+      referenceId: order.orderNumber, metadata: { orderId: order._id, previousStatus, newStatus: order.status } });
+
+    return res.json({ success: true, message: 'Booking approved successfully.', data: formatBookingDto(order) });
+  } catch (error) { next(error); }
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+//  REJECT BOOKING — Sales rejects invalid/unclear payment proof
+// ═══════════════════════════════════════════════════════════════════════
+export const rejectBooking = async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.id).populate('customer', 'name email avatar');
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    if (order.status !== 'pending_confirmation') {
+      return res.status(400).json({ success: false, message: `Cannot reject booking with status '${order.status}'.` });
+    }
+
+    const { reason = 'Payment proof could not be verified.' } = req.body || {};
+    order.status = 'rejected';
+    order.rejectedAt = new Date();
+    order.rejectedBy = req.user.id;
+    order.rejectionReason = reason;
+    await order.save();
+
+    // ── Clean up GCash proof images from DB after rejection ───────────
+    // No longer needed once a decision has been made.
+    await Order.updateOne(
+      { _id: order._id },
+      { $unset: { downpaymentProof: '', paymentProofUrl: '' } }
+    );
+
+    // Emit booking_updated for calendar real-time refresh
+    try {
+      const io = getIO();
+      if (io && order.bookingDate) {
+        io.emit('booking_updated', { date: order.bookingDate, orderId: order._id.toString(), status: 'rejected' });
+      }
+    } catch (_) {}
+
+    try {
+      await Notification.create({
+        title: 'Booking Not Confirmed',
+        message: `Your booking ${order.orderNumber} was rejected. Reason: ${reason}`,
+        type: 'booking',
+        recipient: order.customer?._id || order.customer,
+        metadata: { orderId: order._id }
+      });
+    } catch (_) {}
+
+    logActivity({ req, type: 'status_change', module: 'Booking', action: 'BOOKING_REJECTED',
+      description: `${req.user?.name} rejected booking ${order.orderNumber}. Reason: ${reason}`, status: 'success',
+      referenceId: order.orderNumber, metadata: { orderId: order._id, newStatus: 'rejected', reason } });
+
+    return res.json({ success: true, message: 'Booking rejected. Customer has been notified.', data: formatBookingDto(order) });
+  } catch (error) { next(error); }
+};
+
+export const rescheduleBooking = async (req, res, next) => {
+  try {
+    const { newDate, newTime } = req.body;
+    if (!newDate || !newTime) {
+      return res.status(400).json({ success: false, message: 'newDate and newTime are required.' });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    // Allow only APPROVED, QUEUED, pending_confirmation, confirmed
+    const allowedStatuses = ['approved', 'queued', 'pending_confirmation', 'confirmed', 'assigned'];
+    if (!allowedStatuses.includes(order.status)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Cannot reschedule booking with status '${order.status}'.` 
+      });
+    }
+
+    // Validate new slot
+    const slotCheck = await validateSlotAvailability(newDate, newTime);
+    if (!slotCheck.ok) {
+      return res.status(409).json({
+        success: false,
+        errorCode: slotCheck.errorCode || 'SLOT_FULL',
+        message: slotCheck.message || 'Slot is no longer available.',
+      });
+    }
+
+    const oldDate = order.bookingDate;
+    const oldTime = order.bookingTime;
+
+    order.bookingDate = newDate;
+    order.bookingTime = newTime;
+    await order.save();
+
+    // Emit socket event
+    try {
+      const io = getIO();
+      if (io) {
+        io.emit('booking_updated', {
+          date: newDate,
+          previousDate: oldDate,
+          orderId: order._id.toString(),
+          type: 'RESCHEDULE'
+        });
+      }
+    } catch (_) {}
+
+    logActivity({ 
+      req, type: 'status_change', module: 'Booking', action: 'BOOKING_RESCHEDULED',
+      description: `${req.user?.name} rescheduled booking ${order.orderNumber} to ${newDate} ${newTime}.`, 
+      status: 'success',
+      referenceId: order.orderNumber, 
+      metadata: { orderId: order._id, oldDate, oldTime, newDate, newTime } 
+    });
+
+    return res.json({ success: true, message: 'Booking rescheduled successfully.', data: formatBookingDto(order) });
+  } catch (error) { next(error); }
+};
+
+// ═══════════════════════════════════════════════════════════════════════
 //  STAFF QUEUE — Prioritized list of actionable jobs
 // ═══════════════════════════════════════════════════════════════════════
+
 
 /**
  * GET /api/orders/queue/staff

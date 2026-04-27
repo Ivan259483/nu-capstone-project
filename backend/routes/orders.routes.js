@@ -9,6 +9,7 @@ import {
   SERVICE_OPERATION_ROLES,
   STAFF_ROLES,
   SUPPLIER_MANAGER_ROLES,
+  POS_MANAGER_ROLES,
 } from '../constants/roles.js';
 
 const router = express.Router();
@@ -105,6 +106,27 @@ router.post('/', orderController.createOrder);
  * @access Private - Admin
  */
 router.post('/:id/confirm', authorize(...BOOKING_MANAGER_ROLES), orderController.confirmBooking);
+
+/**
+ * @route PATCH /api/orders/:id/approve
+ * @desc Sales approves a pending_confirmation booking (GCash proof verified)
+ * @access Private - Sales/Admin
+ */
+router.patch('/:id/approve', authorize(...BOOKING_MANAGER_ROLES, ...POS_MANAGER_ROLES), orderController.approveBooking);
+
+/**
+ * @route PATCH /api/orders/:id/reject
+ * @desc Sales rejects a booking (invalid payment proof)
+ * @access Private - Sales/Admin
+ */
+router.patch('/:id/reject', authorize(...BOOKING_MANAGER_ROLES, ...POS_MANAGER_ROLES), orderController.rejectBooking);
+
+/**
+ * @route PATCH /api/orders/:id/reschedule
+ * @desc Sales reschedules a booking (drag and drop)
+ * @access Private - Sales/Admin
+ */
+router.patch('/:id/reschedule', authorize(...BOOKING_MANAGER_ROLES, ...POS_MANAGER_ROLES), orderController.rescheduleBooking);
 
 /**
  * @route PUT /api/orders/:id

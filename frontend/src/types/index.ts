@@ -90,7 +90,7 @@ export interface Booking {
     serviceType?: string;
     date: string;
     time: string;
-    status: 'pending' | 'confirmed' | 'assigned' | 'received' | 'in_progress' | 'completed' | 'paid' | 'released' | 'cancelled' | 'failed';
+    status: 'pending' | 'pending_confirmation' | 'confirmed' | 'approved' | 'assigned' | 'received' | 'in_progress' | 'in-progress' | 'completed' | 'paid' | 'released' | 'cancelled' | 'failed' | 'rejected';
     totalPrice?: number;
     totalAmount?: number;
     invoiceId?: string;
@@ -126,6 +126,11 @@ export interface Booking {
     updatedAt?: string;
     // Backend Integration Fields
     orderNumber?: string;
+    bookingReference?: string;
+    // GCash / payment proof fields
+    downpaymentProof?: string;
+    paymentProofUrl?: string;
+    rejectionReason?: string;
     assignedDetailer?: User | string | null; // Populated or ID
     customerStatus?: 'received' | 'washing' | 'detailing' | 'ready' | 'queued' | 'in-progress' | 'finishing';
     customerStatusUpdatedAt?: string;

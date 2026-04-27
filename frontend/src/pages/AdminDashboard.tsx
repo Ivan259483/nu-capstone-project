@@ -51,13 +51,14 @@ import { SystemService } from '@/lib/system-service';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
 import { SettingsService } from '@/lib/settings-service';
 import { AdminSettings } from '@/components/admin/AdminSettings';
-import { SmartCalendar } from '@/components/admin/SmartCalendar';
+// SmartCalendar removed — now owned by Sales Dashboard at /sales (calendar tab)
 import LandingPageEditor from '@/components/admin/LandingPageEditor';
-import { POSSystem } from '@/components/admin/POSSystem';
+// POSSystem removed — staff now use the dedicated Sales Dashboard
 import { ActivityLogs } from '@/components/admin/ActivityLogs';
 import { ServicesPricing } from '@/components/admin/ServicesPricing';
 import { SupplierManagement } from '@/components/admin/SupplierManagement';
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
+import AdminHubPanel from '@/components/admin-hub/AdminHubPanel';
 import { WaiversDocs } from '@/components/admin/WaiversDocs';
 import { CheckInDialog } from '@/components/admin/CheckInDialog';
 import { ActivityService } from '@/lib/activity-service-api';
@@ -159,7 +160,6 @@ type TabType =
     | 'activity'
     | 'settings'
     | 'bookings'
-    | 'pos'
     | 'appointments'
     | 'waivers'
     | 'ai_estimator'
@@ -229,7 +229,7 @@ export default function AdminDashboard() {
 
 
 
-    const validTabs: TabType[] = ['inventory', 'users', 'suppliers', 'pricing', 'activity', 'settings', 'bookings', 'pos', 'appointments', 'waivers', 'ai_estimator', 'profile', 'landing'];
+    const validTabs: TabType[] = ['inventory', 'users', 'suppliers', 'pricing', 'activity', 'settings', 'bookings', 'appointments', 'waivers', 'ai_estimator', 'profile', 'landing'];
     const [activeTab, setActiveTab] = useState<TabType>(() => {
         const hash = window.location.hash.replace('#', '');
         return validTabs.includes(hash as TabType) ? (hash as TabType) : 'inventory';
@@ -1729,8 +1729,8 @@ export default function AdminDashboard() {
              runOp('QC Completion', OrderService.operateQCComplete, 'QC Completed successfully.');
         } else if (operationalAction === 'completed') {
              setShowAssignModal(false);
-             setActiveTab('pos');
-             toast.info('Switched to POS for final payment.');
+             setActiveTab('bookings');
+             toast.info('Service complete — process payment in the Sales Dashboard.');
         } else if (operationalAction === 'paid') {
              runOp('Releasing Vehicle', OrderService.operateRelease, 'Vehicle Released successfully!');
         }
@@ -2089,7 +2089,6 @@ export default function AdminDashboard() {
         const allAdminTabs = [
             { id: 'inventory' as TabType, label: 'Inventory', icon: Package },
             { id: 'bookings' as TabType, label: 'Bookings', icon: ClipboardList },
-            { id: 'pos' as TabType, label: 'POS System', icon: Monitor },
             { id: 'users' as TabType, label: 'User Management', icon: Users },
             { id: 'suppliers' as TabType, label: 'Suppliers', icon: ShoppingCart },
             { id: 'pricing' as TabType, label: 'Pricing', icon: PhilippinePeso },
@@ -2126,9 +2125,8 @@ export default function AdminDashboard() {
                 return allAdminTabs.filter(tab => ['inventory', 'suppliers'].includes(tab.id));
 
             case 'sales':
-                // Domain Authority: POS System + customer history review (Users read)
-                // Appointments removed — cashier doesn't manage scheduling
-                return allAdminTabs.filter(tab => ['pos'].includes(tab.id));
+                // Sales staff use the dedicated Sales Dashboard — no admin tabs needed
+                return [];
 
             default:
                 return [];
@@ -2173,6 +2171,15 @@ export default function AdminDashboard() {
         return getRoleLabel(role);
     };
 
+    const isHRMode = activeTab === 'users' && (canAccessUsers || canRegisterUsers);
+    // Strict check: AdminHub is ONLY for administrator / office_admin
+    // HR users get their own separate UserManagementPanel
+    const userRoleLower = (user?.role || '').toLowerCase();
+    const isAdminHubRole = userRoleLower === 'administrator' || userRoleLower === 'office_admin';
+    // Administrator/office_admin ALWAYS uses AdminHub for ALL tabs (full mode)
+    const isAdminHubMode = isAdminHubRole;
+    const isHROnlyMode = isHRMode && !isAdminHubRole;
+
     return (
         <div className={`admin-root admin-shell ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
 
@@ -2182,8 +2189,51 @@ export default function AdminDashboard() {
                 onClick={() => setSidebarCollapsed(true)}
             />
 
+            {/* ── ADMIN HUB (Full UI for admin-role users) ── */}
+            {isAdminHubMode && (
+                <AdminHubPanel
+                    currentUser={user}
+                    fullMode={true}
+                    inventory={inventory}
+                    suppliers={suppliers}
+                    services={services}
+                    bookings={bookings}
+                    settings={settings}
+                    setSettings={setSettings}
+                    onLoadData={loadData}
+                    onAddSupplier={() => { resetSupplierForm(); setShowSupplierModal(true); }}
+                    onEditSupplier={handleEditSupplier}
+                    onOrderSupplier={handleOpenOrderModal}
+                    onSaveSettings={handleSaveSettings}
+                    onExportData={handleExportData}
+                    onBackupDB={handleBackupDB}
+                    onClearCache={handleClearCache}
+                    onResetSystem={() => setShowResetModal(true)}
+                />
+            )}
+
+            {/* ── HR DASHBOARD FULL-SCREEN MODE (HR-only users) ── */}
+            {isHROnlyMode && (
+                <div style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 100,
+                    display: 'flex',
+                    background: '#f1f5f9',
+                }}>
+                    <UserManagementPanel
+                        theme={theme}
+                        users={users}
+                        loadData={loadData}
+                        currentUserRole={user?.role}
+                        currentUserId={user?._id || user?.id}
+                        onBack={() => setActiveTab('inventory')}
+                    />
+                </div>
+            )}
+
             {/* ── SIDEBAR ── */}
-            <div className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+            <div className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`} style={isHRMode ? { display: 'none' } : undefined}>
                 <div className="brand">
                     <div className="sidebar-profile-avatar" onClick={() => { setActiveTab('profile'); setSidebarCollapsed(true); }}>
                         {profilePhoto ? <img src={profilePhoto} alt="Profile" /> : (user?.name?.charAt(0).toUpperCase() || 'A')}
@@ -2203,7 +2253,7 @@ export default function AdminDashboard() {
 
                 <nav className="flex-1 overflow-y-auto mt-2">
                     <div className="nav-section">Workspace</div>
-                    {tabs.filter(t => ['inventory', 'bookings', 'pos', 'users'].includes(t.id)).map(tab => {
+                    {tabs.filter(t => ['inventory', 'bookings', 'users'].includes(t.id)).map(tab => {
                         const isActive = activeTab === tab.id;
                         return (
                             <button key={tab.id} title={sidebarCollapsed ? tab.label : undefined} className={`nav-item ${isActive ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
@@ -2278,7 +2328,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* ── MAIN AREA ── */}
-            <div className="main">
+            <div className="main" style={isHRMode ? { display: 'none' } : undefined}>
                 {/* Topbar */}
                 <div className="topbar">
                     <div className="flex items-center gap-3">
@@ -2880,26 +2930,18 @@ export default function AdminDashboard() {
 
                         {(canAccessBookings || canAccessAppointments) && (activeTab === 'bookings' || activeTab === 'appointments') && (
                             <motion.div key="bookings" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="flex flex-col w-full h-[calc(100vh-180px)] min-h-[600px]">
-                                <SmartCalendar
-                                    bookings={safeBookings}
-                                    users={users}
-                                    services={services}
-                                    isDarkMode={isDarkMode}
-                                    settings={settings}
-                                    selectedBookingId={selectedBookingsPanelId}
-                                    onSelectBooking={setSelectedBookingsPanelId}
-                                    onNewBooking={() => setIsBookingDetailOpen(true)}
-                                    onReschedule={(b) => {
-                                        setDetailBooking(b);
-                                        setEditDate(b.bookingDate || (b as any).schedule?.date || '');
-                                        setEditTime(b.bookingTime || (b as any).schedule?.time || '');
-                                        setIsEditScheduleOpen(true);
-                                    }}
-                                    onUpdateStatus={(b) => {
-                                        setSelectedBooking(b);
-                                        setShowAssignModal(true);
-                                    }}
-                                />
+                                <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
+                                    <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center">
+                                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    </div>
+                                    <div>
+                                        <p className="text-lg font-bold text-slate-800">Smart Calendar moved to Sales Dashboard</p>
+                                        <p className="text-sm text-slate-500 mt-1">Access all booking schedules and approvals from the Sales workspace.</p>
+                                    </div>
+                                    <a href="/sales" className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors">
+                                        Go to Sales Dashboard →
+                                    </a>
+                                </div>
                             </motion.div>
                         )}
 
@@ -2915,25 +2957,10 @@ export default function AdminDashboard() {
                             </motion.div>
                         )}
 
-                        {activeTab === 'pos' && canAccessPOS && (
-                            <motion.div key="pos" variants={pageVariants} initial="initial" animate="animate" exit="exit">
-                                <POSSystem
-                                    bookings={bookings}
-                                    services={services}
-                                    users={users}
-                                    payments={payments}
-                                    settings={settings}
-                                    onTransactionComplete={() => loadData()}
-                                />
-                            </motion.div>
-                        )}
+{/* POS System removed from admin — use Sales Dashboard at /sales */}
 
 
-                        {activeTab === 'users' && (canAccessUsers || canRegisterUsers) && (
-                            <motion.div key="users" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="w-full">
-                                <UserManagementPanel theme={theme} users={users} loadData={loadData} currentUserRole={user?.role} currentUserId={user?._id || user?.id} />
-                            </motion.div>
-                        )}
+                        {/* HR Dashboard is now rendered at admin-root level (full-screen) — see isHRMode block above */}
 
                         {activeTab === 'suppliers' && canAccessSupplierModule && (
                             <motion.div key="suppliers" variants={pageVariants} initial="initial" animate="animate" exit="exit">

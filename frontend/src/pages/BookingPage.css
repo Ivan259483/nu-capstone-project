@@ -447,6 +447,42 @@ select.bk-input option { background: #131320; color: #ddd; }
 }
 .bk-date-btn.active .dm { color: rgba(245,158,11,0.7); }
 
+/* Calendar Status Dots & Legend */
+.bk-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-top: 0.25rem;
+}
+.bk-status-dot.status-available { background: #34C759; } /* Green */
+.bk-status-dot.status-closed { background: #FF9500; } /* Orange */
+.bk-status-dot.status-full { background: #FF3B30; } /* Red */
+
+.bk-date-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: rgba(255,255,255,0.01);
+  border-color: transparent;
+}
+.bk-date-btn:disabled:hover { transform: none; border-color: transparent; }
+
+.bk-calendar-legend {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+  font-size: 0.65rem;
+  color: rgba(255,255,255,0.4);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.bk-calendar-legend .legend-item { display: flex; align-items: center; gap: 0.35rem; }
+.bk-calendar-legend .dot { width: 6px; height: 6px; border-radius: 50%; }
+.bk-calendar-legend .dot.green { background: #34C759; }
+.bk-calendar-legend .dot.orange { background: #FF9500; }
+.bk-calendar-legend .dot.red { background: #FF3B30; }
+
 /* ══════════════════════════════════════════════════════════════
    TIME SLOTS — Pill Grid
 ══════════════════════════════════════════════════════════════ */

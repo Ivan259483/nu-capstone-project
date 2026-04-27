@@ -1,1064 +1,576 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Search,
-  Activity,
-  Plus,
-  Edit,
-  Archive,
-  ShieldCheck,
-  MoreVertical,
-  Check,
-  User as UserIcon,
-  Users,
-  Eye,
-  EyeOff,
-  Camera,
-  X,
-  Mail,
-  Calendar,
-  Lock,
-  Briefcase,
-  Wrench,
-  ShoppingBag,
-  ClipboardList,
-  Shield,
-  WifiOff
+  LayoutDashboard, Users, UserCog, Activity, ShieldCheck,
+  FileText, Bell, LogOut, ChevronLeft, ChevronRight,
+  Settings, HelpCircle, X, Check,
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
-
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel, SelectSeparator } from '@/components/ui/select';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { useNavigate } from 'react-router-dom';
 
 import { UserService } from '@/lib/user-service';
-import { createSecondaryUser } from '@/config/firebase';
-import {
-  ADMIN_DASHBOARD_ROLES,
-  canManageUserRole,
-  CUSTOMER_ROLE,
-  FULL_ADMIN_ROLES,
-  ROLE_DESCRIPTIONS,
-  USER_ROLE_OPTIONS,
-  SERVICE_STAFF_ROLE,
-  getRoleLabel,
-  getSafeUserRole,
-  type UserRole,
-} from '@/lib/roles';
+import { ActivityService } from '@/lib/activity-service-api';
+import { NotificationService, SystemNotification } from '@/lib/notification-service';
+import { useAuth } from '@/contexts/AuthContext';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { USER_ROLE_OPTIONS } from '@/lib/roles';
 
-interface User {
-  id: string;
-  name?: string;
-  email?: string;
-  role?: string;
-  status?: string;
-  isActive?: boolean;
-  avatar?: string;
-  createdAt?: string;
-  lastActive?: string;
-  [key: string]: any;
-}
+import HRDashboardOverview from '@/components/hr/HRDashboardOverview';
+import HRStaffList from '@/components/hr/HRStaffList';
+import HRRoleAssignment from '@/components/hr/HRRoleAssignment';
+import HRStaffActivity from '@/components/hr/HRStaffActivity';
+import HRRoleAccessControl from '@/components/hr/HRRoleAccessControl';
 
 interface UserManagementPanelProps {
   theme: string;
-  users: User[];
-  loadData: () => void;
+  users: any[];
+  loadData: () => Promise<void> | void;
   currentUserRole?: string;
-  /** The MongoDB _id (or Firebase UID) of the currently logged-in admin. Used to prevent self-deletion. */
   currentUserId?: string;
+  onBack?: () => void;
 }
 
-export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ theme, users, loadData, currentUserRole, currentUserId }) => {
-  // State
+type HRTab = 'overview' | 'staff' | 'roles' | 'access' | 'activity';
+
+const NAV_ITEMS = [
+  { id: 'overview' as HRTab, label: 'HR Dashboard', icon: LayoutDashboard, group: 'workforce' },
+  { id: 'staff' as HRTab, label: 'User Management', icon: Users, group: 'workforce' },
+  { id: 'roles' as HRTab, label: 'Role Assignment', icon: UserCog, group: 'workforce' },
+  { id: 'activity' as HRTab, label: 'Staff Activity', icon: Activity, group: 'workforce' },
+  { id: 'access' as HRTab, label: 'Role & Access', icon: ShieldCheck, group: 'workforce' },
+];
+
+const BOTTOM_ITEMS = [
+  { id: 'reports', label: 'Reports', icon: FileText },
+  { id: 'notifications', label: 'Notifications', icon: Bell, badge: 5 },
+];
+
+const UTILITY_ITEMS = [
+  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'help', label: 'Help & Support', icon: HelpCircle },
+];
+
+export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
+  users, loadData, currentUserRole, currentUserId, onBack,
+}) => {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<HRTab>('overview');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [notifications, setNotifications] = useState<SystemNotification[]>([]);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  // Data State
+  const [localUsers, setLocalUsers] = useState<any[]>(users);
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
+
+  // Filters
   const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all');
+  const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
-  
-  // Sheet state
-  const [selectedUserDetails, setSelectedUserDetails] = useState<User | null>(null);
 
-  // Archive confirmation dialog state
-  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
-  const [archiveConfirmText, setArchiveConfirmText] = useState('');
-  const [pendingArchiveId, setPendingArchiveId] = useState<string | null>(null);
-  const [pendingArchiveName, setPendingArchiveName] = useState<string>('');
-  const [pendingArchiveRole, setPendingArchiveRole] = useState<string | undefined>(undefined);
-  const [isBulkArchive, setIsBulkArchive] = useState(false);
-
-  // Modal State
+  // Modal
   const [showUserModal, setShowUserModal] = useState(false);
   const [isEditingUser, setIsEditingUser] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  
-  // Form State
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
-  const [userRole, setUserRole] = useState<UserRole>(CUSTOMER_ROLE);
   const [userPassword, setUserPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [sendInvite, setSendInvite] = useState(false);
-  const [userAvatarPreview, setUserAvatarPreview] = useState<string | null>(null);
-  const [userAvatar, setUserAvatar] = useState<string | null>(null);
-  const userAvatarInputRef = useRef<HTMLInputElement>(null);
+  const [userRole, setUserRole] = useState('service_staff');
+  const [userStatus, setUserStatus] = useState('active');
 
-  // ── Live Status Polling ──────────────────────────────────────────────────
-  /** Local snapshot refreshed by the 10 s polling loop. */
-  const [localUsers, setLocalUsers] = useState<User[] | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [secondsAgo, setSecondsAgo]  = useState(0);
-  const [pollError, setPollError]    = useState(false);
-
-  /** Core poll: fetches the users endpoint and stores a local snapshot. */
+  // Polling
   const pollUsers = useCallback(async () => {
     try {
       const result = await UserService.getAllUsers();
-      if (result?.success && Array.isArray(result.data)) {
-        setLocalUsers(result.data);
-        setPollError(false);
-        setLastUpdated(new Date());
-        setSecondsAgo(0);
-      }
-    } catch {
-      setPollError(true);
-    }
+      if (result?.success && Array.isArray(result.data)) setLocalUsers(result.data);
+    } catch { /* silent */ }
   }, []);
 
-  // Run immediately on mount, then every 10 seconds.
+  const fetchActivity = useCallback(async () => {
+    try {
+      const result = await ActivityService.getActivityLogs();
+      if (result?.success && Array.isArray(result.data)) setActivityLogs(result.data);
+    } catch { /* silent */ }
+  }, []);
+
+  // HR-relevant notification types — exclude booking/service/payment/inventory
+  const HR_NOTIFICATION_TYPES = ['user_created', 'user_updated', 'user_restored', 'role_change', 'user_registered', 'staff_registered', 'account_update', 'user_archived', 'user_activated', 'user_suspended'];
+  const isHRRole = currentUserRole?.toLowerCase() === 'hr';
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await NotificationService.getNotifications();
+      if (res?.success && Array.isArray(res.data)) {
+        console.log('[HR Notif] isHRRole:', isHRRole, 'currentUserRole:', currentUserRole, 'total:', res.data.length);
+        if (isHRRole) {
+          // STRICT whitelist: only show staff/user-related notifications for HR
+          const filtered = res.data.filter((n: any) => {
+            const type = (n.type || '').toLowerCase();
+            const title = (n.title || '').toLowerCase();
+            const message = (n.message || '').toLowerCase();
+            // Only include if it matches HR-relevant keywords
+            const isHRRelevant =
+              HR_NOTIFICATION_TYPES.some(t => type.includes(t)) ||
+              /staff|user|role|account|registr|personnel/i.test(title) ||
+              /staff|user|role|account|registr|personnel/i.test(type);
+            return isHRRelevant;
+          });
+          console.log('[HR Notif] Filtered to', filtered.length, 'HR-relevant notifications');
+          setNotifications(filtered);
+        } else {
+          setNotifications(res.data);
+        }
+      }
+    } catch { /* silent */ }
+  }, [isHRRole, currentUserRole]);
+
   useEffect(() => {
     pollUsers();
-    const id = setInterval(pollUsers, 10_000);
+    fetchActivity();
+    fetchNotifications();
+    const id = setInterval(() => { pollUsers(); fetchActivity(); fetchNotifications(); }, 15_000);
     return () => clearInterval(id);
-  }, [pollUsers]);
+  }, [pollUsers, fetchActivity, fetchNotifications]);
 
-  // Keep localUsers in sync when parent CRUD operations call loadData().
+  // Close notif panel on outside click
   useEffect(() => {
-    setLocalUsers(users);
-  }, [users]);
+    const handler = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setShowNotifPanel(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
-  // Counts up the "X seconds ago" label every second after a successful poll.
-  useEffect(() => {
-    if (!lastUpdated) return;
-    const id = setInterval(() => {
-      setSecondsAgo(Math.floor((Date.now() - lastUpdated.getTime()) / 1000));
-    }, 1_000);
-    return () => clearInterval(id);
-  }, [lastUpdated]);
+  useEffect(() => { setLocalUsers(users); }, [users]);
 
-  // Active data source: polled snapshot if available, otherwise the parent prop.
-  const displayUsers = localUsers ?? users;
-
-  // Computed data
-  const filteredUsers = useMemo(() => {
-    return displayUsers.filter(u => {
-      const term = searchTerm.toLowerCase();
-      const normalizedRole = getSafeUserRole(u.role, CUSTOMER_ROLE);
-      const matchesSearch = !term || 
-        u.name?.toLowerCase().includes(term) || 
-        u.email?.toLowerCase().includes(term) || 
-        normalizedRole.toLowerCase().includes(term) ||
-        getRoleLabel(normalizedRole).toLowerCase().includes(term);
-        
-      const matchesRole = roleFilter === 'all' || normalizedRole === roleFilter;
-      
-      const rawStatus = u.status ?? (u.isActive ? 'active' : 'pending');
-      const normalizedStatus = rawStatus === 'active' ? 'active' : rawStatus === 'suspended' ? 'suspended' : 'pending';
-      const matchesStatus = statusFilter === 'all' || normalizedStatus === statusFilter;
-      
-      return matchesSearch && matchesRole && matchesStatus;
-    });
-  }, [displayUsers, searchTerm, roleFilter, statusFilter]);
-
-  const stats = useMemo(() => {
-    const total = displayUsers.length;
-    let active = 0;
-    let staff = 0;
-    let locked = 0;
-
-    displayUsers.forEach(u => {
-      const role = getSafeUserRole(u.role, CUSTOMER_ROLE);
-      if (role !== CUSTOMER_ROLE) staff++;
-      
-      const rawStatus = u.status ?? (u.isActive ? 'active' : 'pending');
-      if (rawStatus === 'active') active++;
-      if (rawStatus === 'suspended') locked++;
-    });
-
-    return { total, active, staff, locked };
-  }, [displayUsers]);
-
-  // Permission Logic
-  const canManageUser = (targetRole: string | undefined) => {
-    const currentRole = getSafeUserRole(currentUserRole, CUSTOMER_ROLE);
-    const normalizedTargetRole = getSafeUserRole(targetRole, CUSTOMER_ROLE);
-    return canManageUserRole(currentRole, normalizedTargetRole);
-  };
-
-  // Bulk actions logic
-  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.checked) {
-      // Only select users that can be managed, and never select the current user
-      setSelectedUsers(
-        filteredUsers
-          .filter(u => canManageUser(u.role) && u.id !== currentUserId)
-          .map(u => u.id)
-      );
+  // Handlers
+  const handleEditUser = (u: any) => {
+    if (u && !u._isNew) {
+      // Editing an existing user
+      setIsEditingUser(true);
+      setEditingUserId(u.id || u._id);
+      setUserName(u.name || '');
+      setUserEmail(u.email || '');
+      setUserRole(u.role || USER_ROLE_OPTIONS[0]?.value || 'service_staff');
+      setUserStatus(u.status || (u.isActive ? 'active' : 'pending'));
     } else {
-      setSelectedUsers([]);
+      // Creating new user (u is null, or u._isNew with pre-selected role)
+      setIsEditingUser(false);
+      setEditingUserId(null);
+      setUserName(''); setUserEmail(''); setUserPassword('');
+      setUserRole(u?.role || USER_ROLE_OPTIONS[0]?.value || 'service_staff');
+      setUserStatus('active');
     }
-  };
-
-  const handleSelectUser = (id: string, targetRole: string | undefined) => {
-    if (!canManageUser(targetRole)) {
-        toast.error('Insufficient permissions to manage this user role.');
-        return;
-    }
-    setSelectedUsers(prev => prev.includes(id) ? prev.filter(uid => uid !== id) : [...prev, id]);
-  };
-
-  const resetUserForm = () => {
-    setUserName('');
-    setUserEmail('');
-    setUserRole(CUSTOMER_ROLE);
-    setUserPassword('');
-    setConfirmPassword('');
-    setUserAvatarPreview(null);
-    setUserAvatar(null);
-    setIsEditingUser(false);
-    setEditingUserId(null);
-  };
-
-  const handleEditUser = (u: User) => {
-    if (!canManageUser(u.role)) {
-        toast.error('Insufficient permissions to edit this user role.');
-        return;
-    }
-    setUserName(u.name || '');
-    setUserEmail(u.email || '');
-    setUserRole(getSafeUserRole(u.role, CUSTOMER_ROLE));
-    setUserAvatarPreview(u.avatar || null);
-    setIsEditingUser(true);
-    setEditingUserId(u.id);
     setShowUserModal(true);
   };
 
-  const handleUserAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setUserAvatarPreview(reader.result as string);
-        setUserAvatar(reader.result as string); // In a real app, you might upload this immediately and get a URL
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleAddUser = async () => {
-    if (!canManageUser(userRole)) {
-        toast.error('Insufficient permissions to create user with this role.');
-        return;
-    }
-    
-    if (!isEditingUser) {
-        if (!userPassword || userPassword !== confirmPassword) {
-            toast.error('Passwords do not match or are empty');
-            return;
-        }
-    }
-    
-    const finalPassword = isEditingUser ? undefined : userPassword;
-    
-    const trimmedName = userName.trim();
-    const trimmedEmail = userEmail.trim();
-    
-    if (!trimmedName || !trimmedEmail || !userRole) {
-        toast.error('Please fill in all required fields');
-        return;
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(trimmedEmail)) {
-        toast.error('Please enter a valid email address');
-        return;
-    }
-
+  const handleSaveUser = async () => {
     try {
-        if (isEditingUser && editingUserId) {
-            const response = await UserService.updateUser(editingUserId, {
-                name: trimmedName,
-                email: trimmedEmail,
-                role: userRole
-            });
-
-            if (response?.success) {
-                toast.success('User updated successfully!');
-                loadData();
-                setShowUserModal(false);
-                resetUserForm();
-            } else {
-                toast.error(response?.message || 'Failed to update user');
-            }
-        } else {
-            const payload = {
-                name: trimmedName,
-                email: trimmedEmail,
-                password: finalPassword,
-                role: userRole,
-                avatar: userAvatar || undefined
-            };
-
-            const fbLoader = toast.loading('Registering credentials securely...');
-            let fbUser;
-            try {
-                fbUser = await createSecondaryUser(trimmedEmail, finalPassword!, sendInvite);
-                if (sendInvite) toast.success('Invitation sent to user', { id: fbLoader });
-                else toast.success('Auth credentials created', { id: fbLoader });
-            } catch (fbError: any) {
-                if (fbError.code === 'auth/email-already-in-use' || fbError.code === 'auth/email-exists') {
-                    toast.error('Authentication Error: Email already exists in Firebase.', { id: fbLoader });
-                    return;
-                } else if (fbError.code === 'auth/weak-password') {
-                    toast.error('Authentication Error: Password is too weak.', { id: fbLoader });
-                    return;
-                } else {
-                    toast.error(`Auth Error: ${fbError.message}`, { id: fbLoader });
-                    return;
-                }
-            }
-
-            if (fbUser?.uid) {
-                (payload as any).firebaseUid = fbUser.uid;
-            }
-
-            const response = await UserService.createUser(payload);
-            if (response?.success) {
-                toast.success('User registered successfully');
-                loadData();
-                setShowUserModal(false);
-                resetUserForm();
-            } else {
-                toast.error(response?.message || 'Failed to finish user setup');
-            }
-        }
-    } catch (err: any) {
-        console.error('Save User error:', err);
-        toast.error('An error occurred during save.');
-    }
-  };
-
-  // Open archive confirmation dialog
-  const openArchiveConfirm = (id: string, name: string, role: string | undefined) => {
-    if (!canManageUser(role)) {
-        toast.error('Insufficient permissions to archive this user role.');
-        return;
-    }
-    setPendingArchiveId(id);
-    setPendingArchiveName(name);
-    setPendingArchiveRole(role);
-    setIsBulkArchive(false);
-    setArchiveConfirmText('');
-    setArchiveConfirmOpen(true);
-  };
-
-  // Execute confirmed archive
-  const executeArchive = async () => {
-    if (archiveConfirmText !== 'ARCHIVE') return;
-    setArchiveConfirmOpen(false);
-    setArchiveConfirmText('');
-
-    if (isBulkArchive) {
-      const idsToArchive = selectedUsers.filter(id => id !== currentUserId);
-      const selfExcluded = idsToArchive.length < selectedUsers.length;
-
-      if (idsToArchive.length === 0) {
-        toast.warning('No users to archive (you cannot archive your own account).');
-        setSelectedUsers([]);
-        return;
-      }
-
-      const loadingToast = toast.loading(`Archiving ${idsToArchive.length} user${idsToArchive.length !== 1 ? 's' : ''}...`);
-      let successCount = 0;
-      let failCount = 0;
-      for (const id of idsToArchive) {
-        try {
-          const resp = await UserService.archiveUser(id);
-          if (resp?.success) {
-            successCount++;
-          } else {
-            failCount++;
-            console.warn('Failed to archive user', id, resp?.message);
-          }
-        } catch (err) {
-          failCount++;
-          console.error('Error archiving user', id, err);
-        }
-      }
-
-      if (successCount > 0) {
-        const suffix = selfExcluded ? ' (your own account was skipped)' : '';
-        toast.success(`Archived ${successCount} user${successCount !== 1 ? 's' : ''}${suffix}`, { id: loadingToast });
+      if (!userName || !userEmail) { toast.error('Please fill in all required fields'); return; }
+      if (!isEditingUser && !userPassword) { toast.error('Password is required for new staff'); return; }
+      if (isEditingUser && editingUserId) {
+        console.log('[HR] Updating user:', editingUserId, { name: userName, role: userRole, status: userStatus });
+        await UserService.updateUser(editingUserId, { name: userName, role: userRole, status: userStatus, isActive: userStatus === 'active' });
+        toast.success('Staff member updated successfully');
       } else {
-        toast.error(`Failed to archive users`, { id: loadingToast });
+        const payload = { name: userName, email: userEmail, role: userRole, password: userPassword, status: userStatus, isActive: userStatus === 'active' };
+        console.log('[HR] Creating staff:', payload);
+        const result = await UserService.createUser(payload);
+        console.log('[HR] Create result:', result);
+        toast.success('New staff member created successfully!');
       }
-      if (failCount > 0 && successCount > 0) {
-        toast.warning(`${failCount} user${failCount !== 1 ? 's' : ''} could not be archived.`);
-      }
-
-      setSelectedUsers([]);
-      loadData();
-    } else if (pendingArchiveId) {
-      const loadingToast = toast.loading('Archiving user...');
-      try {
-        const response = await UserService.archiveUser(pendingArchiveId);
-        if (response?.success) {
-          toast.success('User archived. Account is now inactive.', { id: loadingToast });
-          setSelectedUsers(prev => prev.filter(uId => uId !== pendingArchiveId));
-          loadData();
-        } else {
-          toast.error(response?.message || 'Failed to archive user', { id: loadingToast });
-        }
-      } catch {
-        toast.error('Error archiving user');
-      }
+      setShowUserModal(false);
+      setUserPassword('');
+      pollUsers(); loadData();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.message || 'Failed to save user';
+      console.error('[HR] Save user error:', e?.response?.data || e);
+      toast.error(msg);
     }
-    setPendingArchiveId(null);
-    setPendingArchiveName('');
-    setPendingArchiveRole(undefined);
   };
 
-  const handleArchiveUser = (id: string, name: string, role: string | undefined) => {
-    openArchiveConfirm(id, name, role);
-  };
-
-  const handleActivateUser = async (id: string, name: string) => {
-    const loadingToast = toast.loading(`Activating ${name}...`);
+  const handleArchiveUser = async (id: string, name: string) => {
+    if (id === currentUserId) { toast.error('You cannot archive your own account'); return; }
+    if (!window.confirm(`Suspend ${name}?`)) return;
     try {
-      const response = await UserService.activateUser(id);
-      if (response?.success) {
-        toast.success(`${name} is now active.`, { id: loadingToast });
-        loadData();
-      } else {
-        toast.error(response?.message || 'Failed to activate user', { id: loadingToast });
-      }
-    } catch {
-      toast.error('Error activating user', { id: loadingToast });
-    }
+      await UserService.archiveUser(id);
+      toast.success('User suspended');
+      pollUsers(); loadData();
+    } catch { toast.error('Failed to suspend user'); }
   };
 
-  const handleBulkAction = async (action: 'activate' | 'suspend' | 'archive') => {
-    if (selectedUsers.length === 0) return;
-    
-    if (action === 'archive') {
-      setIsBulkArchive(true);
-      setPendingArchiveName(`${selectedUsers.length} users`);
-      setPendingArchiveId(null);
-      setArchiveConfirmText('');
-      setArchiveConfirmOpen(true);
-      return;
-    }
-    
-    const loadingToast = toast.loading(`Processing bulk ${action}...`);
+  const handleActivateUser = async (id: string) => {
     try {
-      let successCount = 0;
-      for (const id of selectedUsers) {
-        const resp = await UserService.activateUser(id);
-        if (resp?.success) successCount++;
-      }
-      toast.success(`Successfully activated ${successCount} user${successCount !== 1 ? 's' : ''}`, { id: loadingToast });
-      setSelectedUsers([]);
-      loadData();
-    } catch {
-      toast.error('Error processing bulk action', { id: loadingToast });
-    }
+      await UserService.activateUser(id);
+      toast.success('User activated');
+      pollUsers(); loadData();
+    } catch { toast.error('Failed to activate user'); }
   };
 
-  const pageVariants = {
-    initial: { opacity: 0, y: 10 },
-    animate: { opacity: 1, y: 0, transition: { duration: 0.4 } },
-    exit: { opacity: 0, scale: 0.95, transition: { duration: 0.2 } }
+  const childProps = {
+    localUsers, setLocalUsers, activityLogs,
+    searchTerm, setSearchTerm, roleFilter, setRoleFilter, statusFilter, setStatusFilter,
+    handleEditUser, handleArchiveUser, handleActivateUser,
+    user: { role: currentUserRole, _id: currentUserId },
+    currentUserRole,
+    onNavigate: (tab: HRTab) => setActiveTab(tab),
+  };
+
+  const currentUser = localUsers.find(u => u.id === currentUserId || u._id === currentUserId);
+  const displayName = currentUser?.name || 'Admin';
+  const displayRole = currentUserRole ? (currentUserRole.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())) : 'HR Manager';
+  const initials = displayName.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase();
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
+  const handleLogout = async () => {
+    try { await logout(); navigate('/login'); } catch { toast.error('Failed to sign out'); }
+  };
+
+  const handleMarkNotifRead = async (id: string) => {
+    await NotificationService.markAsRead(id);
+    setNotifications(prev => prev.map(n => (n.id === id || n._id === id) ? { ...n, isRead: true } : n));
+  };
+
+  const handleMarkAllRead = async () => {
+    await NotificationService.markAllAsRead();
+    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+  };
+
+  const renderPage = () => {
+    const pages: Record<HRTab, React.ReactNode> = {
+      overview: <HRDashboardOverview {...childProps} />,
+      staff: <HRStaffList {...childProps} />,
+      roles: <HRRoleAssignment {...childProps} />,
+      activity: <HRStaffActivity {...childProps} />,
+      access: <HRRoleAccessControl {...childProps} />,
+    };
+    return pages[activeTab];
   };
 
   return (
-    <motion.div key="users" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="w-full">
+    <div className="flex h-full w-full" style={{ fontFamily: "'DM Sans', 'Inter', sans-serif", background: '#f1f5f9' }}>
+      {/* ── Sidebar ─────────────────────────────────────────────── */}
+      <aside
+        className="flex flex-col bg-white border-r shrink-0 transition-all duration-300"
+        style={{
+          width: sidebarCollapsed ? 64 : 240,
+          borderColor: '#e2e8f0',
+          minHeight: '100%',
+        }}
+      >
+        {/* Logo */}
+        <div
+          className="flex items-center border-b"
+          style={{
+            height: 64,
+            padding: sidebarCollapsed ? '0 12px' : '0 16px',
+            borderColor: '#e2e8f0',
+            justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+            gap: 10,
+          }}
+        >
+          {/* Logo mark */}
+          <div className="flex items-center justify-center shrink-0" style={{ width: 32, height: 32, borderRadius: 8, background: '#2563EB' }}>
+            <ShieldCheck style={{ width: 18, height: 18, color: '#fff' }} />
+          </div>
+          {!sidebarCollapsed && (
+            <span style={{ fontWeight: 600, fontSize: 15, color: '#0f172a', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
+              HRDashboard
+            </span>
+          )}
+        </div>
 
-      {/* ── Connection-lost warning banner ── */}
-      <AnimatePresence>
-        {pollError && (
-          <motion.div
-            initial={{ opacity: 0, y: -8, height: 0 }}
-            animate={{ opacity: 1, y: 0, height: 'auto' }}
-            exit={{ opacity: 0, y: -8, height: 0 }}
-            transition={{ duration: 0.25 }}
-            className="flex items-center gap-2.5 px-4 py-2.5 mb-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium overflow-hidden"
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto py-4" style={{ padding: '16px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {!sidebarCollapsed && (
+            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', padding: '4px 8px 8px' }}>
+              Workforce
+            </p>
+          )}
+          {NAV_ITEMS.map(item => {
+            const Icon = item.icon;
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                title={sidebarCollapsed ? item.label : undefined}
+                style={{
+                  display: 'flex', alignItems: 'center',
+                  gap: sidebarCollapsed ? 0 : 10,
+                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 13.5,
+                  fontWeight: active ? 600 : 500,
+                  transition: 'background 0.15s, color 0.15s',
+                  background: active ? '#eff6ff' : 'transparent',
+                  color: active ? '#2563EB' : '#64748b',
+                  width: '100%',
+                  textAlign: 'left',
+                  boxShadow: active && !sidebarCollapsed ? 'inset 3px 0 0 #2563EB' : 'none',
+                  paddingLeft: active && !sidebarCollapsed ? 14 : 12,
+                }}
+                onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = '#f8fafc'; (e.currentTarget as HTMLElement).style.color = '#0f172a'; } }}
+                onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#64748b'; } }}
+              >
+                <Icon style={{ width: 18, height: 18, color: active ? '#2563EB' : '#94a3b8', flexShrink: 0, transition: 'color 0.15s' }} />
+                {!sidebarCollapsed && <span style={{ whiteSpace: 'nowrap' }}>{item.label}</span>}
+              </button>
+            );
+          })}
+
+          {/* Divider */}
+          <div style={{ margin: '12px 4px', borderTop: '1px solid #e2e8f0' }} />
+
+          {!sidebarCollapsed && (
+            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', padding: '4px 8px 8px' }}>
+              Analytics
+            </p>
+          )}
+          {/* Reports */}
+          <button
+            onClick={() => { setActiveTab('activity'); }}
+            style={{ display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 10, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 500, background: 'transparent', color: '#64748b', width: '100%', textAlign: 'left', transition: 'background 0.15s, color 0.15s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f8fafc'; (e.currentTarget as HTMLElement).style.color = '#0f172a'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#64748b'; }}
           >
-            <WifiOff className="w-3.5 h-3.5 shrink-0" />
-            Connection lost — retrying...
-            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <FileText style={{ width: 18, height: 18, color: '#94a3b8', flexShrink: 0 }} />
+            {!sidebarCollapsed && <span>Reports</span>}
+          </button>
 
-      {/* ── Archive Confirmation Dialog ── */}
-      <Dialog open={archiveConfirmOpen} onOpenChange={(open) => { setArchiveConfirmOpen(open); if (!open) setArchiveConfirmText(''); }}>
-        <DialogContent className="bg-zinc-900 border border-zinc-700 text-white max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-amber-400 flex items-center gap-2">
-              <Archive className="w-5 h-5" /> Confirm Archive
-            </DialogTitle>
-            <DialogDescription className="text-zinc-400 mt-1">
-              You are about to archive <span className="text-white font-semibold">{pendingArchiveName}</span>. The account will be <span className="text-amber-300 font-semibold">deactivated and suspended</span> — no data will be deleted.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="mt-4 space-y-3">
-            <p className="text-sm text-zinc-400">Type <span className="font-mono font-bold text-amber-400">ARCHIVE</span> to confirm:</p>
-            <input
-              autoFocus
-              type="text"
-              value={archiveConfirmText}
-              onChange={(e) => setArchiveConfirmText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && archiveConfirmText === 'ARCHIVE') executeArchive(); }}
-              placeholder="Type ARCHIVE here"
-              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-600 text-white placeholder:text-zinc-500 focus:outline-none focus:border-amber-500 font-mono text-sm"
-            />
-            <div className="flex gap-3 pt-1">
-              <Button
-                variant="outline"
-                className="flex-1 border-zinc-600 text-zinc-300 hover:bg-zinc-800"
-                onClick={() => { setArchiveConfirmOpen(false); setArchiveConfirmText(''); }}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold disabled:opacity-40"
-                disabled={archiveConfirmText !== 'ARCHIVE'}
-                onClick={executeArchive}
-              >
-                Archive
-              </Button>
+          {/* Notifications */}
+          <div style={{ position: 'relative' }} ref={notifRef}>
+            <button
+              onClick={() => setShowNotifPanel(p => !p)}
+              style={{ display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 10, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 500, background: showNotifPanel ? '#eff6ff' : 'transparent', color: showNotifPanel ? '#2563eb' : '#64748b', width: '100%', textAlign: 'left', transition: 'background 0.15s, color 0.15s' }}
+              onMouseEnter={e => { if (!showNotifPanel) { (e.currentTarget as HTMLElement).style.background = '#f8fafc'; (e.currentTarget as HTMLElement).style.color = '#0f172a'; } }}
+              onMouseLeave={e => { if (!showNotifPanel) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#64748b'; } }}
+            >
+              <Bell style={{ width: 18, height: 18, color: showNotifPanel ? '#2563eb' : '#94a3b8', flexShrink: 0 }} />
+              {!sidebarCollapsed && <span>Notifications</span>}
+              {unreadCount > 0 && !sidebarCollapsed && (
+                <span style={{ marginLeft: 'auto', background: '#eff6ff', color: '#2563EB', fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 999 }}>
+                  {unreadCount}
+                </span>
+              )}
+              {unreadCount > 0 && sidebarCollapsed && (
+                <span style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, borderRadius: '50%', background: '#2563eb' }} />
+              )}
+            </button>
+
+            {/* Notification Dropdown */}
+            {showNotifPanel && (
+              <div style={{ position: 'absolute', bottom: '100%', left: sidebarCollapsed ? 68 : 0, width: 320, background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 8px 32px rgba(0,0,0,0.12)', zIndex: 200, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Notifications</span>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {unreadCount > 0 && <button onClick={handleMarkAllRead} style={{ fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Mark all read</button>}
+                    <button onClick={() => setShowNotifPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex' }}><X style={{ width: 14, height: 14 }} /></button>
+                  </div>
+                </div>
+                <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                  {notifications.length === 0 ? (
+                    <div style={{ padding: '32px 16px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>No notifications yet</div>
+                  ) : notifications.slice(0, 10).map(n => {
+                    const nid = n.id || n._id || '';
+                    return (
+                      <div key={nid} onClick={() => handleMarkNotifRead(nid)} style={{ display: 'flex', gap: 10, padding: '10px 16px', borderBottom: '1px solid #f8fafc', cursor: 'pointer', background: n.isRead ? '#fff' : '#eff6ff', transition: 'background 0.1s' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = n.isRead ? '#f8fafc' : '#dbeafe'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = n.isRead ? '#fff' : '#eff6ff'; }}
+                      >
+                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: n.isRead ? 'transparent' : '#2563eb', flexShrink: 0, marginTop: 5 }} />
+                        <div style={{ flex: 1 }}>
+                          <p style={{ fontSize: 12.5, fontWeight: n.isRead ? 400 : 600, color: '#0f172a', margin: 0 }}>{n.title}</p>
+                          <p style={{ fontSize: 11.5, color: '#64748b', margin: '2px 0 0' }}>{n.message}</p>
+                          <p style={{ fontSize: 10.5, color: '#94a3b8', margin: '3px 0 0' }}>{new Date(n.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
+                        {!n.isRead && <Check style={{ width: 12, height: 12, color: '#2563eb', flexShrink: 0, marginTop: 4 }} />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </nav>
+
+        {/* ── Utility items (Help only for HR — no Settings access) ─── */}
+        <div style={{ padding: '6px 8px', borderTop: '1px solid #f1f5f9' }}>
+          {/* Settings — hidden for HR role per role definition */}
+          {!isHRRole && (
+            <button
+              onClick={() => toast.info('Settings coming soon — configure system preferences here.')}
+              style={{ display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 10, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 500, background: 'transparent', color: '#64748b', width: '100%', textAlign: 'left', transition: 'background 0.15s, color 0.15s' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f8fafc'; (e.currentTarget as HTMLElement).style.color = '#0f172a'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#64748b'; }}
+            >
+              <Settings style={{ width: 18, height: 18, color: '#94a3b8', flexShrink: 0 }} />
+              {!sidebarCollapsed && <span>Settings</span>}
+            </button>
+          )}
+          <button
+            onClick={() => toast.info('Need help? Contact your system administrator or visit the docs.')}
+            style={{ display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 10, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 500, background: 'transparent', color: '#64748b', width: '100%', textAlign: 'left', transition: 'background 0.15s, color 0.15s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f8fafc'; (e.currentTarget as HTMLElement).style.color = '#0f172a'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#64748b'; }}
+          >
+            <HelpCircle style={{ width: 18, height: 18, color: '#94a3b8', flexShrink: 0 }} />
+            {!sidebarCollapsed && <span>Help &amp; Support</span>}
+          </button>
+        </div>
+
+        {/* User profile + collapse */}
+        <div style={{ borderTop: '1px solid #e2e8f0', padding: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#2563EB' }}>{initials}</span>
             </div>
+            {!sidebarCollapsed && (
+              <>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</p>
+                  <p style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayRole}</p>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  title="Sign out"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 6, display: 'flex', color: '#94a3b8', transition: 'color 0.15s' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#dc2626'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#94a3b8'; }}
+                >
+                  <LogOut style={{ width: 15, height: 15 }} />
+                </button>
+              </>
+            )}
+          </div>
+
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              padding: '8px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              fontSize: 12, color: '#94a3b8', background: 'transparent',
+              transition: 'background 0.15s, color 0.15s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f8fafc'; (e.currentTarget as HTMLElement).style.color = '#0f172a'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#94a3b8'; }}
+          >
+            {sidebarCollapsed
+              ? <ChevronRight style={{ width: 16, height: 16 }} />
+              : <><ChevronLeft style={{ width: 16, height: 16 }} /><span>Collapse</span></>
+            }
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Main Content ─────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto" style={{ background: '#f1f5f9' }}>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18 }}
+          >
+            {renderPage()}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {/* ── Add/Edit User Modal ───────────────────────────────────── */}
+      <Dialog open={showUserModal} onOpenChange={setShowUserModal}>
+        <DialogContent className="sm:max-w-[440px]" style={{ background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0' }}>
+          <DialogHeader style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: 16 }}>
+            <DialogTitle style={{ fontSize: 17, fontWeight: 600, color: '#0f172a' }}>
+              {isEditingUser ? 'Edit Staff Member' : 'Add New Staff'}
+            </DialogTitle>
+            {!isEditingUser && <p style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Fill in the details to create a new staff account.</p>}
+          </DialogHeader>
+          <div style={{ display: 'grid', gap: 16, padding: '20px 0 8px' }}>
+            <div style={{ display: 'grid', gap: 6 }}>
+              <Label style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Full Name</Label>
+              <input
+                value={userName}
+                onChange={e => setUserName(e.target.value)}
+                placeholder="e.g. Maria Santos"
+                style={inputStyle}
+              />
+            </div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              <Label style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Email Address</Label>
+              <input
+                type="email"
+                value={userEmail}
+                onChange={e => setUserEmail(e.target.value)}
+                disabled={isEditingUser}
+                placeholder="e.g. maria@company.com"
+                style={{ ...inputStyle, opacity: isEditingUser ? 0.5 : 1 }}
+              />
+            </div>
+            {!isEditingUser && (
+              <div style={{ display: 'grid', gap: 6 }}>
+                <Label style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Password</Label>
+                <input
+                  type="password"
+                  value={userPassword}
+                  onChange={e => setUserPassword(e.target.value)}
+                  placeholder="Minimum 8 characters"
+                  style={inputStyle}
+                />
+                <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>Staff will be asked to change this on first login.</p>
+              </div>
+            )}
+            <div style={{ display: 'grid', gap: 6 }}>
+              <Label style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Assign Role</Label>
+              <select value={userRole} onChange={e => setUserRole(e.target.value)} style={inputStyle}>
+                {USER_ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              <Label style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Status</Label>
+              <select value={userStatus} onChange={e => setUserStatus(e.target.value)} style={inputStyle}>
+                <option value="active">Active</option>
+                <option value="pending">Pending</option>
+                <option value="suspended">Suspended</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 16, borderTop: '1px solid #e2e8f0', marginTop: 8 }}>
+            <button onClick={() => setShowUserModal(false)} style={btnSecondaryStyle}>Cancel</button>
+            <button onClick={handleSaveUser} style={btnPrimaryStyle}>
+              {isEditingUser ? 'Save Changes' : 'Create Staff'}
+            </button>
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-6">
-        <div>
-          <h2 className="text-2xl font-semibold text-white tracking-tight">User Management</h2>
-          <p className="text-sm text-zinc-500 mt-1">Manage system accounts, permissions, and security levels.</p>
-        </div>
-        
-        <div className="flex items-center gap-3 w-full lg:w-auto">
-          <Dialog open={showUserModal} onOpenChange={setShowUserModal}>
-            <DialogTrigger asChild>
-              <Button
-                onClick={() => { resetUserForm(); setShowUserModal(true); }}
-                className="bg-white text-black hover:bg-zinc-200 h-9 font-medium px-4 transition-colors"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                New User
-              </Button>
-            </DialogTrigger>
-            <DialogContent className={`${theme === 'light' ? 'bg-white' : 'bg-[#0f0f11] border-white/10'} backdrop-blur-2xl sm:max-w-md p-6 overflow-hidden rounded-2xl shadow-2xl`}>
-                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 via-transparent to-purple-500/5 animate-pulse" style={{ animationDuration: '4s' }} />
-                
-                <DialogHeader className="relative z-10 mb-2">
-                    <DialogTitle className={`text-xl font-semibold tracking-tight ${theme === 'light' ? 'text-gray-900' : 'text-white'}`}>
-                        {isEditingUser ? 'Edit User' : 'Add New User'}
-                    </DialogTitle>
-                </DialogHeader>
-
-                <div className="space-y-5 relative z-10">
-                    <div className="space-y-3">
-                        <Label className={theme === 'light' ? 'text-gray-700 font-medium tracking-tight' : 'text-zinc-300 font-medium tracking-tight'}>Full Name</Label>
-                        <Input 
-                            value={userName} 
-                            onChange={(e) => setUserName(e.target.value)} 
-                            placeholder="e.g. Jane Doe"
-                            className={`h-11 ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50'}`} 
-                        />
-                    </div>
-                    
-                    <div className="space-y-3">
-                        <Label className={theme === 'light' ? 'text-gray-700 font-medium tracking-tight' : 'text-zinc-300 font-medium tracking-tight'}>Email Address</Label>
-                        <Input 
-                            type="email" 
-                            value={userEmail} 
-                            onChange={(e) => setUserEmail(e.target.value)} 
-                            placeholder="name@company.com"
-                            className={`h-11 ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50'}`} 
-                        />
-                        <p className="text-xs text-zinc-500 font-medium">We’ll send an invitation to verify the account</p>
-                    </div>
-
-                    <div className="space-y-3">
-                        <Label className={theme === 'light' ? 'text-gray-700 font-medium tracking-tight' : 'text-zinc-300 font-medium tracking-tight'}>Access Role</Label>
-                        <Select value={userRole} onValueChange={(value) => setUserRole(getSafeUserRole(value, CUSTOMER_ROLE))}>
-                            <SelectTrigger className={`h-11 ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-black/40 border-white/10 text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50'}`}>
-                                <SelectValue placeholder="Select a role" />
-                            </SelectTrigger>
-                            <SelectContent className={theme === 'light' ? 'bg-white' : 'bg-[#18181b] border-white/10'} position="popper">
-                                {['Admin Roles', 'Operational Roles', 'Staff & Technicians', 'Customer Access'].map((group, index) => (
-                                  <React.Fragment key={group}>
-                                    {index > 0 && <SelectSeparator className={`${theme === 'light' ? 'bg-gray-100' : 'bg-white/5'}`} />}
-                                    <SelectGroup>
-                                      <SelectLabel className={`${theme === 'light' ? 'text-gray-500' : 'text-zinc-500'} text-xs uppercase tracking-wider font-semibold ${index > 0 ? 'pt-2' : ''}`}>
-                                        {group}
-                                      </SelectLabel>
-                                      {USER_ROLE_OPTIONS.filter((option) => option.group === group).map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>
-                                          <div className="flex items-center gap-2">{option.label}</div>
-                                        </SelectItem>
-                                      ))}
-                                    </SelectGroup>
-                                  </React.Fragment>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        {userRole && (
-                            <p className="text-[11px] text-zinc-400 font-medium">{ROLE_DESCRIPTIONS[userRole]}</p>
-                        )}
-                    </div>
-
-                    {!isEditingUser && (
-                        <div className="space-y-3 pt-2">
-                            <div className="space-y-3">
-                                <Label className={theme === 'light' ? 'text-gray-700 font-medium tracking-tight' : 'text-zinc-300 font-medium tracking-tight'}>Password</Label>
-                                <Input 
-                                    type="password" 
-                                    value={userPassword} 
-                                    onChange={(e) => setUserPassword(e.target.value)} 
-                                    placeholder="••••••••"
-                                    className={`h-11 ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50'}`} 
-                                />
-                            </div>
-                            <div className="space-y-3">
-                                <Label className={theme === 'light' ? 'text-gray-700 font-medium tracking-tight' : 'text-zinc-300 font-medium tracking-tight'}>Confirm Password</Label>
-                                <Input 
-                                    type="password" 
-                                    value={confirmPassword} 
-                                    onChange={(e) => setConfirmPassword(e.target.value)} 
-                                    placeholder="••••••••"
-                                    className={`h-11 ${theme === 'light' ? 'bg-white border-gray-200' : 'bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50'}`} 
-                                />
-                            </div>
-                        </div>
-                    )}
-                    <div className="pt-2 flex gap-3">
-                        <Button 
-                            variant="outline" 
-                            onClick={() => setShowUserModal(false)} 
-                            className={`flex-1 h-11 border-zinc-200 text-zinc-700 hover:bg-zinc-100 ${theme === 'dark' ? 'border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-white bg-transparent' : ''}`}
-                        >
-                            Cancel
-                        </Button>
-                        <Button 
-                            onClick={handleAddUser} 
-                            className={`flex-1 h-11 font-medium transition-colors border-0 ${
-                                theme === 'light' 
-                                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-lg shadow-orange-500/20' 
-                                    : 'bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white shadow-lg shadow-orange-500/20'
-                            }`}
-                        >
-                            {isEditingUser ? 'Save Changes' : 'Create Account'}
-                        </Button>
-                    </div>
-                </div>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-
-      {/* Analytics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
-        {[
-          { label: 'Total Users',    value: stats.total,  live: false },
-          { label: 'Active Status',  value: stats.active, live: true  },
-          { label: 'Staff Accounts', value: stats.staff,  live: false },
-          { label: 'Suspended',      value: stats.locked, live: false },
-        ].map((stat, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: i * 0.05 }}
-          >
-            <div className="bg-[#111113] border border-white/5 rounded-xl p-5 hover:border-white/10 transition-colors">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <p className="text-zinc-500 text-[11px] font-semibold tracking-wider uppercase">{stat.label}</p>
-                {stat.live && (
-                  <span className="relative flex items-center ml-0.5" title="Live data">
-                    <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                  </span>
-                )}
-              </div>
-              <div className="h-8">
-                <AnimatePresence mode="wait">
-                  <motion.p
-                    key={stat.value}
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 4 }}
-                    transition={{ duration: 0.2, ease: "easeOut" }}
-                    className="text-2xl font-semibold text-zinc-100 tracking-tight"
-                  >
-                    {stat.value}
-                  </motion.p>
-                </AnimatePresence>
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Last updated timestamp */}
-      <div className="flex items-center gap-2 mb-5">
-        {!pollError && lastUpdated && (
-          <p className="text-[11px] text-zinc-600">
-            Last updated: {secondsAgo === 0 ? 'just now' : `${secondsAgo}s ago`}
-          </p>
-        )}
-        {!pollError && !lastUpdated && (
-          <p className="text-[11px] text-zinc-600 animate-pulse">Connecting to live feed...</p>
-        )}
-      </div>
-
-      {/* Toolbar & Filters */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative w-full md:w-64">
-            <Input
-              placeholder="Search users..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="bg-[#111113] border border-white/5 text-zinc-200 pl-9 h-9 text-sm focus:border-zinc-700 placeholder:text-zinc-600 rounded-lg"
-            />
-            <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
-          </div>
-          <Select
-            value={roleFilter}
-            onValueChange={(value) => setRoleFilter(value === 'all' ? 'all' : getSafeUserRole(value, CUSTOMER_ROLE))}
-          >
-            <SelectTrigger className="w-[130px] bg-[#111113] border-white/5 text-zinc-300 h-9 rounded-lg">
-              <SelectValue placeholder="Role" />
-            </SelectTrigger>
-            <SelectContent className="bg-[#111113] border-white/5 text-zinc-200">
-              <SelectItem value="all">All Roles</SelectItem>
-              {USER_ROLE_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[130px] bg-[#111113] border-white/5 text-zinc-300 h-9 rounded-lg">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent className="bg-[#111113] border-white/5 text-zinc-200">
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="suspended">Suspended</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-          <AnimatePresence>
-            {selectedUsers.length > 0 && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="flex items-center gap-2 bg-orange-500/10 px-4 py-2 rounded-lg border border-orange-500/20"
-              >
-                <span className="text-sm font-medium text-orange-400 mr-2">
-                  {selectedUsers.length} selected
-                </span>
-                <Button size="sm" variant="ghost" onClick={() => handleBulkAction('activate')} className="h-8 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20">
-                  Activate
-                </Button>
-                <div className="w-px h-4 bg-white/10" />
-                <Button size="sm" variant="ghost" onClick={() => handleBulkAction('archive')} className="h-8 text-orange-400 hover:text-orange-300 hover:bg-orange-500/20">
-                  Archive
-                </Button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-      </div>
-
-      {/* Main Table */}
-      <div className="bg-[#111113] border border-white/5 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto min-h-[400px]">
-          <table className="w-full text-left border-collapse table-fixed">
-            <thead className="border-b border-white/5 bg-white/[0.01]">
-              <tr>
-                <th className="px-4 py-3 w-[40%] text-[10px] font-semibold text-zinc-500 uppercase tracking-widest pl-5">
-                  <div className="flex items-center gap-[12px]">
-                    <div 
-                      className={`w-4 h-4 rounded flex items-center justify-center cursor-pointer transition-colors ${selectedUsers.length === filteredUsers.length && filteredUsers.length > 0 ? 'bg-orange-500 border-none' : 'border border-zinc-600 bg-transparent'}`}
-                      onClick={(e) => handleSelectAll({ target: { checked: selectedUsers.length !== filteredUsers.length } } as any)}
-                    >
-                      {selectedUsers.length === filteredUsers.length && filteredUsers.length > 0 && <Check className="w-3 h-3 text-white" />}
-                    </div>
-                    <span>User Details</span>
-                  </div>
-                </th>
-                <th className="px-4 py-3 w-[15%] text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">Security Level</th>
-                <th className="px-4 py-3 w-[15%] text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">Status</th>
-                <th className="px-4 py-3 w-[20%] text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">Date Created</th>
-                <th className="px-4 py-3 w-[10%] text-[10px] font-semibold text-zinc-500 uppercase tracking-widest text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-                {filteredUsers.length > 0 ? filteredUsers.map((u, i) => {
-                  const initials = (u.name || 'User').split(' ').slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('');
-                  const role = getSafeUserRole(u.role, CUSTOMER_ROLE);
-                  const displayRole = getRoleLabel(role);
-                  
-                  const roleClass = FULL_ADMIN_ROLES.includes(role)
-                    ? 'bg-[#1C1C1E] text-orange-400 border-white/5'
-                    : ADMIN_DASHBOARD_ROLES.includes(role)
-                    ? 'bg-[#1C1C1E] text-purple-400 border-white/5'
-                    : role === SERVICE_STAFF_ROLE
-                    ? 'bg-[#1C1C1E] text-cyan-400 border-white/5'
-                    : 'bg-[#1C1C1E] text-zinc-400 border-white/5';
-                  
-                  const rawStatus = u.status ?? (u.isActive ? 'active' : 'pending');
-                  const status = rawStatus === 'active' ? 'Active' : rawStatus === 'suspended' ? 'Suspended' : 'Pending';
-                  const statusColor = status === 'Active' ? 'emerald' : status === 'Suspended' ? 'red' : 'zinc';
-                  
-                  const dateCreated = u.createdAt ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(u.createdAt)) : '—';
-                  const isChecked = selectedUsers.includes(u.id);
-                  const isManageable = canManageUser(u.role);
-
-                  return (
-                    <motion.tr 
-                      key={u.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.02 }}
-                      onClick={() => setSelectedUserDetails(u)}
-                      className={`group cursor-pointer h-[64px] min-h-[64px] transition-colors duration-150 ${isChecked ? 'bg-white/[0.04]' : 'hover:bg-white/[0.02]'}`}
-                    >
-                      <td className="px-4 py-3 align-middle pl-5">
-                        <div className="flex items-center gap-[12px]">
-                            {isManageable ? (
-                                <div 
-                                className={`w-4 h-4 rounded flex items-center justify-center cursor-pointer transition-colors ${isChecked ? 'bg-orange-500 border-none' : 'border border-zinc-600 bg-transparent'}`}
-                                onClick={(e) => { e.stopPropagation(); handleSelectUser(u.id, u.role); }}
-                                >
-                                {isChecked && <Check className="w-3 h-3 text-white" />}
-                                </div>
-                            ) : (
-                                <div className="w-4 h-4" />
-                            )}
-                            {u.avatar ? (
-                                <img src={u.avatar} alt={u.name} className="w-[40px] h-[40px] min-w-[40px] max-w-[40px] rounded-full object-cover border border-white/10" />
-                            ) : (
-                                <div className="w-[40px] h-[40px] min-w-[40px] max-w-[40px] rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center text-sm font-semibold text-zinc-300">
-                                    {initials || 'U'}
-                                </div>
-                            )}
-                            <div className="min-w-[220px] flex flex-col justify-center">
-                                <div className="text-zinc-200 font-semibold leading-[1.2] text-sm group-hover:text-white transition-colors flex items-center gap-2">
-                                  {u.name}
-                                </div>
-                                <div className="text-zinc-500 text-xs leading-[1.2] mt-0.5">{u.email}</div>
-                            </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 align-middle">
-                        <Badge className={`border ${roleClass} text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-sm transition-colors duration-500`}>
-                            {displayRole}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 align-middle">
-                        <AnimatePresence mode="wait">
-                          <motion.div
-                            key={`${u.id}-${status}`}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.25 }}
-                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm bg-${statusColor}-500/10 border border-${statusColor}-500/20 text-${statusColor}-400 text-[10px] font-medium tracking-wider uppercase`}
-                          >
-                            <span className={`w-1 h-1 rounded-full bg-${statusColor}-400`} />
-                            {status}
-                          </motion.div>
-                        </AnimatePresence>
-                      </td>
-                      <td className="px-4 py-3 align-middle">
-                        <div className="flex flex-col relative h-5">
-                          <AnimatePresence mode="wait">
-                            <motion.span 
-                              key={dateCreated}
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.3 }}
-                              className="text-sm text-zinc-300 absolute inset-0"
-                            >
-                              {dateCreated}
-                            </motion.span>
-                          </AnimatePresence>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                            {isManageable && (
-                                <>
-                                    {status === 'Suspended' && (
-                                        <Button size="icon" variant="ghost" title="Activate account" onClick={(e) => { e.stopPropagation(); handleActivateUser(u.id, u.name || 'User'); }} className="h-8 w-8 rounded-md text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10">
-                                            <Activity className="w-3.5 h-3.5" />
-                                        </Button>
-                                    )}
-                                    <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); handleEditUser(u); }} className="h-8 w-8 rounded-md text-zinc-400 hover:text-white hover:bg-white/10">
-                                        <Edit className="w-3.5 h-3.5" />
-                                    </Button>
-                                    {status !== 'Suspended' && (
-                                        <Button size="icon" variant="ghost" title="Archive account" onClick={(e) => { e.stopPropagation(); handleArchiveUser(u.id, u.name || 'User', u.role); }} className="h-8 w-8 rounded-md text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10">
-                                            <Archive className="w-3.5 h-3.5" />
-                                        </Button>
-                                    )}
-                                </>
-                            )}
-                        </div>
-                      </td>
-                    </motion.tr>
-                  );
-                }) : (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-16 text-center">
-                      <div className="flex flex-col items-center justify-center text-zinc-500">
-                        <Users className="w-8 h-8 mb-3 opacity-30" />
-                        <p className="text-sm">No users found matching your criteria</p>
-                        <Button 
-                          variant="ghost" 
-                          onClick={() => { setSearchTerm(''); setRoleFilter('all'); setStatusFilter('all'); }}
-                          className="mt-3 text-zinc-400 hover:text-white hover:bg-white/5 h-8 text-xs"
-                        >
-                          Clear Filters
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-      {/* Slide-out User Details Drawer */}
-      <Sheet open={!!selectedUserDetails} onOpenChange={(open) => !open && setSelectedUserDetails(null)}>
-        <SheetContent side="right" className="bg-[#121214] border-l border-white/5 shadow-2xl w-full sm:max-w-md p-0 overflow-y-auto">
-          {selectedUserDetails && (
-            <div className="flex flex-col h-full">
-              {/* Cover & Avatar Header */}
-              <div className="relative h-32 bg-gradient-to-r from-orange-600/20 to-orange-900/40 border-b border-white/5">
-                <Button 
-                  size="icon" 
-                  variant="ghost" 
-                  onClick={() => setSelectedUserDetails(null)}
-                  className="absolute top-4 right-4 bg-black/20 hover:bg-black/40 text-white rounded-full z-10"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-                <div className="absolute -bottom-10 left-6">
-                  {selectedUserDetails.avatar ? (
-                    <img src={selectedUserDetails.avatar} alt="Profile" className="w-24 h-24 rounded-full object-cover border-4 border-[#121214] shadow-xl" />
-                  ) : (
-                    <div className="w-24 h-24 rounded-full bg-zinc-800 border-4 border-[#121214] flex items-center justify-center text-3xl font-bold text-zinc-200 shadow-xl">
-                      {selectedUserDetails.name?.charAt(0).toUpperCase() || 'U'}
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              <div className="px-6 pt-14 pb-6 flex-1">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-2xl font-bold text-white">{selectedUserDetails.name}</h3>
-                  <Badge className="bg-orange-500/10 text-orange-400 border-orange-500/20">
-                    {getRoleLabel(selectedUserDetails.role)}
-                  </Badge>
-                </div>
-                <p className="text-zinc-400 flex items-center gap-2 text-sm mb-6">
-                  <Mail className="w-4 h-4" />
-                  {selectedUserDetails.email}
-                </p>
-
-                <div className="grid grid-cols-2 gap-4 mb-8">
-                  <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                    <p className="text-xs text-zinc-500 uppercase tracking-widest font-semibold mb-1">Status</p>
-                    <div className="text-zinc-200 font-medium">
-                      {(selectedUserDetails.status || (selectedUserDetails.isActive ? 'active' : 'pending')).toUpperCase()}
-                    </div>
-                  </div>
-                  <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                    <p className="text-xs text-zinc-500 uppercase tracking-widest font-semibold mb-1">Joined</p>
-                    <div className="text-zinc-200 font-medium flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-zinc-500" />
-                      {selectedUserDetails.createdAt ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(selectedUserDetails.createdAt)) : 'Unknown'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <h4 className="text-sm font-semibold text-zinc-300 uppercase tracking-widest">Account Security</h4>
-                  <div className="bg-white/5 border border-white/5 rounded-xl divide-y divide-white/5">
-                    <div className="flex justify-between items-center p-4">
-                      <span className="text-sm text-zinc-400">Last Active</span>
-                      <span className="text-sm font-medium text-white">
-                        {selectedUserDetails.lastActive ? formatDistanceToNow(new Date(selectedUserDetails.lastActive), { addSuffix: true }) : 'Never'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center p-4">
-                      <span className="text-sm text-zinc-400">User ID</span>
-                      <span className="text-xs font-mono text-zinc-500 bg-black/50 px-2 py-1 rounded">{selectedUserDetails.id}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Footer */}
-              <div className="p-6 border-t border-white/5 bg-black/20 flex gap-3">
-                <Button 
-                  className="flex-1 bg-white/5 hover:bg-white/10 text-white border border-white/10"
-                  onClick={() => {
-                    setSelectedUserDetails(null);
-                    handleEditUser(selectedUserDetails);
-                  }}
-                >
-                  <Edit className="w-4 h-4 mr-2" />
-                  Edit Profile
-                </Button>
-                {getSafeUserRole(selectedUserDetails.role, CUSTOMER_ROLE) !== 'administrator' && (
-                  <Button 
-                    variant="destructive" 
-                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/20"
-                    title="Archive account"
-                    onClick={() => {
-                      handleArchiveUser(selectedUserDetails.id, selectedUserDetails.name || 'User', selectedUserDetails.role);
-                      setSelectedUserDetails(null);
-                    }}
-                  >
-                    <Archive className="w-4 h-4" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
-
-    </motion.div>
+    </div>
   );
+};
+
+// ── Shared primitive styles ───────────────────────────────────────
+export const inputStyle: React.CSSProperties = {
+  width: '100%', padding: '8px 12px', borderRadius: 8,
+  border: '1px solid #d1d5db', fontSize: 14, background: '#fff',
+  color: '#111827', outline: 'none',
+  transition: 'border-color 0.15s, box-shadow 0.15s',
+};
+
+export const btnPrimaryStyle: React.CSSProperties = {
+  padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
+  fontSize: 14, fontWeight: 500, background: '#2563EB', color: '#fff',
+  transition: 'background 0.15s, transform 0.1s',
+};
+
+export const btnSecondaryStyle: React.CSSProperties = {
+  padding: '8px 18px', borderRadius: 8,
+  border: '1px solid #d1d5db', cursor: 'pointer',
+  fontSize: 14, fontWeight: 500, background: '#fff', color: '#374151',
+  transition: 'background 0.15s',
 };

@@ -61,9 +61,9 @@ const pushToCustomer = async (order, title, body, data = {}) => {
   }
 };
 
-const createNotification = async ({ title, message, type = 'booking', recipientRole = 'admin_family', link, metadata }) => {
+const createNotification = async ({ title, message, type = 'booking', recipientRole = 'admin_family', recipientUserId = null, link, metadata }) => {
   try {
-    const notification = await Notification.create({ title, message, type, recipientRole, link, metadata });
+    const notification = await Notification.create({ title, message, type, recipientRole, recipientUserId, link, metadata });
     return notification;
   } catch (err) {
     console.error('[WORKFLOW] Notification creation failed:', err.message);
@@ -199,6 +199,7 @@ async function onConfirmed(order, orderRef, customerId, rooms, actor) {
       message: `Your booking ${orderRef} is confirmed. Schedule: ${order.bookingDate || 'TBD'} at ${order.bookingTime || 'TBD'}.`,
       type: 'booking',
       recipientRole: 'customer',
+      recipientUserId: customerId,
       link: '/customer/dashboard?tab=tracking',
       metadata: { orderId: order._id, customerId },
     });
@@ -362,6 +363,7 @@ async function onReleased(order, orderRef, customerId, rooms) {
       message: `Your vehicle has been released. Thank you for choosing AutoSPF+!`,
       type: 'success',
       recipientRole: 'customer',
+      recipientUserId: customerId,
       link: '/customer/dashboard?tab=bookings',
       metadata: { orderId: order._id, customerId },
     });
@@ -445,6 +447,7 @@ async function awardLoyaltyPoints(order) {
       message: `You earned ${pointsEarned} loyalty points from your booking!${previousTier !== newTier ? ` You've been upgraded to ${newTier} tier! 🎉` : ''}`,
       type: 'success',
       recipientRole: 'customer',
+      recipientUserId: customerId,
       link: '/customer/dashboard?tab=loyalty',
       metadata: { customerId, pointsEarned, totalPoints: currentPoints, tier: newTier },
     });

@@ -17,15 +17,21 @@ import CustomerDashboard from "./pages/CustomerDashboard";
 import CustomerLiveTrackerPage from "./pages/CustomerLiveTrackerPage";
 import DetailerDashboard from "./pages/DetailerDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import SalesDashboard from "./pages/SalesDashboard";
+import InventoryPanel from "./components/inventory/InventoryPanel";
+import OpsManagerDashboard from "./components/ops-manager/OpsManagerDashboard";
 
 import CreateStaffAccountPage from "./pages/admin/CreateStaffAccountPage";
 import AccountRequestsPage from "./pages/admin/AccountRequestsPage";
 import ChatWidget from "./components/ChatWidget";
 import Navbar from "./components/Navbar";
 import AIEstimatorPage from "./pages/AIEstimatorPage";
+import VerifyOtpPage from "./pages/VerifyOtpPage";
+import SetPasswordPage from "./pages/SetPasswordPage";
 import {
     ADMIN_DASHBOARD_ROLES,
     CUSTOMER_ROLE,
+    INVENTORY_DASHBOARD_ROLES,
     SERVICE_STAFF_ROLE,
     STAFF_ROLES,
     USER_ROLES,
@@ -125,12 +131,13 @@ function AppRoutes() {
     const location = useLocation();
 
     // Hide the public Navbar on dashboard routes — they have their own navigation
-    const isDashboardRoute = /^\/(customer|detailer|admin)/.test(location.pathname);
+    const isDashboardRoute = /^\/(customer|detailer|admin|sales|inventory|ops)/.test(location.pathname);
+    const isStandaloneRoute = /^\/(verify-otp|set-password)/.test(location.pathname);
 
     return (
         <ErrorBoundary>
             <ScrollToTop />
-            {!isDashboardRoute && <Navbar />}
+            {!isDashboardRoute && !isStandaloneRoute && <Navbar />}
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/about" element={<About />} />
@@ -140,6 +147,8 @@ function AppRoutes() {
                 <Route path="/booking" element={<BookingPage />} />
                 <Route path="/ar-estimator" element={<AIEstimatorPage />} />
                 <Route path="/login" element={<Login />} />
+                <Route path="/verify-otp" element={<VerifyOtpPage />} />
+                <Route path="/set-password" element={<SetPasswordPage />} />
                 <Route
                     path="/customer/dashboard"
                     element={
@@ -181,9 +190,34 @@ function AppRoutes() {
                         </ProtectedRoute>
                     }
                 />
+                <Route
+                    path="/sales/dashboard"
+                    element={
+                        <ProtectedRoute allowedRoles={['administrator', 'sales', 'operation_manager']}>
+                            <SalesDashboard />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/inventory/dashboard"
+                    element={
+                        <ProtectedRoute allowedRoles={INVENTORY_DASHBOARD_ROLES}>
+                            <InventoryPanel />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/ops/dashboard"
+                    element={
+                        <ProtectedRoute allowedRoles={['administrator', 'operation_manager']}>
+                            <OpsManagerDashboard />
+                        </ProtectedRoute>
+                    }
+                />
                 {/* Backward compatibility for old routes */}
                 <Route path="/customer" element={<Navigate to="/customer/dashboard" replace />} />
                 <Route path="/detailer" element={<Navigate to="/detailer/dashboard" replace />} />
+                <Route path="/sales" element={<Navigate to="/sales/dashboard" replace />} />
                 <Route
                     path="/admin/create-staff"
                     element={<CreateStaffAccountPage />}
@@ -203,7 +237,7 @@ function AppRoutes() {
 // Only show the floating ChatWidget on public pages — not inside any dashboard
 function _ConditionalChatWidget() {
     const { pathname } = useLocation();
-    const isDashboardRoute = /^\/(customer|detailer|admin)/.test(pathname);
+    const isDashboardRoute = /^\/(customer|detailer|admin|ops)/.test(pathname);
     if (isDashboardRoute) return null;
     return <ChatWidget />;
 }

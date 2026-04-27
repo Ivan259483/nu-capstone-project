@@ -101,6 +101,11 @@ const normalizeBooking = (raw: any): Booking => {
         warrantyAndReceipt: raw?.warrantyAndReceipt,
         staffNotes: raw?.staffNotes,
         photos: raw?.photos,
+        // GCash payment proof — must be preserved for Sales approval flow
+        downpaymentProof: raw?.downpaymentProof,
+        paymentProofUrl: raw?.paymentProofUrl,
+        rejectionReason: raw?.rejectionReason,
+        bookingReference: raw?.bookingReference,
     } as Booking;
 };
 

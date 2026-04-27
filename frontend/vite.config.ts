@@ -31,8 +31,8 @@ export default defineConfig(({ mode }) => {
             alias: {
                 "@": path.resolve(__dirname, "./src"),
             },
-            // Force a single Three.js instance across all packages (model-viewer, r3f, drei)
-            dedupe: ['three'],
+            // Force a single React instance (fixes @dnd-kit/core useReducer crash with Vite)
+            dedupe: ['react', 'react-dom', 'three'],
         },
     };
 });

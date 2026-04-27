@@ -51,9 +51,32 @@ const orderSchema = new mongoose.Schema(
     customerStatusUpdatedAt: Date,
     status: {
       type: String,
-      enum: ['pending', 'confirmed', 'assigned', 'received', 'in_progress', 'completed', 'paid', 'released', 'cancelled'],
-      default: 'pending',
+      enum: [
+        'pending_confirmation', // Customer submitted + uploaded GCash proof — awaiting sales review
+        'approved',             // Sales approved — booking enters service queue
+        'rejected',             // Sales rejected the payment proof
+        'pending',              // Legacy / walk-in (kept for backward compat)
+        'confirmed',
+        'assigned',
+        'queued',
+        'received',
+        'in_progress',
+        'completed',
+        'paid',
+        'released',
+        'cancelled',
+      ],
+      default: 'pending_confirmation',
     },
+    paymentProofUrl: {
+      type: String,          // GCash screenshot URL / file path
+      default: null,
+    },
+    approvedAt: Date,
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    rejectedAt: Date,
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    rejectionReason: String,
     legalCompliance: {
       waiverSignature: String,
       waiverSignedAt: Date,

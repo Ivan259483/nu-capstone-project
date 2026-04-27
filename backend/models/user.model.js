@@ -70,7 +70,11 @@ const userSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: ['active', 'suspended', 'pending'],
-      default: 'active',
+      default: 'pending',
+    },
+    isFirstLogin: {
+      type: Boolean,
+      default: false,
     },
     archivedAt: {
       type: Date,

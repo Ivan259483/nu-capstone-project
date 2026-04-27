@@ -8,12 +8,14 @@ const router = express.Router();
 // Public route for landing page data
 router.get('/public', getPublicSettings);
 
-// Protected routes for admin
+// Protected routes
 router.use(authenticate);
-router.use(authorize(...SETTINGS_MANAGER_ROLES));
 
+// Any authenticated user can read settings (sales staff need this for store info)
 router.get('/', getSettings);
-router.post('/', updateSettings);
-router.patch('/', updateSettings);
+
+// Only admin/office_admin can modify settings
+router.post('/', authorize(...SETTINGS_MANAGER_ROLES), updateSettings);
+router.patch('/', authorize(...SETTINGS_MANAGER_ROLES), updateSettings);
 
 export default router;

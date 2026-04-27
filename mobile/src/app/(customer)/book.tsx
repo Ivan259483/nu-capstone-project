@@ -717,6 +717,9 @@ export default function BookScreen() {
   // Step 2 — Payment proof
   const [downpaymentProof, setDownpaymentProof] = useState<string | null>(null);
 
+  // Step 3 — Terms & Conditions
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+
   // General
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -818,6 +821,7 @@ export default function BookScreen() {
     setContactNumberError('');
     setNotes('');
     setDownpaymentProof(null);
+    setAgreedToTerms(false);
     setIsSuccess(false);
     setShowAddVehicle(false);
     setPhoneError('');
@@ -942,6 +946,7 @@ export default function BookScreen() {
   // ── Computed ──
   const canProceedStep0 = !!selectedVehicle && customerName.trim().length >= 2 && contactNumber.trim().length > 0;
   const canProceedStep1 = (!!selectedService || !!selectedPkg) && !!selectedDate && !!selectedTime;
+  const canConfirmBooking = agreedToTerms;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Success screen
@@ -982,10 +987,13 @@ export default function BookScreen() {
                 <Ionicons name="checkmark" size={44} color={ON_PRIMARY} />
               </LinearGradient>
             </View>
-            <Text style={s4.heroLabel}>APPOINTMENT CONFIRMED</Text>
-            <Text style={s4.heroTitle}>You're All Set</Text>
+            <Text style={s4.heroLabel}>BOOKING SUCCESSFUL</Text>
+            <Text style={s4.heroTitle}>Your booking is{`\n`}successful.</Text>
             <Text style={s4.heroSub}>
-              Your booking has been submitted.{'\n'}We'll confirm it shortly.
+              Saved as{' '}
+              <Text style={{ color: PRIMARY, fontWeight: '700' }}>"Pending"</Text>.
+              {' '}Your booking is forwarded to our Sales Dashboard. We will confirm in{' '}
+              <Text style={{ color: '#fff', fontWeight: '600' }}>1–3 minutes</Text>.
             </Text>
 
             {/* Booking reference badge */}
@@ -1467,6 +1475,19 @@ export default function BookScreen() {
                     Haptics.selectionAsync();
                   }}
                 />
+                {/* Calendar Legend */}
+                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 18, marginTop: 12 }}>
+                  {[
+                    { color: '#34C759', label: 'Available' },
+                    { color: '#FF9500', label: 'Closed' },
+                    { color: '#FF3B30', label: 'Full Slot' },
+                  ].map((item) => (
+                    <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.color }} />
+                      <Text style={{ fontSize: 11, color: MUTED, fontWeight: '500', letterSpacing: 0.3 }}>{item.label}</Text>
+                    </View>
+                  ))}
+                </View>
 
                 {/* Time slots */}
                 {selectedDate && (
@@ -1659,13 +1680,44 @@ export default function BookScreen() {
                 </View>
               </Animated.View>
 
+              {/* ── QR Code Payment ── */}
+              <Animated.View entering={FadeInDown.delay(280).duration(200)}>
+                <View style={s1.sectionHeader}>
+                  <View style={s1.sectionIconWrap}>
+                    <Ionicons name="qr-code-outline" size={14} color={PRIMARY} />
+                  </View>
+                  <Text style={ss.sectionLabel}>DOWN PAYMENT VIA QR CODE</Text>
+                </View>
+                <View style={{
+                  backgroundColor: SURFACE_MID,
+                  borderRadius: 16,
+                  padding: 16,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 16,
+                  marginBottom: 4,
+                }}>
+                  <View style={{ backgroundColor: '#fff', padding: 6, borderRadius: 8, width: 90, height: 90, alignItems: 'center', justifyContent: 'center' }}>
+                    <Image
+                      source={{ uri: 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=AutoSPFPayment' }}
+                      style={{ width: 78, height: 78 }}
+                      resizeMode="contain"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14, marginBottom: 4 }}>Scan to Pay</Text>
+                    <Text style={{ color: DIM_TEXT, fontSize: 12, lineHeight: 18 }}>Scan the QR code with your GCash or payment app to make your down payment, then upload the receipt below.</Text>
+                  </View>
+                </View>
+              </Animated.View>
+
               {/* ── GCash Downpayment Upload ── */}
               <Animated.View entering={FadeInDown.delay(300).duration(200)}>
                 <View style={s1.sectionHeader}>
                   <View style={s1.sectionIconWrap}>
                     <Ionicons name="card-outline" size={14} color={PRIMARY} />
                   </View>
-                  <Text style={ss.sectionLabel}>GCASH DOWNPAYMENT (OPTIONAL)</Text>
+                  <Text style={ss.sectionLabel}>UPLOAD PAYMENT PROOF (OPTIONAL)</Text>
                 </View>
 
                 <View style={s3.uploadCard}>
@@ -1899,8 +1951,43 @@ export default function BookScreen() {
                 </Animated.View>
               )}
 
-              {/* Notice */}
+              {/* Terms & Conditions Checkbox */}
               <Animated.View entering={FadeInDown.delay(300).duration(200)}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    setAgreedToTerms(!agreedToTerms);
+                    Haptics.selectionAsync();
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                    gap: 12,
+                    backgroundColor: agreedToTerms ? 'rgba(255,183,125,0.06)' : SURFACE_MID,
+                    borderRadius: 14,
+                    padding: 14,
+                    borderWidth: 1,
+                    borderColor: agreedToTerms ? 'rgba(255,183,125,0.3)' : 'rgba(255,255,255,0.06)',
+                  }}
+                >
+                  <View style={{
+                    width: 22, height: 22, borderRadius: 6,
+                    backgroundColor: agreedToTerms ? PRIMARY : SURFACE_HIGH,
+                    alignItems: 'center', justifyContent: 'center',
+                    marginTop: 1, flexShrink: 0,
+                  }}>
+                    {agreedToTerms && <Ionicons name="checkmark" size={14} color={ON_PRIMARY} />}
+                  </View>
+                  <Text style={{ flex: 1, color: agreedToTerms ? '#fff' : DIM_TEXT, fontSize: 13, lineHeight: 20 }}>
+                    I agree to the{' '}
+                    <Text style={{ color: PRIMARY, fontWeight: '600' }}>terms and conditions</Text>
+                    {' '}and accept the booking policy. I understand that my booking is subject to approval by the sales team.
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
+
+              {/* Notice */}
+              <Animated.View entering={FadeInDown.delay(350).duration(200)}>
                 <View style={s4.noticeBar}>
                   <Ionicons name="information-circle-outline" size={18} color={PRIMARY} />
                   <Text style={s4.noticeBarText}>
@@ -1922,9 +2009,9 @@ export default function BookScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   activeOpacity={0.88}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !canConfirmBooking}
                   onPress={handleConfirm}
-                  style={{ flex: 2, opacity: isSubmitting ? 0.6 : 1 }}
+                  style={{ flex: 2, opacity: (isSubmitting || !canConfirmBooking) ? 0.4 : 1 }}
                 >
                   <LinearGradient
                     colors={[PRIMARY_CTR, PRIMARY]}

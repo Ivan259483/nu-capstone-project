@@ -23,10 +23,7 @@ export const LEGACY_ROLE_MAP = {
 export const ADMIN_DASHBOARD_ROLES: UserRole[] = [
   'administrator',
   'office_admin',
-  'operation_manager',
   'hr',
-  'inventory',
-  'sales',
 ];
 
 export const FULL_ADMIN_ROLES: UserRole[] = [
@@ -62,6 +59,12 @@ export const USER_MANAGEMENT_ROLES: UserRole[] = [
 export const INVENTORY_MANAGER_ROLES: UserRole[] = [
   'administrator',
   'inventory',
+];
+
+// Roles that get redirected to the standalone Inventory Dashboard
+export const INVENTORY_DASHBOARD_ROLES: UserRole[] = [
+  'inventory',
+  'staff_inventory',
 ];
 
 export const SUPPLIER_VIEW_ROLES: UserRole[] = [
@@ -135,7 +138,6 @@ export const TECHNICIAN_ROLE: UserRole = 'technician';
 export const STAFF_ROLES: UserRole[] = [
   'service_staff',
   'staff_quality_checker',
-  'staff_inventory',
   'technician',
 ];
 
@@ -162,7 +164,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   inventory: 'Inventory Management',
   sales: 'Sales / Cashier',
   service_staff: 'Service Staff',
-  staff_quality_checker: 'Staff - Quality Checker',
+  staff_quality_checker: 'Technician - Quality Checker',
   staff_inventory: 'Staff - Inventory',
   technician: 'Technician',
   customer: 'Customer',
@@ -185,13 +187,10 @@ export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
 export const USER_ROLE_OPTIONS = [
   // Note: 'administrator' is intentionally omitted — office_admin is the highest assignable role via UI
   { group: 'Admin Roles', value: 'office_admin', label: 'Office Admin' },
-  { group: 'Admin Roles', value: 'operation_manager', label: 'Operation Manager' },
   { group: 'Operational Roles', value: 'hr', label: 'HR' },
+  { group: 'Operational Roles', value: 'inventory', label: 'Inventory Personnel' },
   { group: 'Operational Roles', value: 'sales', label: 'Sales' },
-  { group: 'Staff & Technicians', value: 'staff_quality_checker', label: 'Staff - Quality Checker' },
-  { group: 'Staff & Technicians', value: 'staff_inventory', label: 'Staff - Inventory' },
-  { group: 'Staff & Technicians', value: 'technician', label: 'Technician' },
-  { group: 'Customer Access', value: 'customer', label: 'Customer' },
+  { group: 'Staff & Technicians', value: 'staff_quality_checker', label: 'Technician - Quality Checker' },
 ] as const;
 
 const USER_ROLE_SET = new Set<string>(USER_ROLES);
@@ -216,7 +215,14 @@ const USER_REGISTRATION_ROLE_SET = new Set<string>(USER_REGISTRATION_ROLES);
 const AI_ESTIMATOR_ROLE_SET = new Set<string>(AI_ESTIMATOR_ROLES);
 const AI_CHATBOT_ROLE_SET = new Set<string>(AI_CHATBOT_ROLES);
 const USER_MANAGEMENT_SCOPE: Record<UserRole, UserRole[]> = {
-  administrator: [...USER_ROLES],
+  administrator: [
+    'office_admin',
+    'operation_manager',
+    'hr',
+    'inventory',
+    'sales',
+    'staff_quality_checker',
+  ],
   office_admin: USER_ROLES.filter(role => role !== 'administrator'),
   // Operations Manager can manage staff & technician schedules/accounts per spec
   operation_manager: [SERVICE_STAFF_ROLE, STAFF_QC_ROLE, STAFF_INVENTORY_ROLE, TECHNICIAN_ROLE],
@@ -327,6 +333,21 @@ export const getRoleLabel = (role: string | null | undefined): string => {
 
 export const getDashboardPathForRole = (role: string | null | undefined): string => {
   const safeRole = getSafeUserRole(role);
+
+  // Operation Managers get their own dedicated Ops dashboard
+  if (safeRole === 'operation_manager') {
+    return '/ops/dashboard';
+  }
+
+  // Sales staff get the POS / Sales dashboard
+  if (safeRole === 'sales') {
+    return '/sales/dashboard';
+  }
+
+  // Inventory personnel get their own Inventory dashboard
+  if (safeRole === 'inventory' || safeRole === 'staff_inventory') {
+    return '/inventory/dashboard';
+  }
 
   if (isAdminDashboardRole(safeRole)) {
     return '/admin/dashboard';

@@ -51,11 +51,12 @@ import {
 } from "@/components/ui/popover";
 import type { Booking, InventoryItem, InventoryUsage, CustomerNote } from '@/types';
 import WorkflowOrchestrator from '@/components/staff/workflow/WorkflowOrchestrator';
-import { StaffPOSView } from '@/components/staff/StaffPOSView';
+
 import { AIEstimatorEmbed } from '@/pages/AIEstimatorPage';
+import QCDashboardPanel from '@/components/staff/qc/QCDashboardPanel';
 import './DetailerDashboard.css';
 
-type TabType = 'dashboard' | 'queue' | 'schedule' | 'inventory' | 'records' | 'progress' | 'activity' | 'photos' | 'notes' | 'settings' | 'history' | 'pos' | 'voice_assistant' | 'ai_damage_detection';
+type TabType = 'dashboard' | 'queue' | 'schedule' | 'inventory' | 'records' | 'progress' | 'activity' | 'photos' | 'notes' | 'settings' | 'history' | 'pos' | 'voice_assistant' | 'ai_damage_detection' | 'qc_review';
 
 const LOW_STOCK_THRESHOLD = 10;
 const normalizeBookingId = (id?: string) => (id ? String(id).replace(/^#/, '') : '');
@@ -184,7 +185,7 @@ export default function DetailerDashboard() {
 
 
 
-    const validTabs: TabType[] = ['dashboard', 'queue', 'schedule', 'inventory', 'records', 'progress', 'activity', 'photos', 'notes', 'settings'];
+    const validTabs: TabType[] = ['dashboard', 'queue', 'schedule', 'inventory', 'records', 'progress', 'activity', 'photos', 'notes', 'settings', 'qc_review', 'ai_damage_detection', 'voice_assistant', 'pos', 'history'];
     const [activeTab, setActiveTab] = useState<TabType>(() => {
         const hash = window.location.hash.replace('#', '');
         if (validTabs.includes(hash as TabType)) return hash as TabType;
@@ -205,6 +206,14 @@ export default function DetailerDashboard() {
 
         return 'dashboard';
     });
+    // Default QC users to the QC Inspection tab on first load
+    useEffect(() => {
+        if (isStaffQCRole(user?.role) && activeTab === 'dashboard') {
+            setActiveTab('qc_review');
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.role]);
+
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('autospf_sidebar_collapsed') === 'true');
     const [notifSound, setNotifSound] = useState(() => localStorage.getItem('autospf_notif_sound') !== 'off');
@@ -1199,12 +1208,10 @@ export default function DetailerDashboard() {
 
         if (isStaffQCRole(role)) {
             // Quality Checker spec:
-            //   • Staff & Technician Dashboard Module → review completed jobs, validate
-            //     before/after photos, check customer notes
-            //   • AI-Based Damage Detection & AR Module → verify AI analysis results,
-            //     confirm repair recommendations
+            //   • QC Inspection Dashboard → full review queue with KPIs, jobs table,
+            //     before/after comparison, AI detection cards, and approve/return flow
             return [
-                { id: 'dashboard', label: "Today's Jobs", icon: LayoutDashboard, badge: finalPendingJobs.length > 0 ? finalPendingJobs.length : undefined },
+                { id: 'qc_review', label: 'QC Inspection', icon: Shield },
                 { id: 'photos', label: 'Before / After', icon: Camera },
                 { id: 'notes', label: 'Customer Notes', icon: MessageSquare },
                 { id: 'ai_damage_detection', label: 'AI Scan & AR', icon: Zap },
@@ -1319,6 +1326,34 @@ export default function DetailerDashboard() {
                         </div>
                     </div>
                 </div>
+            </div>
+        );
+    }
+
+    /* ── QC FULL-TAKEOVER LAYOUT ── */
+    if (activeTab === 'qc_review') {
+        return (
+            <div className={`detailer-shell detailer-root${isDark ? ' dark' : ' light-mode'}`}>
+                <QCDashboardPanel />
+
+                {warrantyReceiptJob && (
+                    <WarrantyReceiptModal
+                        job={warrantyReceiptJob}
+                        onClose={() => setWarrantyReceiptJob(null)}
+                        onSubmit={submitWarrantyReceipt}
+                    />
+                )}
+                <AnimatePresence>
+                    {workflowJob && (
+                        <WorkflowOrchestrator
+                            order={workflowJob}
+                            onClose={() => { setWorkflowJob(null); loadData(); }}
+                            onOrderUpdated={(updated) => {
+                                setJobs(prev => prev.map(j => (getJobId(j) === getJobId(updated)) ? { ...j, ...updated } : j));
+                            }}
+                        />
+                    )}
+                </AnimatePresence>
             </div>
         );
     }
@@ -1550,7 +1585,15 @@ export default function DetailerDashboard() {
                             )}
 
                             {/* ── Quality Checker: POS / Receipts panel ── */}
-                            {activeTab === 'pos' && <StaffPOSView />}
+                            {activeTab === 'pos' && (
+                                <div className="flex flex-col items-center justify-center h-64 text-center">
+                                    <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-3">
+                                        <span className="text-2xl">🧾</span>
+                                    </div>
+                                    <p className="font-semibold text-slate-700">POS has moved</p>
+                                    <p className="text-sm text-slate-500 mt-1">The Point of Sale module is now exclusively available in the Sales Staff dashboard.</p>
+                                </div>
+                            )}
 
                             {/* ── Technician: Voice Assistant panel ── */}
                             {activeTab === 'voice_assistant' && (
@@ -1600,6 +1643,8 @@ export default function DetailerDashboard() {
                                     <AIEstimatorEmbed />
                                 </motion.div>
                             )}
+
+
                         </AnimatePresence>
                     </div>
                 </div>
