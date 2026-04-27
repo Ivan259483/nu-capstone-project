@@ -233,8 +233,9 @@ const startServer = async () => {
     initSocket(httpServer);
     initChangeStreams(mongoose.connection);
 
-    // Start listening on 127.0.0.1 to avoid EPERM on 0.0.0.0
-    const server = httpServer.listen(config.port, '127.0.0.1', () => {
+    // Bind to 0.0.0.0 so Railway (and all cloud platforms) can receive external traffic.
+    // 127.0.0.1 only works on localhost and blocks all inbound connections on Railway.
+    const server = httpServer.listen(config.port, '0.0.0.0', () => {
       console.log(`✅ Server running on http://127.0.0.1:${config.port}`);
       console.log(`📍 Locally accessible at http://localhost:${config.port} and http://127.0.0.1:${config.port}`);
       console.log(`📍 API Base: http://localhost:${config.port}/api`);
