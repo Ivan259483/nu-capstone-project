@@ -1,6 +1,5 @@
 import React from 'react';
-import * as HeroIcons from '@heroicons/react/24/outline';
-import * as HeroIconsSolid from '@heroicons/react/24/solid';
+import * as LucideIcons from 'lucide-react';
 
 type IconVariant = 'outline' | 'solid';
 
@@ -23,16 +22,14 @@ function AppIcon({
   disabled = false,
   ...props
 }: IconProps) {
-  const iconSet = variant === 'solid' ? HeroIconsSolid : HeroIcons;
-  // Cast via unknown → React.FC<any> to work around @types/react version mismatch (bigint in ReactNode)
-  const IconComponent = (iconSet[name as keyof typeof iconSet] as unknown) as React.FC<any>;
+  // Map to lucide-react icons (replaces @heroicons/react dependency)
+  const IconComponent = (LucideIcons as any)[name] as React.FC<any> | undefined;
 
   if (!IconComponent) {
-    const Fallback = (HeroIcons['QuestionMarkCircleIcon'] as unknown) as React.FC<any>;
+    const Fallback = (LucideIcons as any)['HelpCircle'] as React.FC<any>;
     return (
       <Fallback
-        width={size}
-        height={size}
+        size={size}
         className={`text-gray-400 ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
         onClick={disabled ? undefined : onClick}
         {...props}
@@ -42,8 +39,7 @@ function AppIcon({
 
   return (
     <IconComponent
-      width={size}
-      height={size}
+      size={size}
       className={`${disabled ? 'opacity-50 cursor-not-allowed' : onClick ? 'cursor-pointer hover:opacity-80' : ''} ${className}`}
       onClick={disabled ? undefined : onClick}
       {...props}
