@@ -53,11 +53,25 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET, // Required — validated above
   corsOrigin: (() => {
     const raw = process.env.CORS_ORIGIN;
-    if (!raw) return true; // Allow all origins by default — Railway may not have CORS_ORIGIN set
-    // Wildcard: allow any origin dynamically (required when credentials: true)
-    if (raw.trim() === '*') return true;
-    // Comma-separated list of specific origins
-    return raw.split(',').map(s => s.trim());
+
+    // Always-allowed origins (production domains + local dev)
+    const ALWAYS_ALLOWED = [
+      'https://autospf.shop',
+      'https://www.autospf.shop',
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://127.0.0.1:5173',
+    ];
+
+    if (!raw || raw.trim() === '*') {
+      // No restriction set — allow all (return true = any origin)
+      return true;
+    }
+
+    // Merge env var origins with always-allowed list (deduplicated)
+    const fromEnv = raw.split(',').map(s => s.trim()).filter(Boolean);
+    const merged = Array.from(new Set([...ALWAYS_ALLOWED, ...fromEnv]));
+    return merged;
   })(),
 
   // Email Configuration
