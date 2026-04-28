@@ -6,6 +6,8 @@ import {
   approveJob,
   returnJob,
   updateQCChecklist,
+  updateServiceStatus,
+  assignServiceStaff,
 } from '../controllers/qc.controller.js';
 
 const router = express.Router();
@@ -50,5 +52,19 @@ router.patch('/jobs/:id/return', authorize(...QC_ALLOWED_ROLES), returnJob);
  * @access  QC Checker, Admin
  */
 router.patch('/jobs/:id/checklist', authorize(...QC_ALLOWED_ROLES), updateQCChecklist);
+
+/**
+ * @route   PATCH /api/qc/jobs/:id/service-status
+ * @desc    Advance the live service tracking stage (Vehicle Arrive → In Progress → QC → Ready)
+ * @access  QC Checker, Admin
+ */
+router.patch('/jobs/:id/service-status', authorize(...QC_ALLOWED_ROLES), updateServiceStatus);
+
+/**
+ * @route   PATCH /api/qc/jobs/:id/assign-staff
+ * @desc    Assign named service staff slots to a job
+ * @access  QC Checker, Admin
+ */
+router.patch('/jobs/:id/assign-staff', authorize(...QC_ALLOWED_ROLES), assignServiceStaff);
 
 export default router;

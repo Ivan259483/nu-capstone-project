@@ -177,7 +177,7 @@ export default function QCReportsView({ stats, statsLoading }: { stats: QCStats;
                       <div className="flex items-center gap-3">
                         {i === 0 && <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Top</span>}
                         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-500 to-slate-700 flex items-center justify-center text-[10px] text-white font-semibold">
-                          {t.name.split(' ').map((p) => p[0]).join('')}
+                          {(t.name || 'UN').split(' ').map((p) => p[0]).join('')}
                         </div>
                         <span className="text-sm font-medium text-slate-800">{t.name}</span>
                       </div>

@@ -11,7 +11,7 @@ import { generateQCPDF } from '../utils/pdf.utils.js';
 export const getQCJobs = async (req, res, next) => {
   try {
     const orders = await Order.find({
-      status: { $in: ['in_progress', 'completed'] },
+      status: { $in: ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed'] },
       archived: { $ne: true },
     })
       .populate('customer', 'name email phone avatar')
@@ -47,8 +47,8 @@ export const getQCJobs = async (req, res, next) => {
         'Unknown';
 
       const technicianName =
-        typeof o.assignedDetailer === 'object'
-          ? o.assignedDetailer?.name
+        o.assignedDetailer && typeof o.assignedDetailer === 'object'
+          ? (o.assignedDetailer?.name || 'Unassigned')
           : 'Unassigned';
 
       const vehicleStr = [o.vehicleYear, o.vehicleMake, o.vehicleModel]
@@ -70,6 +70,11 @@ export const getQCJobs = async (req, res, next) => {
         elapsed: elapsedDisplay,
         elapsedMinutes,
         status: qcStatus,
+        orderStatus: o.status,                                          // raw backend status
+        serviceTrackingStage: o.serviceTrackingStage || null,           // QC-controlled fine stage
+        serviceTrackingUpdatedAt: o.serviceTrackingUpdatedAt || null,
+        serviceTrackingUpdatedBy: o.serviceTrackingUpdatedBy || null,
+        serviceStaffAssignments: o.serviceStaffAssignments || [],        // assigned named staff
         aiFlag,
         priority: elapsedMinutes > 120 ? 'high' : elapsedMinutes > 60 ? 'medium' : 'normal',
         // Raw order data for detail view
@@ -270,7 +275,8 @@ export const approveJob = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    if (!['in_progress', 'completed'].includes(order.status)) {
+    // Allow quality_check stage orders too — QC presses Approve after QC step
+    if (!['in_progress', 'completed', 'received', 'quality_check'].includes(order.status)) {
       return res.status(400).json({
         success: false,
         message: `Cannot approve order with status: ${order.status}`,
@@ -288,13 +294,35 @@ export const approveJob = async (req, res, next) => {
     }
 
     const prevStatus = order.status;
+
+    // ── Step through ready_pickup BEFORE completing ─────────────────
+    // Always set ready_pickup first so the customer sees Step 5 before
+    // the order is marked complete. This is the stage that triggers 100%.
+    order.serviceTrackingStage = 'ready_pickup';
+    order.serviceTrackingUpdatedAt = new Date();
+    order.serviceTrackingUpdatedBy = req.user?.name || 'QC Checker';
     order.status = 'completed';
     order.qcCompletedAt = new Date();
     await order.save();
 
-    // Emit socket update
+    // ── Emit real-time update to customer ───────────────────────────
     try {
-      getIO().emit('orderUpdated', { orderId: order._id, status: order.status });
+      const io = getIO();
+      // Broad event for staff dashboards
+      io.emit('orderUpdated', { orderId: order._id, status: order.status });
+      // Targeted event for the customer's live tracker
+      const customerId = typeof order.customer === 'object'
+        ? order.customer?._id?.toString?.()
+        : order.customer?.toString?.();
+      if (customerId) {
+        io.to(`user:${customerId}`).emit('booking:status', {
+          bookingId: order._id.toString(),
+          status: 'completed',
+          serviceTrackingStage: 'ready_pickup',
+          serviceStaffAssignments: order.serviceStaffAssignments || [],
+          updatedAt: new Date().toISOString(),
+        });
+      }
     } catch (e) {
       console.warn('[QC] Socket emit failed:', e.message);
     }
@@ -309,12 +337,12 @@ export const approveJob = async (req, res, next) => {
       type: 'qc_approved',
       module: 'QualityChecker',
       action: 'QC_APPROVED',
-      description: `QC Checker approved job ${order.orderNumber}`,
+      description: `QC Checker approved job ${order.orderNumber} — tracker advanced to Ready for Pickup`,
       referenceId: order._id,
       status: 'success',
     });
 
-    res.json({ success: true, message: 'Job approved successfully', data: { id: order._id, status: order.status } });
+    res.json({ success: true, message: 'Job approved successfully', data: { id: order._id, status: order.status, serviceTrackingStage: 'ready_pickup' } });
   } catch (error) {
     next(error);
   }
@@ -409,6 +437,140 @@ export const updateQCChecklist = async (req, res, next) => {
     await order.save();
 
     res.json({ success: true, message: 'QC checklist saved', data: { id: order._id, qcChecklist: order.qcChecklist } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /api/qc/jobs/:id/service-status
+ * Advance the live service tracking stage (controlled by QC Checker).
+ * Allowed stages: received | in_progress | quality_check | ready_pickup | completed
+ */
+export const updateServiceStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { stage } = req.body;
+
+    const VALID_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup', 'completed'];
+    if (!VALID_STAGES.includes(stage)) {
+      return res.status(400).json({ success: false, message: `Invalid stage. Must be one of: ${VALID_STAGES.join(', ')}` });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    // Store fine-grained tracking stage on the order
+    order.serviceTrackingStage = stage;
+    order.serviceTrackingUpdatedAt = new Date();
+    order.serviceTrackingUpdatedBy = req.user?.name || 'QC Checker';
+
+    // Map stage to top-level status for customer dashboard live tracker
+    const stageToStatus = {
+      received:       'received',
+      in_progress:    'in_progress',
+      quality_check:  'in_progress',   // still in shop
+      ready_pickup:   'completed',
+      completed:      'completed',
+    };
+    order.status = stageToStatus[stage] || order.status;
+
+    await order.save();
+
+    // ── Emit real-time updates ──────────────────────────────────
+    try {
+      const io = getIO();
+      // Broad event for staff dashboards
+      io.emit('orderUpdated', {
+        orderId: order._id,
+        status: order.status,
+        serviceTrackingStage: stage,
+      });
+      // Targeted event for the customer's live tracker
+      const customerId = typeof order.customer === 'object'
+        ? order.customer?._id?.toString?.()
+        : order.customer?.toString?.();
+      if (customerId) {
+        io.to(`user:${customerId}`).emit('booking:status', {
+          bookingId: order._id.toString(),
+          status: order.status,
+          serviceTrackingStage: stage,
+          serviceStaffAssignments: order.serviceStaffAssignments || [],
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch (e) { console.warn('[QC] Socket emit failed:', e.message); }
+
+    logActivity({
+      req, type: 'qc_stage_update', module: 'QualityChecker', action: 'SERVICE_STAGE_UPDATE',
+      description: `QC Checker advanced job ${order.orderNumber || order._id} to stage: ${stage}`,
+      referenceId: order._id, status: 'success',
+    });
+
+    res.json({
+      success: true,
+      message: `Service stage updated to: ${stage}`,
+      data: { id: order._id, status: order.status, serviceTrackingStage: stage },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /api/qc/jobs/:id/assign-staff
+ * Assign named service staff to a job (stored per-stage or as a flat list).
+ */
+export const assignServiceStaff = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { assignments } = req.body;
+    // assignments: [{ slot: 'staff1'|'staff2'|'staff3'|'staff4', name: string, role: string }]
+
+    if (!Array.isArray(assignments)) {
+      return res.status(400).json({ success: false, message: 'assignments must be an array' });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    order.serviceStaffAssignments = assignments.map((a) => ({
+      slot: a.slot,
+      name: a.name || '',
+      role: a.role || '',
+      assignedAt: new Date(),
+      assignedBy: req.user?.name || 'QC Checker',
+    }));
+
+    await order.save();
+
+    try {
+      const io = getIO();
+      // Broad event for staff dashboards
+      io.emit('orderUpdated', {
+        orderId: order._id,
+        serviceStaffAssignments: order.serviceStaffAssignments,
+      });
+      // Targeted event for customer's live tracker team display
+      const customerId = typeof order.customer === 'object'
+        ? order.customer?._id?.toString?.()
+        : order.customer?.toString?.();
+      if (customerId) {
+        io.to(`user:${customerId}`).emit('booking:status', {
+          bookingId: order._id.toString(),
+          status: order.status,
+          serviceTrackingStage: order.serviceTrackingStage || null,
+          serviceStaffAssignments: order.serviceStaffAssignments || [],
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch (e) { console.warn('[QC] Socket emit failed:', e.message); }
+
+    res.json({
+      success: true,
+      message: 'Staff assignments saved',
+      data: { id: order._id, serviceStaffAssignments: order.serviceStaffAssignments },
+    });
   } catch (error) {
     next(error);
   }

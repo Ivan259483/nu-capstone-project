@@ -1,5 +1,4 @@
 {
-    // Force reload 2
     "compilerOptions": {
         "ignoreDeprecations": "5.0",
         "target": "ES2020",
@@ -11,7 +10,11 @@
         ],
         "types": [
             "node"
-        ], // ADD THIS
+        ],
+        "typeRoots": [
+            "./node_modules/@types",
+            "./node_modules"
+        ],
         "jsx": "react-jsx",
         "module": "ESNext",
         "moduleResolution": "bundler",
@@ -41,6 +44,8 @@
     ],
     "exclude": [
         "node_modules",
-        "dist"
+        "dist",
+        "../node_modules"
     ]
 }
+

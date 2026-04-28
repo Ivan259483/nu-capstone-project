@@ -34,20 +34,24 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 // ── Clean empty state ─────────────────────────────────────────────────────────
 function EmptyChart({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-14 text-center">
-      <Icon size={20} className="text-slate-300 mb-2.5" />
-      <p className="text-sm text-slate-400">No data yet</p>
-      <p className="text-xs text-slate-300 mt-1">{label}</p>
+    <div className="flex flex-col items-center justify-center py-14 text-center rounded-2xl" style={{ background: 'linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%)' }}>
+      <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center mb-3 ring-4 ring-blue-50">
+        <Icon size={18} className="text-blue-400" />
+      </div>
+      <p className="text-sm font-semibold text-slate-600">No data yet</p>
+      <p className="text-xs text-slate-400 mt-1">{label}</p>
     </div>
   );
 }
 
 function EmptyRows({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center mx-5 mb-5">
-      <Icon size={20} className="text-slate-300 mb-2.5" />
-      <p className="text-sm text-slate-400">No data yet</p>
-      <p className="text-xs text-slate-300 mt-1">{label}</p>
+    <div className="flex flex-col items-center justify-center py-16 text-center mx-5 mb-5 rounded-2xl" style={{ background: 'linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)' }}>
+      <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center mb-3 ring-4 ring-green-50">
+        <Icon size={18} className="text-green-500" />
+      </div>
+      <p className="text-sm font-semibold text-slate-600">No data yet</p>
+      <p className="text-xs text-slate-400 mt-1">{label}</p>
     </div>
   );
 }
@@ -325,10 +329,12 @@ export default function QCDashboardView({ onNavigate, stats, statsLoading, jobs 
                 ))}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-10 text-center mx-4 my-4">
-                <Zap size={18} className="text-slate-300 mb-2" />
-                <p className="text-sm text-slate-400">No data yet</p>
-                <p className="text-xs text-slate-300 mt-1">AI scans flag issues automatically</p>
+              <div className="flex flex-col items-center justify-center py-10 text-center mx-4 my-4 rounded-2xl" style={{ background: 'linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%)' }}>
+                <div className="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center mb-2.5 ring-4 ring-orange-50">
+                  <Zap size={16} className="text-orange-500" />
+                </div>
+                <p className="text-sm font-semibold text-slate-600">No AI detections</p>
+                <p className="text-xs text-slate-400 mt-1">AI scans flag issues automatically</p>
               </div>
             )}
           </div>
@@ -339,10 +345,12 @@ export default function QCDashboardView({ onNavigate, stats, statsLoading, jobs 
               <Clock size={14} className="text-slate-400" />
               <h3 className="text-sm font-semibold text-slate-800 tracking-tight">Recent Activity</h3>
             </div>
-            <div className="flex flex-col items-center justify-center py-10 text-center mx-4 my-4">
-              <Clock size={18} className="text-slate-300 mb-2" />
-              <p className="text-sm text-slate-400">No data yet</p>
-              <p className="text-xs text-slate-300 mt-1">Your review actions will appear here</p>
+            <div className="flex flex-col items-center justify-center py-10 text-center mx-4 my-4 rounded-2xl" style={{ background: 'linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%)' }}>
+              <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center mb-2.5 ring-4 ring-violet-50">
+                <Clock size={16} className="text-violet-500" />
+              </div>
+              <p className="text-sm font-semibold text-slate-600">No recent activity</p>
+              <p className="text-xs text-slate-400 mt-1">Your review actions will appear here</p>
             </div>
           </div>
         </div>

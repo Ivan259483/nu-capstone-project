@@ -196,6 +196,35 @@ export function useQCData() {
     }
   }, []);
 
+  const updateServiceStatus = useCallback(async (id: string, stage: string): Promise<boolean> => {
+    try {
+      await api.patch(`/qc/jobs/${id}/service-status`, { stage });
+      toast.success('Stage updated', { description: `Service stage advanced to: ${stage.replace(/_/g, ' ')}` });
+      await refetchAll(true);
+      return true;
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Failed to update service stage';
+      toast.error('Stage update failed', { description: msg });
+      return false;
+    }
+  }, [refetchAll]);
+
+  const assignServiceStaff = useCallback(async (
+    id: string,
+    assignments: { slot: string; name: string; role: string }[]
+  ): Promise<boolean> => {
+    try {
+      await api.patch(`/qc/jobs/${id}/assign-staff`, { assignments });
+      toast.success('Staff assigned', { description: 'Service team updated successfully.' });
+      await refetchAll(true);
+      return true;
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Failed to assign staff';
+      toast.error('Assignment failed', { description: msg });
+      return false;
+    }
+  }, [refetchAll]);
+
   return {
     jobs,
     jobsLoading,
@@ -207,5 +236,7 @@ export function useQCData() {
     approveJob,
     returnJob,
     updateChecklist,
+    updateServiceStatus,
+    assignServiceStaff,
   };
 }

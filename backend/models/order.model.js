@@ -304,6 +304,26 @@ const orderSchema = new mongoose.Schema(
       completedAt: Date,
       completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     },
+
+    // ═══════ LIVE SERVICE TRACKING (QC-controlled) ═══════
+    // Fine-grained stage controlled by QC Checker via Live Tracker.
+    // This drives the customer's 5-step live tracking display.
+    serviceTrackingStage: {
+      type: String,
+      enum: [null, 'confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup', 'completed'],
+      default: null,
+    },
+    serviceTrackingUpdatedAt: Date,
+    serviceTrackingUpdatedBy: String,
+
+    // Named staff assigned to the job (displayed on customer tracker)
+    serviceStaffAssignments: [{
+      slot: { type: String, enum: ['staff1', 'staff2', 'staff3', 'staff4'] },
+      name: String,
+      role: String,
+      assignedAt: { type: Date, default: Date.now },
+      assignedBy: String,
+    }],
   },
   { timestamps: true }
 );

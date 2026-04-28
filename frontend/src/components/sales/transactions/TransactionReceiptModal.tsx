@@ -41,7 +41,7 @@ const STATUS_CONFIG = {
 
 export default function TransactionReceiptModal({ txn, onClose }: Props) {
   const [showConfirm, setShowConfirm] = useState(false);
-  const statusCfg = STATUS_CONFIG[txn.status];
+  const statusCfg = STATUS_CONFIG[txn.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG['pending'];
   const StatusIcon = statusCfg.icon;
 
   const handleConfirmPayment = () => {

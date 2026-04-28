@@ -6,6 +6,7 @@ import QCImageComparisonSlider from './QCImageComparisonSlider';
 import QCChecklistPanel from './QCChecklistPanel';
 import QCAIDetectionCard from './QCAIDetectionCard';
 import QCReturnModal from './QCReturnModal';
+import QCServiceControlPanel, { type ServiceStage } from './QCServiceControlPanel';
 import type { QCJob } from '@/hooks/useQCData';
 
 interface Props {
@@ -15,9 +16,11 @@ interface Props {
   onApprove: (id: string) => Promise<boolean>;
   onReturn: (id: string, reason: string) => Promise<boolean>;
   onUpdateChecklist: (id: string, items: { item: string; passed: boolean; note?: string }[]) => Promise<boolean>;
+  onUpdateStage?: (id: string, stage: ServiceStage) => Promise<boolean>;
+  onAssignStaff?: (id: string, assignments: { slot: string; name: string; role: string }[]) => Promise<boolean>;
 }
 
-export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onReturn, onUpdateChecklist }: Props) {
+export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onReturn, onUpdateChecklist, onUpdateStage, onAssignStaff }: Props) {
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [approving, setApproving] = useState(false);
 
@@ -221,6 +224,17 @@ export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onRetu
             onSave={(items) => onUpdateChecklist(job.id, items)}
           />
 
+          {/* ── Service Tracker Control Panel ── */}
+          {(onUpdateStage || onAssignStaff) && (
+            <QCServiceControlPanel
+              jobId={job.id}
+              currentStage={(job as any).serviceTrackingStage as ServiceStage | undefined}
+              currentAssignments={(job as any).serviceStaffAssignments || []}
+              onUpdateStage={onUpdateStage ?? (async () => false)}
+              onAssignStaff={onAssignStaff ?? (async () => false)}
+            />
+          )}
+
           {/* Quality Decision */}
           <div className="bg-white rounded-xl shadow-sm p-5">
             <h3 className="text-sm font-semibold text-slate-800 mb-4">Quality Decision</h3>
@@ -247,7 +261,7 @@ export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onRetu
         open={returnModalOpen}
         onClose={() => setReturnModalOpen(false)}
         jobId={job.jobId}
-        technician={job.technician}
+        technician={job.technician || 'Unassigned'}
         onConfirm={handleReturn}
       />
     </>

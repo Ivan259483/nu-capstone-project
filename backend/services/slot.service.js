@@ -249,15 +249,16 @@ export async function getSlotsForRange(startStr, endStr) {
 }
 
 /**
- * validateSlotAvailability(bookingDate, bookingTime)
+ * validateSlotAvailability(bookingDate, bookingTime, excludeOrderId?)
  *
  * Atomically checks if a slot can accept ONE more booking.
  * Returns { ok: true } or { ok: false, errorCode, message }.
  *
- * Must be called inside the same request that creates/approves a booking
- * to minimize the race window (DB index provides the final guard).
+ * excludeOrderId — when approving an existing booking that is still
+ *   'pending_confirmation', pass its _id so it is not double-counted
+ *   against the capacity it is about to occupy.
  */
-export async function validateSlotAvailability(bookingDate, bookingTime) {
+export async function validateSlotAvailability(bookingDate, bookingTime, excludeOrderId = null) {
   if (!bookingDate || !bookingTime) return { ok: true }; // no slot constraint
 
   const settings = await BusinessSettings.getSettings();
@@ -281,11 +282,15 @@ export async function validateSlotAvailability(bookingDate, bookingTime) {
   const capacity = customCap ? customCap.capacity : settings.defaultSlotCapacity;
 
   // Atomic count of active bookings in this slot
-  const activeCount = await Order.countDocuments({
+  // Exclude the current order if provided (e.g. during approval, it's still
+  // pending_confirmation which is a slot-consuming status — don't count it twice)
+  const countQuery = {
     bookingDate,
     bookingTime,
     status: { $in: SLOT_CONSUMING_STATUSES },
-  });
+    ...(excludeOrderId ? { _id: { $ne: excludeOrderId } } : {}),
+  };
+  const activeCount = await Order.countDocuments(countQuery);
 
   if (activeCount >= capacity) {
     return {

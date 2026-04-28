@@ -83,6 +83,9 @@ const emitCustomerStatusUpdate = (order) => {
       customerStatus: order.customerStatus,
       status: order.status,
       paymentStatus: order.paymentStatus,
+      // Live tracking fields (QC-controlled)
+      serviceTrackingStage: order.serviceTrackingStage || null,
+      serviceStaffAssignments: order.serviceStaffAssignments || [],
       updatedAt: order.customerStatusUpdatedAt || new Date().toISOString(),
     });
   } catch (error) {
@@ -216,6 +219,11 @@ const formatBookingDto = (orderDoc) => {
     customerPhone,
     customerAvatar,
     notes: decryptedNotes || '',
+    // ── Live Tracking (QC-controlled) ──────────────────────────
+    serviceTrackingStage: order.serviceTrackingStage || null,
+    serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || null,
+    serviceTrackingUpdatedBy: order.serviceTrackingUpdatedBy || null,
+    serviceStaffAssignments: order.serviceStaffAssignments || [],
     // Also decrypt legal compliance fields if present
     ...(order.legalCompliance ? {
       legalCompliance: {
@@ -367,14 +375,17 @@ export const getActiveJobs = async (req, res, next) => {
     };
 
     if (isStaffRole(req.user.role)) {
-      // Staff sees their assigned jobs PLUS unassigned pending jobs
+      // Staff (including staff_quality_checker / Technician-QC) sees:
+      // 1. Their own assigned jobs (confirmed, received, in_progress, assigned)
+      // 2. Unassigned approved/confirmed jobs they can claim
       query = {
         $or: [
-          { assignedDetailer: req.user.id, status: { $in: ['confirmed', 'received', 'in_progress'] } },
+          { assignedDetailer: req.user.id, status: { $in: ['confirmed', 'assigned', 'received', 'in_progress'] } },
           {
             $and: [
               { $or: [{ assignedDetailer: null }, { assignedDetailer: { $exists: false } }] },
-              { status: { $in: ['pending', 'confirmed'] } }
+              // 'approved' = Sales approved but no technician auto-assigned yet (needs manual claim)
+              { status: { $in: ['approved', 'confirmed'] } }
             ]
           }
         ]
@@ -2578,8 +2589,11 @@ export const approveBooking = async (req, res, next) => {
     }
 
     // ── Re-validate slot capacity before approving ────────────────────
+    // NOTE: We pass order._id to EXCLUDE this booking from the count —
+    // it is still 'pending_confirmation' so it would falsely appear as
+    // occupying a slot and block its own approval.
     if (order.bookingDate && order.bookingTime) {
-      const slotCheck = await validateSlotAvailability(order.bookingDate, order.bookingTime);
+      const slotCheck = await validateSlotAvailability(order.bookingDate, order.bookingTime, order._id);
       if (!slotCheck.ok) {
         return res.status(409).json({
           success: false,
@@ -2594,7 +2608,14 @@ export const approveBooking = async (req, res, next) => {
     let detailerId = manualDetailerId;
 
     if (!detailerId) {
-      const detailers = await User.find({ role: 'service_staff', isActive: true }).select('_id name');
+      // Priority: staff_quality_checker (Technician - Quality Checker) → technician → service_staff
+      // This matches the business flow: Quality Checker handles bookings from Live Tracker
+      const ASSIGNABLE_ROLES = ['staff_quality_checker', 'technician', 'service_staff'];
+      let detailers = [];
+      for (const role of ASSIGNABLE_ROLES) {
+        detailers = await User.find({ role, isActive: true }).select('_id name role');
+        if (detailers.length > 0) break; // Use highest-priority role that has active staff
+      }
       for (const d of detailers) {
         const busy = await Order.findOne({ assignedDetailer: d._id, status: { $in: ['confirmed', 'received', 'in_progress'] } });
         if (!busy) { detailerId = d._id; break; }
@@ -2608,6 +2629,14 @@ export const approveBooking = async (req, res, next) => {
     if (!order.serviceSteps || order.serviceSteps.length === 0) {
       order.serviceSteps = DEFAULT_SERVICE_STEPS.map(s => ({ ...s }));
     }
+
+    // ── Activate Live Tracker — Step 1: "Appointment Confirmed" ──────
+    // Setting serviceTrackingStage = 'confirmed' triggers the customer's
+    // live tracker to become active, showing "Appointment Confirmed" as
+    // the first completed step. The QC Checker will advance it from here.
+    order.serviceTrackingStage = 'confirmed';
+    order.serviceTrackingUpdatedAt = new Date();
+    order.serviceTrackingUpdatedBy = req.user?.name || 'Sales';
 
     await order.save();
 

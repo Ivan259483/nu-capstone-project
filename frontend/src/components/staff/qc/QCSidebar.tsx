@@ -1,12 +1,18 @@
 import React, { useEffect, useRef } from 'react';
-import { LayoutDashboard, ClipboardList, ImageIcon, ScanSearch, MessageSquare, BarChart3, ChevronLeft, ChevronRight, Settings, LogOut, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, ImageIcon, ScanSearch, MessageSquare, BarChart3, ChevronLeft, ChevronRight, Settings, LogOut, ShieldCheck, Radio } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
-type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'before-after' | 'ai-detection' | 'customer-notes' | 'reports';
+type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'before-after' | 'ai-detection' | 'customer-notes' | 'reports' | 'live-tracker';
 
-type NavItem = { id: QCView; label: string; icon: React.ElementType; badgeKey?: 'pending' | 'ai' };
+type NavItem = { id: QCView; label: string; icon: React.ElementType; badgeKey?: 'pending' | 'ai'; live?: boolean };
 const navGroups: { groupLabel: string; items: NavItem[] }[] = [
   { groupLabel: 'OVERVIEW', items: [{ id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
+  {
+    groupLabel: 'SERVICE CONTROL',
+    items: [
+      { id: 'live-tracker', label: 'Live Tracker', icon: Radio, live: true },
+    ],
+  },
   {
     groupLabel: 'QUALITY CONTROL',
     items: [
@@ -69,7 +75,9 @@ export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate,
                       relative w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium
                       transition-all duration-150 group
                       ${isActive
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                        ? item.live
+                          ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                          : 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
                         : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'}
                       ${collapsed ? 'justify-center' : ''}
                     `}
@@ -78,13 +86,25 @@ export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate,
                     {!collapsed && (
                       <span className="flex-1 text-left truncate leading-none">{item.label}</span>
                     )}
-                    {!collapsed && badgeCount > 0 && (
+                    {/* Live pulse badge */}
+                    {item.live && !collapsed && (
+                      <span className="flex items-center gap-1">
+                        <span className={`relative flex w-2 h-2`}>
+                          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isActive ? 'bg-white' : 'bg-emerald-400'}`} />
+                          <span className={`relative inline-flex rounded-full w-2 h-2 ${isActive ? 'bg-white' : 'bg-emerald-500'}`} />
+                        </span>
+                      </span>
+                    )}
+                    {item.live && collapsed && (
+                      <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                    )}
+                    {!collapsed && !item.live && badgeCount > 0 && (
                       <span className={`text-[10px] font-semibold min-w-[18px] text-center px-1.5 py-0.5 rounded-full tabular-nums
                         ${isActive ? 'bg-white/20 text-white' : 'bg-slate-700 text-slate-300'}`}>
                         {badgeCount}
                       </span>
                     )}
-                    {collapsed && badgeCount > 0 && (
+                    {collapsed && !item.live && badgeCount > 0 && (
                       <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-amber-400 rounded-full" />
                     )}
                   </button>

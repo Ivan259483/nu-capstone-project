@@ -87,7 +87,7 @@ export default function QCJobsTable({ jobs, loading, onSelectJob, onApproveJob, 
     let data = jobs;
     if (search.trim()) {
       const q = search.toLowerCase();
-      data = data.filter((j) => j.jobId.toLowerCase().includes(q) || j.customer.toLowerCase().includes(q) || j.vehicle.toLowerCase().includes(q) || j.technician.toLowerCase().includes(q));
+      data = data.filter((j) => j.jobId.toLowerCase().includes(q) || j.customer.toLowerCase().includes(q) || j.vehicle.toLowerCase().includes(q) || (j.technician || '').toLowerCase().includes(q));
     }
     if (statusFilter !== 'All Statuses') { const m = statusMap[statusFilter]; if (m) data = data.filter((j) => j.status === m); }
     if (serviceFilter !== 'All Services') data = data.filter((j) => j.serviceType === serviceFilter);
@@ -130,7 +130,7 @@ export default function QCJobsTable({ jobs, loading, onSelectJob, onApproveJob, 
   const thCls = 'text-left px-4 py-3.5 text-[11px] font-medium text-slate-400 tracking-widest uppercase cursor-pointer select-none';
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm shadow-slate-200/50 overflow-hidden">
+    <div className="rounded-2xl border border-slate-100 shadow-sm overflow-hidden" style={{ background: '#FFFFFF' }}>
       {/* Toolbar */}
       <div className="px-5 py-4">
         <div className="flex items-center gap-2.5">
@@ -138,7 +138,7 @@ export default function QCJobsTable({ jobs, loading, onSelectJob, onApproveJob, 
             <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
               placeholder="Search by job ID, customer, vehicle, technician..."
-              className="w-full pl-9 pr-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all" />
+              className="w-full pl-9 pr-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20 focus:border-amber-300 transition-all" />
           </div>
           <button onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all ${
@@ -232,10 +232,12 @@ export default function QCJobsTable({ jobs, loading, onSelectJob, onApproveJob, 
               Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} />)
             ) : paginated.length === 0 ? (
               <tr><td colSpan={11} className="px-8 py-20">
-                <div className="flex flex-col items-center justify-center text-center py-16">
-                  <ClipboardList size={20} className="text-slate-300 mb-2.5" />
-                  <p className="text-sm text-slate-400">No data yet</p>
-                  <p className="text-xs text-slate-300 mt-1">Jobs will appear here when technicians submit completed work</p>
+                <div className="flex flex-col items-center justify-center text-center py-16 rounded-2xl mx-2" style={{ background: 'linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%)' }}>
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center mb-3 ring-4 ring-amber-50">
+                    <ClipboardList size={20} className="text-amber-500" />
+                  </div>
+                  <p className="text-sm font-semibold text-slate-600">No jobs yet</p>
+                  <p className="text-xs text-slate-400 mt-1">Jobs will appear here when technicians submit completed work</p>
                 </div>
               </td></tr>
             ) : paginated.map((job) => (
@@ -267,9 +269,9 @@ export default function QCJobsTable({ jobs, loading, onSelectJob, onApproveJob, 
                 <td className="px-4 py-4">
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-[10px] text-white font-semibold flex-shrink-0">
-                      {job.technician.split(' ').map((p) => p[0]).join('').slice(0, 2)}
+                      {(job.technician || 'UN').split(' ').map((p) => p[0]).join('').slice(0, 2)}
                     </div>
-                    <span className="text-sm text-slate-600 truncate max-w-[100px]">{job.technician}</span>
+                    <span className="text-sm text-slate-600 truncate max-w-[100px]">{job.technician || 'Unassigned'}</span>
                   </div>
                 </td>
                 <td className="px-4 py-4"><p className="text-xs text-slate-400 tabular-nums whitespace-nowrap">{fmtDate(job.submittedAt)}</p></td>

@@ -324,8 +324,8 @@ export default function CustomerDashboard() {
         // Loyalty points: 50 pts per completed booking
         const loyaltyPoints = completed.length * 50;
 
-        // Update active booking flag — only in-service bookings show live tracker
-        const trackerStatuses = ['received', 'in_progress', 'in-progress'];
+        // Update active booking flag — exclude completed so live tracker hides when done
+        const trackerStatuses = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress'];
         const trackerOrder = myOrders.find((o: any) => trackerStatuses.includes(o.status));
         setHasActiveBooking(!!trackerOrder);
 
@@ -347,6 +347,9 @@ export default function CustomerDashboard() {
       }
     };
     fetchCustomerStats();
+    // Auto-refresh stats every 5 seconds for live updates
+    const interval = setInterval(fetchCustomerStats, 5000);
+    return () => clearInterval(interval);
   }, [user]);
 
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
@@ -957,6 +960,9 @@ export default function CustomerDashboard() {
       setMyBookingsLoading(false);
     };
     load();
+    // Auto-refresh bookings every 5 seconds for live tracking updates
+    const interval = setInterval(load, 5000);
+    return () => clearInterval(interval);
   }, [activeSection, user]);
 
   useEffect(() => {
@@ -2714,8 +2720,8 @@ export default function CustomerDashboard() {
               (() => {
                 const activeBooking = myBookings.find(b => ['confirmed', 'received', 'in_progress', 'in-progress', 'completed', 'paid'].includes(b.status));
                 const TRACKER_STEPS = [
-                  { id: 'confirmed', label: 'Booking Confirmed', icon: 'solar:check-circle-bold' },
-                  { id: 'received', label: 'Vehicle Received', icon: 'solar:garage-bold' },
+                  { id: 'confirmed', label: 'Appointment Confirmed', icon: 'solar:calendar-bold' },
+                  { id: 'received', label: 'Vehicle Arrive', icon: 'solar:garage-bold' },
                   { id: 'in_progress', label: 'Service In Progress', icon: 'solar:wrench-bold' },
                   { id: 'completed', label: 'Quality Check', icon: 'solar:shield-check-bold' },
                   { id: 'paid', label: 'Ready for Pickup', icon: 'solar:car-bold' },
@@ -3178,7 +3184,7 @@ export default function CustomerDashboard() {
                         {/* CTA */}
                         <div style={{ position: 'relative', zIndex: 2 }}>
                           <button
-                            onClick={() => { window.location.href = '/customer/live-tracker'; }}
+                            onClick={() => { setActiveSection('tracker'); }}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#16a34a,#22c55e)', border: 'none', borderRadius: 12, padding: '11px 20px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 20px rgba(34,197,94,.3)' }}
                           >
                             <iconify-icon icon="solar:routing-2-bold" width="16"></iconify-icon>
@@ -3192,14 +3198,47 @@ export default function CustomerDashboard() {
 
                 {/* ── Live Service Tracker — Ultra Premium ── */}
                 {hasActiveBooking && (() => {
+                  const activeBooking = myBookings.find(b => ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress'].includes(b.status));
+                  const status = activeBooking ? activeBooking.status.toLowerCase() : '';
+                  
+                  // ── Read QC-controlled fine-grained stage (primary) ──────────
+                  // When QC advances the tracker, serviceTrackingStage updates.
+                  // Falls back to status-based mapping for legacy/pre-tracking orders.
+                  const trackingStage = (activeBooking as any)?.serviceTrackingStage;
+                  
+                  const stageMap: Record<string, number> = {
+                    'confirmed':     0,  // Step 1: Appointment Confirmed
+                    'received':      1,  // Step 2: Vehicle Arrive
+                    'in_progress':   2,  // Step 3: Service In Progress
+                    'quality_check': 3,  // Step 4: Quality Check
+                    'ready_pickup':  4,  // Step 5: Ready for Pickup
+                    'completed':     4,
+                  };
+                  
+                  // Legacy fallback: map old status to step index
+                  const statusFallback: Record<string, number> = {
+                    'approved': 0, 'confirmed': 0, 'assigned': 0,
+                    'received': 1,
+                    'in_progress': 2, 'in-progress': 2,
+                    'completed': 4,
+                    'paid': 4, 'released': 4, 'done': 4
+                  };
+                  
+                  // Prefer QC-controlled stage, fall back to status
+                  const currentStepIdx = trackingStage
+                    ? (stageMap[trackingStage] ?? 0)
+                    : (statusFallback[status] ?? 0);
+
+                  const isFullyComplete = status === 'completed' || status === 'paid' || status === 'released' || trackingStage === 'ready_pickup' || trackingStage === 'completed';
+
                   const STEPS = [
-                    { id: 1, label: 'Checked In', sub: 'Vehicle received', icon: 'solar:check-circle-bold', time: '8:45 AM', status: 'done' },
-                    { id: 2, label: 'Washing', sub: 'Exterior & interior', icon: 'solar:waterdrops-bold', time: '9:15 AM', status: 'done' },
-                    { id: 3, label: 'Detailing', sub: 'Premium coating applied', icon: 'solar:magic-stick-bold', time: 'Now', status: 'active' },
-                    { id: 4, label: 'Quality Check', sub: 'Inspection & finishing', icon: 'solar:shield-check-bold', time: '~1:45 PM', status: 'pending' },
-                    { id: 5, label: 'Ready for Pickup', sub: 'Awaiting your arrival', icon: 'solar:star-ring-bold', time: '~2:30 PM', status: 'pending' },
+                    { id: 1, label: 'Appointment Confirmed', sub: 'Waiting for your vehicle', icon: 'solar:calendar-bold', time: activeBooking?.bookingTime || '--', status: currentStepIdx > 0 ? 'done' : currentStepIdx === 0 ? 'active' : 'pending' },
+                    { id: 2, label: 'Vehicle Arrive', sub: 'In shop', icon: 'solar:garage-bold', time: '--', status: currentStepIdx > 1 ? 'done' : currentStepIdx === 1 ? 'active' : 'pending' },
+                    { id: 3, label: 'Service In Progress', sub: 'Working on vehicle', icon: 'solar:wrench-bold', time: '--', status: currentStepIdx > 2 ? 'done' : currentStepIdx === 2 ? 'active' : 'pending' },
+                    { id: 4, label: 'Quality Check', sub: 'Final inspection', icon: 'solar:shield-check-bold', time: '--', status: currentStepIdx > 3 ? 'done' : currentStepIdx === 3 ? 'active' : 'pending' },
+                    { id: 5, label: 'Ready for Pickup', sub: 'Service complete', icon: 'solar:car-bold', time: '--', status: isFullyComplete ? 'done' : currentStepIdx === 4 ? 'active' : 'pending' },
                   ];
-                  const activeIdx = STEPS.findIndex(s => s.status === 'active');
+                  const activeIdx = currentStepIdx;
                   const pct = activeIdx >= 0 ? Math.round((activeIdx / (STEPS.length - 1)) * 100) : 0;
 
                   return (
@@ -3277,15 +3316,38 @@ export default function CustomerDashboard() {
                             {/* Vehicle info */}
                             <div style={{ textAlign: 'center' }}>
                               <p style={{ fontSize: 13, fontWeight: 700, color: '#fff', margin: '0 0 2px', letterSpacing: '-.02em' }}>
-                                {bookingForm.vehicleMake || '2023 Toyota'}
+                                {activeBooking?.vehicleMake || activeBooking?.vehicleModel || '—'}
                               </p>
                               <p style={{ fontSize: 10, color: 'rgba(255,255,255,.35)', margin: '0 0 10px', fontWeight: 500 }}>
-                                {bookingForm.vehiclePlate || 'ABC 1234'} · {bookingForm.vehicleColor || 'White'}
+                                {activeBooking?.vehiclePlate || '—'} · {activeBooking?.vehicleColor || '—'}
                               </p>
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(34,197,94,.1)', border: '1px solid rgba(34,197,94,.2)', borderRadius: 8, padding: '4px 12px' }}>
-                                <iconify-icon icon="solar:user-bold" width="11" style={{ color: '#22c55e' }}></iconify-icon>
-                                <span style={{ fontSize: 10, fontWeight: 700, color: '#22c55e' }}>Juan Santos</span>
-                              </div>
+                              {/* Service team badges */}
+                              {(() => {
+                                const assignments: { slot: string; name: string; role: string }[] = activeBooking?.serviceStaffAssignments || [];
+                                const assigned = assignments.filter(a => a.name?.trim());
+                                if (assigned.length === 0) {
+                                  const techName = activeBooking?.assignedDetailerName || activeBooking?.technicianName || activeBooking?.technician || 'QC Team';
+                                  return (
+                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(34,197,94,.1)', border: '1px solid rgba(34,197,94,.2)', borderRadius: 8, padding: '4px 12px' }}>
+                                      <iconify-icon icon="solar:user-bold" width="11" style={{ color: '#22c55e' }}></iconify-icon>
+                                      <span style={{ fontSize: 10, fontWeight: 700, color: '#22c55e' }}>{techName}</span>
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'center' }}>
+                                    <p style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.3)', textTransform: 'uppercase', letterSpacing: '.12em', margin: '0 0 2px' }}>Service Team</p>
+                                    {assigned.map((a, i) => (
+                                      <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(99,102,241,.12)', border: '1px solid rgba(99,102,241,.25)', borderRadius: 8, padding: '3px 10px' }}>
+                                        <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800, color: '#fff' }}>
+                                          {a.name.split(' ').map((p: string) => p[0]).join('').slice(0, 2)}
+                                        </div>
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: '#a5b4fc' }}>{a.name}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
 

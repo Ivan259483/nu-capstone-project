@@ -9,9 +9,10 @@ import QCJobDetailView from './QCJobDetailView';
 import QCChecklistPanel from './QCChecklistPanel';
 import QCAIDetectionCard from './QCAIDetectionCard';
 import QCImageComparisonSlider from './QCImageComparisonSlider';
+import QCLiveTrackerView from './QCLiveTrackerView';
 import { useQCData } from '@/hooks/useQCData';
 
-type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'before-after' | 'ai-detection' | 'customer-notes' | 'reports';
+type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'before-after' | 'ai-detection' | 'customer-notes' | 'reports' | 'live-tracker';
 
 // ─── Customer Notes View ──────────────────────────────────────────────────────
 function CustomerNotesView({ jobs }: { jobs: { id: string; customer: string; jobId: string; vehicle: string; customerNotes: string; submittedAt: string }[] }) {
@@ -42,10 +43,12 @@ function CustomerNotesView({ jobs }: { jobs: { id: string; customer: string; job
           ))}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl shadow-sm shadow-slate-200/50 flex flex-col items-center justify-center py-20 text-center">
-          <MessageSquare size={20} className="text-slate-300 mb-2.5" />
-          <p className="text-sm text-slate-400">No data yet</p>
-          <p className="text-xs text-slate-300 mt-1">Customer notes will appear here from active jobs</p>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-center py-20 text-center" style={{ background: 'linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)' }}>
+          <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center mb-3 ring-4 ring-green-50">
+            <MessageSquare size={20} className="text-green-500" />
+          </div>
+          <p className="text-sm font-semibold text-slate-600">No customer notes yet</p>
+          <p className="text-xs text-slate-400 mt-1">Customer notes will appear here from active jobs</p>
         </div>
       )}
     </div>
@@ -84,10 +87,12 @@ function BeforeAfterView({ jobs }: { jobs: { id: string; jobId: string; vehicle:
           </div>
         </>
       ) : (
-        <div className="bg-white rounded-2xl shadow-sm shadow-slate-200/50 flex flex-col items-center justify-center py-20 text-center">
-          <ImageIcon size={20} className="text-slate-300 mb-2.5" />
-          <p className="text-sm text-slate-400">No data yet</p>
-          <p className="text-xs text-slate-300 mt-1">Photos appear when technicians upload completed work</p>
+        <div className="rounded-2xl border border-slate-100 flex flex-col items-center justify-center py-20 text-center" style={{ background: 'linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%)' }}>
+          <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center mb-3 ring-4 ring-blue-50">
+            <ImageIcon size={20} className="text-blue-500" />
+          </div>
+          <p className="text-sm font-semibold text-slate-600">No photos yet</p>
+          <p className="text-xs text-slate-400 mt-1">Photos appear when technicians upload completed work</p>
         </div>
       )}
     </div>
@@ -131,10 +136,12 @@ function AIDetectionView({ jobs }: { jobs: { id: string; aiFlag: boolean; damage
           )}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl shadow-sm shadow-slate-200/50 flex flex-col items-center justify-center py-20 text-center">
-          <Zap size={20} className="text-slate-300 mb-2.5" />
-          <p className="text-sm text-slate-400">No data yet</p>
-          <p className="text-xs text-slate-300 mt-1">AI damage detections appear automatically when vehicles are scanned</p>
+        <div className="rounded-2xl border border-slate-100 flex flex-col items-center justify-center py-20 text-center" style={{ background: 'linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%)' }}>
+          <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center mb-3 ring-4 ring-orange-50">
+            <Zap size={20} className="text-orange-500" />
+          </div>
+          <p className="text-sm font-semibold text-slate-600">No AI detections pending</p>
+          <p className="text-xs text-slate-400 mt-1">AI damage detections appear automatically when vehicles are scanned</p>
         </div>
       )}
     </div>
@@ -155,6 +162,8 @@ export default function QCDashboardPanel() {
     approveJob,
     returnJob,
     updateChecklist,
+    updateServiceStatus,
+    assignServiceStaff,
     refetchAll,
   } = useQCData();
 
@@ -210,6 +219,8 @@ export default function QCDashboardPanel() {
             onApprove={approveJob}
             onReturn={returnJob}
             onUpdateChecklist={updateChecklist}
+            onUpdateStage={updateServiceStatus}
+            onAssignStaff={assignServiceStaff}
           />
         );
 
@@ -225,13 +236,23 @@ export default function QCDashboardPanel() {
       case 'reports':
         return <QCReportsView stats={stats} statsLoading={statsLoading} />;
 
+      case 'live-tracker':
+        return (
+          <QCLiveTrackerView
+            jobs={jobs}
+            loading={jobsLoading}
+            onAdvance={updateServiceStatus}
+            onSaveStaff={assignServiceStaff}
+          />
+        );
+
       default:
         return null;
     }
   };
 
   return (
-    <div className="flex h-screen min-h-screen overflow-hidden" style={{ background: '#f8fafc' }}>
+    <div className="flex h-screen min-h-screen overflow-hidden" style={{ background: '#FAFAFA' }}>
       <QCSidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -242,7 +263,7 @@ export default function QCDashboardPanel() {
       />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <QCTopbar sidebarCollapsed={sidebarCollapsed} />
-        <main className="flex-1 overflow-y-auto px-7 py-6" style={{ background: '#f8fafc' }}>
+        <main className="flex-1 overflow-y-auto px-7 py-6" style={{ background: '#FAFAFA' }}>
           {renderContent()}
         </main>
       </div>
