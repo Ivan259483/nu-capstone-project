@@ -84,7 +84,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
   // Polling
   const pollUsers = useCallback(async () => {
     try {
-      const result = await UserService.getAllUsers();
+      const result = await UserService.getAllUsers({ suppressErrorToast: true });
       if (result?.success && Array.isArray(result.data)) setLocalUsers(result.data);
     } catch { /* silent */ }
   }, []);

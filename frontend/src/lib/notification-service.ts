@@ -14,7 +14,7 @@ export interface SystemNotification {
 export const NotificationService = {
     getNotifications: async () => {
         try {
-            const response = await api.get('/notifications');
+            const response = await api.get('/notifications', { meta: { suppressErrorToast: true } } as any);
             return response.data;
         } catch (error: any) {
             return {

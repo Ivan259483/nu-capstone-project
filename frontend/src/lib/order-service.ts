@@ -106,6 +106,11 @@ const normalizeBooking = (raw: any): Booking => {
         paymentProofUrl: raw?.paymentProofUrl,
         rejectionReason: raw?.rejectionReason,
         bookingReference: raw?.bookingReference,
+        // ── Live Service Tracking (QC-controlled) ──────────────────
+        // These MUST be passed through — the customer tracker reads them.
+        serviceTrackingStage: raw?.serviceTrackingStage ?? null,
+        serviceTrackingUpdatedAt: raw?.serviceTrackingUpdatedAt ?? null,
+        serviceStaffAssignments: raw?.serviceStaffAssignments ?? [],
     } as Booking;
 };
 

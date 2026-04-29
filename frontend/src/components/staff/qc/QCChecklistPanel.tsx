@@ -189,6 +189,22 @@ export default function QCChecklistPanel({ orderId, initialItems, onSave }: Prop
           <p className="text-xs text-amber-700 leading-snug">All required items must pass before approving. Click each item to toggle Pass / Fail / Pending.</p>
         </div>
       )}
+
+      {onSave && (
+        <div className="px-4 pb-4">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold transition-all duration-150 active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
+          >
+            {saving ? (
+              <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving...</>
+            ) : (
+              <><ShieldCheck size={14} />Save Checklist</>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

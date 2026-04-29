@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Eye, EyeOff, Edit2, Archive, ChevronLeft, ChevronRight, ShieldCheck, ArrowUpDown, X, Plus, RotateCcw } from 'lucide-react';
 import { UserService } from '@/lib/user-service';
 import { toast } from 'sonner';
-import { canManageUserRole, getManageableUserRoles, getRoleLabel } from '@/lib/roles';
+import { canManageUserRole, getManageableUserRoles, getRoleLabel, ROLE_LABELS } from '@/lib/roles';
 
 interface Props {
   users: any[];
@@ -51,13 +51,16 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
   }, [currentUserRole]);
 
   const filterRoleOptions = useMemo(() => {
-    return [...new Set(users.map(user => user.role).filter(Boolean))]
+    // Always show all defined system roles so the filter is consistent
+    // regardless of whether any user currently has that role.
+    return (Object.keys(ROLE_LABELS) as Array<keyof typeof ROLE_LABELS>)
+      .filter(role => role !== 'customer') // customers aren't managed as staff
       .map(role => ({
         value: role,
-        label: getRoleLabel(role),
+        label: ROLE_LABELS[role],
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [users]);
+  }, []);
 
   const defaultRole = assignableRoleOptions.find(option => option.value === 'customer')?.value || assignableRoleOptions[0]?.value || 'customer';
 

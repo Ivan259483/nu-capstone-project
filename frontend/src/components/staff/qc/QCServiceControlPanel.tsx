@@ -16,7 +16,7 @@ export const SERVICE_STAFF_ROSTER = [
 ];
 
 // ── Tracking Stages ────────────────────────────────────────────────────────────
-export type ServiceStage = 'confirmed' | 'received' | 'in_progress' | 'quality_check' | 'ready_pickup' | 'completed';
+export type ServiceStage = 'confirmed' | 'received' | 'in_progress' | 'quality_check' | 'ready_pickup' | 'completed' | 'released';
 
 const STAGES: { id: ServiceStage; label: string; sub: string; icon: React.ElementType; color: string; bg: string; ring: string }[] = [
   { id: 'received',      label: 'Vehicle Arrive',   sub: 'Vehicle received at shop',      icon: Car,          color: 'text-blue-600',   bg: 'bg-blue-50',   ring: 'ring-blue-200'   },

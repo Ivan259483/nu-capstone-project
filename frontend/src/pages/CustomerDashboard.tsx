@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { NotificationService, SystemNotification } from '../lib/notification-service';
 import { toast } from 'sonner';
+import { invalidate } from '../lib/queryCache';
+import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
 
-type DashboardSection = 'dashboard' | 'scan' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker';
+type DashboardSection = 'dashboard' | 'scan' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker' | 'payments';
 
 type ScanUpload = {
   id: string;
@@ -158,9 +160,13 @@ export default function CustomerDashboard() {
           ? 'scan'
           : s === 'documents'
             ? 'documents'
-            : s === 'rewards'
-              ? 'rewards'
-              : 'dashboard';
+            : s === 'payments'
+              ? 'payments'
+              : s === 'rewards'
+                ? 'rewards'
+                : s === 'tracker'
+                  ? 'tracker'
+                  : 'dashboard';
   });
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
@@ -202,6 +208,48 @@ export default function CustomerDashboard() {
   const [myBookingsLoading, setMyBookingsLoading] = useState(false);
   const [bookingsFilter, setBookingsFilter] = useState<'all' | 'upcoming' | 'active' | 'completed' | 'cancelled'>('all');
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
+  // Payment History lightbox
+  const [paymentLightboxUrl, setPaymentLightboxUrl] = useState<string | null>(null);
+
+  // ── Real-time tracker updates via useLiveJobs socket ─────────────────────────
+  // When QC advances a stage, the backend emits booking:status to user:${id} room.
+  // We ONLY patch serviceTrackingStage (and staff assignments) — never status.
+  // Patching status from socket events caused the 'Booking Not Confirmed' bug:
+  // ready_pickup was emitting status:'completed', hasActiveBooking → false,
+  // the live tracker hid, and any old rejected order surfaced instead.
+  // The status field is authoritative only from the polling refetch (DB source).
+  const handleBookingStatus = useCallback((event: BookingStatusEvent) => {
+    const { bookingId, serviceTrackingStage, serviceStaffAssignments } = event;
+    if (!bookingId) return;
+    console.log('[TRACKER] booking:status → patching stage:', { bookingId, serviceTrackingStage });
+    setMyBookings((prev: any[]) =>
+      prev.map((b: any) => {
+        const id = b.id || b._id;
+        if (id !== bookingId) return b;
+        return {
+          ...b,
+          // Only update the fine-grained tracking stage — let polling handle status
+          ...(serviceTrackingStage !== undefined ? { serviceTrackingStage } : {}),
+          ...(serviceStaffAssignments?.length ? { serviceStaffAssignments } : {}),
+        };
+      })
+    );
+    // Bust cache so the very next poll fetches fresh status from DB
+    invalidate('/bookings');
+  }, []);
+
+  // useLiveJobs manages the singleton socket, room joining, and the booking:status listener.
+  // We only need its onBookingStatus callback here — the polling handles myBookings separately.
+  // onNotification fires when a notification:customer socket event arrives — prepend to bell list.
+  const handleIncomingNotification = useCallback((notif: any) => {
+    if (!notif || !notif.id) return;
+    setNotifications((prev: any[]) => {
+      // Avoid duplicates if the server emits more than once
+      if (prev.some((n: any) => n.id === notif.id || n._id === notif.id)) return prev;
+      return [{ ...notif, isRead: false }, ...prev];
+    });
+  }, []);
+  useLiveJobs(user, handleBookingStatus, handleIncomingNotification);
 
   // Fetch vehicles from DB on mount
   useEffect(() => {
@@ -274,14 +322,23 @@ export default function CustomerDashboard() {
         const res = await OrderService.getAllOrders({ suppressErrorToast: true });
         if (!res.success || !Array.isArray(res.data)) return;
 
-        // Filter orders belonging to the current customer
-        const myOrders = res.data.filter((o: any) => {
-          const custId = o.customerId || o.customer?._id || o.customer;
-          return custId === user.id || custId === user._id || o.customerName === user.name;
-        });
+        // Filter orders belonging to the current customer.
+        // Normalize both sides to strings — customer ObjectId serializes as string from API.
+        const myId = String(user.id || user._id || '');
+        const myOrders = res.data
+          .filter((o: any) => {
+            const custId = String(
+              o.customerId || o.customer?._id || o.customer || ''
+            );
+            return custId === myId || o.customerName === user.name;
+          })
+          .sort((a: any, b: any) =>
+            new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+          );
 
         // Current status: find active booking (in-progress, assigned, checked-in, etc.)
-        const activeStatuses = ['in-progress', 'assigned', 'checked-in', 'processing', 'confirmed', 'approved', 'in_progress'];
+        // 'completed' means service done, car still in shop — show it as active.
+        const activeStatuses = ['in-progress', 'assigned', 'checked-in', 'processing', 'confirmed', 'approved', 'in_progress', 'received', 'completed'];
         const activeOrder = myOrders.find((o: any) => activeStatuses.includes(o.status));
         let currentStatus = '';
         if (activeOrder) {
@@ -289,7 +346,8 @@ export default function CustomerDashboard() {
             'in-progress': 'In Shop — In Progress', 'in_progress': 'In Shop — In Progress',
             'assigned': 'Assigned — Waiting', 'checked-in': 'Checked In',
             'processing': 'Processing', 'confirmed': 'Confirmed — Scheduled',
-            'approved': 'Approved — Scheduled',
+            'approved': 'Approved — Scheduled', 'received': 'Vehicle Received',
+            'completed': 'Ready for Pickup ✓',
           };
           currentStatus = statusMap[activeOrder.status] || activeOrder.status;
           if (activeOrder.serviceName && activeOrder.serviceName !== 'Service') {
@@ -324,8 +382,16 @@ export default function CustomerDashboard() {
         // Loyalty points: 50 pts per completed booking
         const loyaltyPoints = completed.length * 50;
 
-        // Update active booking flag — exclude completed so live tracker hides when done
-        const trackerStatuses = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress'];
+        // ── hasActiveBooking: show tracker whenever the car is still in the shop ──
+        // 'completed' = QC done, service complete, car STILL IN SHOP (ready for pickup).
+        // 'released'  = car physically handed back to customer (truly done, hide tracker).
+        // We must include 'completed' here — removing it was the root bug that caused
+        // the 'Booking Not Confirmed' card to surface from an old rejected booking.
+        const trackerStatuses = [
+          'approved', 'confirmed', 'assigned',
+          'received', 'in_progress', 'in-progress',
+          'completed',  // ← service done, car ready for pickup — tracker stays visible
+        ];
         const trackerOrder = myOrders.find((o: any) => trackerStatuses.includes(o.status));
         setHasActiveBooking(!!trackerOrder);
 
@@ -337,9 +403,12 @@ export default function CustomerDashboard() {
         const pendingOrder = myOrders.find((o: any) => o.status === 'pending_confirmation');
         setPendingConfirmationBooking(pendingOrder || null);
 
-        // Rejected — show re-book prompt
-        const rejected = myOrders.find((o: any) => o.status === 'rejected');
-        setRejectedBooking(rejected || null);
+        // Rejected — only show re-book card if the MOST RECENT order is rejected.
+        // Old rejected orders buried behind completed/released ones should never
+        // resurface — the customer has already moved on to newer bookings.
+        const mostRecent = myOrders[0]; // already sorted newest-first by caller
+        const rejected = mostRecent?.status === 'rejected' ? mostRecent : null;
+        setRejectedBooking(rejected);
 
         setCustomerStats({ currentStatus, nextAppointment, lastService, loyaltyPoints });
       } catch (err) {
@@ -902,18 +971,29 @@ export default function CustomerDashboard() {
             ? 'scan'
             : s === 'documents'
               ? 'documents'
-              : s === 'rewards'
-                ? 'rewards'
-                : s === 'tracker'
-                  ? 'tracker'
-                  : 'dashboard'
+              : s === 'payments'
+                ? 'payments'
+                : s === 'rewards'
+                  ? 'rewards'
+                  : s === 'tracker'
+                    ? 'tracker'
+                    : 'dashboard'
     );
   }, [location.search]);
 
-  // Fetch My Bookings whenever section opens
+  // Fetch My Bookings whenever section opens — with socket-driven instant updates
+  const loadBookingsRef = useRef<(() => Promise<void>) | null>(null);
+
   useEffect(() => {
     if (!['dashboard', 'bookings', 'documents', 'rewards', 'tracker'].includes(activeSection) || !user) return;
+
     const load = async () => {
+      // ── Bust cache before every fetch so polling always gets fresh data ──
+      // The cache TTL (5s) matches the poll interval, meaning the cache would
+      // always be fresh and the poll would return stale data. Invalidating first
+      // guarantees we hit the network on every poll tick.
+      invalidate('/bookings');
+
       setMyBookingsLoading(true);
       try {
         const { OrderService } = await import('../lib/order-service');
@@ -921,8 +1001,10 @@ export default function CustomerDashboard() {
         if (res.success && Array.isArray(res.data)) {
           const mine = res.data
             .filter((o: any) => {
-              const cid = o.customerId || o.customer?._id || o.customer;
-              return cid === user.id || cid === user._id || o.customerName === user.name;
+              // Normalize both sides to strings — ObjectId from DB serializes as string
+              const myId = String(user.id || user._id || '');
+              const cid = String(o.customerId || o.customer?._id || o.customer || '');
+              return cid === myId || o.customerName === user.name;
             })
             .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
           setMyBookings(mine);
@@ -959,9 +1041,15 @@ export default function CustomerDashboard() {
       } catch (e) { console.warn('[MyBookings]', e); }
       setMyBookingsLoading(false);
     };
+
+    // Expose load so the socket listener can trigger it
+    loadBookingsRef.current = load;
+
     load();
-    // Auto-refresh bookings every 5 seconds for live tracking updates
+    // Poll every 5s — cache is busted at the top of load() so this always hits the network.
+    // Real-time updates arrive via useLiveJobs socket (booking:status), this is the fallback.
     const interval = setInterval(load, 5000);
+
     return () => clearInterval(interval);
   }, [activeSection, user]);
 
@@ -1020,6 +1108,7 @@ export default function CustomerDashboard() {
       settings: '/customer/dashboard?section=settings',
       bookings: '/customer/dashboard?section=bookings',
       documents: '/customer/dashboard?section=documents',
+      payments: '/customer/dashboard?section=payments',
       rewards: '/customer/dashboard?section=rewards',
       tracker: '/customer/dashboard?section=tracker',
     };
@@ -1281,6 +1370,11 @@ export default function CustomerDashboard() {
             <button onClick={() => nav('documents')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'documents' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
               <iconify-icon icon="solar:document-text-linear" width="20"></iconify-icon>
               Documents
+            </button>
+
+            <button onClick={() => nav('payments')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'payments' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
+              <iconify-icon icon="solar:card-2-linear" width="20"></iconify-icon>
+              Payment History
             </button>
 
             <button onClick={() => nav('rewards')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'rewards' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
@@ -2674,6 +2768,178 @@ export default function CustomerDashboard() {
                   )}
                 </div>
               </div>
+            ) : activeSection === 'payments' ? (
+              <div className="space-y-6 pb-10">
+                {/* Header */}
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <h2 className="text-[22px] font-semibold text-slate-900 tracking-tight">Payment History</h2>
+                    <p className="text-sm text-slate-500 mt-0.5">All reservation fees and full payments per booking.</p>
+                  </div>
+                  <span className="text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded-full px-3 py-1">
+                    {myBookings.filter((b: any) => !['pending','cancelled','failed'].includes(b.status)).length} booking{myBookings.filter((b: any) => !['pending','cancelled','failed'].includes(b.status)).length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Total Bookings</p>
+                    <p className="text-2xl font-bold text-slate-900">{myBookings.filter((b: any) => !['pending','cancelled','failed'].includes(b.status)).length}</p>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Reservation Fees</p>
+                    <p className="text-2xl font-bold text-indigo-600">
+                      ₱{(myBookings.filter((b: any) => ['approved','confirmed','received','in_progress','completed','released','paid'].includes(b.status)).length * 500).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Full Payments</p>
+                    <p className="text-2xl font-bold text-emerald-600">
+                      ₱{myBookings
+                          .filter((b: any) => b.paymentStatus === 'paid')
+                          .reduce((sum: number, b: any) => sum + Number(b.totalPrice || b.totalAmount || 0), 0)
+                          .toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Payment List */}
+                {myBookings.filter((b: any) => !['pending','cancelled','failed'].includes(b.status)).length === 0 ? (
+                  <div className="bg-white border border-slate-200 rounded-xl p-10 text-center shadow-sm">
+                    <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-50">
+                      <iconify-icon icon="solar:card-2-linear" width="24" className="text-slate-300"></iconify-icon>
+                    </div>
+                    <p className="text-sm font-semibold text-slate-900">No payment records yet</p>
+                    <p className="text-xs text-slate-500 mt-1">Book a service to see your payment history here.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {[...myBookings]
+                      .filter((b: any) => !['pending','cancelled','failed'].includes(b.status))
+                      .sort((a: any, b: any) => new Date(b.createdAt || b.date || 0).getTime() - new Date(a.createdAt || a.date || 0).getTime())
+                      .map((b: any) => {
+                        const orderId = b.id || b._id;
+                        const total = Number(b.totalPrice || b.totalAmount || 0);
+                        const remaining = Math.max(total - 500, 0);
+                        const vehicle = [b.vehicleYear, b.vehicleMake, b.vehicleModel].filter(Boolean).join(' ') || b.vehicleInfo || '—';
+                        const dateStr = b.date || b.bookingDate || b.createdAt;
+                        const formattedDate = dateStr ? new Date(dateStr).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+                        const proofUrl: string | null = (b as any).paymentProofUrl || (b as any).downpaymentProof || null;
+
+                        const resvBadge = (() => {
+                          if (['approved','confirmed','received','in_progress','completed','released','paid'].includes(b.status))
+                            return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">✓ Approved</span>;
+                          if (b.status === 'rejected')
+                            return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700 border border-red-200">✕ Rejected</span>;
+                          return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 border border-amber-200">⏳ Pending</span>;
+                        })();
+
+                        const fullBadge = b.paymentStatus === 'paid'
+                          ? <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">✓ Paid</span>
+                          : <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-500 border border-slate-200">Unpaid</span>;
+
+                        return (
+                          <div key={orderId} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden hover:border-slate-300 transition-colors">
+                            {/* Booking Header */}
+                            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <iconify-icon icon="solar:card-bold" width="16" className="text-indigo-500 shrink-0"></iconify-icon>
+                                <div className="min-w-0">
+                                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-none">{b.orderNumber || b.bookingReference || String(orderId).slice(-8)}</p>
+                                  <p className="text-sm font-semibold text-slate-800 truncate mt-0.5">{b.serviceName || b.serviceType || 'Service'}</p>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0 ml-3">
+                                <p className="text-[10px] text-slate-400">{formattedDate}</p>
+                                <p className="text-xs font-bold text-slate-700 mt-0.5">{vehicle}</p>
+                              </div>
+                            </div>
+
+                            {/* Payment Rows */}
+                            <div className="divide-y divide-slate-100">
+                              {/* Row 1: Reservation Fee */}
+                              <div className="flex items-center justify-between px-5 py-3.5 gap-3 flex-wrap">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
+                                    <iconify-icon icon="solar:lock-keyhole-minimalistic-linear" width="15" className="text-indigo-500"></iconify-icon>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-semibold text-slate-700">Reservation Fee</p>
+                                    <p className="text-[10px] text-slate-400">Paid online via GCash</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3 ml-auto">
+                                  {proofUrl && (
+                                    <button
+                                      onClick={() => setPaymentLightboxUrl(proofUrl)}
+                                      className="flex items-center gap-1 text-[10px] font-semibold text-indigo-600 hover:text-indigo-800 underline underline-offset-2 transition-colors"
+                                    >
+                                      <iconify-icon icon="solar:gallery-linear" width="12"></iconify-icon>
+                                      View proof
+                                    </button>
+                                  )}
+                                  {resvBadge}
+                                  <span className="text-sm font-bold text-slate-900 w-16 text-right">₱500</span>
+                                </div>
+                              </div>
+
+                              {/* Row 2: Full Payment */}
+                              <div className="flex items-center justify-between px-5 py-3.5 gap-3 flex-wrap">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                                    <iconify-icon icon="solar:wallet-money-linear" width="15" className="text-emerald-600"></iconify-icon>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-semibold text-slate-700">Full Payment</p>
+                                    <p className="text-[10px] text-slate-400">Paid onsite upon service completion</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3 ml-auto">
+                                  {fullBadge}
+                                  <span className="text-sm font-bold text-slate-900 w-16 text-right">
+                                    {remaining > 0 ? `₱${remaining.toLocaleString()}` : '—'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Total Row */}
+                            <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-t border-slate-100">
+                              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total</p>
+                              <p className="text-base font-bold text-slate-900">{total > 0 ? `₱${total.toLocaleString()}` : '—'}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+
+                {/* Lightbox */}
+                {paymentLightboxUrl && (
+                  <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                    onClick={() => setPaymentLightboxUrl(null)}
+                  >
+                    <div className="relative max-w-lg w-full mx-4" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => setPaymentLightboxUrl(null)}
+                        className="absolute -top-10 right-0 text-white/80 hover:text-white text-sm font-semibold flex items-center gap-1"
+                      >
+                        <iconify-icon icon="solar:close-circle-linear" width="20"></iconify-icon>
+                        Close
+                      </button>
+                      <img
+                        src={paymentLightboxUrl}
+                        alt="Payment proof"
+                        className="w-full rounded-2xl shadow-2xl border-2 border-white/10"
+                        onError={(e) => { (e.target as HTMLImageElement).src = 'https://placehold.co/400x300?text=Image+not+found'; }}
+                      />
+                      <p className="text-center text-white/60 text-xs mt-3">GCash Payment Proof</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : activeSection === 'rewards' ? (
               <div className="space-y-6 pb-10">
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -3198,7 +3464,9 @@ export default function CustomerDashboard() {
 
                 {/* ── Live Service Tracker — Ultra Premium ── */}
                 {hasActiveBooking && (() => {
-                  const activeBooking = myBookings.find(b => ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress'].includes(b.status));
+                  const activeBooking = myBookings.find((b: any) =>
+                    ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress', 'completed'].includes(b.status)
+                  );
                   const status = activeBooking ? activeBooking.status.toLowerCase() : '';
                   
                   // ── Read QC-controlled fine-grained stage (primary) ──────────

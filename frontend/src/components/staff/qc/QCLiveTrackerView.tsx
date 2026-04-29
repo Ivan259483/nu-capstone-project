@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Radio, Car, ChevronRight, CheckCircle2, Circle, Loader2,
   Users, UserCheck, ChevronDown, Sparkles, Clock, Wrench,
-  ArrowRightCircle, MapPin,
+  ArrowRightCircle, MapPin, LogOut,
 } from 'lucide-react';
 import type { QCJob } from '@/hooks/useQCData';
 import type { ServiceStage } from './QCServiceControlPanel';
@@ -231,13 +231,26 @@ function JobTrackerCard({ job, onAdvance, onSaveStaff }: {
         </div>
       </div>
 
-      {/* ── Advance Button ─────────────────────────────────────────────────── */}
-      <div className="px-5 py-4">
+      {/* ── Advance / Release Button ───────────────────────────────────────── */}
+      <div className="px-5 py-4 space-y-2.5">
         {isComplete ? (
-          <div className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-bold bg-green-50 text-green-700 border-2 border-green-200">
-            <CheckCircle2 size={16} />
-            Service Complete · Ready for Pickup
-          </div>
+          // ── Final step: vehicle is ready, waiting for physical handover ──────
+          <>
+            <div className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-green-50 text-green-700 border border-green-200">
+              <CheckCircle2 size={15} />
+              Service Complete · Ready for Pickup
+            </div>
+            <button
+              onClick={() => handleAdvance('released' as any)}
+              disabled={!!advancingTo}
+              className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl text-sm font-bold text-white shadow-lg transition-all active:scale-[0.98] disabled:opacity-60 hover:shadow-xl"
+              style={{ background: 'linear-gradient(135deg,#0f766e 0%,#059669 100%)', boxShadow: '0 8px 24px rgba(5,150,105,0.3)' }}
+            >
+              {advancingTo === ('released' as any)
+                ? <><Loader2 size={16} className="animate-spin" />Releasing vehicle…</>
+                : <><LogOut size={16} />Mark Vehicle as Released</>}
+            </button>
+          </>
         ) : (!currentStage || currentStage === 'confirmed') ? (
           <button
             onClick={() => handleAdvance('received')}
@@ -319,7 +332,8 @@ function JobTrackerCard({ job, onAdvance, onSaveStaff }: {
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
-const ORDER_STATUSES_ACTIVE = ['approved', 'confirmed', 'assigned', 'received', 'in_progress'];
+// 'completed' stays in active grid until staff presses 'Mark Vehicle as Released'
+const ORDER_STATUSES_ACTIVE = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed'];
 
 export default function QCLiveTrackerView({ jobs, loading, onAdvance, onSaveStaff }: {
   jobs: QCJob[];
@@ -327,8 +341,8 @@ export default function QCLiveTrackerView({ jobs, loading, onAdvance, onSaveStaf
   onAdvance: (id: string, stage: ServiceStage) => Promise<boolean>;
   onSaveStaff: (id: string, assignments: { slot: string; name: string; role: string }[]) => Promise<boolean>;
 }) {
-  const activeJobs   = jobs.filter(j => ORDER_STATUSES_ACTIVE.includes((j as any).orderStatus || ''));
-  const completedJobs = jobs.filter(j => (j as any).orderStatus === 'completed');
+  const activeJobs    = jobs.filter(j => ORDER_STATUSES_ACTIVE.includes((j as any).orderStatus || ''));
+  const releasedJobs  = jobs.filter(j => (j as any).orderStatus === 'released');
 
   return (
     <div className="space-y-5">
@@ -388,28 +402,28 @@ export default function QCLiveTrackerView({ jobs, loading, onAdvance, onSaveStaf
         </div>
       )}
 
-      {/* ── Completed Section ───────────────────────────────────────────── */}
-      {completedJobs.length > 0 && (
+      {/* ── Released Section ─────────────────────────────────────────────── */}
+      {releasedJobs.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
             <div className="h-px flex-1 bg-slate-100" />
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-              <CheckCircle2 size={11} className="text-green-400" />
-              Completed Today · {completedJobs.length}
+              <CheckCircle2 size={11} className="text-teal-400" />
+              Released Today · {releasedJobs.length}
             </span>
             <div className="h-px flex-1 bg-slate-100" />
           </div>
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5">
-            {completedJobs.map(job => (
-              <div key={job.id} className="flex items-center gap-3 px-4 py-3.5 bg-green-50 border border-green-100 rounded-xl">
-                <div className="w-9 h-9 rounded-xl bg-green-100 flex items-center justify-center text-lg flex-shrink-0">✅</div>
+            {releasedJobs.map(job => (
+              <div key={job.id} className="flex items-center gap-3 px-4 py-3.5 bg-teal-50 border border-teal-100 rounded-xl">
+                <div className="w-9 h-9 rounded-xl bg-teal-100 flex items-center justify-center text-lg flex-shrink-0">🏁</div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-slate-800">{job.jobId}</p>
                   <p className="text-xs text-slate-400 truncate mt-0.5">
                     {[job.vehicleYear, job.vehicleMake, job.vehicleModel].filter(Boolean).join(' ') || job.vehicle} · {job.customer}
                   </p>
                 </div>
-                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-green-600 text-white">Done</span>
+                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-teal-600 text-white">Released</span>
               </div>
             ))}
           </div>

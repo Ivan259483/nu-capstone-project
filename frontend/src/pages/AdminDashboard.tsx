@@ -517,7 +517,7 @@ export default function AdminDashboard() {
                 }
 
                 const [usersRes, suppliersRes, servicesRes, productsRes, settingsRes, notifyRes, activityRes, paymentsRes] = await Promise.all([
-                    needsUserDirectory ? UserService.getAllUsers().catch(e => {
+                    needsUserDirectory ? UserService.getAllUsers({ suppressErrorToast: true }).catch(e => {
                         console.error('❌ [AdminDashboard] UserService.getAllUsers() failed:', e);
                         return { success: false, data: [], error: e.message };
                     }) : Promise.resolve({ success: false, data: [] }),

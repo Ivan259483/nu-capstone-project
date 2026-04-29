@@ -1,8 +1,8 @@
 import api from './api';
 
 export const UserService = {
-    async getAllUsers() {
-        const response = await api.get('/users');
+    async getAllUsers(options?: { suppressErrorToast?: boolean }) {
+        const response = await api.get('/users', { meta: options } as any);
         // Map _id to id consistently
         if (response.data.success && Array.isArray(response.data.data)) {
             response.data.data = response.data.data.map((u: any) => ({

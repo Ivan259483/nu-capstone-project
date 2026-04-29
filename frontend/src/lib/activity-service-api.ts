@@ -28,7 +28,7 @@ export const ActivityService = {
             if (filters.dateFrom) params.dateFrom = filters.dateFrom;
             if (filters.dateTo) params.dateTo = filters.dateTo;
 
-            const data = await cachedGet('/activity', { params }, TTL.SHORT);
+            const data = await cachedGet('/activity', { params, meta: { suppressErrorToast: true } }, TTL.SHORT);
 
             return {
                 success: data.success,
@@ -50,7 +50,7 @@ export const ActivityService = {
      */
     async getActivityStats() {
         try {
-            const data = await cachedGet('/activity/stats', undefined, TTL.SHORT);
+            const data = await cachedGet('/activity/stats', { meta: { suppressErrorToast: true } }, TTL.SHORT);
             return { success: data.success, data: data.data };
         } catch (error: any) {
             return { success: false, data: null };

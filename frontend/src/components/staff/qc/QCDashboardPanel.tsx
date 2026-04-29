@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { ImageIcon, MessageSquare, Zap } from 'lucide-react';
 import QCSidebar from './QCSidebar';
 import QCTopbar from './QCTopbar';
@@ -149,16 +149,36 @@ function AIDetectionView({ jobs }: { jobs: { id: string; aiFlag: boolean; damage
 }
 
 // ─── Main QCDashboardPanel ────────────────────────────────────────────────────
+const QC_VIEW_KEY = 'autospf_qc_active_view';
+const VALID_QC_VIEWS: QCView[] = ['dashboard', 'jobs', 'job-detail', 'before-after', 'ai-detection', 'customer-notes', 'reports', 'live-tracker'];
+
 export default function QCDashboardPanel() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeView, setActiveView] = useState<QCView>('dashboard');
+  const [activeView, setActiveView] = useState<QCView>(() => {
+    try {
+      const saved = sessionStorage.getItem(QC_VIEW_KEY) as QCView | null;
+      // Don't restore job-detail without knowing which job is selected
+      if (saved && VALID_QC_VIEWS.includes(saved) && saved !== 'job-detail') return saved;
+    } catch { /* sessionStorage unavailable */ }
+    return 'dashboard';
+  });
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+
+  // Persist active view so remounts don't reset to dashboard
+  const navigateTo = useCallback((view: QCView) => {
+    try { sessionStorage.setItem(QC_VIEW_KEY, view); } catch { /* ignore */ }
+    setActiveView(view);
+  }, []);
 
   const {
     jobs,
     jobsLoading,
     stats,
     statsLoading,
+    activity,
+    activityLoading,
+    technicianData,
+    techLoading,
     approveJob,
     returnJob,
     updateChecklist,
@@ -173,13 +193,13 @@ export default function QCDashboardPanel() {
 
   const handleSelectJob = (jobId: string) => {
     setSelectedJobId(jobId);
-    setActiveView('job-detail');
+    navigateTo('job-detail');
   };
 
   const renderContent = () => {
     switch (activeView) {
       case 'dashboard':
-        return <QCDashboardView onNavigate={setActiveView} stats={stats} statsLoading={statsLoading} jobs={jobs} />;
+        return <QCDashboardView onNavigate={navigateTo} stats={stats} statsLoading={statsLoading} jobs={jobs} activity={activity} activityLoading={activityLoading} onSelectJob={handleSelectJob} />;
 
       case 'jobs':
         return (
@@ -215,7 +235,7 @@ export default function QCDashboardPanel() {
           <QCJobDetailView
             jobId={selectedJobId}
             jobs={jobs}
-            onBack={() => setActiveView('jobs')}
+            onBack={() => navigateTo('jobs')}
             onApprove={approveJob}
             onReturn={returnJob}
             onUpdateChecklist={updateChecklist}
@@ -234,7 +254,7 @@ export default function QCDashboardPanel() {
         return <CustomerNotesView jobs={jobs as any} />;
 
       case 'reports':
-        return <QCReportsView stats={stats} statsLoading={statsLoading} />;
+        return <QCReportsView stats={stats} statsLoading={statsLoading} technicianData={technicianData} techLoading={techLoading} />;
 
       case 'live-tracker':
         return (
@@ -257,7 +277,7 @@ export default function QCDashboardPanel() {
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         activeView={activeView}
-        onNavigate={setActiveView}
+        onNavigate={navigateTo}
         pendingCount={pendingCount}
         aiPendingCount={aiPendingCount}
       />

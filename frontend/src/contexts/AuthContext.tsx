@@ -26,7 +26,7 @@ const BACKEND_URL = getBaseApiUrl();
    ═══════════════════════════════════════════════════════ */
 const SESSION_CACHE_KEY = 'autospf_session_cache';
 const SESSION_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
-const SESSION_CACHE_VERSION = 2; // Bump to invalidate stale caches
+const SESSION_CACHE_VERSION = 3; // Bump to invalidate stale caches (forced re-auth after role change hr→staff_quality_checker)
 
 interface SessionCache {
     user: User;

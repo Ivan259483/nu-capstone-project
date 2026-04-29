@@ -57,7 +57,7 @@ function EmptyStateCard({ icon: Icon, title, subtitle, accent = 'blue' }: { icon
   );
 }
 
-export default function QCReportsView({ stats, statsLoading }: { stats: QCStats; statsLoading: boolean }) {
+export default function QCReportsView({ stats, statsLoading, technicianData = [], techLoading = false }: { stats: QCStats; statsLoading: boolean; technicianData?: { name: string; approved: number; returned: number; rate: number }[]; techLoading?: boolean }) {
   const totalReviewed = (stats.approvedToday || 0) + (stats.returned || 0);
   const approvalRate = totalReviewed > 0 ? Math.round((stats.approvedToday / totalReviewed) * 100) : 0;
   const returnRate = totalReviewed > 0 ? Math.round((stats.returned / totalReviewed) * 100) : 0;
@@ -71,7 +71,6 @@ export default function QCReportsView({ stats, statsLoading }: { stats: QCStats;
 
   const trendData = stats.trendData || [];
   const pieData = stats.serviceDistribution || [];
-  const techData: { name: string; approved: number; returned: number; rate: number }[] = [];
 
   return (
     <div className="space-y-6">
@@ -160,7 +159,18 @@ export default function QCReportsView({ stats, statsLoading }: { stats: QCStats;
       <div className="bg-white rounded-xl p-6 shadow-sm shadow-slate-200/50">
         <h3 className="text-base font-semibold text-slate-800 mb-1">Technician Performance</h3>
         <p className="text-xs text-slate-400 mb-5">Approval rates — current period</p>
-        {techData.length > 0 ? (
+        {techLoading ? (
+          <div className="space-y-3">
+            {[1,2,3].map(i => (
+              <div key={i} className="animate-pulse flex items-center gap-4">
+                <div className="w-7 h-7 rounded-full bg-slate-100" />
+                <div className="flex-1 h-3 bg-slate-100 rounded" />
+                <div className="w-12 h-3 bg-slate-100 rounded" />
+                <div className="w-24 h-3 bg-slate-100 rounded" />
+              </div>
+            ))}
+          </div>
+        ) : technicianData.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[500px]">
               <thead>
@@ -171,7 +181,7 @@ export default function QCReportsView({ stats, statsLoading }: { stats: QCStats;
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {techData.sort((a, b) => b.rate - a.rate).map((t, i) => (
+                {technicianData.sort((a, b) => b.rate - a.rate).map((t, i) => (
                   <tr key={t.name} className="hover:bg-slate-50 transition-colors">
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-3">

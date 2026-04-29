@@ -8,7 +8,7 @@ import {
   ResponsiveContainer, Cell,
 } from 'recharts';
 import QCStatusBadge, { type QCStatus } from './QCStatusBadge';
-import type { QCStats, QCJob } from '@/hooks/useQCData';
+import type { QCStats, QCJob, QCActivityItem } from '@/hooks/useQCData';
 
 type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'before-after' | 'ai-detection' | 'customer-notes' | 'reports';
 
@@ -106,12 +106,15 @@ function StatCard({ label, value, sub, icon: Icon, gradient, iconBg, iconColor, 
 // ── Main ─────────────────────────────────────────────────────────────────────
 interface Props {
   onNavigate: (v: QCView) => void;
+  onSelectJob?: (id: string) => void;
   stats: QCStats;
   statsLoading: boolean;
   jobs: QCJob[];
+  activity?: QCActivityItem[];
+  activityLoading?: boolean;
 }
 
-export default function QCDashboardView({ onNavigate, stats, statsLoading, jobs }: Props) {
+export default function QCDashboardView({ onNavigate, onSelectJob, stats, statsLoading, jobs, activity = [], activityLoading = false }: Props) {
   const v = (n: number) => (statsLoading ? '—' : String(n));
 
   const urgentJobs = [...jobs]
@@ -279,8 +282,8 @@ export default function QCDashboardView({ onNavigate, stats, statsLoading, jobs 
                         <span className={`text-xs font-medium tabular-nums ${job.elapsedMinutes >= 240 ? 'text-rose-500' : 'text-slate-500'}`}>{job.elapsed}</span>
                       </td>
                       <td className="px-4 py-3.5"><QCStatusBadge status={job.status as QCStatus} /></td>
-                      <td className="px-4 py-3.5">
-                        <button onClick={() => onNavigate('jobs')} className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-blue-600 font-medium">
+                    <td className="px-4 py-3.5">
+                        <button onClick={() => onSelectJob ? onSelectJob(job.id) : onNavigate('jobs')} className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-blue-600 font-medium">
                           Review <ArrowRight size={11} />
                         </button>
                       </td>
@@ -341,17 +344,58 @@ export default function QCDashboardView({ onNavigate, stats, statsLoading, jobs 
 
           {/* Recent Activity */}
           <div className="bg-white rounded-2xl overflow-hidden shadow-sm shadow-slate-200/50">
-            <div className="flex items-center gap-2 px-5 py-4">
+            <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-50">
               <Clock size={14} className="text-slate-400" />
               <h3 className="text-sm font-semibold text-slate-800 tracking-tight">Recent Activity</h3>
+              {activity.length > 0 && (
+                <span className="ml-auto text-[10px] font-semibold text-slate-400 tabular-nums">{activity.length} actions</span>
+              )}
             </div>
-            <div className="flex flex-col items-center justify-center py-10 text-center mx-4 my-4 rounded-2xl" style={{ background: 'linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%)' }}>
-              <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center mb-2.5 ring-4 ring-violet-50">
-                <Clock size={16} className="text-violet-500" />
+            {activityLoading ? (
+              <div className="space-y-0 divide-y divide-slate-50">
+                {[1,2,3].map(i => (
+                  <div key={i} className="px-5 py-3.5 animate-pulse flex gap-3">
+                    <div className="w-6 h-6 rounded-full bg-slate-100 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3 bg-slate-100 rounded w-3/4" />
+                      <div className="h-2.5 bg-slate-50 rounded w-1/2" />
+                    </div>
+                  </div>
+                ))}
               </div>
-              <p className="text-sm font-semibold text-slate-600">No recent activity</p>
-              <p className="text-xs text-slate-400 mt-1">Your review actions will appear here</p>
-            </div>
+            ) : activity.length > 0 ? (
+              <div className="divide-y divide-slate-50 max-h-64 overflow-y-auto">
+                {activity.slice(0, 8).map((item) => (
+                  <div key={item.id} className="flex items-start gap-3 px-5 py-3 hover:bg-slate-50/60 transition-colors">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                      item.type === 'approved' ? 'bg-emerald-100' : 'bg-rose-100'
+                    }`}>
+                      {item.type === 'approved'
+                        ? <CheckCircle2 size={12} className="text-emerald-600" />
+                        : <RotateCcw size={12} className="text-rose-500" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-slate-800 truncate">
+                        {item.type === 'approved' ? 'Approved' : 'Returned'} · <span className="font-normal text-slate-500">{item.jobId}</span>
+                      </p>
+                      <p className="text-[11px] text-slate-400 truncate mt-0.5">{item.vehicle} · {item.customer}</p>
+                      {item.note && <p className="text-[11px] text-rose-400 truncate mt-0.5 italic">"{item.note}"</p>}
+                    </div>
+                    <span className="text-[10px] text-slate-300 flex-shrink-0 tabular-nums">
+                      {new Date(item.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-10 text-center mx-4 my-4 rounded-2xl" style={{ background: 'linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%)' }}>
+                <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center mb-2.5 ring-4 ring-violet-50">
+                  <Clock size={16} className="text-violet-500" />
+                </div>
+                <p className="text-sm font-semibold text-slate-600">No recent activity</p>
+                <p className="text-xs text-slate-400 mt-1">Your review actions will appear here</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

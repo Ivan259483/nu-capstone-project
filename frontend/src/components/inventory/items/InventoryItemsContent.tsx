@@ -33,7 +33,6 @@ export default function InventoryItemsContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
-  const [loading] = useState(false);
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
   const [editingQtyValue, setEditingQtyValue] = useState('');
   const [addEditOpen, setAddEditOpen] = useState(false);
@@ -101,11 +100,28 @@ export default function InventoryItemsContent() {
     setAddEditOpen(false); setEditingItem(null);
   }
 
+  function handleExportCSV() {
+    const headers = ['SKU', 'Name', 'Category', 'Quantity', 'Unit', 'Min Stock', 'Max Stock', 'Unit Cost (PHP)', 'Status', 'Supplier', 'Last Restocked'];
+    const rows = filtered.map((i) => [
+      i.sku, i.name, i.category, i.quantity, i.unit, i.minStock, i.maxQuantity,
+      i.costPerUnit.toFixed(2), i.status, i.supplierName || '',
+      new Date(i.lastRestocked).toLocaleDateString('en-US'),
+    ]);
+    const csv = [headers, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `inventory-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+    toast.success(`Exported ${filtered.length} items to CSV`);
+  }
+
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = { All: items.length };
     CATEGORIES.slice(1).forEach((cat) => { counts[cat] = items.filter((i) => i.category === cat).length; });
     return counts;
   }, [items]);
+
 
   return (
     <>
@@ -116,7 +132,7 @@ export default function InventoryItemsContent() {
             <p className="text-xs text-gray-400 font-medium mt-0.5">{items.filter((i) => i.status === 'critical' || i.status === 'out-of-stock').length} items need restocking</p>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => toast.success('CSV export started')} className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150 active:scale-95 shadow-sm"><Download size={15} /><span className="hidden sm:inline">Export CSV</span></button>
+            <button onClick={handleExportCSV} className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150 active:scale-95 shadow-sm"><Download size={15} /><span className="hidden sm:inline">Export CSV</span></button>
             <button onClick={() => { setEditingItem(null); setAddEditOpen(true); }} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md glow-blue"><Plus size={16} />Add Item</button>
           </div>
         </div>
@@ -159,7 +175,7 @@ export default function InventoryItemsContent() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? Array.from({ length: 8 }).map((_, i) => <TableRowSkeleton key={`skel-${i}`} cols={9} />) : paginated.length === 0 ? (
+                {dataLoading ? Array.from({ length: 8 }).map((_, i) => <TableRowSkeleton key={`skel-${i}`} cols={9} />) : paginated.length === 0 ? (
                   <tr><td colSpan={9} className="px-4 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center"><Search size={24} className="text-gray-300" /></div>

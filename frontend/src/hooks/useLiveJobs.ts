@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { OrderService } from '@/lib/order-service';
 import type { Booking, User } from '@/types';
@@ -9,9 +9,30 @@ let socket: Socket | null = null;
 
 const SYNC_INTERVAL_MS = 30_000;
 
-export function useLiveJobs(user?: User | null) {
+/** Shape of a booking:status socket event from the backend (QC stage advances) */
+export interface BookingStatusEvent {
+    bookingId: string;
+    status?: string;
+    serviceTrackingStage?: string | null;
+    serviceStaffAssignments?: any[];
+    updatedAt?: string;
+}
+
+export function useLiveJobs(
+    user?: User | null,
+    /** Called immediately when a booking:status event arrives — use for instant tracker UI update */
+    onBookingStatus?: (event: BookingStatusEvent) => void,
+    /** Called when a notification:customer event arrives — prepend to notifications list */
+    onNotification?: (notif: any) => void,
+) {
     const [jobs, setJobs] = useState<Booking[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+
+    // Keep stable refs to callbacks so listeners never capture stale closures
+    const onBookingStatusRef = useRef(onBookingStatus);
+    const onNotificationRef  = useRef(onNotification);
+    useEffect(() => { onBookingStatusRef.current = onBookingStatus; }, [onBookingStatus]);
+    useEffect(() => { onNotificationRef.current  = onNotification;  }, [onNotification]);
 
     useEffect(() => {
         if (!user) return;
@@ -87,6 +108,22 @@ export function useLiveJobs(user?: User | null) {
             console.warn('[LIVE_JOBS] Socket disconnected:', reason);
         });
 
+        // ── booking:status — QC stage advances & staff assignments ──────────
+        // Emitted to user:${id} room by qc.controller.js and order.controller.js.
+        // Calls the consumer callback (CustomerDashboard) for an instant state patch.
+        const handleBookingStatus = (event: BookingStatusEvent) => {
+            console.log('[SOCKET] booking:status received:', event);
+            onBookingStatusRef.current?.(event);
+        };
+        socket.on('booking:status', handleBookingStatus);
+
+        // ── notification:customer — real-time bell notifications ────────
+        const handleCustomerNotification = (notif: any) => {
+            console.log('[SOCKET] notification:customer received:', notif);
+            onNotificationRef.current?.(notif);
+        };
+        socket.on('notification:customer', handleCustomerNotification);
+
         // Optimistic state update only — no follow-up HTTP fetch per event
         const handleJobUpdate = (updatedJob: Booking) => {
             if (!updatedJob || typeof updatedJob !== 'object') {
@@ -160,6 +197,8 @@ export function useLiveJobs(user?: User | null) {
 
         return () => {
             clearInterval(syncInterval);
+            socket?.off('booking:status', handleBookingStatus);
+            socket?.off('notification:customer', handleCustomerNotification);
             for (const event of jobEvents) {
                 socket?.off(event, handleJobUpdate);
             }

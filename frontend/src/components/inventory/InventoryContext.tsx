@@ -71,7 +71,7 @@ interface InventoryContextType {
   error: string | null;
   refreshAll: () => Promise<void>;
   refreshItems: () => Promise<InventoryItem[]>;
-  refreshSuppliers: () => Promise<void>;
+  refreshSuppliers: (freshItems?: InventoryItem[]) => Promise<void>;
   addItem: (item: Partial<InventoryItem>) => Promise<InventoryItem>;
   editItem: (id: string, data: Partial<InventoryItem>) => Promise<InventoryItem>;
   removeItem: (id: string) => Promise<void>;
@@ -213,11 +213,11 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     return [];
   }, []);
 
-  const refreshSuppliers = useCallback(async () => {
+  const refreshSuppliers = useCallback(async (freshItems?: InventoryItem[]) => {
     try {
       const res = await SupplierService.getAllSuppliers();
       if (res?.success && Array.isArray(res.data)) {
-        setSuppliers(res.data.map((s: any) => normalizeSupplier(s, items)));
+        setSuppliers(res.data.map((s: any) => normalizeSupplier(s, freshItems ?? items)));
       }
     } catch (e: any) {
       console.error('[Inventory] Failed to fetch suppliers:', e);
@@ -281,7 +281,9 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
       sku: data.sku,
     };
     const res = await InventoryService.createProduct(payload);
-    const normalized = normalizeProduct(res?.data || res);
+    // createProduct returns { success, data: {...} } — extract inner data
+    const raw = res?.data ?? res;
+    const normalized = normalizeProduct(raw);
     setItems((prev) => [...prev, normalized]);
     return normalized;
   }, []);
@@ -300,7 +302,9 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     if (data.supplierId !== undefined) payload.supplier = data.supplierId;
 
     const res = await InventoryService.updateProduct(id, payload);
-    const normalized = normalizeProduct(res?.data || res);
+    // updateProduct returns { success, data: {...} } — extract inner data
+    const raw = res?.data ?? res;
+    const normalized = normalizeProduct(raw);
     setItems((prev) => prev.map((i) => (i.id === id ? normalized : i)));
     return normalized;
   }, []);

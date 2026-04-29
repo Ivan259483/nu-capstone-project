@@ -46,6 +46,25 @@ export interface QCStats {
   serviceDistribution: { name: string; value: number }[];
 }
 
+export interface QCActivityItem {
+  id: string;
+  jobId: string;
+  type: 'approved' | 'returned';
+  customer: string;
+  vehicle: string;
+  service: string;
+  actor: string;
+  timestamp: string;
+  note: string | null;
+}
+
+export interface QCTechnicianStat {
+  name: string;
+  approved: number;
+  returned: number;
+  rate: number;
+}
+
 const POLL_INTERVAL_MS = 30_000; // 30 seconds
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -63,6 +82,10 @@ export function useQCData() {
     serviceDistribution: [],
   });
   const [statsLoading, setStatsLoading] = useState(true);
+  const [activity, setActivity] = useState<QCActivityItem[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [technicianData, setTechnicianData] = useState<QCTechnicianStat[]>([]);
+  const [techLoading, setTechLoading] = useState(true);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -72,13 +95,9 @@ export function useQCData() {
     if (!silent) setJobsLoading(true);
     try {
       const res = await api.get('/qc/jobs');
-      if (res.data?.success) {
-        setJobs(res.data.data ?? []);
-      }
+      if (res.data?.success) setJobs(res.data.data ?? []);
     } catch (err: any) {
-      if (!silent) {
-        console.error('[QC] Failed to fetch jobs:', err.message);
-      }
+      if (!silent) console.error('[QC] Failed to fetch jobs:', err.message);
     } finally {
       if (!silent) setJobsLoading(false);
     }
@@ -88,21 +107,46 @@ export function useQCData() {
     if (!silent) setStatsLoading(true);
     try {
       const res = await api.get('/qc/dashboard/stats');
-      if (res.data?.success) {
-        setStats(res.data.data);
-      }
+      if (res.data?.success) setStats(res.data.data);
     } catch (err: any) {
-      if (!silent) {
-        console.error('[QC] Failed to fetch stats:', err.message);
-      }
+      if (!silent) console.error('[QC] Failed to fetch stats:', err.message);
     } finally {
       if (!silent) setStatsLoading(false);
     }
   }, []);
 
+  const fetchActivity = useCallback(async (silent = false) => {
+    if (!silent) setActivityLoading(true);
+    try {
+      const res = await api.get('/qc/activity?limit=15');
+      if (res.data?.success) setActivity(res.data.data ?? []);
+    } catch (err: any) {
+      if (!silent) console.error('[QC] Failed to fetch activity:', err.message);
+    } finally {
+      if (!silent) setActivityLoading(false);
+    }
+  }, []);
+
+  const fetchTechnicianData = useCallback(async (silent = false) => {
+    if (!silent) setTechLoading(true);
+    try {
+      const res = await api.get('/qc/reports/technicians');
+      if (res.data?.success) setTechnicianData(res.data.data ?? []);
+    } catch (err: any) {
+      if (!silent) console.error('[QC] Failed to fetch technician report:', err.message);
+    } finally {
+      if (!silent) setTechLoading(false);
+    }
+  }, []);
+
   const refetchAll = useCallback(async (silent = false) => {
-    await Promise.all([fetchJobs(silent), fetchStats(silent)]);
-  }, [fetchJobs, fetchStats]);
+    await Promise.all([
+      fetchJobs(silent),
+      fetchStats(silent),
+      fetchActivity(silent),
+      fetchTechnicianData(silent),
+    ]);
+  }, [fetchJobs, fetchStats, fetchActivity, fetchTechnicianData]);
 
   // ── Initial load + polling ───────────────────────────────────────────────────
 
@@ -230,6 +274,10 @@ export function useQCData() {
     jobsLoading,
     stats,
     statsLoading,
+    activity,
+    activityLoading,
+    technicianData,
+    techLoading,
     refetchJobs: () => fetchJobs(false),
     refetchStats: () => fetchStats(false),
     refetchAll: () => refetchAll(false),

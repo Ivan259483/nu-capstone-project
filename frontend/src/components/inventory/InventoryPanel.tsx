@@ -264,14 +264,14 @@ function InventoryPanelInner() {
   const navigate = useNavigate();
   const [notifCount, setNotifCount] = useState(0);
 
-  // Fetch unread notification count for badge
+  // Fetch unread notification count once on mount
   useEffect(() => {
     NotificationService.getNotifications()
       .then(res => {
         if (res?.success) setNotifCount((res.data || []).filter((n: any) => !n.isRead).length);
       })
       .catch(() => {});
-  }, [activePage]);
+  }, []); // intentionally run once — bell count refreshes when user visits Notifications page
 
   const handleLogout = () => { logout(); navigate('/'); };
   const sidebarW = collapsed ? 64 : 256;
@@ -332,7 +332,13 @@ function InventoryPanelInner() {
           {!collapsed && <p style={{ padding: '12px 12px 8px', fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Alerts</p>}
           <button
             className={`inv-nav-item ${activePage === 'notifications' ? 'active' : ''}`}
-            onClick={() => setActivePage('notifications')}
+            onClick={() => {
+              setActivePage('notifications');
+              // Refresh bell count when user opens notifications page
+              NotificationService.getNotifications()
+                .then(res => { if (res?.success) setNotifCount((res.data || []).filter((n: any) => !n.isRead).length); })
+                .catch(() => {});
+            }}
             title={collapsed ? 'Notifications' : undefined}
             style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : undefined}
           >
