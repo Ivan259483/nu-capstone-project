@@ -47,7 +47,7 @@ export const authenticate = async (req, res, next) => {
         return res.status(401).json({ success: false, message: 'This account has been deleted by an administrator.', code: 'USER_DELETED' });
       }
       if (!userDoc.isActive) {
-        return res.status(403).json({ success: false, message: 'Your account has been deactivated.' });
+        return res.status(403).json({ success: false, message: 'Your account has been deactivated.', code: 'ACCOUNT_INACTIVE' });
       }
       if (userDoc.lockUntil && userDoc.lockUntil > new Date()) {
         return res.status(423).json({ success: false, message: 'Your account is temporarily locked.' });

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Notification from '../models/notification.model.js';
 import { getNotificationAudiencesForRole } from '../constants/roles.js';
 
@@ -11,7 +12,7 @@ import { getNotificationAudiencesForRole } from '../constants/roles.js';
 export const getNotifications = async (req, res, next) => {
   try {
     const role = req.user.role;
-    const userId = req.user._id || req.user.id;
+    const userId = new mongoose.Types.ObjectId(req.user._id || req.user.id);
     const recipientRoles = getNotificationAudiencesForRole(role);
 
     // Filter out 'customer' from broadcast audiences — those must be per-user
@@ -76,7 +77,7 @@ export const markAsRead = async (req, res, next) => {
 export const markAllAsRead = async (req, res, next) => {
   try {
     const role = req.user.role;
-    const userId = req.user._id || req.user.id;
+    const userId = new mongoose.Types.ObjectId(req.user._id || req.user.id);
     const recipientRoles = getNotificationAudiencesForRole(role);
     const broadcastRoles = recipientRoles.filter(r => r !== 'customer');
 

@@ -3,6 +3,8 @@ import { authenticate, authorize } from '../middleware/auth.middleware.js';
 import {
   getQCJobs,
   getQCStats,
+  getQCActivity,
+  getQCTechnicianReport,
   approveJob,
   returnJob,
   updateQCChecklist,
@@ -16,7 +18,7 @@ const router = express.Router();
 router.use(authenticate);
 
 // QC role + admin can access these endpoints
-const QC_ALLOWED_ROLES = ['staff_quality_checker', 'administrator', 'operation_manager'];
+const QC_ALLOWED_ROLES = ['staff_quality_checker', 'administrator', 'operation_manager', 'office_admin', 'hr'];
 
 /**
  * @route   GET /api/qc/jobs
@@ -31,6 +33,20 @@ router.get('/jobs', authorize(...QC_ALLOWED_ROLES), getQCJobs);
  * @access  QC Checker, Admin
  */
 router.get('/dashboard/stats', authorize(...QC_ALLOWED_ROLES), getQCStats);
+
+/**
+ * @route   GET /api/qc/activity
+ * @desc    Recent QC review activity feed
+ * @access  QC Checker, Admin
+ */
+router.get('/activity', authorize(...QC_ALLOWED_ROLES), getQCActivity);
+
+/**
+ * @route   GET /api/qc/reports/technicians
+ * @desc    Per-technician approval performance report
+ * @access  QC Checker, Admin
+ */
+router.get('/reports/technicians', authorize(...QC_ALLOWED_ROLES), getQCTechnicianReport);
 
 /**
  * @route   PATCH /api/qc/jobs/:id/approve

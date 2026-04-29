@@ -310,7 +310,7 @@ const orderSchema = new mongoose.Schema(
     // This drives the customer's 5-step live tracking display.
     serviceTrackingStage: {
       type: String,
-      enum: [null, 'confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup', 'completed'],
+      enum: [null, 'confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup', 'completed', 'released'],
       default: null,
     },
     serviceTrackingUpdatedAt: Date,

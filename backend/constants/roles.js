@@ -58,13 +58,17 @@ export const USER_MANAGEMENT_ROLES = Object.freeze([
 
 export const INVENTORY_MANAGER_ROLES = Object.freeze([
   'administrator',
+  'office_admin',
   'operation_manager',
   'inventory',
+  'staff_inventory',
 ]);
 
 export const SUPPLIER_VIEW_ROLES = Object.freeze([
   'administrator',
+  'office_admin',
   'inventory',
+  'staff_inventory',
 ]);
 
 export const BOOKING_MANAGER_ROLES = Object.freeze([

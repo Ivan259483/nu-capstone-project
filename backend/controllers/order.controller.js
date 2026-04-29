@@ -2667,13 +2667,23 @@ export const approveBooking = async (req, res, next) => {
       const scheduleInfo = order.bookingDate && order.bookingTime
         ? ` Your appointment is on ${order.bookingDate} at ${order.bookingTime}.`
         : '';
-      await Notification.create({
-        title: '✅ Booking Approved — Live Tracker Active!',
-        message: `Your GCash payment for booking ${order.orderNumber} has been verified.${scheduleInfo} Please bring your vehicle on your appointment day. You can now track your service progress in the Live Tracker.`,
+      const customerId = typeof order.customer === 'object'
+        ? order.customer?._id : order.customer;
+      const notif = await Notification.create({
+        title: '✅ Appointment Confirmed!',
+        message: `Your appointment has been confirmed.${scheduleInfo} Your vehicle is now tracked in the Live Tracker.`,
         type: 'booking',
-        recipient: order.customer?._id || order.customer,
-        metadata: { orderId: order._id }
+        recipientUserId: customerId,
+        metadata: { orderId: order._id, orderNumber: order.orderNumber }
       });
+      // Push in real-time so customer sees it instantly
+      try {
+        const io = getIO();
+        io.to(`user:${customerId.toString()}`).emit('notification:customer', {
+          id: notif._id, title: notif.title, message: notif.message,
+          type: notif.type, isRead: false, createdAt: notif.createdAt,
+        });
+      } catch (_) {}
     } catch (_) {}
 
     logActivity({ req, type: 'status_change', module: 'Booking', action: 'BOOKING_APPROVED',
@@ -2719,13 +2729,22 @@ export const rejectBooking = async (req, res, next) => {
     } catch (_) {}
 
     try {
-      await Notification.create({
-        title: 'Booking Not Confirmed',
-        message: `Your booking ${order.orderNumber} was rejected. Reason: ${reason}`,
-        type: 'booking',
-        recipient: order.customer?._id || order.customer,
-        metadata: { orderId: order._id }
+      const customerId = typeof order.customer === 'object'
+        ? order.customer?._id : order.customer;
+      const notif = await Notification.create({
+        title: '❌ Appointment Not Approved',
+        message: `Your booking was not approved. Reason: ${reason}. Please book again with a valid payment proof.`,
+        type: 'warning',
+        recipientUserId: customerId,
+        metadata: { orderId: order._id, orderNumber: order.orderNumber }
       });
+      try {
+        const io = getIO();
+        io.to(`user:${customerId.toString()}`).emit('notification:customer', {
+          id: notif._id, title: notif.title, message: notif.message,
+          type: notif.type, isRead: false, createdAt: notif.createdAt,
+        });
+      } catch (_) {}
     } catch (_) {}
 
     logActivity({ req, type: 'status_change', module: 'Booking', action: 'BOOKING_REJECTED',

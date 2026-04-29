@@ -1520,3 +1520,45 @@ export const resendOtp = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to resend OTP.' });
   }
 };
+
+/**
+ * Unlock Account (Dev/Admin utility)
+ * POST /api/auth/unlock
+ *
+ * Body: { email: string }
+ * Clears loginAttempts and lockUntil for the given user.
+ * In production this route is protected by administrator/office_admin only.
+ */
+export const unlockAccount = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required.' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: `No user found with email: ${email}` });
+    }
+
+    user.loginAttempts = 0;
+    user.lockUntil = undefined;
+    await user.save();
+
+    logActivity({
+      userId: user._id, userName: user.name || email, userRole: user.role,
+      type: 'account_unlock', module: 'Auth', action: 'Account Unlocked',
+      description: `Account for ${email} was manually unlocked.`, status: 'info',
+    });
+
+    return res.json({
+      success: true,
+      message: `Account unlocked successfully for ${email}.`,
+      data: { email, loginAttempts: 0, lockUntil: null },
+    });
+  } catch (error) {
+    console.error('❌ [unlockAccount] Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to unlock account.', error: error.message });
+  }
+};

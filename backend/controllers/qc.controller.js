@@ -3,6 +3,7 @@ import { getIO } from '../utils/socket.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { generateQCPDF } from '../utils/pdf.utils.js';
+import Notification from '../models/notification.model.js';
 
 /**
  * GET /api/qc/jobs
@@ -11,7 +12,7 @@ import { generateQCPDF } from '../utils/pdf.utils.js';
 export const getQCJobs = async (req, res, next) => {
   try {
     const orders = await Order.find({
-      status: { $in: ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed'] },
+      status: { $in: ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed', 'released'] },
       archived: { $ne: true },
     })
       .populate('customer', 'name email phone avatar')
@@ -111,64 +112,42 @@ export const getQCStats = async (req, res, next) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
 
+    // All statuses that represent active or completed service work
+    const ACTIVE_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed', 'released'];
+    const DONE_STATUSES   = ['completed', 'released'];
+    const QUEUE_STATUSES  = ['approved', 'confirmed', 'assigned', 'received', 'in_progress'];
+
     const [
       awaitingCount,
       approvedTodayCount,
       returnedCount,
-      avgTimeResult,
       serviceDistribution,
     ] = await Promise.all([
-      // Awaiting validation: in_progress, not yet QC'd
+      // Awaiting validation: any active order not yet released/completed
       Order.countDocuments({
-        status: 'in_progress',
+        status: { $in: QUEUE_STATUSES },
         archived: { $ne: true },
-        qcCompletedAt: { $exists: false },
       }),
 
-      // Approved today: completed today
+      // Approved today: released or completed today (by updatedAt — covers Live Tracker advancement too)
       Order.countDocuments({
-        status: 'completed',
+        status: { $in: DONE_STATUSES },
         archived: { $ne: true },
-        qcCompletedAt: { $gte: today, $lt: tomorrow },
+        updatedAt: { $gte: today, $lt: tomorrow },
       }),
 
-      // Returned: staff notes with [QC_RETURN] prefix
+      // Returned: orders with a [QC_RETURN] staff note
       Order.countDocuments({
         archived: { $ne: true },
         'staffNotes.content': { $regex: /^\[QC_RETURN\]/, $options: 'i' },
       }),
 
-      // Avg review time (ms between serviceProper.completedAt and qcCompletedAt)
-      Order.aggregate([
-        {
-          $match: {
-            status: 'completed',
-            archived: { $ne: true },
-            qcCompletedAt: { $exists: true },
-            'serviceProper.completedAt': { $exists: true },
-          },
-        },
-        {
-          $project: {
-            reviewTimeMs: {
-              $subtract: ['$qcCompletedAt', '$serviceProper.completedAt'],
-            },
-          },
-        },
-        {
-          $group: {
-            _id: null,
-            avgMs: { $avg: '$reviewTimeMs' },
-          },
-        },
-      ]),
-
-      // Service type breakdown for pie chart
+      // Service type breakdown — all orders ever processed
       Order.aggregate([
         {
           $match: {
             archived: { $ne: true },
-            status: { $in: ['in_progress', 'completed'] },
+            status: { $in: ACTIVE_STATUSES },
           },
         },
         {
@@ -182,12 +161,37 @@ export const getQCStats = async (req, res, next) => {
       ]),
     ]);
 
-    // Trend data: last 14 days approved vs returned per day
+    // Avg review time — use gap between createdAt and updatedAt as approximation
+    // for orders that are done (released/completed)
+    const avgTimeResult = await Order.aggregate([
+      {
+        $match: {
+          status: { $in: DONE_STATUSES },
+          archived: { $ne: true },
+        },
+      },
+      {
+        $project: {
+          reviewTimeMs: {
+            $subtract: ['$updatedAt', '$createdAt'],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          avgMs: { $avg: '$reviewTimeMs' },
+        },
+      },
+    ]);
+
+    // Trend data: last 14 days — count orders by updatedAt date
     const trendRaw = await Order.aggregate([
       {
         $match: {
           archived: { $ne: true },
-          qcCompletedAt: {
+          status: { $in: ACTIVE_STATUSES },
+          updatedAt: {
             $gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000),
           },
         },
@@ -196,11 +200,24 @@ export const getQCStats = async (req, res, next) => {
         $group: {
           _id: {
             date: {
-              $dateToString: { format: '%m/%d', date: '$qcCompletedAt' },
+              $dateToString: { format: '%m/%d', date: '$updatedAt' },
             },
             returned: {
               $cond: [
-                { $regexMatch: { input: { $ifNull: [{ $arrayElemAt: ['$staffNotes.content', 0] }, ''] }, regex: /^\[QC_RETURN\]/ } },
+                {
+                  $gt: [
+                    {
+                      $size: {
+                        $filter: {
+                          input: { $ifNull: ['$staffNotes', []] },
+                          as: 'n',
+                          cond: { $regexMatch: { input: { $ifNull: ['$$n.content', ''] }, regex: /^\[QC_RETURN\]/ } },
+                        },
+                      },
+                    },
+                    0,
+                  ],
+                },
                 true,
                 false,
               ],
@@ -212,7 +229,7 @@ export const getQCStats = async (req, res, next) => {
       { $sort: { '_id.date': 1 } },
     ]);
 
-    // Shape trend data
+    // Shape trend data — fill all 14 days
     const trendMap = new Map();
     for (let i = 13; i >= 0; i--) {
       const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
@@ -228,14 +245,23 @@ export const getQCStats = async (req, res, next) => {
     });
     const trendData = [...trendMap.values()];
 
-    // Avg review time in minutes
+    // Avg review time in hours/minutes
     const avgMs = avgTimeResult?.[0]?.avgMs || 0;
     const avgMinutes = Math.round(avgMs / 60000);
-    const avgDisplay = avgMinutes > 0 ? `${avgMinutes}m` : '—';
+    let avgDisplay = '—';
+    if (avgMinutes > 0) {
+      if (avgMinutes >= 60) {
+        const h = Math.floor(avgMinutes / 60);
+        const m = avgMinutes % 60;
+        avgDisplay = m > 0 ? `${h}h ${m}m` : `${h}h`;
+      } else {
+        avgDisplay = `${avgMinutes}m`;
+      }
+    }
 
-    // AI detections pending (orders with damageAnnotations, in_progress)
+    // AI detections pending — any active order with damage annotations
     const aiPendingCount = await Order.countDocuments({
-      status: 'in_progress',
+      status: { $in: QUEUE_STATUSES },
       archived: { $ne: true },
       'damageAnnotations.0': { $exists: true },
     });
@@ -259,6 +285,7 @@ export const getQCStats = async (req, res, next) => {
     next(error);
   }
 };
+
 
 /**
  * PATCH /api/qc/jobs/:id/approve
@@ -452,7 +479,7 @@ export const updateServiceStatus = async (req, res, next) => {
     const { id } = req.params;
     const { stage } = req.body;
 
-    const VALID_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup', 'completed'];
+    const VALID_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup', 'completed', 'released'];
     if (!VALID_STAGES.includes(stage)) {
       return res.status(400).json({ success: false, message: `Invalid stage. Must be one of: ${VALID_STAGES.join(', ')}` });
     }
@@ -465,15 +492,21 @@ export const updateServiceStatus = async (req, res, next) => {
     order.serviceTrackingUpdatedAt = new Date();
     order.serviceTrackingUpdatedBy = req.user?.name || 'QC Checker';
 
-    // Map stage to top-level status for customer dashboard live tracker
+    // Map stage to top-level order status.
+    // IMPORTANT: ready_pickup does NOT set status=completed — the vehicle is still
+    // in the shop. Only approveJob (QC explicit approval) sets status=completed.
+    // Setting completed here would hide the live tracker and show the rejected-booking
+    // card if the customer has any old rejected order.
     const stageToStatus = {
+      confirmed:      'confirmed',
       received:       'received',
       in_progress:    'in_progress',
-      quality_check:  'in_progress',   // still in shop
-      ready_pickup:   'completed',
-      completed:      'completed',
+      quality_check:  'in_progress',   // still actively in service
+      ready_pickup:   'in_progress',   // ready but vehicle not yet released
+      completed:      'completed',     // set by approveJob
+      released:       'released',      // vehicle handed back — hides customer tracker
     };
-    order.status = stageToStatus[stage] || order.status;
+    order.status = stageToStatus[stage] ?? order.status;
 
     await order.save();
 
@@ -500,6 +533,39 @@ export const updateServiceStatus = async (req, res, next) => {
         });
       }
     } catch (e) { console.warn('[QC] Socket emit failed:', e.message); }
+
+    // ── Create per-stage customer notification ────────────────────────────
+    try {
+      const stageMessages = {
+        received:      { title: '🚗 Vehicle Arrived',              message: 'Your vehicle has arrived at the shop. Our team will begin service shortly.' },
+        in_progress:   { title: '🔧 Service In Progress',          message: "We've started working on your vehicle. Sit back and relax!" },
+        quality_check: { title: '🛡️ Quality Check Underway',     message: 'Your vehicle is undergoing final quality inspection.' },
+        ready_pickup:  { title: '🎉 Ready for Pickup!',            message: 'Your vehicle service is complete. You can now pick it up at the shop!' },
+        released:      { title: '🏁 Vehicle Released',             message: 'Your vehicle has been handed back. Thank you for choosing AutoSPF+!' },
+      };
+      const msg = stageMessages[stage];
+      if (msg) {
+        const customerId = typeof order.customer === 'object'
+          ? order.customer?._id : order.customer;
+        if (customerId) {
+          const notif = await Notification.create({
+            title: msg.title,
+            message: msg.message,
+            type: 'booking',
+            recipientUserId: customerId,
+            metadata: { orderId: order._id, stage },
+          });
+          // Real-time push to customer
+          try {
+            const io = getIO();
+            io.to(`user:${customerId.toString()}`).emit('notification:customer', {
+              id: notif._id, title: notif.title, message: notif.message,
+              type: notif.type, isRead: false, createdAt: notif.createdAt,
+            });
+          } catch (_) {}
+        }
+      }
+    } catch (ne) { console.warn('[QC] Failed to create stage notification:', ne.message); }
 
     logActivity({
       req, type: 'qc_stage_update', module: 'QualityChecker', action: 'SERVICE_STAGE_UPDATE',
@@ -571,6 +637,114 @@ export const assignServiceStaff = async (req, res, next) => {
       message: 'Staff assignments saved',
       data: { id: order._id, serviceStaffAssignments: order.serviceStaffAssignments },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+/**
+ * GET /api/qc/activity
+ * Recent QC review activity feed (approvals + returns), last 50 actions.
+ */
+export const getQCActivity = async (req, res, next) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+
+    // Fetch recently completed or returned orders
+    const recent = await Order.find({
+      archived: { $ne: true },
+      $or: [
+        { qcCompletedAt: { $exists: true } },
+        { 'staffNotes.content': { $regex: /^\[QC_RETURN\]/, $options: 'i' } },
+      ],
+    })
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .populate('customer', 'name')
+      .lean();
+
+    const activity = recent.map((o) => {
+      const customerName =
+        o.customerName ||
+        (typeof o.customer === 'object' ? o.customer?.name : '') ||
+        'Unknown';
+      const vehicleStr = [o.vehicleYear, o.vehicleMake, o.vehicleModel]
+        .filter(Boolean)
+        .join(' ') || 'Unknown Vehicle';
+
+      // Determine type from notes + qcCompletedAt
+      const returnNote = (o.staffNotes || []).find((n) =>
+        n.content?.startsWith('[QC_RETURN]')
+      );
+      const type = returnNote ? 'returned' : 'approved';
+      const actorName = returnNote?.detailerName || 'QC Checker';
+      const timestamp = returnNote?.createdAt || o.qcCompletedAt || o.updatedAt;
+
+      return {
+        id: o._id.toString(),
+        jobId: o.orderNumber || o.bookingReference || o._id.toString(),
+        type,
+        customer: customerName,
+        vehicle: vehicleStr,
+        service: o.serviceType || 'Service',
+        actor: actorName,
+        timestamp: timestamp ? new Date(timestamp).toISOString() : new Date().toISOString(),
+        note: returnNote ? returnNote.content.replace('[QC_RETURN] ', '') : null,
+      };
+    });
+
+    res.json({ success: true, data: activity });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/qc/reports/technicians
+ * Per-technician QC performance: approved, returned, rate.
+ */
+export const getQCTechnicianReport = async (req, res, next) => {
+  try {
+    const [approved, returned] = await Promise.all([
+      // Approved jobs grouped by technician
+      Order.aggregate([
+        { $match: { status: 'completed', archived: { $ne: true }, qcCompletedAt: { $exists: true } } },
+        { $lookup: { from: 'users', localField: 'assignedDetailer', foreignField: '_id', as: 'detailerDoc' } },
+        { $addFields: { techName: { $ifNull: [{ $arrayElemAt: ['$detailerDoc.name', 0] }, '$assignedDetailerName', 'Unassigned'] } } },
+        { $group: { _id: '$techName', approved: { $sum: 1 } } },
+      ]),
+      // Returned jobs grouped by the order's technician
+      Order.aggregate([
+        { $match: { archived: { $ne: true }, 'staffNotes.content': { $regex: /^\[QC_RETURN\]/, $options: 'i' } } },
+        { $lookup: { from: 'users', localField: 'assignedDetailer', foreignField: '_id', as: 'detailerDoc' } },
+        { $addFields: { techName: { $ifNull: [{ $arrayElemAt: ['$detailerDoc.name', 0] }, '$assignedDetailerName', 'Unassigned'] } } },
+        { $group: { _id: '$techName', returned: { $sum: 1 } } },
+      ]),
+    ]);
+
+    // Merge into a unified map
+    const techMap = new Map();
+    approved.forEach((t) => {
+      techMap.set(t._id, { name: t._id, approved: t.approved, returned: 0 });
+    });
+    returned.forEach((t) => {
+      if (techMap.has(t._id)) {
+        techMap.get(t._id).returned = t.returned;
+      } else {
+        techMap.set(t._id, { name: t._id, approved: 0, returned: t.returned });
+      }
+    });
+
+    const techData = [...techMap.values()].map((t) => {
+      const total = t.approved + t.returned;
+      return {
+        name: t.name,
+        approved: t.approved,
+        returned: t.returned,
+        rate: total > 0 ? Math.round((t.approved / total) * 100) : 0,
+      };
+    }).sort((a, b) => b.rate - a.rate);
+
+    res.json({ success: true, data: techData });
   } catch (error) {
     next(error);
   }

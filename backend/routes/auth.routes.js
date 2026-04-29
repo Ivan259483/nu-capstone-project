@@ -56,4 +56,22 @@ router.post(
   authController.createStaff
 );
 
+/**
+ * @route POST /api/auth/unlock
+ * @desc  Unlock a locked-out account by resetting loginAttempts + lockUntil
+ * @access Dev: public | Prod: administrator / office_admin only
+ */
+if (process.env.NODE_ENV === 'development') {
+  // ⚡ Dev shortcut — no auth required
+  router.post('/unlock', authController.unlockAccount);
+} else {
+  // 🔒 Production — admin roles only
+  router.post(
+    '/unlock',
+    authenticate,
+    authorize('administrator', 'office_admin'),
+    authController.unlockAccount
+  );
+}
+
 export default router;
