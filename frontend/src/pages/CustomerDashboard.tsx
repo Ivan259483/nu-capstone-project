@@ -2797,7 +2797,7 @@ export default function CustomerDashboard() {
                     <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Full Payments</p>
                     <p className="text-2xl font-bold text-emerald-600">
                       ₱{myBookings
-                          .filter((b: any) => b.paymentStatus === 'paid')
+                          .filter((b: any) => b.paymentStatus === 'paid' || ['completed','released'].includes(b.status))
                           .reduce((sum: number, b: any) => sum + Number(b.totalPrice || b.totalAmount || 0), 0)
                           .toLocaleString()}
                     </p>
@@ -2835,7 +2835,10 @@ export default function CustomerDashboard() {
                           return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 border border-amber-200">⏳ Pending</span>;
                         })();
 
-                        const fullBadge = b.paymentStatus === 'paid'
+                        // Treat as paid if: paymentStatus is 'paid' OR order is completed/released
+                        // (handles existing orders created before the paymentStatus=paid backend fix)
+                        const isFullyPaid = b.paymentStatus === 'paid' || ['completed', 'released'].includes(b.status);
+                        const fullBadge = isFullyPaid
                           ? <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">✓ Paid</span>
                           : <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-500 border border-slate-200">Unpaid</span>;
 

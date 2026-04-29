@@ -1291,6 +1291,10 @@ export const assignDetailer = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
+    if (order.status === 'pending_confirmation') {
+      return res.status(400).json({ success: false, message: 'Cannot assign detailer to a booking that is pending confirmation. Sales must approve the GCash proof first.' });
+    }
+
     // 2. Perform assignment
     const previousStatus = order.status;
     order.assignedDetailer = detailerId;
@@ -2034,6 +2038,10 @@ export const updateWorkflowStep = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
+    if (order.status === 'pending_confirmation') {
+      return res.status(400).json({ success: false, message: 'Cannot update workflow for a booking that is pending confirmation.' });
+    }
+
     if (!step || step < 1 || step > 7) {
       return res.status(400).json({ success: false, message: 'Invalid step number (1-7)' });
     }
@@ -2165,6 +2173,10 @@ export const updateMobileWorkflow = async (req, res, next) => {
 
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (order.status === 'pending_confirmation') {
+      return res.status(400).json({ success: false, message: 'Cannot update workflow for a booking that is pending confirmation.' });
     }
 
     // 1. Update the generic Mobile Workflow state
@@ -2579,6 +2591,66 @@ export const confirmBooking = async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════════════════
 //  APPROVE BOOKING — Sales confirms GCash proof is valid
 // ═══════════════════════════════════════════════════════════════════════
+/**
+ * @desc   Customer uploads GCash payment proof
+ * @route  POST /api/orders/:id/payment-proof
+ * @access Private - Customer
+ */
+export const uploadPaymentProof = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { paymentProofUrl } = req.body;
+
+    if (!paymentProofUrl) {
+      return res.status(400).json({ success: false, message: 'Payment proof image is required' });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Must belong to the customer (authorization checked via middleware, but double check here)
+    if (order.customer.toString() !== req.user._id.toString() && !isFullAdminRole(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to upload proof for this booking' });
+    }
+
+    if (order.status !== 'pending_confirmation') {
+      return res.status(400).json({ success: false, message: 'Booking is not in pending_confirmation status' });
+    }
+
+    // Save proof and ensure status is pending_confirmation
+    order.paymentProofUrl = paymentProofUrl;
+    order.status = 'pending_confirmation';
+    await order.save();
+
+    const io = getIO();
+    // Notify customer
+    io.to(`user:${order.customer.toString()}`).emit('booking:status', {
+      bookingId: order._id,
+      status: order.status,
+    });
+    
+    // Notify admin
+    io.to('admin:chat').emit('booking:status', {
+      bookingId: order._id,
+      status: order.status,
+    });
+    io.to('admin:chat').emit('admin:notification', {
+      type: 'payment_proof_uploaded',
+      message: `Customer uploaded payment proof for booking ${order.orderNumber}`
+    });
+
+    res.status(200).json({
+      success: true,
+      data: order,
+    });
+  } catch (error) {
+    console.error('Error uploading payment proof:', error);
+    res.status(500).json({ success: false, message: 'Failed to upload payment proof' });
+  }
+};
+
 export const approveBooking = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id).populate('customer', 'name email avatar');

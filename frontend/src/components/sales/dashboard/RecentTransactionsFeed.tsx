@@ -25,10 +25,10 @@ const STATUS_CONFIG: Record<string, { icon: React.ReactNode; bg: string }> = {
 };
 
 const PM_COLORS: Record<string, string> = {
-  cash:          'text-emerald-700 bg-emerald-50 border-emerald-100',
-  card:          'text-blue-700   bg-blue-50   border-blue-100',
-  gcash:         'text-blue-600   bg-blue-50   border-blue-100',
-  maya:          'text-green-700  bg-green-50  border-green-100',
+  cash: 'text-emerald-700 bg-emerald-50 border-emerald-100',
+  card: 'text-blue-700   bg-blue-50   border-blue-100',
+  gcash: 'text-blue-600   bg-blue-50   border-blue-100',
+  maya: 'text-green-700  bg-green-50  border-green-100',
   bank_transfer: 'text-slate-600  bg-slate-50  border-slate-100',
 };
 
@@ -76,9 +76,9 @@ export default function RecentTransactionsFeed({ onViewAll }: Props) {
             const status = STATUS_CONFIG[txn.status] ?? STATUS_CONFIG.voided;
             const pmColor = PM_COLORS[txn.paymentMethod] ?? PM_COLORS.cash;
             const amountColor =
-              txn.status === 'pending'  ? 'text-amber-600' :
-              txn.status === 'voided'   ? 'text-slate-400' :
-                                          'text-slate-900';
+              txn.status === 'pending' ? 'text-amber-600' :
+                txn.status === 'voided' ? 'text-slate-400' :
+                  'text-slate-900';
 
             return (
               <div

@@ -90,15 +90,15 @@ export default function SalesDashboard() {
 
   const renderView = () => {
     switch (activeView) {
-      case 'dashboard':    return <DashboardView onNavigate={setActiveView} />;
-      case 'pos':          return <POSView />;
+      case 'dashboard': return <DashboardView onNavigate={setActiveView} />;
+      case 'pos': return <POSView />;
       case 'transactions': return <TransactionsView />;
-      case 'customers':    return <CustomersView />;
-      case 'reports':      return <SalesReportsView />;
-      case 'settings':     return <SettingsView />;
-      case 'approvals':    return <BookingApprovalsPage />;
-      case 'calendar':     return <SalesSmartCalendar />;
-      default:             return <DashboardView onNavigate={setActiveView} />;
+      case 'customers': return <CustomersView />;
+      case 'reports': return <SalesReportsView />;
+      case 'settings': return <SettingsView />;
+      case 'approvals': return <BookingApprovalsPage />;
+      case 'calendar': return <SalesSmartCalendar />;
+      default: return <DashboardView onNavigate={setActiveView} />;
     }
   };
 
@@ -113,11 +113,10 @@ export default function SalesDashboard() {
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <SalesTopbar />
-          <main className={`flex-1 p-6 scrollbar-thin ${
-            activeView === 'pos' ? 'overflow-hidden flex flex-col' :
-            activeView === 'calendar' ? 'overflow-hidden flex flex-col' :
-            'overflow-y-auto'
-          }`}>
+          <main className={`flex-1 p-6 scrollbar-thin ${activeView === 'pos' ? 'overflow-hidden flex flex-col' :
+              activeView === 'calendar' ? 'overflow-hidden flex flex-col' :
+                'overflow-y-auto'
+            }`}>
             {renderView()}
           </main>
         </div>

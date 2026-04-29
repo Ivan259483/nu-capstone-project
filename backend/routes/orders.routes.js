@@ -101,6 +101,13 @@ router.get('/:id', orderController.getOrderById);
 router.post('/', orderController.createOrder);
 
 /**
+ * @route POST /api/orders/:id/payment-proof
+ * @desc Customer uploads GCash payment proof
+ * @access Private - Customer
+ */
+router.post('/:id/payment-proof', authorize(...CUSTOMER_ROLES), orderController.uploadPaymentProof);
+
+/**
  * @route POST /api/orders/:id/confirm
  * @desc Admin confirms a pending booking (triggers full workflow chain)
  * @access Private - Admin

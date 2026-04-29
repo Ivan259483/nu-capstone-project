@@ -1,13 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { OrderService } from '@/lib/order-service';
 import type { Booking, User } from '@/types';
 import { isAdminDashboardRole, isServiceStaffRole } from '@/lib/roles';
-import { getBackendSocketUrl } from '@/lib/api';
+import { getSharedSocket } from './useRealtimeSync';
 
-let socket: Socket | null = null;
-
-const SYNC_INTERVAL_MS = 30_000;
+// ── Backup polling interval — socket is primary, this is fallback ────
+// 15 s is fast enough for demo reliability without hammering the server.
+const SYNC_INTERVAL_MS = 15_000;
 
 /** Shape of a booking:status socket event from the backend (QC stage advances) */
 export interface BookingStatusEvent {
@@ -28,133 +27,108 @@ export function useLiveJobs(
     const [jobs, setJobs] = useState<Booking[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
-    // Keep stable refs to callbacks so listeners never capture stale closures
+    // Keep stable refs so socket listeners never capture stale closures
     const onBookingStatusRef = useRef(onBookingStatus);
     const onNotificationRef  = useRef(onNotification);
     useEffect(() => { onBookingStatusRef.current = onBookingStatus; }, [onBookingStatus]);
     useEffect(() => { onNotificationRef.current  = onNotification;  }, [onNotification]);
 
+    // ── Shared fetch function — used by polling + socket events + visibility ──
+    const fetchJobs = useCallback(async (silent = false) => {
+        if (!silent) setIsLoading(true);
+        try {
+            if (isServiceStaffRole(user?.role || '')) {
+                const res = await OrderService.getStaffQueue();
+                if (res.success && Array.isArray(res.data)) {
+                    setJobs(res.data);
+                    return;
+                }
+            } else {
+                const res = await OrderService.getAllOrders();
+                if (res.success && Array.isArray(res.data)) {
+                    setJobs(res.data);
+                    return;
+                }
+            }
+            if (!silent) setJobs([]);
+        } catch (error) {
+            console.error('[useLiveJobs] Error fetching jobs:', error);
+            if (!silent) setJobs([]);
+        } finally {
+            if (!silent) setIsLoading(false);
+        }
+    }, [user?.role]);
+
     useEffect(() => {
         if (!user) return;
 
-        // Prevent duplicate listeners/sockets during hot reload or navigation.
-        if (socket) {
-            try { socket.removeAllListeners(); } catch { /* ignore */ }
-            try { socket.disconnect(); } catch { /* ignore */ }
-            socket = null;
-        }
+        // ── Initial fetch ────────────────────────────────────────────────
+        fetchJobs(false);
 
-        const fetchJobs = async () => {
-            setIsLoading(true);
-            try {
-                console.log('[FETCH] Fetching jobs for user:', { userId: user.id, userRole: user.role });
+        // ── Backup polling: 15 s — fires even if socket is silent ───────
+        const syncInterval = setInterval(() => {
+            console.log('[useLiveJobs] 15s backup poll');
+            fetchJobs(true);
+        }, SYNC_INTERVAL_MS);
 
-                if (isServiceStaffRole(user.role)) {
-                    const res = await OrderService.getStaffQueue();
-                    if (res.success && Array.isArray(res.data)) {
-                        console.log('[FETCH] Service staff jobs fetched:', res.data.length);
-                        setJobs(res.data);
-                        return;
-                    }
-                } else {
-                    const res = await OrderService.getAllOrders();
-                    if (res.success && Array.isArray(res.data)) {
-                        console.log('[FETCH] User jobs fetched:', {
-                            total: res.data.length,
-                            paid: res.data.filter(j => j.paymentStatus === 'paid').length,
-                        });
-                        setJobs(res.data);
-                        return;
-                    }
-                }
-                console.warn('[FETCH] No jobs returned or fetch failed');
-                setJobs([]);
-            } catch (error) {
-                console.error('[FETCH] Error fetching jobs:', error);
-                setJobs([]);
-            } finally {
-                setIsLoading(false);
+        // ── Use the SHARED socket — no new io() connection ───────────────
+        // getSharedSocket() is a singleton: one connection for the entire app.
+        // reconnectionAttempts is set to Infinity in useRealtimeSync.ts.
+        const socket = getSharedSocket();
+
+        // Join correct rooms — also fires on reconnect via 'connect' listener
+        const joinRoom = () => {
+            if (isAdminDashboardRole(user.role)) socket.emit('join_room', 'admin:chat');
+            if (isServiceStaffRole(user.role))  socket.emit('join_room', `staff:${user.id}`);
+            // Customer + all other roles get their own user room
+            socket.emit('join_room', `user:${user.id}`);
+            if ((user as any)._id && (user as any)._id !== user.id) {
+                socket.emit('join_room', `user:${(user as any)._id}`);
             }
         };
 
-        // Fetch once on mount
-        fetchJobs();
-
-        // Background sync every 30 seconds — never faster than this
-        const syncInterval = setInterval(() => {
-            console.log('[FETCH] Periodic 30s sync');
-            fetchJobs();
-        }, SYNC_INTERVAL_MS);
-
-        socket = io(getBackendSocketUrl(), {
-            transports: ['polling', 'websocket'], // polling first for handshake, then upgrades to ws
-            reconnection: true,
-            reconnectionDelay: 2000,
-            reconnectionDelayMax: 10000,
-            reconnectionAttempts: 5,
-        });
-
-        // Join the correct room on connect/reconnect — does NOT trigger a fetch
-        const joinRoom = () => {
-            console.log('[LIVE_JOBS] Socket connected, joining room');
-            if (isAdminDashboardRole(user.role)) socket?.emit('join_room', 'admin:chat');
-            if (isServiceStaffRole(user.role)) socket?.emit('join_room', `staff:${user.id}`);
-            if (!isAdminDashboardRole(user.role) && !isServiceStaffRole(user.role)) socket?.emit('join_room', `user:${user.id}`);
-        };
-
+        if (socket.connected) joinRoom();
         socket.on('connect', joinRoom);
 
-        socket.on('disconnect', (reason) => {
-            console.warn('[LIVE_JOBS] Socket disconnected:', reason);
-        });
-
-        // ── booking:status — QC stage advances & staff assignments ──────────
-        // Emitted to user:${id} room by qc.controller.js and order.controller.js.
-        // Calls the consumer callback (CustomerDashboard) for an instant state patch.
+        // ── booking:status — QC stage advances & staff assignments ───────
         const handleBookingStatus = (event: BookingStatusEvent) => {
-            console.log('[SOCKET] booking:status received:', event);
+            console.log('[useLiveJobs] booking:status received:', event);
             onBookingStatusRef.current?.(event);
         };
         socket.on('booking:status', handleBookingStatus);
 
-        // ── notification:customer — real-time bell notifications ────────
+        // ── notification:customer — real-time bell notifications ─────────
         const handleCustomerNotification = (notif: any) => {
-            console.log('[SOCKET] notification:customer received:', notif);
+            console.log('[useLiveJobs] notification:customer received:', notif);
             onNotificationRef.current?.(notif);
         };
         socket.on('notification:customer', handleCustomerNotification);
 
-        // Optimistic state update only — no follow-up HTTP fetch per event
+        // ── db_change — MongoDB Change Stream events ─────────────────────
+        // Fires when any 'orders' document is inserted/updated/deleted.
+        // We do a silent refetch rather than optimistic patch to stay simple.
+        const handleDbChange = (payload: any) => {
+            if (payload.collection === 'orders') {
+                console.log('[useLiveJobs] db_change orders → refetching');
+                fetchJobs(true);
+            }
+        };
+        socket.on('db_change', handleDbChange);
+
+        // ── Optimistic state patch — legacy job events ───────────────────
         const handleJobUpdate = (updatedJob: Booking) => {
-            if (!updatedJob || typeof updatedJob !== 'object') {
-                console.warn('[SOCKET] Invalid job update received:', updatedJob);
-                return;
-            }
-
+            if (!updatedJob || typeof updatedJob !== 'object') return;
             const jobId = updatedJob.id || (updatedJob as any)._id;
-            if (!jobId) {
-                console.warn('[SOCKET] Job update missing ID:', updatedJob);
-                return;
-            }
-
-            console.log('[SOCKET] Job update received:', {
-                jobId,
-                status: updatedJob.status,
-                paymentStatus: updatedJob.paymentStatus,
-                userRole: user.role,
-                timestamp: new Date().toISOString(),
-            });
+            if (!jobId) return;
 
             setJobs((prev) => {
                 const validJobs = prev.filter(j => j && (j.id || (j as any)._id));
-
                 const exists = validJobs.find((j) => {
                     const existingId = j.id || (j as any)._id;
                     return existingId === jobId;
                 });
 
                 if (exists) {
-                    console.log('[SOCKET] Updating existing job:', jobId);
                     return validJobs.map((j) => {
                         const existingId = j.id || (j as any)._id;
                         return existingId === jobId ? { ...updatedJob, id: jobId } : j;
@@ -165,11 +139,9 @@ export function useLiveJobs(
                     isServiceStaffRole(user.role) &&
                     (updatedJob.paymentStatus !== 'paid' || updatedJob.status === 'pending')
                 ) {
-                    console.log('[SOCKET] Skipping job for service staff (not paid or pending):', jobId);
                     return validJobs;
                 }
 
-                console.log('[SOCKET] Adding new job to list:', jobId);
                 return [{ ...updatedJob, id: jobId }, ...validJobs];
             });
         };
@@ -183,32 +155,42 @@ export function useLiveJobs(
             'job_completed',
         ] as const;
 
-        console.log('[SOCKET] Registering job event listeners:', jobEvents);
-
         for (const event of jobEvents) {
-            socket.off(event, handleJobUpdate);
             socket.on(event, handleJobUpdate);
         }
 
-        // Join immediately if socket is already connected
-        if (socket.connected) joinRoom();
-
-        console.log('[SOCKET] Socket setup complete for user:', user.id, 'role:', user.role);
+        // ── Visibility & Focus refresh (PRIORITY 3) ───────────────────────
+        // When the user switches back to this tab, immediately fetch fresh data.
+        let visibilityTimer: ReturnType<typeof setTimeout> | null = null;
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                // Small debounce so rapid tab switches don't hammer the server
+                if (visibilityTimer) clearTimeout(visibilityTimer);
+                visibilityTimer = setTimeout(() => {
+                    console.log('[useLiveJobs] Tab visible — silent refresh');
+                    fetchJobs(true);
+                }, 500);
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+        window.addEventListener('focus', handleVisibility);
 
         return () => {
             clearInterval(syncInterval);
-            socket?.off('booking:status', handleBookingStatus);
-            socket?.off('notification:customer', handleCustomerNotification);
+            if (visibilityTimer) clearTimeout(visibilityTimer);
+
+            // Remove only OUR listeners — do NOT disconnect the shared socket
+            socket.off('connect', joinRoom);
+            socket.off('booking:status', handleBookingStatus);
+            socket.off('notification:customer', handleCustomerNotification);
+            socket.off('db_change', handleDbChange);
             for (const event of jobEvents) {
-                socket?.off(event, handleJobUpdate);
+                socket.off(event, handleJobUpdate);
             }
-            socket?.off('connect', joinRoom);
-            socket?.off('disconnect');
-            socket?.removeAllListeners();
-            socket?.disconnect();
-            socket = null;
+            document.removeEventListener('visibilitychange', handleVisibility);
+            window.removeEventListener('focus', handleVisibility);
         };
-    }, [user]);
+    }, [user, fetchJobs]);
 
     return { jobs, setJobs, isLoading };
 }

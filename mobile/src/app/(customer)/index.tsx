@@ -542,8 +542,17 @@ function HeroSection({ job, isLoading, st, stepFor, router, scrollY }: any) {
             <View style={$.trBody}>
               <View style={$.trRow1}>
                 <View style={$.livePill}>
-                  <Pulse color={D.A} size={6} />
-                  <Text style={$.liveTxt}>LIVE  TRACKING</Text>
+                  {job.status === 'pending_confirmation' ? (
+                    <>
+                      <Ionicons name="time-outline" size={12} color={D.Y} />
+                      <Text style={[$.liveTxt, { color: D.Y }]}>PENDING CONFIRMATION</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Pulse color={D.A} size={6} />
+                      <Text style={$.liveTxt}>LIVE  TRACKING</Text>
+                    </>
+                  )}
                 </View>
                 <View style={$.plateBadge}>
                   <Ionicons name="car-outline" size={10} color={D.w38} />

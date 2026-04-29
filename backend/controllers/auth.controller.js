@@ -467,14 +467,25 @@ export const register = async (req, res, next) => {
     // ── Firebase stale-account cleanup ────────────────────────────────────
     // The email is not in MongoDB, but it may still exist in Firebase Auth
     // (e.g., account was deleted from MongoDB but Firebase was never cleaned up).
-    // If we don't purge it here, createUserWithEmailAndPassword on the client
-    // will throw "auth/email-already-in-use" even though MongoDB has no record.
-    if (admin) {
+    // IMPORTANT: The web client calls createUserWithEmailAndPassword BEFORE calling
+    // this endpoint, so a Firebase account for this email is legitimately fresh.
+    // We only purge if the existing Firebase UID does NOT match the one the client
+    // just created (i.e., it's a genuinely orphaned/stale record from a past failure).
+    const { firebaseUid: clientFirebaseUid } = req.body;
+    let linkedFirebaseUid = clientFirebaseUid || null;
+    if (admin.apps.length > 0) {
       try {
         const fbUser = await admin.auth().getUserByEmail(email);
-        // Found a stale Firebase record — delete it so registration can proceed.
-        await admin.auth().deleteUser(fbUser.uid);
-        console.log(`🧹 [Register] Purged stale Firebase account for ${email} (uid: ${fbUser.uid})`);
+        if (clientFirebaseUid && fbUser.uid === clientFirebaseUid) {
+          // This is the legitimately fresh Firebase account just created by the client.
+          // Do NOT delete it — simply link its UID to the new MongoDB user.
+          console.log(`✅ [Register] Fresh Firebase account confirmed for ${email} (uid: ${fbUser.uid})`);
+          linkedFirebaseUid = fbUser.uid;
+        } else {
+          // Found a stale Firebase record (UID mismatch or no UID from client) — purge it.
+          await admin.auth().deleteUser(fbUser.uid);
+          console.log(`🧹 [Register] Purged stale Firebase account for ${email} (uid: ${fbUser.uid})`);
+        }
       } catch (fbErr) {
         // getUserByEmail throws 'auth/user-not-found' when there's no record — that's fine.
         if (fbErr.code !== 'auth/user-not-found') {
@@ -493,6 +504,7 @@ export const register = async (req, res, next) => {
       isVerified: false,
       isActive: true,
       status: 'pending',
+      ...(linkedFirebaseUid ? { firebaseUid: linkedFirebaseUid } : {}),
     });
 
     // Handle Referral Logic
@@ -990,7 +1002,8 @@ export const socialLogin = async (req, res, next) => {
 
      const userObject = user.toObject({ virtuals: true });
      delete userObject.password;
-     delete userObject._id;
+     // Keep _id so mobile clients can identify the MongoDB user ID.
+     // The Mongoose virtual 'id' (string) is also present via virtuals: true.
      delete userObject.__v;
 
     logActivity({
@@ -1070,7 +1083,7 @@ export const deleteAccount = async (req, res) => {
     // ── 3. Delete Firebase Auth user (Admin SDK) ─────────────────────────
     //    Do this FIRST — if Firebase deletion fails we have not yet touched MongoDB.
     if (firebaseUid) {
-      if (!admin) {
+      if (admin.apps.length === 0) {
         console.error('[DELETE_ACCOUNT] Firebase Admin SDK is not initialized. Set FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in .env');
         return res.status(503).json({
           success: false,
@@ -1560,5 +1573,127 @@ export const unlockAccount = async (req, res) => {
   } catch (error) {
     console.error('❌ [unlockAccount] Error:', error);
     res.status(500).json({ success: false, message: 'Failed to unlock account.', error: error.message });
+  }
+};
+
+/**
+ * Recover Firebase Account
+ * POST /api/auth/recover-firebase
+ *
+ * Used by mobile clients when Firebase login fails (auth/user-not-found).
+ * Validates credentials against MongoDB, then uses Firebase Admin SDK to
+ * re-create the Firebase account. This restores cross-platform login for
+ * web-registered customers whose Firebase accounts were purged by the old
+ * /auth/register logic.
+ *
+ * No auth middleware required — the password serves as the credential.
+ */
+export const recoverFirebase = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required.' });
+    }
+
+    // Find the customer in MongoDB
+    const user = await User.findOne({ email, isDeleted: { $ne: true } }).select('+password');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Account not found.' });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact an administrator.',
+        code: 'ACCOUNT_INACTIVE',
+      });
+    }
+
+    // Validate password against MongoDB hash
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+    }
+
+    if (admin.apps.length === 0) {
+      // ── Fallback: Firebase Admin SDK not configured ─────────────────────
+      // Password is valid in MongoDB. Tell the mobile client to create the
+      // Firebase account itself using createUserWithEmailAndPassword().
+      // This avoids needing any Admin SDK credentials on the server.
+      console.log(`[recoverFirebase] Admin SDK not configured — instructing client-side Firebase create for ${email}`);
+
+      // Mark user as verified if not already
+      if (!user.isVerified) {
+        user.isVerified = true;
+        await user.save();
+      }
+
+      // Issue a JWT so after Firebase create the client can call social-login
+      const token = jwt.sign(
+        { id: user._id, email: user.email, role: user.role },
+        config.jwtSecret,
+        { expiresIn: '7d' }
+      );
+
+      return res.json({
+        success: true,
+        needsClientCreate: true,
+        message: 'MongoDB credentials valid. Please create Firebase account on device.',
+        data: { token, needsClientCreate: true, userName: user.name },
+      });
+    }
+
+    // Check if a Firebase account already exists
+    let firebaseUid = user.firebaseUid;
+    try {
+      const existingFbUser = await admin.auth().getUserByEmail(email);
+      firebaseUid = existingFbUser.uid;
+      console.log(`[recoverFirebase] Firebase account already exists for ${email} (uid: ${firebaseUid})`);
+    } catch (fbErr) {
+      if (fbErr.code === 'auth/user-not-found') {
+        // Create a new Firebase Auth account with the same password
+        const newFbUser = await admin.auth().createUser({
+          email,
+          password,
+          displayName: user.name,
+          emailVerified: true,
+        });
+        firebaseUid = newFbUser.uid;
+        console.log(`[recoverFirebase] ✅ Restored Firebase account for ${email} (uid: ${firebaseUid})`);
+      } else {
+        throw fbErr;
+      }
+    }
+
+    // Link the Firebase UID to the MongoDB user
+    if (!user.firebaseUid || user.firebaseUid !== firebaseUid) {
+      user.firebaseUid = firebaseUid;
+      if (!user.isVerified) user.isVerified = true;
+      await user.save();
+      console.log(`[recoverFirebase] Linked firebaseUid ${firebaseUid} to MongoDB user ${email}`);
+    }
+
+    // Issue a JWT so the client can complete the social-login flow
+    const token = jwt.sign(
+      { id: user._id, email: user.email, role: user.role },
+      config.jwtSecret,
+      { expiresIn: '7d' }
+    );
+
+    logActivity({
+      userId: user._id, userName: user.name || email, userRole: user.role,
+      type: 'login', module: 'Auth', action: 'Firebase Account Recovered',
+      description: `Firebase account restored for ${email}. UID: ${firebaseUid}.`, status: 'success',
+    });
+
+    return res.json({
+      success: true,
+      message: 'Firebase account restored. You can now sign in.',
+      data: { token, firebaseUid },
+    });
+  } catch (error) {
+    console.error('❌ [recoverFirebase] Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to restore Firebase account.', error: error.message });
   }
 };

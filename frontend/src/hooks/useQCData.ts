@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { getSharedSocket } from './useRealtimeSync';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 
@@ -65,7 +66,7 @@ export interface QCTechnicianStat {
   rate: number;
 }
 
-const POLL_INTERVAL_MS = 30_000; // 30 seconds
+const POLL_INTERVAL_MS = 15_000; // 15 s — backup poll (socket is primary)
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
@@ -162,35 +163,44 @@ export function useQCData() {
     };
   }, [refetchAll]);
 
-  // ── Socket.io listener ───────────────────────────────────────────────────────
+  // ── Shared socket listener + visibility refresh (PRIORITY 1 & 3) ─────────────
+  // Uses the app-wide singleton socket (getSharedSocket) — no new io() connection.
+  // Fires a silent refetch whenever MongoDB reports an orders change.
 
   useEffect(() => {
-    let socket: any = null;
+    const socket = getSharedSocket();
 
-    const connectSocket = async () => {
-      try {
-        const { io } = await import('socket.io-client');
-        const { getBackendSocketUrl } = await import('@/lib/api');
-        const token = localStorage.getItem('autospf_token');
-
-        socket = io(getBackendSocketUrl(), {
-          auth: { token },
-          transports: ['websocket', 'polling'],
-          reconnectionAttempts: 3,
-        });
-
-        socket.on('orderUpdated', () => {
-          refetchAll(true);
-        });
-      } catch (err) {
-        console.warn('[QC] Socket connection failed (non-fatal):', err);
+    // db_change fires from MongoDB Change Streams via the backend
+    const handleDbChange = (payload: any) => {
+      if (payload.collection === 'orders') {
+        console.log('[useQCData] db_change orders → silent refetch');
+        refetchAll(true);
       }
     };
+    socket.on('db_change', handleDbChange);
+    // Legacy event name used by some controllers
+    socket.on('orderUpdated', () => refetchAll(true));
 
-    connectSocket();
+    // Visibility & focus refresh — catch changes missed while tab was in background
+    let visTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        if (visTimer) clearTimeout(visTimer);
+        visTimer = setTimeout(() => {
+          console.log('[useQCData] Tab visible — silent refetch');
+          refetchAll(true);
+        }, 500);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
 
     return () => {
-      if (socket) socket.disconnect();
+      socket.off('db_change', handleDbChange);
+      socket.off('orderUpdated');
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+      if (visTimer) clearTimeout(visTimer);
     };
   }, [refetchAll]);
 

@@ -18,8 +18,6 @@ const determineEmailProvider = () => {
   // Check for Resend credentials
   if (process.env.RESEND_API_KEY) return 'resend';
 
-  // Check for Brevo credentials
-  if (process.env.BREVO_SMTP_USER && process.env.BREVO_SMTP_PASSWORD) return 'brevo';
 
   // Check for Gmail credentials
   if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) return 'gmail';

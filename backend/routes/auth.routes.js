@@ -74,4 +74,13 @@ if (process.env.NODE_ENV === 'development') {
   );
 }
 
+/**
+ * @route POST /api/auth/recover-firebase
+ * @desc  Restore a Firebase Auth account for customers who registered on web
+ *        but had their Firebase account purged by the old /register logic.
+ *        Validates MongoDB password then re-creates Firebase account via Admin SDK.
+ * @access Public (password serves as credential)
+ */
+router.post('/recover-firebase', authController.recoverFirebase);
+
 export default router;

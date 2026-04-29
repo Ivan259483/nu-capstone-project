@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '@/lib/api';
+import { getSharedSocket } from './useRealtimeSync';
 
 export type TransactionStatus = 'completed' | 'pending' | 'processing' | 'voided';
 export type PaymentMethod = 'cash' | 'card' | 'gcash' | 'maya' | 'bank_transfer';
@@ -56,7 +57,7 @@ export function useSalesAnalytics() {
           }));
           // Sort descending so recentTransactions gets the latest
           mapped.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
-          
+
           setTransactions(mapped);
         }
       } catch (error) {
@@ -66,6 +67,43 @@ export function useSalesAnalytics() {
       }
     };
     fetchOrders();
+
+    // ── 15s backup poll (fires even if socket is silent) ────────────────
+    const interval = setInterval(fetchOrders, 15_000);
+
+    // ── Shared socket: instant refresh on any orders change ──────────────
+    // getSharedSocket() returns the singleton — no new io() connection.
+    const socket = getSharedSocket();
+    const handleDbChange = (payload: any) => {
+      if (payload.collection === 'orders') {
+        console.log('[useSalesAnalytics] db_change orders → refetch');
+        fetchOrders();
+      }
+    };
+    socket.on('db_change', handleDbChange);
+
+    // ── Tab visibility / focus refresh ───────────────────────────────────
+    let visTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        if (visTimer) clearTimeout(visTimer);
+        visTimer = setTimeout(() => {
+          console.log('[useSalesAnalytics] Tab visible → refetch');
+          fetchOrders();
+        }, 500);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      socket.off('db_change', handleDbChange);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+      if (visTimer) clearTimeout(visTimer);
+    };
   }, []);
 
   // --- Compute KPIs ---
@@ -122,7 +160,7 @@ export function useSalesAnalytics() {
 
   // --- Compute Hourly Sales (Today) ---
   const hourlyMap: Record<string, { revenue: number; transactions: number; hourNum: number }> = {};
-  
+
   // Initialize standard business hours
   for (let i = 8; i <= 18; i++) {
     const hourLabel = i === 12 ? '12PM' : i > 12 ? `${i - 12}PM` : `${i}AM`;
@@ -133,12 +171,12 @@ export function useSalesAnalytics() {
     if (t.status !== 'voided') {
       const h = new Date(t.dateTime).getHours();
       const hourLabel = h === 12 ? '12PM' : h === 0 ? '12AM' : h > 12 ? `${h - 12}PM` : `${h}AM`;
-      
+
       // If hour is outside standard hours, initialize it dynamically
       if (!hourlyMap[hourLabel]) {
         hourlyMap[hourLabel] = { revenue: 0, transactions: 0, hourNum: h };
       }
-      
+
       hourlyMap[hourLabel].revenue += Number(t.total) || 0;
       hourlyMap[hourLabel].transactions += 1;
     }
@@ -172,7 +210,7 @@ export function useSalesAnalytics() {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    
+
     const dayEnd = new Date(d);
     dayEnd.setDate(dayEnd.getDate() + 1);
 

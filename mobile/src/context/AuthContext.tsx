@@ -114,9 +114,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const bootstrapped = await authService.bootstrapFromFirebaseUser(firebaseUser);
         applyState(firebaseUser, bootstrapped.token, bootstrapped.backendUser);
       } catch (error) {
-        console.warn('Failed to bootstrap Firebase session:', getApiErrorMessage(error));
-        applyState(null, null, null);
-        authService.signOut().catch(() => {});
+        const msg = getApiErrorMessage(error);
+        console.warn('[AuthContext] Bootstrap failed:', msg);
+
+        // ── Graceful fallback: try cached token/user from SecureStore ───────
+        // Do NOT sign out just because the backend is temporarily unreachable.
+        // This prevents demo-breaking logouts on slow networks or backend hiccups.
+        try {
+          const { authStorage } = await import('@/services/storage/authStorage');
+          const cachedToken = await authStorage.getToken();
+          const cachedUser = await authStorage.getUser();
+          if (cachedToken && cachedUser) {
+            console.log('[AuthContext] Bootstrap failed but cached session found — continuing offline');
+            applyState(firebaseUser, cachedToken, cachedUser);
+          } else {
+            // No cached session at all — must sign out
+            console.warn('[AuthContext] No cached session, signing out');
+            applyState(null, null, null);
+            authService.signOut().catch(() => {});
+          }
+        } catch {
+          applyState(null, null, null);
+          authService.signOut().catch(() => {});
+        }
       } finally {
         setInitialized(true);
       }

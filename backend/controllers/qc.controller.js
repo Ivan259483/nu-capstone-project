@@ -330,6 +330,10 @@ export const approveJob = async (req, res, next) => {
     order.serviceTrackingUpdatedBy = req.user?.name || 'QC Checker';
     order.status = 'completed';
     order.qcCompletedAt = new Date();
+    // ── Mark full payment as paid when QC approves/releases the car ──────
+    // The reservation fee was already paid (downpayment). The full service
+    // payment is considered settled at the point QC clears the vehicle.
+    order.paymentStatus = 'paid';
     await order.save();
 
     // ── Emit real-time update to customer ───────────────────────────
@@ -507,6 +511,11 @@ export const updateServiceStatus = async (req, res, next) => {
       released:       'released',      // vehicle handed back — hides customer tracker
     };
     order.status = stageToStatus[stage] ?? order.status;
+
+    // ── Mark payment as paid when the car is physically released ─────────
+    if (stage === 'released') {
+      order.paymentStatus = 'paid';
+    }
 
     await order.save();
 

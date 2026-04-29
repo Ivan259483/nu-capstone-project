@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { createPortal } from 'react-dom';
-import { X, Search, CheckCircle2, XCircle, Clock, Calendar, Car, Image as ImageIcon, TrendingUp, ShieldCheck } from 'lucide-react';
+import { X, Search, CheckCircle2, XCircle, Clock, Calendar, Car, Image as ImageIcon, TrendingUp, ShieldCheck, RefreshCw } from 'lucide-react';
+import { getSharedSocket } from '@/hooks/useRealtimeSync';
 
 const DOWNPAYMENT = 500;
 
@@ -377,7 +378,71 @@ export default function BookingApprovalsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    fetchAll();
+
+    // ── 10s backup polling — ensures demo stays fresh even if socket drops ──
+    const interval = setInterval(() => {
+      // Silent fetch: re-use fetchAll but skip the loading spinner after first load
+      import('@/lib/order-service').then(({ OrderService }) =>
+        OrderService.getAllOrders({ suppressErrorToast: true }).then(res => {
+          if (res.success && Array.isArray(res.data)) {
+            setAllBookings(res.data.filter((o: any) =>
+              ['pending_confirmation', 'approved', 'rejected'].includes(o.status)
+            ));
+          }
+        })
+      ).catch(() => {});
+    }, 10_000);
+
+    // ── Shared socket: instant update on any orders change ───────────────
+    const socket = getSharedSocket();
+    const handleDbChange = (payload: any) => {
+      if (payload.collection === 'orders') {
+        console.log('[BookingApprovals] db_change orders → silent refetch');
+        import('@/lib/order-service').then(({ OrderService }) =>
+          OrderService.getAllOrders({ suppressErrorToast: true }).then(res => {
+            if (res.success && Array.isArray(res.data)) {
+              setAllBookings(res.data.filter((o: any) =>
+                ['pending_confirmation', 'approved', 'rejected'].includes(o.status)
+              ));
+            }
+          })
+        ).catch(() => {});
+      }
+    };
+    socket.on('db_change', handleDbChange);
+
+    // ── Tab visibility / focus refresh ───────────────────────────────────
+    let visTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        if (visTimer) clearTimeout(visTimer);
+        visTimer = setTimeout(() => {
+          console.log('[BookingApprovals] Tab visible → silent refetch');
+          import('@/lib/order-service').then(({ OrderService }) =>
+            OrderService.getAllOrders({ suppressErrorToast: true }).then(res => {
+              if (res.success && Array.isArray(res.data)) {
+                setAllBookings(res.data.filter((o: any) =>
+                  ['pending_confirmation', 'approved', 'rejected'].includes(o.status)
+                ));
+              }
+            })
+          ).catch(() => {});
+        }, 500);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      socket.off('db_change', handleDbChange);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+      if (visTimer) clearTimeout(visTimer);
+    };
+  }, [fetchAll]);
 
   const pending = allBookings.filter(b => b.status === 'pending_confirmation');
   const approved = allBookings.filter(b => b.status === 'approved');

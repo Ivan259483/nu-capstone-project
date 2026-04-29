@@ -17,6 +17,9 @@ apiClient.interceptors.request.use(async (config) => {
     config.headers = config.headers || {};
     (config.headers as Record<string, string>).Authorization = `Bearer ${token}`;
   }
+  if (__DEV__) {
+    console.log(`[API] ${(config.method || 'GET').toUpperCase()} ${config.baseURL}${config.url}`);
+  }
   return config;
 });
 
@@ -28,7 +31,14 @@ apiClient.interceptors.response.use(
   async (error: AxiosError<{ message?: string }>) => {
     const config = error.config as AxiosRequestConfig & { _retryCount?: number };
 
-    // ── Auto-retry on network errors (max 1 retry) ──────────────
+    if (__DEV__) {
+      const status = error.response?.status;
+      const url = `${config?.baseURL || ''}${config?.url || ''}`;
+      const msg = (error.response?.data as any)?.message || error.message;
+      console.error(`[API] ERROR ${status || 'NETWORK'} ${config?.method?.toUpperCase()} ${url} \u2014 ${msg}`);
+    }
+
+    // \u2500\u2500 Auto-retry on network errors (max 1 retry) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     if (
       !error.response &&
       config &&

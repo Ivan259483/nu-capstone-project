@@ -98,6 +98,28 @@ export function useRealtimeSync(
           // Notify subscribers simulating a db_change payload
           subscribers.forEach((sub) => sub({ collection: 'orders', operationType: 'update', documentKey: { _id: payload.orderId }}));
         });
+
+        // Specific listener for customer tracking status updates as requested by web app mirror
+        socket.on('booking:status_updated', (payload: any) => {
+          invalidateCache('/bookings');
+          const keys = COLLECTION_QUERY_MAP['orders'];
+          if (keys) {
+            keys.forEach(queryKey => queryClient.invalidateQueries({ queryKey: [queryKey] }));
+            console.log(`[SOCKET] Invalidated local caches due to booking:status_updated emit`);
+          }
+          subscribers.forEach((sub) => sub({ collection: 'orders', operationType: 'update', documentKey: { _id: payload.bookingId || payload.orderId }}));
+        });
+        
+        // Also listen to existing booking:status just in case
+        socket.on('booking:status', (payload: any) => {
+          invalidateCache('/bookings');
+          const keys = COLLECTION_QUERY_MAP['orders'];
+          if (keys) {
+            keys.forEach(queryKey => queryClient.invalidateQueries({ queryKey: [queryKey] }));
+            console.log(`[SOCKET] Invalidated local caches due to booking:status emit`);
+          }
+          subscribers.forEach((sub) => sub({ collection: 'orders', operationType: 'update', documentKey: { _id: payload.bookingId || payload.orderId }}));
+        });
       }
 
       const handler = (payload: any) => {

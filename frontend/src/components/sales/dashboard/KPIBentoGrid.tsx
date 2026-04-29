@@ -8,7 +8,7 @@ const pctChange = (current: number, prev: number) =>
 
 export default function KPIBentoGrid() {
   const { kpis: KPI_DATA } = useSalesContext();
-  
+
   const targetSales = 60000;
   const targetAchievedPct = Math.min(100, Math.round((KPI_DATA.totalSalesToday / targetSales) * 100));
   const topServicePct = KPI_DATA.totalSalesToday > 0 ? Math.round((KPI_DATA.topServiceRevenue / KPI_DATA.totalSalesToday) * 100) : 0;

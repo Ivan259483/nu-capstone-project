@@ -1038,7 +1038,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const resp = await fetch(`${BACKEND_URL}/auth/register`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password, name, role: 'customer' }),
+                    body: JSON.stringify({ email, password, name, role: 'customer', firebaseUid: firebaseUser.uid }),
                     signal: AbortSignal.timeout(8000)
                 });
                 if (resp.ok) {

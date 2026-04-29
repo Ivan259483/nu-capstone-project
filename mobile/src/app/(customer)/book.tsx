@@ -40,7 +40,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 // expo-blur available if needed for future glassmorphism enhancements
 import { useTheme } from '@/hooks/useThemeContext';
 import { useAuth } from '@/context/AuthContext';
-import { getApiErrorMessage } from '@/services/api/client';
+import { getApiErrorMessage, invalidateCache } from '@/services/api/client';
 import { bookingService } from '@/services/api/bookingService';
 import { serviceService } from '@/services/api/serviceService';
 import { vehicleService } from '@/services/api/vehicleService';
@@ -935,7 +935,9 @@ export default function BookScreen() {
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setIsSuccess(true);
+      invalidateCache('/bookings');
+      reset();
+      router.push('/(customer)/track');
     } catch (error) {
       Toast.show(getApiErrorMessage(error, 'Something went wrong. Please try again.'), 'error');
     } finally {

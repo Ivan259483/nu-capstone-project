@@ -159,6 +159,18 @@ export const bookingService = {
     return normalizeBooking(response.data.data);
   },
   /**
+   * Upload GCash payment proof (base64 image)
+   * Backend: POST /api/orders/:id/payment-proof
+   */
+  async uploadPaymentProof(bookingId: string, paymentProofUrl: string): Promise<BookingRecord> {
+    const response = await apiClient.post<ApiEnvelope<any>>(
+      `/orders/${bookingId}/payment-proof`,
+      { paymentProofUrl }
+    );
+    return normalizeBooking(response.data.data);
+  },
+
+  /**
    * Operational endpoints mapped directly to the Backend
    */
   async operateCheckIn(bookingId: string, payload: { downPaymentAmount: number; releaseSignature: string }): Promise<BookingRecord> {

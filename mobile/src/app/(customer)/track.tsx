@@ -27,7 +27,10 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Image,
+  Alert,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
@@ -582,6 +585,7 @@ export default function TrackScreen() {
   const [booking, setBooking] = useState<any>(null);
   const [allBookings, setAllBookings] = useState<BookingRecord[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const {
     data: defaultBookings = [],
@@ -685,6 +689,37 @@ export default function TrackScreen() {
     ? booking.vehicleModel
     : booking?.vehiclePlate || 'Vehicle Service';
 
+  const pickImage = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permission required', 'We need access to your camera roll to upload payment proof.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0].base64) {
+        setUploading(true);
+        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        await bookingService.uploadPaymentProof(booking.id, base64Image);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        // Assuming real-time takes care of updating, but we manually update local state just in case
+        setBooking({ ...booking, paymentProofUrl: base64Image });
+      }
+    } catch (error: any) {
+      console.error('[Track] Error uploading proof:', error);
+      Alert.alert('Upload Failed', getApiErrorMessage(error));
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const trackSubTitle = booking?.orderNumber
     ? `Order #${booking.orderNumber}`
     : booking?.serviceName
@@ -752,6 +787,59 @@ export default function TrackScreen() {
               </Animated.View>
             )}
           </>
+        ) : booking.status === 'pending_confirmation' ? (
+          /* ─────── Pending Confirmation ─────── */
+          <Animated.View entering={FadeInDown.delay(120).duration(200)} style={[s.progressCard, { padding: 24, alignItems: 'center' }]}>
+            <Ionicons name="time-outline" size={48} color="#FF6B35" style={{ marginBottom: 16 }} />
+            <Text style={{ color: '#FFF', fontSize: 20, fontWeight: '700', marginBottom: 8 }}>Waiting for confirmation</Text>
+            <Text style={{ color: '#A1A1AA', fontSize: 14, textAlign: 'center', marginBottom: 24, lineHeight: 22 }}>
+              Please allow 1–3 minutes for verification. Upload your GCash proof of payment below.
+            </Text>
+
+            {booking.paymentProofUrl ? (
+              <View style={{ width: '100%', alignItems: 'center', marginBottom: 16 }}>
+                <Image 
+                  source={{ uri: booking.paymentProofUrl }} 
+                  style={{ width: 120, height: 160, borderRadius: 12, marginBottom: 8 }} 
+                  resizeMode="cover" 
+                />
+                <Text style={{ color: '#22C55E', fontSize: 14, fontWeight: '600' }}>Proof Uploaded</Text>
+              </View>
+            ) : (
+              <TouchableOpacity 
+                style={{ backgroundColor: '#FF6B35', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, width: '100%', alignItems: 'center' }}
+                onPress={pickImage}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontWeight: '600', fontSize: 16 }}>Upload GCash Screenshot</Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </Animated.View>
+        ) : booking.status === 'rejected' ? (
+          /* ─────── Rejected ─────── */
+          <Animated.View entering={FadeInDown.delay(120).duration(200)} style={[s.progressCard, { padding: 24, alignItems: 'center', borderColor: 'rgba(239,68,68,0.5)', borderWidth: 1 }]}>
+            <Ionicons name="close-circle-outline" size={48} color="#EF4444" style={{ marginBottom: 16 }} />
+            <Text style={{ color: '#FFF', fontSize: 20, fontWeight: '700', marginBottom: 8 }}>Payment Rejected</Text>
+            <Text style={{ color: '#A1A1AA', fontSize: 14, textAlign: 'center', marginBottom: 24, lineHeight: 22 }}>
+              {booking.rejectionReason || 'The payment proof provided could not be verified. Please upload a clear screenshot.'}
+            </Text>
+
+            <TouchableOpacity 
+              style={{ backgroundColor: '#EF4444', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, width: '100%', alignItems: 'center' }}
+              onPress={pickImage}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text style={{ color: '#FFF', fontWeight: '600', fontSize: 16 }}>Re-upload Proof</Text>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
         ) : (
           /* ─────── Active Tracking ─────── */
           <>

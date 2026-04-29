@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -409,7 +410,29 @@ export default function CustomerLiveTrackerPage() {
     };
 
     fetchActiveBooking();
-    const refreshInterval = window.setInterval(fetchActiveBooking, 30000);
+    // Reduced to 10s for demo reliability (was 30s)
+    const refreshInterval = window.setInterval(fetchActiveBooking, 10_000);
+
+    // Shared socket: instant update on any orders db_change
+    const socket = getSharedSocket();
+    const handleDbChange = (payload: any) => {
+      if (payload.collection === 'orders') {
+        console.log('[LiveTracker] db_change orders → refetch');
+        fetchActiveBooking();
+      }
+    };
+    socket.on('db_change', handleDbChange);
+
+    // Visibility / focus refresh
+    let visTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        if (visTimer) clearTimeout(visTimer);
+        visTimer = setTimeout(fetchActiveBooking, 500);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
 
     const unsubscribe = OrderService.subscribeToCustomerBookings(user.id, (bookings) => {
       const nextBooking = selectActiveBooking(bookings, user);
@@ -427,6 +450,10 @@ export default function CustomerLiveTrackerPage() {
     return () => {
       isMounted = false;
       window.clearInterval(refreshInterval);
+      socket.off('db_change', handleDbChange);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+      if (visTimer) clearTimeout(visTimer);
       unsubscribe?.();
     };
   }, [user]);

@@ -4,38 +4,11 @@ import { config } from '../config/environment.js';
 
 /**
  * Email Service - Multi-provider Support
- * Providers: Brevo (primary), Gmail (fallback), Console (development)
+ * Providers: Gmail (fallback), Console (development)
  */
 
 // Initialize transporter based on environment
 const createTransporter = () => {
-  // Option 1: Brevo (Sendinblue) - PRIMARY (strict SMTP configuration)
-  if (config.emailProvider === 'brevo') {
-    if (!config.brevoSmtpUser || !config.brevoSmtpPassword) {
-      console.error('❌ Brevo credentials missing - cannot create Brevo transporter');
-      console.error('   Required: BREVO_SMTP_USER and BREVO_SMTP_PASSWORD');
-      return createConsoleTransporter();
-    }
-
-    console.log('📧 Initializing Brevo SMTP transporter...');
-    console.log('  Host: smtp-relay.brevo.com');
-    console.log('  Port: 587');
-    console.log('  Secure: false (TLS)');
-    console.log('  User:', config.brevoSmtpUser);
-
-    return nodemailer.createTransport({
-      host: 'smtp-relay.brevo.com',
-      port: 587,
-      secure: false, // TLS (NOT SSL)
-      auth: {
-        user: config.brevoSmtpUser,
-        pass: config.brevoSmtpPassword,
-      },
-      logger: true,
-      debug: true, // Enable debug mode to see SMTP conversation
-    });
-  }
-
   // Option 2: Gmail with App Password
   if (config.emailProvider === 'gmail') {
     if (!config.emailUser || !config.emailPassword) {

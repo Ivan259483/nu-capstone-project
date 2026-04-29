@@ -104,14 +104,23 @@ const socialLogin = async (firebaseUser: FirebaseUser): Promise<{ token: string;
   }
 
   const isEmailPassword = firebaseUser.providerData?.some(p => p.providerId === 'password');
-
-  const response = await apiClient.post('/auth/social-login', {
+  const payload = {
     email,
     name: firebaseUser.displayName || safeNameFromEmail(email),
     provider: isEmailPassword ? 'password' : 'firebase',
     providerId: firebaseUser.uid,
     photoURL: firebaseUser.photoURL,
-  });
+  };
+
+  if (__DEV__) {
+    console.log('[Auth] socialLogin → POST /auth/social-login', { email, uid: firebaseUser.uid });
+  }
+
+  const response = await apiClient.post('/auth/social-login', payload);
+
+  if (__DEV__) {
+    console.log('[Auth] socialLogin response status:', response.status, '| success:', response.data?.success);
+  }
 
   return getAuthPayload(response, firebaseUser.uid);
 };
@@ -162,14 +171,34 @@ const exchangeTokenForRegistration = async (
   email: string,
   password: string
 ): Promise<{ token: string; user: BackendUser }> => {
-  const response = await apiClient.post('/auth/register', {
-    name,
-    email,
-    password,
-    role: DEFAULT_ROLE,
-  });
+  // The signup screen already verifies OTP before calling registerWithEmail.
+  // So we first ensure the backend user exists (via /auth/register),
+  // then obtain the JWT via /auth/social-login (which handles both new and existing users).
 
-  return getAuthPayload(response, firebaseUser.uid);
+  // Step 1: Register in MongoDB (creates the user record, returns requiresOtp or success)
+  try {
+    await apiClient.post('/auth/register', {
+      name,
+      email,
+      password,
+      role: DEFAULT_ROLE,
+      firebaseUid: firebaseUser.uid,
+    });
+  } catch (regErr: any) {
+    // 409 Conflict = user already exists (e.g. re-registration after OTP) — that's OK
+    const status = regErr?.response?.status;
+    if (status !== 409) {
+      // Other errors (500, network, etc.) should propagate
+      throw regErr;
+    }
+    console.warn('[Auth] /auth/register returned 409 (user exists) — continuing with social-login');
+  }
+
+  // Step 2: Authenticate the newly-created (or already-existing) user via social-login
+  // This returns the JWT and user object regardless of OTP state,
+  // because Firebase authentication is already the source of truth.
+  if (__DEV__) console.log('[Auth] Registration complete → obtaining JWT via social-login');
+  return socialLogin(firebaseUser);
 };
 
 export const authService = {
@@ -197,23 +226,102 @@ export const authService = {
     token: string;
     backendUser: BackendUser;
   }> {
+    if (__DEV__) console.log('[Auth] loginWithEmail → attempting Firebase sign-in for:', email);
+
     let firebaseUser: FirebaseUser;
     try {
       const credentials = await signInWithEmailAndPassword(auth, email, password);
       firebaseUser = credentials.user;
+      if (__DEV__) console.log('[Auth] Firebase sign-in success, uid:', firebaseUser.uid);
     } catch (firebaseError: any) {
+      const code = firebaseError?.code || '';
+      console.warn('[Auth] Firebase sign-in failed, code:', code);
+
+      // ── Firebase account recovery fallback ──────────────────────────────
+      // Some customers registered on the web before Firebase UID was saved.
+      // If Firebase reports user-not-found / invalid-credential, try the
+      if (
+        code === 'auth/user-not-found' ||
+        code === 'auth/invalid-credential' ||
+        code === 'auth/wrong-password'
+      ) {
+        if (__DEV__) console.log('[Auth] Attempting Firebase recovery via backend...');
+        try {
+          const recoveryResponse = await apiClient.post('/auth/recover-firebase', { email, password });
+          const recoveryData = recoveryResponse?.data;
+          if (__DEV__) console.log('[Auth] recover-firebase response:', recoveryData?.success, '| needsClientCreate:', recoveryData?.data?.needsClientCreate);
+
+          if (recoveryData?.success) {
+            const needsClientCreate = recoveryData?.data?.needsClientCreate || recoveryData?.needsClientCreate;
+
+            if (needsClientCreate) {
+              // ── Firebase Admin not on server → create Firebase account client-side ──
+              // MongoDB password was validated by backend. Now we create the Firebase
+              // account here on the device (no Admin SDK needed).
+              if (__DEV__) console.log('[Auth] Creating Firebase account client-side...');
+              try {
+                const newCredentials = await createUserWithEmailAndPassword(auth, email, password);
+                firebaseUser = newCredentials.user;
+                if (__DEV__) console.log('[Auth] Firebase account created client-side, uid:', firebaseUser.uid);
+              } catch (createErr: any) {
+                // If account already exists in Firebase with a different password, try sign in
+                if (createErr?.code === 'auth/email-already-in-use') {
+                  if (__DEV__) console.log('[Auth] Firebase account already exists — signing in...');
+                  const retryCredentials = await signInWithEmailAndPassword(auth, email, password);
+                  firebaseUser = retryCredentials.user;
+                } else {
+                  throw new Error(getFirebaseAuthErrorMessage(createErr));
+                }
+              }
+            } else {
+              // Backend (with Admin SDK) re-created the Firebase account — sign in again
+              const credentials = await signInWithEmailAndPassword(auth, email, password);
+              firebaseUser = credentials.user;
+              if (__DEV__) console.log('[Auth] Firebase re-sign-in after server recovery, uid:', firebaseUser.uid);
+            }
+
+            // Now get the backend JWT via social-login (using the fresh Firebase session)
+            const authPayload = await exchangeTokenForLogin(firebaseUser, email, password);
+            await persistSession(authPayload.token, authPayload.user);
+
+            let syncedUser = authPayload.user;
+            try {
+              syncedUser = await syncUserWithMongo(firebaseUser, authPayload.user);
+              await persistSession(authPayload.token, syncedUser);
+            } catch (syncErr) {
+              console.warn('[Auth] Mongo sync after recovery (non-fatal):', getApiErrorMessage(syncErr));
+            }
+
+            if (__DEV__) console.log('[Auth] Recovery complete! role:', syncedUser.role);
+            return { firebaseUser, token: authPayload.token, backendUser: syncedUser };
+          }
+        } catch (recoveryErr: any) {
+          console.warn('[Auth] Firebase recovery failed:', getApiErrorMessage(recoveryErr));
+          const status = recoveryErr?.response?.status;
+          if (status === 404) {
+            throw new Error('Authentication service unavailable. Please check your connection.');
+          }
+          // 401 from backend = wrong password for MongoDB too → show proper error
+          if (status === 401) {
+            throw new Error('Invalid email or password. Please try again.');
+          }
+        }
+      }
+
       throw new Error(getFirebaseAuthErrorMessage(firebaseError));
     }
 
+    if (__DEV__) console.log('[Auth] Exchanging Firebase token for backend JWT...');
     const authPayload = await exchangeTokenForLogin(firebaseUser, email, password);
     await persistSession(authPayload.token, authPayload.user);
+    if (__DEV__) console.log('[Auth] Backend JWT received, user role:', authPayload.user.role);
 
     let syncedUser = authPayload.user;
     try {
       syncedUser = await syncUserWithMongo(firebaseUser, authPayload.user);
       await persistSession(authPayload.token, syncedUser);
     } catch (error) {
-      console.warn('Mongo user sync failed during login:', getApiErrorMessage(error));
+      console.warn('[Auth] Mongo user sync failed during login (non-fatal):', getApiErrorMessage(error));
     }
 
     return {
@@ -307,13 +415,22 @@ export const authService = {
     const currentToken = await authStorage.getToken();
     const currentUser = await authStorage.getUser();
 
-    if (currentToken && currentUser && currentUser.firebaseUid === firebaseUser.uid) {
-      return {
-        token: currentToken,
-        backendUser: currentUser,
-      };
+    if (__DEV__) {
+      console.log('[Auth] bootstrapFromFirebaseUser | uid:', firebaseUser.uid,
+        '| cachedUid:', currentUser?.firebaseUid || currentUser?.id,
+        '| hasToken:', !!currentToken);
     }
 
+    // Use cached session if token exists AND the stored user matches this Firebase uid.
+    // Also accept match by email as fallback (handles old sessions missing firebaseUid).
+    const uidMatches = currentUser?.firebaseUid === firebaseUser.uid;
+    const emailMatches = !!(currentUser?.email && currentUser.email === firebaseUser.email);
+    if (currentToken && currentUser && (uidMatches || emailMatches)) {
+      if (__DEV__) console.log('[Auth] Bootstrap: using cached session');
+      return { token: currentToken, backendUser: currentUser };
+    }
+
+    if (__DEV__) console.log('[Auth] Bootstrap: no valid cache, calling socialLogin...');
     const authPayload = await socialLogin(firebaseUser);
     await persistSession(authPayload.token, authPayload.user);
 
@@ -322,8 +439,10 @@ export const authService = {
       syncedUser = await syncUserWithMongo(firebaseUser, authPayload.user);
       await persistSession(authPayload.token, syncedUser);
     } catch (error) {
-      console.warn('Mongo user sync failed during bootstrap:', getApiErrorMessage(error));
+      console.warn('[Auth] Mongo user sync failed during bootstrap (non-fatal):', getApiErrorMessage(error));
     }
+
+    if (__DEV__) console.log('[Auth] Bootstrap complete | role:', syncedUser.role);
 
     return {
       token: authPayload.token,

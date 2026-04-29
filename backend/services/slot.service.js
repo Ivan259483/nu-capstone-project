@@ -39,6 +39,71 @@ function fromMinutes(totalMins) {
 }
 
 /**
+ * normalizeBookingTime(timeStr)
+ *
+ * Converts ANY booking time string to 24-hour HH:MM so it can be matched
+ * against the slot engine's generated keys.
+ *
+ * Handles:
+ *   '09:00'    → '09:00'  (already correct)
+ *   '9:00 AM'  → '09:00'
+ *   '10:00 AM' → '10:00'
+ *   '12:00 PM' → '12:00'
+ *   '3:00 PM'  → '15:00'
+ *   '12:00 AM' → '00:00'
+ */
+function normalizeBookingTime(timeStr) {
+  if (!timeStr || typeof timeStr !== 'string') return null;
+  const trimmed = timeStr.trim();
+
+  // Already HH:MM (24-hour) format
+  if (/^\d{1,2}:\d{2}$/.test(trimmed)) {
+    const [h, m] = trimmed.split(':').map(Number);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  // 12-hour format: '9:00 AM', '10:00 PM', '12:00 AM', etc.
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (match) {
+    let h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const period = match[3].toUpperCase();
+    if (period === 'AM') {
+      if (h === 12) h = 0;      // 12:xx AM → 0:xx
+    } else {
+      if (h !== 12) h += 12;   // 1:xx PM → 13:xx, but 12:xx PM stays 12
+    }
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  return null; // unrecognised format — skip this booking's time
+}
+
+/**
+ * normalizeBookingDate(dateStr)
+ *
+ * Converts a booking date to YYYY-MM-DD regardless of the original format.
+ *
+ * Handles:
+ *   '2026-04-15'  → '2026-04-15' (already correct)
+ *   'Apr 15, 2026' → '2026-04-15'
+ */
+function normalizeBookingDate(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  const trimmed = dateStr.trim();
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  // Parse anything else via Date (handles 'Apr 15, 2026', 'April 15 2026', etc.)
+  const parsed = new Date(trimmed);
+  if (isNaN(parsed.getTime())) return null;
+  // Use local date parts to avoid UTC shift
+  const y = parsed.getFullYear();
+  const mo = String(parsed.getMonth() + 1).padStart(2, '0');
+  const d = String(parsed.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${d}`;
+}
+
+/**
  * generateTimeSlots(dayConfig, slotDuration)
  * Returns an ordered array of 'HH:MM' strings for a given day's config.
  * Returns [] if the day is closed.
@@ -96,16 +161,23 @@ export async function getSlotsForDate(dateStr) {
   }
 
   // ── Fetch bookings for this date in ONE query ─────────────────────────
+  // Include both ISO (2026-04-15) and legacy human-readable (Apr 15, 2026) formats
   const bookings = await Order.find({
-    bookingDate: dateStr,
+    $or: [
+      { bookingDate: dateStr },
+      { bookingDate: { $regex: new RegExp(dateStr.replace(/-/g, '.*'), 'i') } },
+    ],
     status: { $in: SLOT_CONSUMING_STATUSES },
-  }).select('bookingTime').lean();
+  }).select('bookingDate bookingTime').lean();
 
-  // Count bookings per time slot
+  // Count bookings per time slot — normalise both date AND time format
   const bookedCountByTime = {};
   for (const b of bookings) {
-    if (!b.bookingTime) continue;
-    bookedCountByTime[b.bookingTime] = (bookedCountByTime[b.bookingTime] || 0) + 1;
+    const normDate = normalizeBookingDate(b.bookingDate);
+    if (normDate !== dateStr) continue; // skip if date doesn't actually match
+    const normTime = normalizeBookingTime(b.bookingTime);
+    if (!normTime) continue;
+    bookedCountByTime[normTime] = (bookedCountByTime[normTime] || 0) + 1;
   }
 
   // Build custom capacity lookup: 'time' → capacity
@@ -161,29 +233,31 @@ export async function getSlotsForRange(startStr, endStr) {
   }
 
   // Fetch all bookings in the date range in one query
+  // Include both ISO (2026-04-15) and legacy human-readable (Apr 15, 2026) formats
   const bookings = await Order.find({
-    bookingDate: { $in: dates },
     status: { $in: SLOT_CONSUMING_STATUSES },
   }).select('bookingDate bookingTime status').lean();
 
   // Also get pending counts (a subset of SLOT_CONSUMING)
   const pendingBookings = await Order.find({
-    bookingDate: { $in: dates },
     status: 'pending_confirmation',
   }).select('bookingDate').lean();
 
-  // Group booked slots by date
+  // Group booked slots by date — normalise both date AND time on the fly
   const bookedByDate = {};
   for (const b of bookings) {
-    if (!b.bookingDate) continue;
-    if (!bookedByDate[b.bookingDate]) bookedByDate[b.bookingDate] = [];
-    bookedByDate[b.bookingDate].push(b.bookingTime);
+    const normDate = normalizeBookingDate(b.bookingDate);
+    if (!normDate || !dates.includes(normDate)) continue; // outside requested range
+    if (!bookedByDate[normDate]) bookedByDate[normDate] = [];
+    bookedByDate[normDate].push(normalizeBookingTime(b.bookingTime)); // normalised 24-hr time
   }
 
-  // Group pending by date
+  // Group pending by date — normalise date
   const pendingByDate = {};
   for (const b of pendingBookings) {
-    pendingByDate[b.bookingDate] = (pendingByDate[b.bookingDate] || 0) + 1;
+    const normDate = normalizeBookingDate(b.bookingDate);
+    if (!normDate || !dates.includes(normDate)) continue;
+    pendingByDate[normDate] = (pendingByDate[normDate] || 0) + 1;
   }
 
   const customCapMap = {};
@@ -263,30 +337,37 @@ export async function validateSlotAvailability(bookingDate, bookingTime, exclude
 
   const settings = await BusinessSettings.getSettings();
 
+  // Normalise inputs so '9:00 AM' / 'Apr 15, 2026' are handled correctly
+  const normDate = normalizeBookingDate(bookingDate) || bookingDate;
+  const normTime = normalizeBookingTime(bookingTime) || bookingTime;
+
   // Check closed dates
-  if (settings.closedDates.includes(bookingDate)) {
+  if (settings.closedDates.includes(normDate)) {
     return { ok: false, errorCode: 'SLOT_CLOSED', message: 'The business is closed on this date.' };
   }
 
   // Check day open
-  const [yr, mo, dy] = bookingDate.split('-').map(Number);
+  const [yr, mo, dy] = normDate.split('-').map(Number);
   const dayName = DAY_NAMES[new Date(yr, mo - 1, dy).getDay()];
   if (!settings.openingHours?.[dayName]?.isOpen) {
     return { ok: false, errorCode: 'SLOT_CLOSED', message: 'The business is closed on this day.' };
   }
 
-  // Get effective capacity for this specific slot
+  // Get effective capacity for this specific slot (normalise stored custom capacities too)
   const customCap = (settings.customSlotCapacities || []).find(
-    cc => cc.date === bookingDate && cc.time === bookingTime
+    cc => (normalizeBookingDate(cc.date) || cc.date) === normDate
+       && (normalizeBookingTime(cc.time) || cc.time) === normTime
   );
   const capacity = customCap ? customCap.capacity : settings.defaultSlotCapacity;
 
-  // Atomic count of active bookings in this slot
-  // Exclude the current order if provided (e.g. during approval, it's still
-  // pending_confirmation which is a slot-consuming status — don't count it twice)
+  // Atomic count of active bookings in this slot.
+  // Count both the normalised time AND the raw time to catch legacy records
+  // stored as '9:00 AM' when the incoming time is already '09:00'.
+  const timeVariants = [...new Set([normTime, bookingTime])].filter(Boolean);
+  const dateVariants = [...new Set([normDate, bookingDate])].filter(Boolean);
   const countQuery = {
-    bookingDate,
-    bookingTime,
+    bookingDate: { $in: dateVariants },
+    bookingTime: { $in: timeVariants },
     status: { $in: SLOT_CONSUMING_STATUSES },
     ...(excludeOrderId ? { _id: { $ne: excludeOrderId } } : {}),
   };
@@ -302,3 +383,4 @@ export async function validateSlotAvailability(bookingDate, bookingTime, exclude
 
   return { ok: true, remaining: capacity - activeCount };
 }
+

@@ -1,11 +1,27 @@
-const DEFAULT_API_ORIGIN = 'https://nu-capstone-project-production.up.railway.app';
+// ── API URL Resolution ────────────────────────────────────────────────
+// Priority: EXPO_PUBLIC_API_URL env var → fallback production domain
+//
+// ⚠️  DO NOT use "localhost" or "127.0.0.1" here.
+//     Mobile devices can NOT reach your Mac's localhost.
+//     Use your machine's LAN IP (e.g. 192.168.x.x) for local dev,
+//     or deploy to Railway/Render and use the production domain.
+//
+// Local dev: set EXPO_PUBLIC_API_URL=http://192.168.18.164:3000/api in .env
+// Production: set EXPO_PUBLIC_API_URL=https://your-backend.railway.app/api
 
-const rawApiUrl = (process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_ORIGIN).trim();
+const FALLBACK_API_ORIGIN = 'https://nu-capstone-project-production.up.railway.app';
+
+const rawApiUrl = (process.env.EXPO_PUBLIC_API_URL || FALLBACK_API_ORIGIN).trim();
 const sanitizedApiUrl = rawApiUrl.replace(/\/+$/, '');
 
 export const API_BASE_URL = sanitizedApiUrl.endsWith('/api')
   ? sanitizedApiUrl
   : `${sanitizedApiUrl}/api`;
+
+// ── Debug: log API URL on startup ────────────────────────────────────
+if (__DEV__) {
+  console.log('[Config] API_BASE_URL:', API_BASE_URL);
+}
 
 export const APP_STORAGE_KEYS = {
   token: 'autospf_token',
