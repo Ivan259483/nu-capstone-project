@@ -6,6 +6,8 @@ import { CUSTOMER_ROLE, getSafeUserRole } from '@/services/api/roles';
 import { authService } from '@/services/api/authService';
 import { authStorage } from '@/services/storage/authStorage';
 import type { BackendUser, MobileProfile } from '@/services/api/types';
+import { clearQueue } from '@/services/offlineQueue';
+
 
 type AuthResult = {
   success: boolean;
@@ -187,6 +189,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async (): Promise<void> => {
     try {
       await authService.signOut();
+      // Clear any stuck offline-queued requests so they aren't
+      // replayed with a stale token in the next session.
+      await clearQueue();
     } catch (error) {
       console.warn('Sign-out warning:', getApiErrorMessage(error));
     } finally {

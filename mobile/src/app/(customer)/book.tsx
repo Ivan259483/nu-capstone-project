@@ -944,6 +944,8 @@ export default function BookScreen() {
   };
 
   // ── Computed ──
+  // Step 0 requires: a selected vehicle AND customer name AND contact number
+  // Note: canProceedStep0 is gated by selectedVehicle which is set after addVehicle succeeds
   const canProceedStep0 = !!selectedVehicle && customerName.trim().length >= 2 && contactNumber.trim().length > 0;
   const canProceedStep1 = (!!selectedService || !!selectedPkg) && !!selectedDate && !!selectedTime;
   const canConfirmBooking = agreedToTerms;
@@ -1207,26 +1209,9 @@ export default function BookScreen() {
                     <ActivityIndicator size="large" color={PRIMARY} />
                     <Text style={ss.loadingText}>Loading vehicles…</Text>
                   </View>
-                ) : vehicles.length === 0 ? (
-                  <View style={ss.emptyBox}>
-                    <View style={ss.emptyIconWrap}>
-                      <Ionicons name="car-outline" size={32} color={MUTED} />
-                    </View>
-                    <Text style={ss.emptyTitle}>No vehicles registered</Text>
-                    <Text style={ss.emptySub}>
-                      Add your vehicle in Settings to get started.
-                    </Text>
-                    <TouchableOpacity 
-                      activeOpacity={0.85}
-                      onPress={() => router.push('/(screens)/vehicles')}
-                      style={ss.emptyActionBtn}
-                    >
-                      <Text style={ss.emptyActionText}>Go to Settings</Text>
-                      <Ionicons name="arrow-forward" size={14} color={PRIMARY} />
-                    </TouchableOpacity>
-                  </View>
                 ) : (
                   <View style={{ gap: 12 }}>
+                    {/* ── Existing Vehicle Cards ── */}
                     {vehicles.map((v, i) => (
                       <Animated.View
                         key={v.id}
@@ -1235,10 +1220,157 @@ export default function BookScreen() {
                         <VehicleCard
                           vehicle={v}
                           selected={selectedVehicle?.id === v.id}
-                          onPress={() => setSelectedVehicle(v)}
+                          onPress={() => {
+                            setSelectedVehicle(v);
+                            setShowAddVehicle(false);
+                          }}
                         />
                       </Animated.View>
                     ))}
+
+                    {/* ── Add Vehicle Toggle Button ── */}
+                    {!showAddVehicle && (
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        onPress={() => {
+                          setShowAddVehicle(true);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                        style={[ss.emptyActionBtn, { alignSelf: 'center', marginTop: 4 }]}
+                      >
+                        <Ionicons name="add-circle-outline" size={16} color={PRIMARY} />
+                        <Text style={ss.emptyActionText}>
+                          {vehicles.length === 0 ? 'Add Vehicle to Book' : 'Add Another Vehicle'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {/* ── Inline Add Vehicle Form ── */}
+                    {showAddVehicle && (
+                      <Animated.View
+                        entering={FadeInDown.duration(250)}
+                        style={{
+                          backgroundColor: SURFACE_MID,
+                          borderRadius: 24,
+                          padding: 20,
+                          gap: 14,
+                          borderWidth: 1,
+                          borderColor: 'rgba(255,183,125,0.15)',
+                        }}
+                      >
+                        {/* Form header */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                          <View style={[s1.sectionIconWrap, { backgroundColor: 'rgba(255,183,125,0.1)' }]}>
+                            <Ionicons name="car-sport-outline" size={14} color={PRIMARY} />
+                          </View>
+                          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>New Vehicle</Text>
+                          <TouchableOpacity
+                            onPress={() => { setShowAddVehicle(false); resetVehicleForm(); }}
+                            style={{ marginLeft: 'auto' }}
+                          >
+                            <Ionicons name="close-circle-outline" size={22} color={MUTED} />
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Year + Make row */}
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                          <View style={{ flex: 1 }}>
+                            <PremiumInput
+                              label="YEAR"
+                              iconName="calendar-number-outline"
+                              placeholder="2024"
+                              value={vYear}
+                              onChangeText={setVYear}
+                              keyboardType="numeric"
+                              maxLength={4}
+                              error={vYearError}
+                            />
+                          </View>
+                          <View style={{ flex: 2 }}>
+                            <PremiumInput
+                              label="MAKE / BRAND"
+                              iconName="business-outline"
+                              placeholder="Toyota"
+                              value={vMake}
+                              onChangeText={setVMake}
+                              error={vMakeError}
+                            />
+                          </View>
+                        </View>
+
+                        {/* Model */}
+                        <PremiumInput
+                          label="MODEL"
+                          iconName="car-outline"
+                          placeholder="GR86 / Fortuner / Hilux…"
+                          value={vModel}
+                          onChangeText={setVModel}
+                          error={vModelError}
+                        />
+
+                        {/* Color + Plate row */}
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                          <View style={{ flex: 1 }}>
+                            <PremiumInput
+                              label="COLOR"
+                              iconName="color-palette-outline"
+                              placeholder="White"
+                              value={vColor}
+                              onChangeText={setVColor}
+                              error={vColorError}
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <PremiumInput
+                              label="PLATE NO."
+                              iconName="barcode-outline"
+                              placeholder="ABC1234"
+                              value={vPlate}
+                              onChangeText={(t) => setVPlate(t.toUpperCase())}
+                              autoCapitalize="characters"
+                              error={vPlateError}
+                            />
+                          </View>
+                        </View>
+
+                        {/* Save button */}
+                        <TouchableOpacity
+                          activeOpacity={0.88}
+                          disabled={addingVehicle}
+                          onPress={handleAddVehicle}
+                          style={{ opacity: addingVehicle ? 0.6 : 1 }}
+                        >
+                          <LinearGradient
+                            colors={[PRIMARY_CTR, PRIMARY]}
+                            start={{ x: 0, y: 0.5 }}
+                            end={{ x: 1, y: 0.5 }}
+                            style={[ss.gradientBtn, { marginTop: 4 }]}
+                          >
+                            {addingVehicle ? (
+                              <ActivityIndicator size="small" color={ON_PRIMARY} />
+                            ) : (
+                              <>
+                                <Ionicons name="checkmark-circle-outline" size={18} color={ON_PRIMARY} />
+                                <Text style={ss.gradientBtnText}>Save Vehicle</Text>
+                              </>
+                            )}
+                          </LinearGradient>
+                        </TouchableOpacity>
+                      </Animated.View>
+                    )}
+
+                    {/* Empty state hint when no vehicles and form is not showing */}
+                    {vehicles.length === 0 && !showAddVehicle && (
+                      <View style={[ss.emptyBox, { marginTop: 4 }]}>
+                        <View style={ss.emptyIconWrap}>
+                          <Ionicons name="car-outline" size={32} color={MUTED} />
+                        </View>
+                        <Text style={ss.emptyTitle}>No vehicles yet</Text>
+                        <Text style={ss.emptySub}>
+                          Tap "Add Vehicle to Book" above to register your car.
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 )}
               </Animated.View>

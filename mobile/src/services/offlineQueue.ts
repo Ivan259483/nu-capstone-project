@@ -12,6 +12,9 @@ export interface QueuedRequest {
 
 const QUEUE_STORAGE_KEY = '@autospf_offline_queue';
 
+// Requests older than 24 hours are considered stale and discarded automatically.
+const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Push a failed or offline request into the queue to be replayed later.
  */
@@ -40,10 +43,47 @@ export const enqueueRequest = async (config: any) => {
 };
 
 /**
+ * Remove requests older than STALE_THRESHOLD_MS (24h).
+ * Called automatically at the start of processQueue.
+ */
+export const pruneStaleRequests = async () => {
+  try {
+    const queueData = await AsyncStorage.getItem(QUEUE_STORAGE_KEY);
+    if (!queueData) return;
+    const queue: QueuedRequest[] = JSON.parse(queueData);
+    const now = Date.now();
+    const fresh = queue.filter((r) => now - r.timestamp < STALE_THRESHOLD_MS);
+    const pruned = queue.length - fresh.length;
+    if (pruned > 0) {
+      await AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(fresh));
+      console.log(`[OfflineQueue] Pruned ${pruned} stale request(s) (>24h old)`);
+    }
+  } catch (error) {
+    console.error('[OfflineQueue] Failed to prune stale requests:', error);
+  }
+};
+
+/**
+ * Completely clears the offline queue. Use this when the user logs out
+ * or when you need to force-flush stuck entries.
+ */
+export const clearQueue = async () => {
+  try {
+    await AsyncStorage.removeItem(QUEUE_STORAGE_KEY);
+    console.log('[OfflineQueue] Queue cleared.');
+  } catch (error) {
+    console.error('[OfflineQueue] Failed to clear queue:', error);
+  }
+};
+
+/**
  * Replay the queued requests sequentially when online.
  */
 export const processQueue = async () => {
   try {
+    // Always prune stale entries first so stuck requests never loop forever.
+    await pruneStaleRequests();
+
     const queueData = await AsyncStorage.getItem(QUEUE_STORAGE_KEY);
     if (!queueData) return;
 
@@ -71,7 +111,7 @@ export const processQueue = async () => {
         await AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
       } catch (error: any) {
         if (error.response && error.response.status >= 400 && error.response.status < 500) {
-          console.warn(`[OfflineQueue] Request ${req.id} rejected by server with ${error.response.status}. Discarding request.`);
+          console.warn(`[OfflineQueue] Request ${req.id} rejected by server (${error.response.status}). Discarding.`);
           // Remove from queue since server explicitly rejected it
           queue = queue.filter((q) => q.id !== req.id);
           await AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
