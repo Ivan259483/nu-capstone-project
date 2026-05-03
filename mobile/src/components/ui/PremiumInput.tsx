@@ -61,13 +61,13 @@ export default function PremiumInput({
     const borderColor = interpolateColor(
       glowBorder.value,
       [0, 1, 2],
-      ['#E9EAEC', 'rgba(249, 115, 22, 0.7)', 'rgba(239, 68, 68, 0.8)']
+      ['rgba(255,255,255,0.08)', 'rgba(249,115,22,0.55)', 'rgba(239,68,68,0.7)']
     );
 
     const backgroundColor = interpolateColor(
       glowBorder.value,
       [0, 1, 2],
-      ['#FAFAFA', 'rgba(249, 115, 22, 0.04)', 'rgba(239, 68, 68, 0.04)']
+      ['#111111', 'rgba(249,115,22,0.06)', 'rgba(239,68,68,0.06)']
     );
 
     return {
@@ -83,16 +83,16 @@ export default function PremiumInput({
       
       <Animated.View style={[styles.inputContainer, animatedContainerStyle]}>
         {iconName && (
-          <Ionicons 
-            name={iconName} 
-            size={18} 
-            color={error ? '#EF4444' : isFocused ? '#F97316' : '#9CA3AF'} 
+          <Ionicons
+            name={iconName}
+            size={18}
+            color={error ? '#EF4444' : isFocused ? '#F97316' : 'rgba(255,255,255,0.30)'}
           />
         )}
-        
+
         <TextInput
           style={styles.input}
-          placeholderTextColor="#C0C0C0"
+          placeholderTextColor="rgba(255,255,255,0.28)"
           secureTextEntry={isPassword && !showPassword}
           onFocus={(e) => {
             setIsFocused(true);
@@ -136,28 +136,29 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: 20,
   },
-  label: { 
-    fontSize: 12, 
-    fontWeight: '700', 
-    letterSpacing: 0.3, 
-    color: '#374151', 
-    marginBottom: 8 
+  label: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 2,
+    color: 'rgba(255,255,255,0.40)',
+    marginBottom: 8,
+    textTransform: 'uppercase',
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    height: 56,
-    gap: 12,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    height: 50,
+    gap: 10,
   },
-  input: { 
-    flex: 1, 
-    fontSize: 15, 
-    height: '100%', 
-    color: '#111111', 
-    fontWeight: '500' 
+  input: {
+    flex: 1,
+    fontSize: 14,
+    height: '100%',
+    color: '#FFFFFF',
+    fontWeight: '500',
   },
   errorText: {
     color: '#EF4444',

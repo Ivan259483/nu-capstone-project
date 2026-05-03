@@ -118,7 +118,7 @@ export default function PremiumButton({
         style={[[containerStyle, { opacity: 1 }], animStyle, style]}
       >
         <LinearGradient
-          colors={disabled ? ['#D1D5DB', '#E5E7EB'] : ['#1a1a1a', '#111111']}
+          colors={disabled ? ['#1A1A1A', '#161616'] : ['#F97316', '#EA580C']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={[innerStyle, { borderWidth: 0 }]}
@@ -127,10 +127,10 @@ export default function PremiumButton({
             <Ionicons
               name={icon}
               size={18}
-              color={disabled ? '#9CA3AF' : '#fff'}
+              color={disabled ? 'rgba(255,255,255,0.28)' : '#fff'}
             />
           )}
-          <Text style={[textStyle, disabled && { color: '#9CA3AF' }]}>{title}</Text>
+          <Text style={[textStyle, disabled && { color: 'rgba(255,255,255,0.28)' }]}>{title}</Text>
         </LinearGradient>
       </AnimatedPressable>
     );

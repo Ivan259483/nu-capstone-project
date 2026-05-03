@@ -34,7 +34,9 @@ const BORDER = '#2A2A30';
 export default function ChangePasswordScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  // `user` = Firebase user (null for OTP/email-password accounts)
+  // `token` = JWT present for all logged-in users regardless of auth method
+  const { user, token } = useAuth();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -87,8 +89,11 @@ export default function ChangePasswordScreen() {
 
   const handleChangePassword = async () => {
     if (!validateForm()) return;
-    if (!user) {
-      Toast.show('Authentication required. Please re-login.', 'error');
+
+    // Must have either a JWT (email/password users) or a Firebase session (social users)
+    if (!token && !user) {
+      Toast.show('Session expired. Please re-login.', 'error');
+      router.replace('/(auth)/login');
       return;
     }
 
@@ -98,7 +103,13 @@ export default function ChangePasswordScreen() {
     }
 
     try {
-      await authService.reauthenticateAndUpdatePassword(user, currentPassword, newPassword);
+      if (user) {
+        // Firebase / social user — re-authenticate with Firebase then update
+        await authService.reauthenticateAndUpdatePassword(user, currentPassword, newPassword);
+      } else {
+        // Email/password user — call backend directly with JWT (no Firebase account exists)
+        await authService.changePasswordDirect(currentPassword, newPassword);
+      }
 
       setSuccess(true);
       if (Platform.OS !== 'web') {
@@ -106,7 +117,6 @@ export default function ChangePasswordScreen() {
       }
       Toast.show('Password updated successfully!', 'success');
 
-      // Auto-navigate back after a short delay
       setTimeout(() => {
         router.back();
       }, 1500);
@@ -117,13 +127,19 @@ export default function ChangePasswordScreen() {
 
       const message = getApiErrorMessage(err);
 
-      // Handle specific Firebase errors
-      if (message.includes('wrong-password') || message.includes('invalid-credential') || message.includes('Incorrect')) {
+      if (
+        message.includes('incorrect') ||
+        message.includes('wrong-password') ||
+        message.includes('invalid-credential') ||
+        message.includes('Incorrect')
+      ) {
         setCurrentError('Current password is incorrect');
       } else if (message.includes('weak-password')) {
         setNewError('Password is too weak');
       } else if (message.includes('too-many-requests') || message.includes('Too many')) {
         Toast.show('Too many attempts. Please try again later.', 'error');
+      } else if (message.includes('must contain')) {
+        setNewError(message);
       } else {
         Toast.show(message || 'Failed to change password', 'error');
       }

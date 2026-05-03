@@ -1,5 +1,9 @@
 import dotenv from 'dotenv';
 dotenv.config();
+import { fileURLToPath } from 'url';
+import path from 'path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
 
 console.log('Offline damage detection enabled:', true);
 import express from 'express';
@@ -180,6 +184,16 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/qc', qcRoutes);
 app.use('/api/slots', slotRoutes);
+
+// Serve static public assets (e.g. /ar-viewer.html used by the mobile WebView)
+// Must be before the 404 handler so the file is matched first.
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders(res) {
+    // Allow the AR viewer to load resources cross-origin (required for model-viewer CDN script)
+    res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+  },
+}));
 
 // 404 handler
 app.use((req, res) => {

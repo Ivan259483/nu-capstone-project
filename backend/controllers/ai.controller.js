@@ -32,6 +32,14 @@ import {
   generateOfflineDamages,
 } from '../utils/offlineDamageEngine.utils.js';
 import { analyzeWithRoboflow, isRoboflowAvailable } from '../utils/roboflowVision.utils.js';
+import AIScan from '../models/aiScan.model.js';
+import { analyzeWithGPTVision, isOpenAIConfigured } from '../services/gptVision.service.js';
+import {
+  startMeshyImageTo3D,
+  getMeshyTaskStatus,
+  meshyDependencyStatus,
+} from '../services/meshy.service.js';
+import { buildEstimateFromDamages } from '../services/estimator.service.js';
 
 // ── Module-level Replicate session state ──────────────────────────────────────
 // Set to true once a 402 is received so we skip all subsequent calls this
@@ -486,31 +494,89 @@ const validateUploads = (files = []) => {
   return null;
 };
 
+const isGlbUrl = (url) => {
+  if (typeof url !== 'string') return false;
+  const cleaned = url.split('?')[0].split('#')[0].toLowerCase().trim();
+  return cleaned.endsWith('.glb');
+};
+
+const collectUrlStrings = (value, label, acc = []) => {
+  if (!value) return acc;
+  if (typeof value === 'string') {
+    acc.push({ label, url: value });
+    return acc;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectUrlStrings(item, `${label}[${index}]`, acc));
+    return acc;
+  }
+  if (typeof value === 'object') {
+    Object.entries(value).forEach(([key, item]) => collectUrlStrings(item, `${label}.${key}`, acc));
+  }
+  return acc;
+};
+
+const logMeshyUrlDiagnostics = (payload = {}) => {
+  console.log('[Meshy] Available model_urls:', JSON.stringify({
+    model_urls: payload?.model_urls || null,
+    result_model_urls: payload?.result?.model_urls || null,
+    output_model_urls: payload?.output?.model_urls || null,
+    data_model_urls: payload?.data?.model_urls || null,
+  }));
+  console.log('[Meshy] Available texture_urls:', JSON.stringify({
+    texture_urls: payload?.texture_urls || null,
+    result_texture_urls: payload?.result?.texture_urls || null,
+    output_texture_urls: payload?.output?.texture_urls || null,
+    data_texture_urls: payload?.data?.texture_urls || null,
+  }));
+};
+
 const extractModelUrl = (payload = {}) => {
-  const candidates = [
-    payload?.model_url,
-    payload?.glb_url,
-    payload?.output?.model_url,
-    payload?.output?.glb_url,
-    payload?.result?.model_url,
-    payload?.result?.glb_url,
-    payload?.result?.model_urls?.glb,
-    payload?.model_urls?.glb,
-    payload?.data?.model_url,
-    payload?.data?.model_urls?.glb,
+  const glbCandidates = [
+    { label: 'model_urls.glb', url: payload?.model_urls?.glb },
+    { label: 'result.model_urls.glb', url: payload?.result?.model_urls?.glb },
+    { label: 'output.model_urls.glb', url: payload?.output?.model_urls?.glb },
+    { label: 'data.model_urls.glb', url: payload?.data?.model_urls?.glb },
   ];
 
-  for (const url of candidates) {
-    if (typeof url === 'string' && url.trim()) {
-      const cleaned = url.split('?')[0].split('#')[0].toLowerCase().trim();
-      // Only accept genuine .glb model files
-      if (cleaned.endsWith('.glb')) {
-        return url;
-      }
-      // Log rejected non-GLB URLs to catch Cloudinary image leaks
-      console.warn('[extractModelUrl] Rejected non-GLB URL:', url);
+  for (const candidate of glbCandidates) {
+    if (typeof candidate.url !== 'string' || !candidate.url.trim()) continue;
+    if (isGlbUrl(candidate.url)) {
+      const selectedUrl = candidate.url.trim();
+      console.log('[Meshy] Selected GLB URL:', selectedUrl);
+      return selectedUrl;
     }
+    console.warn(`[Meshy] Rejected non-GLB model URL candidate (${candidate.label}):`, candidate.url);
   }
+
+  const rejectedCandidates = [
+    ...collectUrlStrings(payload?.model_url, 'model_url'),
+    ...collectUrlStrings(payload?.glb_url, 'glb_url'),
+    ...collectUrlStrings(payload?.thumbnail_url, 'thumbnail_url'),
+    ...collectUrlStrings(payload?.model_urls, 'model_urls'),
+    ...collectUrlStrings(payload?.texture_urls, 'texture_urls'),
+    ...collectUrlStrings(payload?.result?.model_url, 'result.model_url'),
+    ...collectUrlStrings(payload?.result?.glb_url, 'result.glb_url'),
+    ...collectUrlStrings(payload?.result?.thumbnail_url, 'result.thumbnail_url'),
+    ...collectUrlStrings(payload?.result?.model_urls, 'result.model_urls'),
+    ...collectUrlStrings(payload?.result?.texture_urls, 'result.texture_urls'),
+    ...collectUrlStrings(payload?.output?.model_url, 'output.model_url'),
+    ...collectUrlStrings(payload?.output?.glb_url, 'output.glb_url'),
+    ...collectUrlStrings(payload?.output?.thumbnail_url, 'output.thumbnail_url'),
+    ...collectUrlStrings(payload?.output?.model_urls, 'output.model_urls'),
+    ...collectUrlStrings(payload?.output?.texture_urls, 'output.texture_urls'),
+    ...collectUrlStrings(payload?.data?.model_url, 'data.model_url'),
+    ...collectUrlStrings(payload?.data?.glb_url, 'data.glb_url'),
+    ...collectUrlStrings(payload?.data?.thumbnail_url, 'data.thumbnail_url'),
+    ...collectUrlStrings(payload?.data?.model_urls, 'data.model_urls'),
+    ...collectUrlStrings(payload?.data?.texture_urls, 'data.texture_urls'),
+  ];
+
+  rejectedCandidates.forEach(({ label, url }) => {
+    if (typeof url === 'string' && url.trim() && !isGlbUrl(url)) {
+      console.warn(`[Meshy] Rejected non-GLB URL (${label}):`, url);
+    }
+  });
 
   return null;
 };
@@ -607,17 +673,39 @@ const startMeshyTask = async (files) => {
   };
 };
 
-const fetchMeshyTask = async (taskId) => {
-  // Meshy GET uses /v1/ path (not /openapi/v2/) for polling
-  const response = await axios.get(
-    `https://api.meshy.ai/v1/image-to-3d/${taskId}`,
-    {
-      headers: buildMeshyHeaders(),
-      timeout: 45000,
-    }
-  );
+/**
+ * Fetch a Meshy task status.
+ * @param {string} taskId
+ * @param {string} [pollBase] - The confirmed working base URL. Probes all candidates on 404 if omitted.
+ */
+const fetchMeshyTask = async (taskId, pollBase = null) => {
+  // Build probe list: working base first (if known), then all candidates for robustness
+  const probeList = [...new Set([
+    ...(pollBase ? [pollBase] : []),
+    MESHY_API_BASE,
+    'https://api.meshy.ai/openapi/v2',
+    'https://api.meshy.ai/v2',
+    'https://api.meshy.ai/v1',
+  ])];
 
-  return response.data;
+  for (const base of probeList) {
+    const pollUrl = `${base}/image-to-3d/${taskId}`;
+    console.log(`[Meshy] GET poll: ${pollUrl}`);
+    try {
+      const response = await axios.get(pollUrl, {
+        headers: buildMeshyHeaders(),
+        timeout: 45000,
+      });
+      return response.data;
+    } catch (error) {
+      const httpStatus = error?.response?.status ?? 'no-response';
+      const responseBody = error?.response?.data ?? null;
+      console.warn(`[Meshy] ❌ poll ${httpStatus}: ${pollUrl} → ${JSON.stringify(responseBody)}`);
+      if (httpStatus !== 404 && httpStatus !== 405 && httpStatus !== 'no-response') throw error;
+    }
+  }
+
+  throw new Error(`All Meshy poll endpoints returned 404/405 for task ${taskId}`);
 };
 
 const buildAnalyzeResponse = ({
@@ -971,8 +1059,25 @@ export const get3DModelStatus = async (req, res) => {
       });
     }
 
-    const payload = await fetchMeshyTask(taskId);
+    // Look up the scan to retrieve the confirmed working poll base from when the task was started.
+    // This ensures polling hits exactly the same Meshy endpoint variant as the POST that created the task.
+    let pollBase = null;
+    try {
+      const scan = await AIScan.findOne({ modelTaskId: taskId }).select('meshyPollBase').lean();
+      if (scan?.meshyPollBase) {
+        pollBase = scan.meshyPollBase;
+        console.log(`[Meshy Poll] Using stored pollBase for ${taskId}: ${pollBase}`);
+      }
+    } catch (dbErr) {
+      console.warn(`[Meshy Poll] DB lookup failed (non-fatal) for taskId=${taskId}:`, dbErr?.message);
+    }
+
+    const payload = await fetchMeshyTask(taskId, pollBase);
+    console.log(`[AI Scan][Meshy] Poll response for ${taskId}:`, JSON.stringify(payload, null, 2));
     const status = normalizeMeshyStatus(payload?.status || payload?.result?.status);
+    if (status === 'ar_ready') {
+      logMeshyUrlDiagnostics(payload);
+    }
     const modelUrl = extractModelUrl(payload);
 
     if (status === 'ar_ready' && modelUrl) {
@@ -983,6 +1088,16 @@ export const get3DModelStatus = async (req, res) => {
         repaired_model_url: modelUrl,
         progress: 100,
         task_id: taskId,
+      });
+    }
+
+    if (status === 'ar_ready' && !modelUrl) {
+      console.error(`[Meshy] Task ${taskId} succeeded but no .glb URL was returned.`);
+      return res.status(502).json({
+        success: false,
+        status: 'failed',
+        task_id: taskId,
+        message: 'Meshy completed the task but did not return a GLB model URL. Check backend Meshy URL diagnostics.',
       });
     }
 
@@ -1590,3 +1705,497 @@ export const uploadImage = async (req, res) => {
   }
 };
 
+/* ══════════════════════════════════════════════════════════════════════════════
+ * NEW AI SCAN MODULE — GPT-4 Vision (mock+real toggle), Meshy 3D, Estimator
+ * Endpoints:
+ *   POST /api/ai/scan          → analyze damage with GPT-4 Vision (mock if no key)
+ *   GET  /api/ai/scan/:id      → fetch a saved scan by id
+ *   POST /api/ai/generate-3d   → start Meshy AI .glb generation
+ *   GET  /api/ai/generate-3d/:taskId → poll Meshy progress
+ *   POST /api/ai/estimate      → recompute estimate from damage list
+ * ══════════════════════════════════════════════════════════════════════════════ */
+
+const parseJsonField = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * POST /api/ai/scan
+ * Body (multipart):
+ *   images   — 1..5 image files
+ *   angles   — JSON array of angle hints, e.g. ["front", "rear"]
+ *   vehicleId — optional vehicle id to associate with the scan
+ *
+ * Response:
+ *   {
+ *     success: true,
+ *     data: {
+ *       scanId, source, model, vehicleDetected, overallCondition,
+ *       recommendedPackage, urgency, summary, damages[], estimate,
+ *       imageUrls[], createdAt
+ *     }
+ *   }
+ */
+export const scanWithGPTVision = async (req, res) => {
+  const requestId = `scan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const startedAt = Date.now();
+
+  try {
+    const validationMessage = validateUploads(req.files);
+    if (validationMessage) {
+      return res.status(400).json({
+        success: false,
+        message: validationMessage,
+        request_id: requestId,
+      });
+    }
+
+    const angles = parseJsonField(req.body?.angles).map(String);
+    const vehicleId = String(req.body?.vehicleId || '').trim();
+
+    console.log(
+      `[AI Scan][${requestId}] Starting (images=${req.files.length}, angles=${angles.length}, vehicleId=${vehicleId || '-'})`
+    );
+
+    // ── 1. Analyze with GPT-4 Vision (mock if OPENAI_API_KEY is empty) ──
+    const analysis = await analyzeWithGPTVision(req.files, {
+      angles,
+      requestId,
+    });
+
+    // ── 2. Build cost estimate from detected damages ──
+    const estimate = buildEstimateFromDamages(analysis.damages);
+
+    // ── 3. Best-effort upload images so the mobile app can render them ──
+    let imageUrls = [];
+    if (isCloudinaryConfigured()) {
+      try {
+        imageUrls = await uploadVehicleScanImages(req.files, {
+          folder: MESHY_CLOUDINARY_FOLDER,
+        });
+      } catch (uploadErr) {
+        console.warn(
+          `[AI Scan][${requestId}] Cloudinary upload failed (non-fatal):`,
+          uploadErr?.message || uploadErr
+        );
+      }
+    }
+
+    // ── 4. Persist the scan so it can be retrieved later ──
+    let scanDoc = null;
+    try {
+      scanDoc = await AIScan.create({
+        customer: req.user?.id || undefined,
+        vehicleId,
+        imageUrls,
+        angles,
+        imageCount: req.files.length,
+        source: analysis.source,
+        model: analysis.model,
+        vehicleDetected: analysis.vehicleDetected,
+        overallCondition: analysis.overallCondition,
+        recommendedPackage: analysis.recommendedPackage,
+        urgency: analysis.urgency,
+        summary: analysis.summary,
+        damages: analysis.damages,
+        estimate,
+        modelStatus: 'idle',
+      });
+    } catch (dbErr) {
+      console.warn(
+        `[AI Scan][${requestId}] Persist failed (non-fatal):`,
+        dbErr?.message || dbErr
+      );
+    }
+
+    const elapsed = Date.now() - startedAt;
+    console.log(
+      `[AI Scan][${requestId}] Completed in ${elapsed}ms — source=${analysis.source}, damages=${analysis.damages.length}`
+    );
+
+    return res.json({
+      success: true,
+      request_id: requestId,
+      data: {
+        scanId: scanDoc?._id ? String(scanDoc._id) : null,
+        source: analysis.source,
+        model: analysis.model,
+        vehicleDetected: analysis.vehicleDetected,
+        overallCondition: analysis.overallCondition,
+        recommendedPackage: analysis.recommendedPackage,
+        urgency: analysis.urgency,
+        summary: analysis.summary,
+        damages: analysis.damages,
+        estimate,
+        imageUrls,
+        angles,
+        vehicleId,
+        openaiConfigured: isOpenAIConfigured(),
+        meshyConfigured: meshyDependencyStatus().available,
+        createdAt: scanDoc?.createdAt || new Date().toISOString(),
+        elapsedMs: elapsed,
+      },
+    });
+  } catch (error) {
+    console.error(`[AI Scan][${requestId}] Error:`, error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'AI scan failed.',
+      request_id: requestId,
+    });
+  }
+};
+
+/**
+ * GET /api/ai/scan/:id
+ * Returns a previously saved scan document.
+ */
+export const getScanById = async (req, res) => {
+  try {
+    const scanId = String(req.params.id || '').trim();
+    if (!scanId) {
+      return res.status(400).json({ success: false, message: 'Scan id is required.' });
+    }
+
+    const scan = await AIScan.findById(scanId).lean();
+    if (!scan) {
+      return res.status(404).json({ success: false, message: 'Scan not found.' });
+    }
+
+    // If a customer is authenticated, ensure they only see their own scans.
+    if (req.user?.id && scan.customer && String(scan.customer) !== String(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Forbidden.' });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        scanId: String(scan._id),
+        source: scan.source,
+        model: scan.model,
+        vehicleDetected: scan.vehicleDetected,
+        overallCondition: scan.overallCondition,
+        recommendedPackage: scan.recommendedPackage,
+        urgency: scan.urgency,
+        summary: scan.summary,
+        damages: scan.damages || [],
+        estimate: scan.estimate || {},
+        imageUrls: scan.imageUrls || [],
+        angles: scan.angles || [],
+        vehicleId: scan.vehicleId || '',
+        modelTaskId: scan.modelTaskId || '',
+        modelUrl: scan.modelUrl || '',
+        repairedModelUrl: scan.repairedModelUrl || '',
+        modelStatus: scan.modelStatus || 'idle',
+        createdAt: scan.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error('[AI Scan][getScanById] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Failed to fetch scan.',
+    });
+  }
+};
+
+/**
+ * POST /api/ai/generate-3d-from-scan
+ * Body: { scanId } — uses the images already uploaded with the scan
+ * Returns: { task_id, source_image_urls, ... }
+ *
+ * The existing /api/ai/generate-3d route accepts raw multipart files.
+ * This new endpoint lets the mobile client kick off a Meshy task using
+ * the images that were saved during the /api/ai/scan call.
+ */
+export const generate3DFromScan = async (req, res) => {
+  try {
+    const scanId = String(req.body?.scanId || '').trim();
+    if (!scanId) {
+      return res.status(400).json({ success: false, message: 'scanId is required.' });
+    }
+
+    const scan = await AIScan.findById(scanId);
+    if (!scan) {
+      return res.status(404).json({ success: false, message: 'Scan not found.' });
+    }
+
+    if (!Array.isArray(scan.imageUrls) || scan.imageUrls.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'This scan has no uploaded images. Re-run the scan to enable 3D generation.',
+      });
+    }
+
+    const dep = meshyDependencyStatus();
+    if (!dep.available) {
+      return res.status(503).json({
+        success: false,
+        status: 'unavailable',
+        message: dep.message,
+      });
+    }
+
+    const rawSourceUrl = String(scan.imageUrls[0] || '').trim();
+    if (!/^https?:\/\//i.test(rawSourceUrl)) {
+      return res.status(400).json({
+        success: false,
+        status: 'failed',
+        message: 'Meshy requires a hosted image URL. Re-run scan upload.',
+      });
+    }
+
+    // Force a Meshy-compatible Cloudinary JPG URL.
+    // Problem: f_jpg,q_auto converts the content but the URL path still ends in .webp
+    // which causes Meshy to reject the image based on the extension alone.
+    // Fix: apply f_jpg transformation AND replace the non-jpg extension in the path.
+    const sourceImageUrl = (() => {
+      if (!rawSourceUrl.includes('/res.cloudinary.com/')) return rawSourceUrl;
+      if (!rawSourceUrl.includes('/image/upload/')) return rawSourceUrl;
+      let url = rawSourceUrl;
+      // Inject format transformation only if not already present
+      if (!/\/f_jpg/.test(url)) {
+        url = url.replace('/image/upload/', '/image/upload/f_jpg,q_auto/');
+      }
+      // Replace any non-jpg extension with .jpg — the URL extension must match the delivery format
+      url = url.replace(/\.(webp|avif|heic|heif|gif|bmp|tiff?)(\?|#|$)/i, '.jpg$2');
+      return url;
+    })();
+
+    const payload = {
+      image_url: sourceImageUrl,
+      enable_pbr: true,
+      should_remesh: true,
+      topology: 'triangle',
+      target_polycount: 30000,
+      target_formats: ['glb'],
+    };
+
+    // Probe all known Meshy endpoint variants in priority order.
+    // Different account plans expose different route prefixes — auto-detect which one works.
+    const MESHY_ENDPOINT_CANDIDATES = [
+      `${MESHY_API_BASE}/image-to-3d`,
+      'https://api.meshy.ai/openapi/v2/image-to-3d',
+      'https://api.meshy.ai/v2/image-to-3d',
+      'https://api.meshy.ai/v1/image-to-3d',
+      'https://api.meshy.ai/v2/image-to-3d-beta',
+    ];
+    // Deduplicate in case MESHY_API_BASE matches one of the fallbacks
+    const probeList = [...new Set(MESHY_ENDPOINT_CANDIDATES)];
+
+    console.log('[AI Scan][Meshy] ▶ Starting 3D generation');
+    console.log(`  ↳ Key prefix   : ${MESHY_API_KEY.slice(0, 8)}***  (set: ${Boolean(MESHY_API_KEY)})`);
+    console.log(`  ↳ Image URL    : ${sourceImageUrl}`);
+    console.log(`  ↳ Probing ${probeList.length} endpoint candidates...`);
+
+    let response;
+    let usedEndpoint = '';
+    for (const endpointUrl of probeList) {
+      console.log(`  ↳ Trying       : ${endpointUrl}`);
+      try {
+        response = await axios.post(endpointUrl, payload, {
+          headers: {
+            Authorization: `Bearer ${MESHY_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 60_000,
+        });
+        usedEndpoint = endpointUrl;
+        console.log(`  ↳ ✅ Success    : ${endpointUrl}`);
+        break; // found a working endpoint
+      } catch (error) {
+        const httpStatus = error?.response?.status ?? 'no-response';
+        const responseBody = error?.response?.data ?? null;
+        console.warn(`  ↳ ❌ ${httpStatus}       : ${endpointUrl} → ${JSON.stringify(responseBody)}`);
+        // Only fall through on routing errors (404/405); any other error is fatal
+        if (httpStatus !== 404 && httpStatus !== 405 && httpStatus !== 'no-response') {
+          throw error;
+        }
+      }
+    }
+
+    if (!response) {
+      const msg = `All Meshy endpoint candidates returned 404/405. Tried: ${probeList.join(', ')}`;
+      console.error(`[AI Scan][Meshy] ❌ ${msg}`);
+      return res.status(502).json({
+        success: false,
+        status: 'failed',
+        message: msg,
+      });
+    }
+
+    console.log(`[AI Scan][Meshy] Start response (via ${usedEndpoint}):`, JSON.stringify(response.data, null, 2));
+
+    const taskId =
+      response.data?.task_id ||
+      response.data?.id ||
+      response.data?.result ||
+      response.data?.result?.id ||
+      '';
+
+    if (!taskId) {
+      return res.status(502).json({
+        success: false,
+        message: 'Meshy did not return a task ID.',
+        detail: response.data,
+      });
+    }
+
+    // Derive and persist the working poll base so GET /generate-3d/:taskId uses the same URL.
+    // e.g. "https://api.meshy.ai/v1/image-to-3d" → "https://api.meshy.ai/v1"
+    const workingBase = usedEndpoint.replace(/\/image-to-3d(-beta)?$/, '');
+    console.log(`[AI Scan][Meshy] Working poll base saved: ${workingBase}`);
+
+    scan.modelTaskId = String(taskId);
+    scan.modelStatus = 'processing';
+    scan.meshyPollBase = workingBase;
+    await scan.save();
+
+    return res.json({
+      success: true,
+      status: 'processing',
+      task_id: String(taskId),
+      meshy_poll_base: workingBase,
+      progress: 0,
+      source_image_urls: scan.imageUrls,
+      scanId,
+    });
+  } catch (error) {
+    const detail = error?.response?.data || error?.message || 'Unknown error';
+    console.error('[AI Scan][generate3DFromScan] Error:', detail);
+    return res.status(502).json({
+      success: false,
+      status: 'failed',
+      message: 'Failed to start 3D model generation.',
+      detail,
+    });
+  }
+};
+
+/**
+ * POST /api/ai/estimate-from-damages
+ * Body: { damages: [...] }
+ * Returns: { lineItems, totalEstimate, recommendedPackage, savingsAmount, ... }
+ *
+ * This new endpoint accepts the GPT-4 Vision damage shape directly and
+ * returns the customer-facing estimate. The existing /api/ai/estimate is
+ * preserved for the legacy scan flow.
+ */
+/**
+ * GET /api/ai/proxy-glb?url=ENCODED_MESHY_SIGNED_URL
+ *
+ * Fetches a Meshy-signed GLB from the server side and pipes it to the client
+ * with CORS headers. This is required because Meshy's CDN (assets.meshy.ai)
+ * blocks cross-origin fetches from arbitrary HTTP origins (e.g. the local dev
+ * backend IP used as the WebView baseUrl). Proxying through our own backend
+ * makes the request originate from the server, bypassing the CDN CORS policy.
+ */
+export const proxyGlb = async (req, res) => {
+  const rawUrl = String(req.query.url || '').trim();
+
+  if (!rawUrl) {
+    return res.status(400).json({ success: false, message: 'Missing ?url= parameter.' });
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    return res.status(400).json({ success: false, message: 'Invalid URL.' });
+  }
+
+  // Only proxy Meshy CDN and Cloudinary assets — never act as an open relay
+  const ALLOWED_HOSTS = ['assets.meshy.ai', 'res.cloudinary.com', 'storage.googleapis.com'];
+  if (!ALLOWED_HOSTS.some((h) => parsedUrl.hostname === h || parsedUrl.hostname.endsWith('.' + h))) {
+    return res.status(403).json({ success: false, message: 'Host not allowed for proxy.' });
+  }
+
+  try {
+    console.log('[proxy-glb] Fetching:', rawUrl.slice(0, 120) + (rawUrl.length > 120 ? '…' : ''));
+    const upstream = await axios.get(rawUrl, {
+      responseType: 'stream',
+      timeout: 60_000,
+      headers: {
+        'User-Agent': 'AutoSPF-Backend/1.0',
+        Accept: 'model/gltf-binary,application/octet-stream,*/*',
+      },
+    });
+
+    // Permissive CORS so the WebView page on any local IP can load it
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Content-Type', upstream.headers['content-type'] || 'model/gltf-binary');
+
+    const contentLength = upstream.headers['content-length'];
+    if (contentLength) res.setHeader('Content-Length', contentLength);
+
+    console.log('[proxy-glb] Streaming', contentLength ? `${(parseInt(contentLength) / 1024 / 1024).toFixed(1)} MB` : 'unknown size');
+    upstream.data.pipe(res);
+  } catch (error) {
+    const status = error?.response?.status;
+    const detail = error?.message || 'Unknown error';
+    console.error(`[proxy-glb] ❌ Upstream ${status || 'ERR'}: ${detail}`);
+    if (!res.headersSent) {
+      res.status(502).json({ success: false, message: `Failed to fetch GLB: ${detail}` });
+    }
+  }
+};
+
+/**
+ * GET /api/ai/scans
+ * Returns a paginated list of recent AI scan documents for the QC staff portal.
+ * Populates the customer reference so the portal can show owner names.
+ */
+export const listAiScans = async (req, res) => {
+  try {
+    const limit  = Math.min(Number(req.query.limit) || 50, 100);
+    const skip   = Number(req.query.skip) || 0;
+    const filter = {};
+    if (req.query.modelStatus) filter.modelStatus = req.query.modelStatus;
+
+    const [scans, total] = await Promise.all([
+      AIScan.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('customer', 'name firstName lastName email phoneNumber')
+        .lean(),
+      AIScan.countDocuments(filter),
+    ]);
+
+    return res.json({ success: true, data: scans, total });
+  } catch (error) {
+    console.error('[AI] listAiScans error:', error);
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch scans.' });
+  }
+};
+
+export const estimateFromDamages = async (req, res) => {
+  try {
+    const damages = Array.isArray(req.body?.damages) ? req.body.damages : [];
+    if (!damages.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one damage item is required.',
+      });
+    }
+
+    const estimate = buildEstimateFromDamages(damages);
+    return res.json({ success: true, data: estimate });
+  } catch (error) {
+    console.error('[AI Scan][estimateFromDamages] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Estimate generation failed.',
+    });
+  }
+};

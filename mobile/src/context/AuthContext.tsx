@@ -105,7 +105,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!firebaseUser) {
-        applyState(null, null, null);
+        // No Firebase session — check if an email/password user has a cached JWT.
+        // Email-registered users never have a Firebase account; their session
+        // lives only in SecureStore (token + backendUser).
+        try {
+          const cachedToken = await authStorage.getToken();
+          const cachedUser  = await authStorage.getUser();
+          if (cachedToken && cachedUser) {
+            if (__DEV__) console.log('[AuthContext] No Firebase session, restoring email user from cache');
+            applyState(null, cachedToken, cachedUser);
+          } else {
+            applyState(null, null, null);
+          }
+        } catch {
+          applyState(null, null, null);
+        }
         setInitialized(true);
         return;
       }
@@ -149,14 +163,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string): Promise<AuthResult> => {
     try {
-      // Perform the exact localized Firebase Auth login
-      // Firebase manages password attempts and brute force locking securely (auth/too-many-requests).
-      const result = await authService.loginWithEmail(email.trim(), password);
-      applyState(result.firebaseUser, result.token, result.backendUser);
+      // Direct backend login — does NOT involve Firebase.
+      // This correctly handles users registered via OTP (no Firebase account)
+      // as well as existing web-registered users.
+      // Google/Apple sign-in goes through signInWithGoogle instead.
+      const { token, backendUser } = await authService.loginWithEmailPassword(email.trim(), password);
+      applyState(null, token, backendUser);
       return { success: true };
     } catch (error: any) {
       // Extract structured data from backend error response (remaining attempts, lock info)
-      const responseData = error?.response?.data?.data ?? error?.data ?? undefined;
+      const responseData = error?.response?.data?.data ?? error?.response?.data ?? undefined;
       return {
         success: false,
         message: error.message || getApiErrorMessage(error, 'Sign-in failed.'),
@@ -184,8 +200,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     password: string
   ): Promise<AuthResult> => {
     try {
-      const result = await authService.registerWithEmail(fullName.trim(), email.trim(), password);
-      applyState(result.firebaseUser, result.token, result.backendUser);
+      // OTP already verified in signup.tsx before this is called.
+      // registerWithEmail: POST /auth/register → POST /auth/login → JWT (no Firebase).
+      const { token, backendUser } = await authService.registerWithEmail(fullName.trim(), email.trim(), password);
+      applyState(null, token, backendUser);
       return { success: true };
     } catch (error) {
       return {
@@ -196,7 +214,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshProfile = async (): Promise<void> => {
-    if (!user) return;
+    if (!user) {
+      // Email/password user — no Firebase user to bootstrap from; restore from cache.
+      try {
+        const cachedToken = await authStorage.getToken();
+        const cachedUser  = await authStorage.getUser();
+        if (cachedToken && cachedUser) applyState(null, cachedToken, cachedUser);
+      } catch (error) {
+        console.warn('Failed to refresh email user profile:', getApiErrorMessage(error));
+      }
+      return;
+    }
 
     try {
       const result = await authService.bootstrapFromFirebaseUser(user);

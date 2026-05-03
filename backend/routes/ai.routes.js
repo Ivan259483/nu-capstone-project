@@ -9,8 +9,14 @@ import {
   confirmServiceRequest,
   generateRepairPreview,
   uploadImage,
+  scanWithGPTVision,
+  getScanById,
+  generate3DFromScan,
+  estimateFromDamages,
+  proxyGlb,
+  listAiScans,
 } from '../controllers/ai.controller.js';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, optionalAuthenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -28,6 +34,18 @@ router.post('/calculate-cost', calculateCost);
 router.post('/confirm', authenticate, confirmServiceRequest);
 router.post('/repair-preview', generateRepairPreview);
 router.post('/upload-image', upload.single('image'), uploadImage);
+
+/* ── NEW AI Scan Module — GPT-4 Vision (mock+real), Meshy 3D, Estimator ── */
+router.post('/scan', optionalAuthenticate, upload.array('images', 5), scanWithGPTVision);
+router.get('/scan/:id', optionalAuthenticate, getScanById);
+router.post('/generate-3d-from-scan', optionalAuthenticate, generate3DFromScan);
+router.post('/estimate-from-damages', estimateFromDamages);
+
+/* ── GLB Proxy — pipes Meshy/Cloudinary GLB with CORS headers ── */
+router.get('/proxy-glb', proxyGlb);
+
+/* ── QC Staff Portal — list all AI scans ── */
+router.get('/scans', listAiScans);
 
 /* ── AR Viewer Page (for iOS Quick Look support) ── */
 router.get('/ar-viewer', (req, res) => {

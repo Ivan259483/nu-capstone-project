@@ -6,7 +6,7 @@
  * Obsidian surfaces · Warm amber accents · Editorial typography
  * Glassmorphism · Tonal depth · No hard borders
  * 
- * Step 0: Vehicle & Customer Info
+ * Step 0: Vehicle selection / add vehicle
  * Step 1: Service & Schedule
  * Step 2: Review & Payment
  * Step 3: Final Confirmation
@@ -16,6 +16,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
+  TextInput,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -25,15 +26,18 @@ import {
   Alert,
   Image,
   Dimensions,
+  Modal,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   FadeInDown,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
+  withSpring,
+  withSequence,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -52,6 +56,7 @@ import Badge from '@/components/ui/Badge';
 import PremiumButton from '@/components/ui/PremiumButton';
 import PremiumInput from '@/components/ui/PremiumInput';
 import { Toast } from '@/components/ui/PremiumToast';
+import AddVehicleModal from '@/components/booking/AddVehicleModal';
 import { Validation } from '@/utils/validation';
 
 // ─── Kinetic Gallery Design Tokens ───────────────────────────────────────────
@@ -185,7 +190,26 @@ const VEHICLE_OPTIONS: { key: VehicleTypeKey; label: string; icon: string }[] = 
   { key: 'highend',   label: 'Highend Sedan',    icon: 'diamond-outline' },
 ];
 
-const STEP_LABELS = ['Info', 'Schedule', 'Review', 'Confirm'];
+const STEP_LABELS = ['Service', 'Details', 'Schedule', 'Review', 'Terms', 'Payment'];
+
+// Package subtitle text — matches web's RAW_SPF_PACKAGES.duration
+const PKG_DURATIONS: Record<string, string> = {
+  spf80:  'Perfect entry-level protection',
+  spf89:  'Our most chosen package',
+  spf99:  'Maximum protection, best price-to-value',
+  spf101: 'The complete transformation experience',
+};
+
+// Maps any vehicle-type string (from garage) to the price-key used in SPF_PACKAGES
+const getVehiclePriceKey = (type: string): VehicleTypeKey => {
+  const map: Record<string, VehicleTypeKey> = {
+    'hatchback': 'hatchback', 'sedan': 'sedan', 'midsized': 'midsized',
+    'suv': 'suv', 'pick up': 'pickup', 'pickup': 'pickup',
+    'large suv / van': 'largesuv', 'large suv': 'largesuv', 'van': 'largesuv',
+    'highend': 'highend', 'highend sedan': 'highend', 'high-end sedan': 'highend',
+  };
+  return map[type?.toLowerCase()] || 'hatchback';
+};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -193,113 +217,23 @@ const STEP_LABELS = ['Info', 'Schedule', 'Review', 'Confirm'];
 
 // ─── Sub-Components ───────────────────────────────────────────────────────────
 
-/** Kinetic Gallery step indicator — floating capsule, tonal dots */
+/** Thin progress bar — mirrors the web booking modal's 2px amber bar */
 function StepIndicator({ current }: { current: number }) {
+  const total = STEP_LABELS.length; // 6
+  const pct = Math.round(((current + 1) / total) * 100);
   return (
-    <View style={ind.container}>
-      <View style={ind.track}>
-        {STEP_LABELS.map((label, i) => {
-          const done = i < current;
-          const active = i === current;
-          return (
-            <React.Fragment key={i}>
-              <View style={ind.item}>
-                <View
-                  style={[
-                    ind.dot,
-                    done && ind.dotDone,
-                    active && ind.dotActive,
-                  ]}
-                >
-                  {done ? (
-                    <Ionicons name="checkmark" size={11} color={ON_PRIMARY} />
-                  ) : (
-                    <Text style={[ind.dotNum, active && { color: ON_PRIMARY }]}>
-                      {i + 1}
-                    </Text>
-                  )}
-                </View>
-                <Text
-                  style={[
-                    ind.label,
-                    active && ind.labelActive,
-                    done && ind.labelDone,
-                  ]}
-                >
-                  {label}
-                </Text>
-              </View>
-              {i < STEP_LABELS.length - 1 && (
-                <View style={[ind.line, i < current && ind.lineDone]} />
-              )}
-            </React.Fragment>
-          );
-        })}
-      </View>
+    <View style={{ width: '100%', height: 2, backgroundColor: '#1a1a1a' }}>
+      <View
+        style={{
+          height: 2,
+          width: `${pct}%`,
+          backgroundColor: PRIMARY,
+          borderRadius: 999,
+        }}
+      />
     </View>
   );
 }
-
-const ind = StyleSheet.create({
-  container: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 18,
-    backgroundColor: SURFACE_LOW,
-  },
-  track: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    backgroundColor: SURFACE_MID,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  item: { alignItems: 'center', width: 50 },
-  dot: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: SURFACE_HIGH,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dotActive: {
-    backgroundColor: PRIMARY,
-    ...Platform.select({
-      ios: {
-        shadowColor: PRIMARY,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.6,
-        shadowRadius: 10,
-      },
-      android: { elevation: 4 },
-    }),
-  },
-  dotDone: { backgroundColor: PRIMARY_CTR },
-  dotNum: { fontSize: 11, fontWeight: '700', color: MUTED },
-  line: {
-    flex: 1,
-    height: 2,
-    backgroundColor: SURFACE_HIGH,
-    marginTop: 13,
-    marginHorizontal: 4,
-    borderRadius: 1,
-  },
-  lineDone: { backgroundColor: PRIMARY_CTR },
-  label: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: MUTED,
-    marginTop: 6,
-    letterSpacing: 0.8,
-    textAlign: 'center',
-    textTransform: 'uppercase',
-  },
-  labelActive: { color: PRIMARY },
-  labelDone: { color: PRIMARY_CTR },
-});
 
 /** Vehicle card — tonal depth, no borders, ambient glow on select */
 function VehicleCard({
@@ -434,130 +368,130 @@ const vc = StyleSheet.create({
 });
 
 const MONTH_NAMES_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']; // Sunday-first, matches web
 const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** Month Calendar Grid Component */
+/** Month Calendar Grid Component — mirrors web CustomerDashboard calendar */
 function MonthCalendar({
   selectedDate,
   onSelectDate,
+  monthAvailability = {},
+  onMonthChange,
 }: {
   selectedDate: string | null;
-  onSelectDate: (dateKey: string) => void;
+  onSelectDate: (dateKey: string, iso: string) => void;
+  monthAvailability?: Record<string, 'available' | 'full' | 'closed'>;
+  onMonthChange?: (year: number, month: number) => void;
 }) {
   const { colors } = useTheme();
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
-  const year = currentMonth.getFullYear();
-  const month = currentMonth.getMonth(); // 0-11
+  const year  = currentMonth.getFullYear();
+  const month = currentMonth.getMonth();
   const today = new Date();
 
   const prevMonth = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setCurrentMonth(new Date(year, month - 1, 1));
+    const d = new Date(year, month - 1, 1);
+    setCurrentMonth(d);
+    onMonthChange?.(d.getFullYear(), d.getMonth());
   };
   const nextMonth = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setCurrentMonth(new Date(year, month + 1, 1));
+    const d = new Date(year, month + 1, 1);
+    setCurrentMonth(d);
+    onMonthChange?.(d.getFullYear(), d.getMonth());
   };
 
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDay = new Date(year, month, 1).getDay(); // Sunday is 0
-  const blanks = firstDay === 0 ? 6 : firstDay - 1; // Start on Monday
+  const daysInMonth    = new Date(year, month + 1, 0).getDate();
+  const firstDay       = new Date(year, month, 1).getDay(); // 0 = Sunday
+  const blanks         = firstDay;
   const daysInPrevMonth = new Date(year, month, 0).getDate();
 
-  const grid = [];
+  const grid: Array<{
+    day: number; isCurrentMonth: boolean;
+    dateKey: string; iso: string; isPast: boolean;
+  }> = [];
 
-  // Trailing previous month days
   for (let i = 0; i < blanks; i++) {
-    grid.push({
-      day: daysInPrevMonth - blanks + i + 1,
-      isCurrentMonth: false,
-      dateKey: '',
-      isPast: true,
-    });
+    grid.push({ day: daysInPrevMonth - blanks + i + 1, isCurrentMonth: false, dateKey: '', iso: '', isPast: true });
   }
-
-  // Current month days
   for (let i = 1; i <= daysInMonth; i++) {
     const isPast = (year < today.getFullYear()) ||
                    (year === today.getFullYear() && month < today.getMonth()) ||
                    (year === today.getFullYear() && month === today.getMonth() && i < today.getDate());
-    grid.push({
-      day: i,
-      isCurrentMonth: true,
-      dateKey: `${MONTH_NAMES_SHORT[month]} ${i}, ${year}`,
-      isPast,
-    });
+    const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+    grid.push({ day: i, isCurrentMonth: true, dateKey: `${MONTH_NAMES_SHORT[month]} ${i}, ${year}`, iso, isPast });
   }
-
-  // Leading next month days
   const remaining = 7 - (grid.length % 7);
   if (remaining < 7) {
     for (let i = 1; i <= remaining; i++) {
-      grid.push({
-        day: i,
-        isCurrentMonth: false,
-        dateKey: '',
-        isPast: false,
-      });
+      grid.push({ day: i, isCurrentMonth: false, dateKey: '', iso: '', isPast: false });
     }
   }
 
+  const DOT_COLORS = { available: '#22c55e', full: '#ef4444', closed: '#94a3b8' } as const;
+
   return (
     <View style={[cal.container, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, ...Shadows.sm }]}>
-      {/* Header */}
+      {/* Header — arrows on sides, title centered */}
       <View style={cal.header}>
+        <TouchableOpacity onPress={prevMonth} activeOpacity={0.7} hitSlop={12} style={cal.arrowBtn}>
+          <Ionicons name="chevron-back" size={18} color={SECONDARY} />
+        </TouchableOpacity>
         <Text style={cal.monthTitle}>{MONTH_NAMES_FULL[month]} {year}</Text>
-        <View style={cal.arrows}>
-          <TouchableOpacity onPress={prevMonth} style={[cal.arrowBtn, { backgroundColor: colors.cardAlt }]} activeOpacity={0.7} hitSlop={{top:10,bottom:10,left:10,right:10}}>
-            <Ionicons name="chevron-back" size={16} color={SECONDARY} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={nextMonth} style={[cal.arrowBtn, { backgroundColor: colors.cardAlt }]} activeOpacity={0.7} hitSlop={{top:10,bottom:10,left:10,right:10}}>
-            <Ionicons name="chevron-forward" size={16} color={SECONDARY} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity onPress={nextMonth} activeOpacity={0.7} hitSlop={12} style={cal.arrowBtn}>
+          <Ionicons name="chevron-forward" size={18} color={SECONDARY} />
+        </TouchableOpacity>
       </View>
 
-      {/* Weekdays */}
+      {/* Weekday headers */}
       <View style={cal.weekdays}>
-        {WEEKDAYS.map((d) => (
-          <Text key={d} style={cal.weekdayText}>{d}</Text>
+        {WEEKDAYS.map((d, i) => (
+          <Text key={i} style={cal.weekdayText}>{d}</Text>
         ))}
       </View>
 
-      {/* Grid */}
+      {/* Day grid */}
       <View style={cal.grid}>
         {grid.map((item, idx) => {
           const isSelected = item.isCurrentMonth && selectedDate === item.dateKey;
           const isDisabled = !item.isCurrentMonth || item.isPast;
+          const avail      = item.isCurrentMonth && !item.isPast ? monthAvailability[item.iso] : undefined;
+          const dotColor   = avail ? DOT_COLORS[avail] : undefined;
 
           return (
             <TouchableOpacity
               key={idx}
               activeOpacity={0.8}
-              disabled={isDisabled}
+              disabled={isDisabled || avail === 'closed'}
               onPress={() => {
-                onSelectDate(item.dateKey);
+                if (avail === 'full') {
+                  Toast.show('This date is fully booked', 'info');
+                  return;
+                }
+                onSelectDate(item.dateKey, item.iso);
                 Haptics.selectionAsync();
               }}
               style={[
                 cal.dayCell,
-                item.isCurrentMonth && !item.isPast && !isSelected && { backgroundColor: 'rgba(255,183,125,0.03)' },
                 item.isCurrentMonth && !item.isPast && !isSelected && cal.dayCellActiveBorder,
                 isSelected && cal.dayCellSelected,
               ]}
             >
-              <Text
-                style={[
-                  cal.dayText,
-                  !item.isCurrentMonth && cal.dayTextHidden,
-                  item.isCurrentMonth && item.isPast && cal.dayTextPast,
-                  isSelected && cal.dayTextSelected,
-                ]}
-              >
+              <Text style={[
+                cal.dayText,
+                !item.isCurrentMonth && cal.dayTextHidden,
+                item.isCurrentMonth && item.isPast && cal.dayTextPast,
+                isSelected && cal.dayTextSelected,
+                avail === 'closed' && !isSelected && cal.dayTextPast,
+              ]}>
                 {item.day}
               </Text>
+              {/* Availability dot */}
+              {dotColor && !isSelected ? (
+                <View style={[cal.dot, { backgroundColor: dotColor }]} />
+              ) : null}
             </TouchableOpacity>
           );
         })}
@@ -569,13 +503,13 @@ function MonthCalendar({
 const cal = StyleSheet.create({
   container: {
     borderRadius: BorderRadius.xxl,
-    padding: 24,
+    padding: 18,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 28,
+    marginBottom: 20,
   },
   monthTitle: {
     fontSize: 17,
@@ -583,81 +517,61 @@ const cal = StyleSheet.create({
     color: '#fff',
     letterSpacing: -0.01 * 17,
   },
-  arrows: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
   arrowBtn: {
     padding: 6,
-    borderRadius: Math.round(BorderRadius.sm * 1.5),
+    borderRadius: 8,
   },
   weekdays: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    paddingHorizontal: 2,
+    marginBottom: 10,
   },
   weekdayText: {
     width: '14.28%',
     textAlign: 'center',
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '600',
     color: MUTED,
-    letterSpacing: 0.5,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    rowGap: 14,
   },
   dayCell: {
-    width: '13%',
-    aspectRatio: 1,
+    width: '14.28%',
+    paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14, // Subtle rounded squares
-    marginHorizontal: '0.64%',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-      },
-    }),
+    gap: 3,
   },
-  dayCellActiveBorder: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  dayCellSelected: {
-    backgroundColor: PRIMARY,
-    ...Platform.select({
-      ios: {
-        shadowColor: PRIMARY,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-      },
-      android: { elevation: 6 },
-    }),
-  },
+  dayCellActiveBorder: {},
+  dayCellSelected: {},
   dayText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#fff',
+    color: SECONDARY,
+    width: 32,
+    height: 32,
+    textAlign: 'center',
+    lineHeight: 32,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
   dayTextHidden: {
-    color: SURFACE_HIGH,
+    color: 'transparent',
   },
   dayTextPast: {
     color: MUTED,
     fontWeight: '400',
   },
   dayTextSelected: {
+    backgroundColor: PRIMARY,
     color: ON_PRIMARY,
     fontWeight: '800',
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
 });
 
@@ -690,28 +604,37 @@ export default function BookScreen() {
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [phone, setPhone] = useState('' );
 
-  // Step 0 — Customer info
-  const [customerName, setCustomerName] = useState('');
-  const [contactNumber, setContactNumber] = useState('');
-  const [customerNameError, setCustomerNameError] = useState('');
-  const [contactNumberError, setContactNumberError] = useState('');
   const [notes, setNotes] = useState('');
 
   // Add Vehicle form
   const [showAddVehicle, setShowAddVehicle] = useState(false);
-  const [addingVehicle, setAddingVehicle] = useState(false);
-  const [vYear, setVYear] = useState('');
-  const [vMake, setVMake] = useState('');
-  const [vModel, setVModel] = useState('');
-  const [vColor, setVColor] = useState('');
-  const [vPlate, setVPlate] = useState('');
-  
+  // "Why Advanced?" bottom sheet
+  const [whyOpen, setWhyOpen] = useState(false);
+
+  // ── Per-card spring animations (4 packages × scale + opacity + checkmark) ──
+  const scaleSpf80  = useSharedValue(1);
+  const scaleSpf89  = useSharedValue(1);
+  const scaleSpf99  = useSharedValue(1);
+  const scaleSpf101 = useSharedValue(1);
+  const opacSpf80   = useSharedValue(1);
+  const opacSpf89   = useSharedValue(1);
+  const opacSpf99   = useSharedValue(1);
+  const opacSpf101  = useSharedValue(1);
+  const chkSpf80    = useSharedValue(0);
+  const chkSpf89    = useSharedValue(0);
+  const chkSpf99    = useSharedValue(0);
+  const chkSpf101   = useSharedValue(0);
+
+  const cardAnimSpf80  = useAnimatedStyle(() => ({ transform: [{ scale: scaleSpf80.value }],  opacity: opacSpf80.value  }));
+  const cardAnimSpf89  = useAnimatedStyle(() => ({ transform: [{ scale: scaleSpf89.value }],  opacity: opacSpf89.value  }));
+  const cardAnimSpf99  = useAnimatedStyle(() => ({ transform: [{ scale: scaleSpf99.value }],  opacity: opacSpf99.value  }));
+  const cardAnimSpf101 = useAnimatedStyle(() => ({ transform: [{ scale: scaleSpf101.value }], opacity: opacSpf101.value }));
+  const chkAnimSpf80   = useAnimatedStyle(() => ({ transform: [{ scale: chkSpf80.value }]  }));
+  const chkAnimSpf89   = useAnimatedStyle(() => ({ transform: [{ scale: chkSpf89.value }]  }));
+  const chkAnimSpf99   = useAnimatedStyle(() => ({ transform: [{ scale: chkSpf99.value }]  }));
+  const chkAnimSpf101  = useAnimatedStyle(() => ({ transform: [{ scale: chkSpf101.value }] }));
+
   // Validation Errors
-  const [vYearError, setVYearError] = useState('');
-  const [vMakeError, setVMakeError] = useState('');
-  const [vModelError, setVModelError] = useState('');
-  const [vColorError, setVColorError] = useState('');
-  const [vPlateError, setVPlateError] = useState('');
   const [phoneError, setPhoneError] = useState('');
 
   // Step 2 — Payment proof
@@ -719,12 +642,86 @@ export default function BookScreen() {
 
   // Step 3 — Terms & Conditions
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [tcScrolledToBottom, setTcScrolledToBottom] = useState(false);
 
   // General
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
   const dateScrollRef = useRef<ScrollView>(null);
+
+  // ── Calendar availability state (mirrors web CustomerDashboard) ──
+  type SlotStatus = 'AVAILABLE' | 'FULL' | 'CLOSED';
+  const [monthAvailability, setMonthAvailability] = useState<Record<string, 'available' | 'full' | 'closed'>>({});
+  const [monthAvailLoading, setMonthAvailLoading] = useState(false);
+  const [slotStatuses, setSlotStatuses] = useState<{ time: string; status: SlotStatus }[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+
+  const fetchMonthAvailability = useCallback(async (y: number, m: number) => {
+    setMonthAvailLoading(true);
+    const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+    const daysInM = new Date(y, m + 1, 0).getDate();
+    const result: Record<string, 'available' | 'full' | 'closed'> = {};
+    const toFetch: string[] = [];
+
+    for (let d = 1; d <= daysInM; d++) {
+      const date = new Date(y, m, d);
+      const iso  = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      if (date.getDay() === 0 || date.getDay() === 6 || date < todayD) {
+        result[iso] = 'closed';
+      } else {
+        toFetch.push(iso);
+      }
+    }
+
+    try {
+      const { apiClient } = await import('@/services/api/client');
+      await Promise.all(toFetch.map(async (iso) => {
+        try {
+          const res = await apiClient.get(`/orders/available-slots?date=${iso}`);
+          const booked: string[] = Array.isArray(res.data?.bookedSlots) ? res.data.bookedSlots : [];
+          result[iso] = booked.length >= TIME_SLOTS.length ? 'full' : 'available';
+        } catch {
+          result[iso] = 'available';
+        }
+      }));
+    } catch { /* network down — keep already-computed closed entries */ }
+    finally {
+      setMonthAvailability(result);
+      setMonthAvailLoading(false);
+    }
+  }, []);
+
+  const fetchSlotsForDate = useCallback(async (iso: string) => {
+    if (!iso) return;
+    setSlotsLoading(true);
+    try {
+      const { apiClient } = await import('@/services/api/client');
+      const res   = await apiClient.get(`/orders/available-slots?date=${iso}`);
+      const booked: string[] = Array.isArray(res.data?.bookedSlots) ? res.data.bookedSlots : [];
+      const now   = new Date();
+      const isToday = iso === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const h = now.getHours();
+
+      const parseHour = (t: string) => {
+        const [time, period] = t.split(' ');
+        let [hr] = time.split(':').map(Number);
+        if (period === 'PM' && hr !== 12) hr += 12;
+        if (period === 'AM' && hr === 12) hr = 0;
+        return hr;
+      };
+
+      setSlotStatuses(TIME_SLOTS.map(t => {
+        if (booked.includes(t)) return { time: t, status: 'FULL'  as SlotStatus };
+        if (isToday && parseHour(t) <= h) return { time: t, status: 'CLOSED' as SlotStatus };
+        return { time: t, status: 'AVAILABLE' as SlotStatus };
+      }));
+    } catch {
+      setSlotStatuses(TIME_SLOTS.map(t => ({ time: t, status: 'AVAILABLE' as SlotStatus })));
+    } finally {
+      setSlotsLoading(false);
+    }
+  }, []);
 
   // Preview booking reference (generated client-side for display only)
   const previewBookingRef = React.useMemo(() => {
@@ -750,6 +747,11 @@ export default function BookScreen() {
           if (mounted) {
             setVehicles(v);
             setServices(s);
+            // Auto-select the first vehicle so package cards are always visible
+            if (v.length > 0) {
+              setSelectedVehicle(prev => prev ?? v[0]);
+              setVehicleType(getVehiclePriceKey(v[0].vehicleType || ''));
+            }
           }
         } catch (err) {
           if (mounted) {
@@ -765,48 +767,120 @@ export default function BookScreen() {
     }, [])
   );
 
-  // Sync customer info from profile instantly
   useEffect(() => {
-    if (profile?.full_name) setCustomerName(profile.full_name);
-    if (profile?.phone) {
-      setContactNumber(profile.phone);
-      setPhone(profile.phone);
-    }
+    if (profile?.phone) setPhone(profile.phone);
   }, [profile]);
+
+  // ── AI Scan Pre-fill ─────────────────────────────────────────────────
+  // Optional deep-link query params let other screens (e.g. AI Scan flow)
+  // launch the booking wizard with the vehicle, package, and notes already
+  // filled, jumping the user past Step 1 ("Service") so they only have to
+  // pick a date/time/payment.
+  //
+  // Supported params:
+  //   ?vehicleId=<id>   — pre-select an existing vehicle
+  //   ?pkg=spf80|spf89|spf99|spf101 — pre-select an SPF package
+  //   ?notes=<text>     — populate the notes field with the AI summary
+  //   ?step=1|2|3       — advance to a later step (default 1 = "Details")
+  // ─────────────────────────────────────────────────────────────────────
+  const prefillParams = useLocalSearchParams<{
+    vehicleId?: string;
+    pkg?: string;
+    notes?: string;
+    step?: string;
+  }>();
+  const prefillAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (prefillAppliedRef.current) return;
+    if (!prefillParams || (Array.isArray(vehicles) && vehicles.length === 0 && vehiclesLoading)) {
+      return;
+    }
+
+    const requestedVehicleId = prefillParams.vehicleId
+      ? String(prefillParams.vehicleId)
+      : null;
+    const requestedPkg = prefillParams.pkg ? String(prefillParams.pkg).toLowerCase() : null;
+    const requestedNotes = prefillParams.notes ? String(prefillParams.notes) : null;
+    const requestedStep = prefillParams.step ? Number(prefillParams.step) : NaN;
+
+    if (!requestedVehicleId && !requestedPkg && !requestedNotes && !Number.isFinite(requestedStep)) {
+      return;
+    }
+
+    if (requestedVehicleId && vehicles.length > 0) {
+      const match = vehicles.find((v) => v.id === requestedVehicleId || v._id === requestedVehicleId);
+      if (match) {
+        setSelectedVehicle(match);
+        setVehicleType(getVehiclePriceKey(match.vehicleType || ''));
+      }
+    }
+
+    if (requestedPkg && SPF_PACKAGES.some((p) => p.key === requestedPkg)) {
+      const pkg = SPF_PACKAGES.find((p) => p.key === requestedPkg)!;
+      const priceKey = getVehiclePriceKey(
+        (vehicles.find((v) => v.id === requestedVehicleId)?.vehicleType) || vehicleType || 'sedan'
+      );
+      const price = pkg.prices[priceKey] || pkg.prices.sedan || 0;
+      // Re-use the existing select handler to drive its animations
+      setTimeout(() => selectPkg(pkg.key, price ?? 0), 60);
+    }
+
+    if (requestedNotes) {
+      setNotes(requestedNotes);
+    }
+
+    if (Number.isFinite(requestedStep) && requestedStep > 0) {
+      setTimeout(() => setStep(Math.min(5, Math.max(0, requestedStep))), 120);
+    }
+
+    prefillAppliedRef.current = true;
+  }, [prefillParams, vehicles, vehiclesLoading, vehicleType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Navigation ──
   const goNext = () => {
-    if (step === 0) {
-      let hasErr = false;
-      setCustomerNameError('');
-      setContactNumberError('');
-      if (!customerName.trim() || customerName.trim().length < 2) {
-        setCustomerNameError('Full name is required');
-        hasErr = true;
-      }
-      if (!contactNumber.trim()) {
-        setContactNumberError('Contact number is required');
-        hasErr = true;
-      } else if (!Validation.isValidPhone(contactNumber)) {
-        setContactNumberError('Enter a valid PH mobile number');
-        hasErr = true;
-      }
-      if (hasErr) return;
-    }
-    if (step === 1) {
-      setPhoneError('');
-      if (phone.trim() && !Validation.isValidPhone(phone)) {
-        setPhoneError('Enter a valid PH mobile number');
-        return;
-      }
-    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setStep((s) => s + 1);
+    const nextStep = step + 1;
+    setStep(nextStep);
+    // Pre-load month availability when the user enters the schedule step (step 2)
+    if (nextStep === 2) {
+      const now = new Date();
+      fetchMonthAvailability(now.getFullYear(), now.getMonth());
+    }
   };
   const goBack = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setStep((s) => Math.max(0, s - 1));
   };
+
+  // ── Package selection with spring animation ──────────────────────────────
+  const PKG_SCALES: Record<string, ReturnType<typeof useSharedValue<number>>> = {
+    spf80: scaleSpf80, spf89: scaleSpf89, spf99: scaleSpf99, spf101: scaleSpf101 };
+  const PKG_OPACS: Record<string, ReturnType<typeof useSharedValue<number>>> = {
+    spf80: opacSpf80,  spf89: opacSpf89,  spf99: opacSpf99,  spf101: opacSpf101  };
+  const PKG_CHKS: Record<string, ReturnType<typeof useSharedValue<number>>> = {
+    spf80: chkSpf80,   spf89: chkSpf89,   spf99: chkSpf99,   spf101: chkSpf101   };
+
+  const selectPkg = useCallback((key: string, price: number) => {
+    const allKeys = ['spf80', 'spf89', 'spf99', 'spf101'];
+    // Dim non-selected, brighten selected + animate checkmark (no scale bounce)
+    allKeys.forEach((k) => {
+      PKG_OPACS[k].value = withTiming(k === key ? 1 : 0.45, { duration: 220 });
+      PKG_CHKS[k].value  = withSpring(k === key ? 1 : 0, { damping: 12, stiffness: 300 });
+    });
+    // Business logic
+    setSelectedPkg(key);
+    const pkg = SPF_PACKAGES.find(p => p.key === key);
+    const matched = services.find(sv => sv.name.toLowerCase().includes(pkg?.label?.toLowerCase() ?? ''))
+      || (services.length > 0 ? services[0] : null);
+    if (matched) setSelectedService({ ...matched, price });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, [services, PKG_SCALES, PKG_OPACS, PKG_CHKS]);
+
+  const PKG_CARD_ANIMS: Record<string, ReturnType<typeof useAnimatedStyle>> = {
+    spf80: cardAnimSpf80, spf89: cardAnimSpf89, spf99: cardAnimSpf99, spf101: cardAnimSpf101 };
+  const PKG_CHK_ANIMS: Record<string, ReturnType<typeof useAnimatedStyle>> = {
+    spf80: chkAnimSpf80,  spf89: chkAnimSpf89,  spf99: chkAnimSpf99,  spf101: chkAnimSpf101  };
 
   const reset = () => {
     setStep(0);
@@ -815,88 +889,14 @@ export default function BookScreen() {
     setSelectedDate(null);
     setSelectedTime(null);
     setPhone('');
-    setCustomerName('');
-    setContactNumber('');
-    setCustomerNameError('');
-    setContactNumberError('');
     setNotes('');
     setDownpaymentProof(null);
     setAgreedToTerms(false);
+    setTcScrolledToBottom(false);
     setIsSuccess(false);
     setShowAddVehicle(false);
     setPhoneError('');
   };
-
-  const resetVehicleForm = () => {
-    setVYear('');
-    setVMake('');
-    setVModel('');
-    setVColor('');
-    setVPlate('');
-    setVYearError('');
-    setVMakeError('');
-    setVModelError('');
-    setVColorError('');
-    setVPlateError('');
-  };
-
-  const handleAddVehicle = async () => {
-    // Clear errors
-    setVYearError('');
-    setVMakeError('');
-    setVModelError('');
-    setVColorError('');
-    setVPlateError('');
-
-    let hasError = false;
-
-    if (!vYear.trim() || vYear.length !== 4) {
-      setVYearError('Valid 4-digit year');
-      hasError = true;
-    }
-    if (!vMake.trim() || vMake.length < 2) {
-      setVMakeError('Required');
-      hasError = true;
-    }
-    if (!vModel.trim() || vModel.length < 2) {
-      setVModelError('Required');
-      hasError = true;
-    }
-    if (!vColor.trim() || vColor.length < 2) {
-      setVColorError('Required');
-      hasError = true;
-    }
-
-    const normalizedPlate = vPlate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (!/^[A-Z0-9]{4,8}$/.test(normalizedPlate)) {
-      setVPlateError('Must be 4-8 letters/numbers');
-      hasError = true;
-    }
-
-    if (hasError) return;
-
-    setAddingVehicle(true);
-    try {
-      const newVehicle = await vehicleService.addVehicle({
-        year: vYear.trim(),
-        make: vMake.trim(),
-        model: vModel.trim(),
-        color: vColor.trim(),
-        plateNumber: normalizedPlate,
-      });
-      Toast.show('Vehicle added successfully.', 'success');
-      setVehicles((prev) => [...prev, newVehicle]);
-      setSelectedVehicle(newVehicle);
-      setShowAddVehicle(false);
-      resetVehicleForm();
-    } catch (error) {
-      Toast.show(getApiErrorMessage(error, 'Could not add vehicle. Please try again.'), 'error');
-    } finally {
-      setAddingVehicle(false);
-    }
-  };
-
-  // ── Confirm Booking ──
   const handleConfirm = async () => {
     const effectivePkg = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
     const effectivePrice = effectivePkg ? effectivePkg.prices[vehicleType] : selectedService?.price;
@@ -908,7 +908,7 @@ export default function BookScreen() {
       // 🔍 DEBUG: Verify outbound booking payload (remove after verification)
       console.log('🔍 [BOOKING_PAYLOAD] Outbound:', {
         customerName: profile?.full_name,
-        customerPhone: phone.trim() || undefined,
+        customerPhone: (profile?.phone || phone).trim() || undefined,
         vehiclePlate: selectedVehicle?.plateNumber,
         vehicleYear: selectedVehicle?.year?.toString(),
         vehicleMake: selectedVehicle?.make,
@@ -923,8 +923,8 @@ export default function BookScreen() {
         service: selectedService || { id: selectedPkg!, name: effectiveName, price: effectivePrice!, tag: 'Premium', description: '', icon: 'sparkles-outline', duration: '' },
         date: selectedDate,
         time: selectedTime,
-        customerName: customerName.trim(),
-        customerPhone: contactNumber.trim(),
+        customerName: (profile?.full_name || '').trim(),
+        customerPhone: (profile?.phone || phone).trim(),
         notes: notes.trim() || undefined,
         vehiclePlate: selectedVehicle?.plateNumber,
         vehicleYear: selectedVehicle?.year?.toString(),
@@ -946,10 +946,14 @@ export default function BookScreen() {
   };
 
   // ── Computed ──
-  // Step 0 requires: a selected vehicle AND customer name AND contact number
-  // Note: canProceedStep0 is gated by selectedVehicle which is set after addVehicle succeeds
-  const canProceedStep0 = !!selectedVehicle && customerName.trim().length >= 2 && contactNumber.trim().length > 0;
-  const canProceedStep1 = (!!selectedService || !!selectedPkg) && !!selectedDate && !!selectedTime;
+  const displayCustomerName = (profile?.full_name || '').trim();
+  const displayCustomerPhone = (profile?.phone || phone).trim();
+
+  const canProceedStep0 = !!selectedVehicle && (!!selectedService || !!selectedPkg); // Service: vehicle MUST be selected + package
+  const canProceedStep1 = phone.replace(/\D/g, '').length >= 10;                  // Details: valid contact no.
+  const canProceedStep2 = !!selectedDate && !!selectedTime;                        // Schedule: date + time
+  const canProceedStep3 = true;                                                    // Review: always ok
+  const canProceedStep4 = agreedToTerms;                                           // Terms: agreed
   const canConfirmBooking = agreedToTerms;
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1152,244 +1156,247 @@ export default function BookScreen() {
           keyboardShouldPersistTaps="handled"
         >
           {/* ═══════════════════════════════════════════════════
-              STEP 0 — CUSTOMER & VEHICLE INFO
+              STEP 0 — CHOOSE SERVICE  (mirrors web Step 1 of 6)
           ═══════════════════════════════════════════════════ */}
           {step === 0 && (
-            <Animated.View
-              entering={FadeInDown.duration(200)}
-              style={ss.stepWrap}
-            >
-              {/* ── Editorial Hero Header ── */}
-              <Animated.View entering={FadeInDown.delay(80).duration(200)} style={ss.heroSection}>
-                <Text style={ss.heroLabel}>SCHEDULE EXPERIENCE</Text>
+            <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
+
+              {/* ── Hero ── */}
+              <Animated.View entering={FadeInDown.delay(60).duration(200)} style={ss.heroSection}>
+                <Text style={ss.heroLabel}>STEP 1 OF 6</Text>
                 <Text style={ss.heroTitle}>Book a{'\n'}Service</Text>
-                <Text style={ss.heroSub}>
-                  Precision care for your vehicle. Select your preferred treatment and timing.
-                </Text>
+                <Text style={ss.heroSub}>Choose your vehicle, then pick a package.</Text>
               </Animated.View>
 
-              {/* ── Customer Information ── */}
-              <Animated.View entering={FadeInDown.delay(150).duration(200)}>
-                <View style={s1.sectionHeader}>
-                  <View style={s1.sectionIconWrap}>
-                    <Ionicons name="person-outline" size={14} color={PRIMARY} />
+              {/* ══ SECTION 1: YOUR VEHICLE ══ */}
+              <Animated.View entering={FadeInDown.delay(120).duration(200)} style={{ gap: 10 }}>
+                <View style={svc.stepSectionHeader}>
+                  <View style={svc.stepNumBadge}>
+                    <Text style={svc.stepNumText}>1</Text>
                   </View>
-                  <Text style={ss.sectionLabel}>CUSTOMER INFORMATION</Text>
-                </View>
-                <View style={s1.glassCard}>
-                  <PremiumInput
-                    label="FULL NAME"
-                    iconName="person-outline"
-                    placeholder="Juan Dela Cruz"
-                    value={customerName}
-                    editable={false}
-                  />
-                  <PremiumInput
-                    label="CONTACT NUMBER"
-                    iconName="call-outline"
-                    placeholder="+63 9xx xxx xxxx"
-                    value={contactNumber}
-                    editable={false}
-                  />
-                  <Text style={ss.profileHint}>
-                    Auto-synced from your profile settings
-                  </Text>
-                </View>
-              </Animated.View>
-
-              {/* ── Vehicle Selection ── */}
-              <Animated.View entering={FadeInDown.delay(250).duration(200)}>
-                <View style={s1.sectionHeader}>
-                  <View style={s1.sectionIconWrap}>
-                    <Ionicons name="car-sport-outline" size={14} color={PRIMARY} />
-                  </View>
-                  <Text style={ss.sectionLabel}>SELECT VEHICLE</Text>
+                  <Text style={svc.stepSectionTitle}>Your Vehicle</Text>
                 </View>
 
                 {vehiclesLoading ? (
                   <View style={ss.loadingBox}>
-                    <ActivityIndicator size="large" color={PRIMARY} />
+                    <ActivityIndicator size="small" color={PRIMARY} />
                     <Text style={ss.loadingText}>Loading vehicles…</Text>
                   </View>
+                ) : vehicles.length === 0 ? (
+                  /* Empty state — tap to add first vehicle */
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => { setShowAddVehicle(true); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+                    style={svc.addVehicleEmptyCard}
+                  >
+                    <View style={svc.addVehicleIconWrap}>
+                      <Ionicons name="car-sport-outline" size={28} color={PRIMARY} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={svc.addVehicleEmptyTitle}>Add Your Vehicle</Text>
+                      <Text style={svc.addVehicleEmptySub}>Register your car to get started with a booking.</Text>
+                    </View>
+                    <View style={svc.addVehicleArrow}>
+                      <Ionicons name="chevron-forward" size={16} color={ON_PRIMARY} />
+                    </View>
+                  </TouchableOpacity>
                 ) : (
-                  <View style={{ gap: 12 }}>
-                    {/* ── Existing Vehicle Cards ── */}
-                    {vehicles.map((v, i) => (
-                      <Animated.View
-                        key={v.id}
-                        entering={FadeInDown.delay(300 + i * 60).duration(200)}
-                      >
-                        <VehicleCard
-                          vehicle={v}
-                          selected={selectedVehicle?.id === v.id}
+                  /* Vehicle row cards — full-width, easy to tap */
+                  <View style={{ gap: 8 }}>
+                    {vehicles.map((v) => {
+                      const isActive = selectedVehicle?.id === v.id;
+                      const typeLabel = VEHICLE_OPTIONS.find(o =>
+                        o.key === getVehiclePriceKey(v.vehicleType || '')
+                      )?.label || v.vehicleType || '';
+                      return (
+                        <TouchableOpacity
+                          key={v.id}
+                          activeOpacity={0.82}
                           onPress={() => {
                             setSelectedVehicle(v);
-                            setShowAddVehicle(false);
+                            setVehicleType(getVehiclePriceKey(v.vehicleType || ''));
+                            setSelectedPkg(null);
+                            setSelectedService(null);
+                            Haptics.selectionAsync();
                           }}
-                        />
-                      </Animated.View>
-                    ))}
-
-                    {/* ── Add Vehicle Toggle Button ── */}
-                    {!showAddVehicle && (
-                      <TouchableOpacity
-                        activeOpacity={0.85}
-                        onPress={() => {
-                          setShowAddVehicle(true);
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        }}
-                        style={[ss.emptyActionBtn, { alignSelf: 'center', marginTop: 4 }]}
-                      >
-                        <Ionicons name="add-circle-outline" size={16} color={PRIMARY} />
-                        <Text style={ss.emptyActionText}>
-                          {vehicles.length === 0 ? 'Add Vehicle to Book' : 'Add Another Vehicle'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-
-                    {/* ── Inline Add Vehicle Form ── */}
-                    {showAddVehicle && (
-                      <Animated.View
-                        entering={FadeInDown.duration(250)}
-                        style={{
-                          backgroundColor: SURFACE_MID,
-                          borderRadius: 24,
-                          padding: 20,
-                          gap: 14,
-                          borderWidth: 1,
-                          borderColor: 'rgba(255,183,125,0.15)',
-                        }}
-                      >
-                        {/* Form header */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                          <View style={[s1.sectionIconWrap, { backgroundColor: 'rgba(255,183,125,0.1)' }]}>
-                            <Ionicons name="car-sport-outline" size={14} color={PRIMARY} />
-                          </View>
-                          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>New Vehicle</Text>
-                          <TouchableOpacity
-                            onPress={() => { setShowAddVehicle(false); resetVehicleForm(); }}
-                            style={{ marginLeft: 'auto' }}
-                          >
-                            <Ionicons name="close-circle-outline" size={22} color={MUTED} />
-                          </TouchableOpacity>
-                        </View>
-
-                        {/* Year + Make row */}
-                        <View style={{ flexDirection: 'row', gap: 10 }}>
-                          <View style={{ flex: 1 }}>
-                            <PremiumInput
-                              label="YEAR"
-                              iconName="calendar-number-outline"
-                              placeholder="2024"
-                              value={vYear}
-                              onChangeText={setVYear}
-                              keyboardType="numeric"
-                              maxLength={4}
-                              error={vYearError}
-                            />
-                          </View>
-                          <View style={{ flex: 2 }}>
-                            <PremiumInput
-                              label="MAKE / BRAND"
-                              iconName="business-outline"
-                              placeholder="Toyota"
-                              value={vMake}
-                              onChangeText={setVMake}
-                              error={vMakeError}
-                            />
-                          </View>
-                        </View>
-
-                        {/* Model */}
-                        <PremiumInput
-                          label="MODEL"
-                          iconName="car-outline"
-                          placeholder="GR86 / Fortuner / Hilux…"
-                          value={vModel}
-                          onChangeText={setVModel}
-                          error={vModelError}
-                        />
-
-                        {/* Color + Plate row */}
-                        <View style={{ flexDirection: 'row', gap: 10 }}>
-                          <View style={{ flex: 1 }}>
-                            <PremiumInput
-                              label="COLOR"
-                              iconName="color-palette-outline"
-                              placeholder="White"
-                              value={vColor}
-                              onChangeText={setVColor}
-                              error={vColorError}
-                            />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <PremiumInput
-                              label="PLATE NO."
-                              iconName="barcode-outline"
-                              placeholder="ABC1234"
-                              value={vPlate}
-                              onChangeText={(t) => setVPlate(t.toUpperCase())}
-                              autoCapitalize="characters"
-                              error={vPlateError}
-                            />
-                          </View>
-                        </View>
-
-                        {/* Save button */}
-                        <TouchableOpacity
-                          activeOpacity={0.88}
-                          disabled={addingVehicle}
-                          onPress={handleAddVehicle}
-                          style={{ opacity: addingVehicle ? 0.6 : 1 }}
+                          style={[svc.vehicleRow, isActive && svc.vehicleRowActive]}
                         >
-                          <LinearGradient
-                            colors={[PRIMARY_CTR, PRIMARY]}
-                            start={{ x: 0, y: 0.5 }}
-                            end={{ x: 1, y: 0.5 }}
-                            style={[ss.gradientBtn, { marginTop: 4 }]}
-                          >
-                            {addingVehicle ? (
-                              <ActivityIndicator size="small" color={ON_PRIMARY} />
-                            ) : (
-                              <>
-                                <Ionicons name="checkmark-circle-outline" size={18} color={ON_PRIMARY} />
-                                <Text style={ss.gradientBtnText}>Save Vehicle</Text>
-                              </>
-                            )}
-                          </LinearGradient>
-                        </TouchableOpacity>
-                      </Animated.View>
-                    )}
+                          {/* Car icon */}
+                          <View style={[svc.vehicleIconWrap, isActive && svc.vehicleIconWrapActive]}>
+                            <Ionicons name="car-sport-outline" size={20} color={isActive ? ON_PRIMARY : PRIMARY} />
+                          </View>
 
-                    {/* Empty state hint when no vehicles and form is not showing */}
-                    {vehicles.length === 0 && !showAddVehicle && (
-                      <View style={[ss.emptyBox, { marginTop: 4 }]}>
-                        <View style={ss.emptyIconWrap}>
-                          <Ionicons name="car-outline" size={32} color={MUTED} />
-                        </View>
-                        <Text style={ss.emptyTitle}>No vehicles yet</Text>
-                        <Text style={ss.emptySub}>
-                          Tap "Add Vehicle to Book" above to register your car.
-                        </Text>
-                      </View>
-                    )}
+                          {/* Name + type */}
+                          <View style={{ flex: 1 }}>
+                            <Text style={[svc.vehicleRowName, isActive && { color: PRIMARY }]}>
+                              {`${v.make} ${v.model}`.trim()}
+                            </Text>
+                            {typeLabel ? (
+                              <Text style={svc.vehicleRowType}>{typeLabel}</Text>
+                            ) : null}
+                          </View>
+
+                          {/* Radio indicator */}
+                          <View style={[svc.radioOuter, isActive && svc.radioOuterActive]}>
+                            {isActive && <View style={svc.radioInner} />}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+
+                    {/* Add another vehicle — subtle secondary action */}
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => { setShowAddVehicle(true); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                      style={svc.addVehicleSecondary}
+                    >
+                      <Ionicons name="add-circle-outline" size={16} color={PRIMARY} />
+                      <Text style={svc.addVehicleSecondaryText}>Add Another Vehicle</Text>
+                    </TouchableOpacity>
                   </View>
                 )}
               </Animated.View>
 
-              {/* Next Button */}
+              <AddVehicleModal
+                visible={showAddVehicle}
+                onClose={() => setShowAddVehicle(false)}
+                onVehicleAdded={(v) => {
+                  setVehicles((prev) => [...prev, v]);
+                  setSelectedVehicle(v);
+                  setVehicleType(getVehiclePriceKey(v.vehicleType || ''));
+                  setShowAddVehicle(false);
+                }}
+              />
+
+              {/* ══ SECTION 2: CHOOSE PACKAGE ══ */}
+              <Animated.View entering={FadeInDown.delay(200).duration(200)} style={{ gap: 10 }}>
+                <View style={svc.stepSectionHeader}>
+                  <View style={[svc.stepNumBadge, !selectedVehicle && { backgroundColor: SURFACE_TOP }]}>
+                    <Text style={[svc.stepNumText, !selectedVehicle && { color: MUTED }]}>2</Text>
+                  </View>
+                  <Text style={[svc.stepSectionTitle, !selectedVehicle && { color: MUTED }]}>Choose Package</Text>
+                  {selectedVehicle && (
+                    <Text style={svc.pricingForLabel}>
+                      for {VEHICLE_OPTIONS.find(o => o.key === vehicleType)?.label || vehicleType}
+                    </Text>
+                  )}
+                </View>
+
+                {!selectedVehicle ? (
+                  <View style={svc.packageLockedCard}>
+                    <Ionicons name="lock-closed-outline" size={20} color={MUTED} />
+                    <Text style={svc.packageLockedText}>Select your vehicle above to see packages</Text>
+                  </View>
+                ) : (
+                  <View style={{ gap: 12 }}>
+                    {SPF_PACKAGES.map((pkg, idx) => {
+                      const price = pkg.prices[vehicleType];
+                      if (price === null) return null;
+                      const isHero     = pkg.key === 'spf89';
+                      const isSelected = selectedPkg === pkg.key;
+                      return (
+                        <Animated.View
+                          key={pkg.key}
+                          entering={FadeInDown.delay(idx * 40).duration(200)}
+                          style={PKG_CARD_ANIMS[pkg.key] as any}
+                        >
+                          <TouchableOpacity
+                            activeOpacity={1}
+                            onPress={() => selectPkg(pkg.key, price)}
+                            style={[
+                              pkgCard.base,
+                              isHero     && pkgCard.hero,
+                              isSelected && pkgCard.selected,
+                              isSelected && isHero && pkgCard.heroSelected,
+                            ]}
+                          >
+                            {/* Hero gradient overlay */}
+                            {isHero && (
+                              <LinearGradient
+                                colors={['#1A1208', '#0F0F0F']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={StyleSheet.absoluteFill}
+                              />
+                            )}
+
+                            <View style={{ gap: 6 }}>
+                              {/* Tier label */}
+                              <Text style={pkgCard.tier}>{pkg.tier.toUpperCase()}</Text>
+
+                              {/* Name + price row */}
+                              <View style={pkgCard.nameRow}>
+                                <Text style={pkgCard.name}>{pkg.label} — {pkg.tier}</Text>
+                                {/* Animated checkmark */}
+                                <Animated.View style={[pkgCard.checkCircle, isSelected && pkgCard.checkCircleActive, PKG_CHK_ANIMS[pkg.key] as any]}>
+                                  <Ionicons name="checkmark" size={13} color={isSelected ? '#0A0A0A' : 'transparent'} />
+                                </Animated.View>
+                              </View>
+
+                              {/* Price */}
+                              <Text style={[pkgCard.price, isHero && { color: '#F97316' }]}>
+                                ₱{price.toLocaleString()}
+                              </Text>
+
+                              {/* Tagline */}
+                              <Text style={pkgCard.tagline}>{PKG_DURATIONS[pkg.key]}</Text>
+
+                              {/* Social proof — SPF 89 only */}
+                              {isHero && (
+                                <Text style={pkgCard.socialProof}>
+                                  78% of AutoSPF+ customers choose this package
+                                </Text>
+                              )}
+
+                              {/* Divider */}
+                              <View style={pkgCard.divider} />
+
+                              {/* Features */}
+                              <View style={{ gap: 0 }}>
+                                {pkg.features.map((feat, fi) => {
+                                  // Color savings in green
+                                  const saveMatch = feat.match(/(.*?)\s*\(save (₱[\d,]+)\)(.*)/);
+                                  return (
+                                    <Text key={fi} style={pkgCard.feature}>
+                                      {saveMatch ? (
+                                        <>
+                                          {saveMatch[1].trim()}
+                                          <Text style={{ color: '#4ADE80' }}> · saves {saveMatch[2]}</Text>
+                                        </>
+                                      ) : feat}
+                                    </Text>
+                                  );
+                                })}
+                              </View>
+
+                              {/* "Why customers love this" — SPF 89 only */}
+                              {isHero && (
+                                <TouchableOpacity
+                                  activeOpacity={0.7}
+                                  onPress={() => setWhyOpen(true)}
+                                  style={pkgCard.whyBtn}
+                                >
+                                  <Text style={pkgCard.whyBtnText}>Why customers love this</Text>
+                                  <Ionicons name="arrow-forward" size={12} color="#F97316" />
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          </TouchableOpacity>
+                        </Animated.View>
+                      );
+                    })}
+                  </View>
+                )}
+              </Animated.View>
+
+              {/* Continue */}
               <TouchableOpacity
                 activeOpacity={0.88}
                 disabled={!canProceedStep0}
                 onPress={goNext}
                 style={{ opacity: canProceedStep0 ? 1 : 0.4 }}
               >
-                <LinearGradient
-                  colors={[PRIMARY_CTR, PRIMARY]}
-                  start={{ x: 0, y: 0.5 }}
-                  end={{ x: 1, y: 0.5 }}
-                  style={ss.gradientBtn}
-                >
+                <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
                   <Text style={ss.gradientBtnText}>Continue</Text>
                   <Ionicons name="chevron-forward" size={18} color={ON_PRIMARY} />
                 </LinearGradient>
@@ -1397,317 +1404,294 @@ export default function BookScreen() {
             </Animated.View>
           )}
 
+
           {/* ═══════════════════════════════════════════════════
-              STEP 1 — SERVICE & SCHEDULE
+              STEP 1 — YOUR DETAILS  (web Step 2 of 6)
           ═══════════════════════════════════════════════════ */}
-          {step === 1 && (
-            <Animated.View
-              entering={FadeInDown.duration(200)}
-              style={ss.stepWrap}
-            >
-              {/* Header */}
-              <View style={ss.editorialHeader}>
-                <Text style={ss.editorialLabel}>CONFIGURE APPOINTMENT</Text>
-                <Text style={ss.editorialTitle}>Service &{'\n'}Schedule</Text>
-                <Text style={ss.editorialSub}>
-                  Choose your premium treatment, preferred date, and time slot.
-                </Text>
+          {step === 1 && (() => {
+            const effectivePkg = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
+            const effectivePrice: number = effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : (selectedService?.price ?? 0);
+            const effectiveName = selectedService?.name || effectivePkg?.label || '—';
+            return (
+              <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
+                <View style={ss.editorialHeader}>
+                  <Text style={ss.editorialLabel}>STEP 2 OF 6</Text>
+                  <Text style={ss.editorialTitle}>Your{'\n'}Details</Text>
+                  <Text style={ss.editorialSub}>Confirm your contact details and review your selection.</Text>
+                </View>
+
+                {/* ── Customer Info ── */}
+                <Animated.View entering={FadeInDown.delay(80).duration(200)}>
+                  <View style={s1.sectionHeader}>
+                    <View style={s1.sectionIconWrap}>
+                      <Ionicons name="person-outline" size={14} color={PRIMARY} />
+                    </View>
+                    <Text style={ss.sectionLabel}>CUSTOMER INFO</Text>
+                  </View>
+
+                  {/* Full Name – read-only */}
+                  <View style={dt.fieldGroup}>
+                    <Text style={dt.fieldLabel}>FULL NAME</Text>
+                    <View style={dt.readOnlyRow}>
+                      <Ionicons name="person-outline" size={15} color={MUTED} />
+                      <Text style={dt.readOnlyValue} numberOfLines={1}>{profile?.full_name || '—'}</Text>
+                      <View style={dt.autoFillBadge}><Text style={dt.autoFillText}>Auto-filled</Text></View>
+                    </View>
+                    <Text style={dt.hintText}>Auto-filled from your profile</Text>
+                  </View>
+
+                  {/* Contact No. – editable */}
+                  <View style={[dt.fieldGroup, { marginTop: 12 }]}>
+                    <Text style={dt.fieldLabel}>CONTACT NO. <Text style={{ color: '#ef4444' }}>*</Text></Text>
+                    <PremiumInput
+                      label=""
+                      iconName="call-outline"
+                      placeholder="09XXXXXXXXX"
+                      value={phone}
+                      onChangeText={(t) => { setPhone(t); setPhoneError(''); }}
+                      keyboardType="phone-pad"
+                      maxLength={13}
+                    />
+                    {phoneError ? <Text style={dt.errorText}>{phoneError}</Text> : null}
+                  </View>
+                </Animated.View>
+
+                {/* ── Vehicle Details – 2×2 grid (mirrors web) ── */}
+                <Animated.View entering={FadeInDown.delay(140).duration(200)}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <View style={s1.sectionHeader}>
+                      <View style={s1.sectionIconWrap}>
+                        <Ionicons name="car-outline" size={14} color={PRIMARY} />
+                      </View>
+                      <Text style={ss.sectionLabel}>VEHICLE DETAILS</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setStep(0)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '600', color: PRIMARY }}>Edit Vehicle</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* 2×2 grid: Brand | Model then Color | Plate */}
+                  <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+                    {[
+                      { label: 'Brand', icon: 'car-outline', value: selectedVehicle?.make || '—' },
+                      { label: 'Model', icon: 'car-sport-outline', value: selectedVehicle?.model || '—' },
+                    ].map(({ label, icon, value }) => (
+                      <View key={label} style={[dt.gridCell, { flex: 1 }]}>
+                        <Text style={dt.gridLabel}>{label.toUpperCase()}</Text>
+                        <View style={dt.gridValueRow}>
+                          <Ionicons name={icon as any} size={13} color={MUTED} />
+                          <Text style={dt.gridValue} numberOfLines={1}>{value}</Text>
+                          <Ionicons name="lock-closed-outline" size={11} color="#d1d5db" />
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    {[
+                      { label: 'Color', icon: 'color-palette-outline', value: selectedVehicle?.color || '—' },
+                      { label: 'Plate No.', icon: 'card-outline', value: selectedVehicle?.plateNumber?.toUpperCase() || '—' },
+                    ].map(({ label, icon, value }) => (
+                      <View key={label} style={[dt.gridCell, { flex: 1 }]}>
+                        <Text style={dt.gridLabel}>{label.toUpperCase()}</Text>
+                        <View style={dt.gridValueRow}>
+                          <Ionicons name={icon as any} size={13} color={MUTED} />
+                          <Text style={dt.gridValue} numberOfLines={1}>{value}</Text>
+                          <Ionicons name="lock-closed-outline" size={11} color="#d1d5db" />
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                  <Text style={[dt.hintText, { marginTop: 6 }]}>Auto-filled from your garage</Text>
+                </Animated.View>
+
+                {/* ── Car Service – read-only with Edit button ── */}
+                <Animated.View entering={FadeInDown.delay(200).duration(200)}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <View style={s1.sectionHeader}>
+                      <View style={s1.sectionIconWrap}>
+                        <Ionicons name="sparkles-outline" size={14} color={PRIMARY} />
+                      </View>
+                      <Text style={ss.sectionLabel}>CAR SERVICE</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setStep(0)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '600', color: PRIMARY }}>Edit Service</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={dt.serviceCard}>
+                    <Ionicons name="shield-checkmark-outline" size={18} color={PRIMARY} />
+                    <Text style={dt.serviceName} numberOfLines={2}>{effectiveName}</Text>
+                    <Text style={dt.servicePrice}>₱{effectivePrice.toLocaleString()}</Text>
+                  </View>
+                </Animated.View>
+
+                <View style={ss.btnRow}>
+                  <TouchableOpacity activeOpacity={0.85} onPress={goBack} style={[ss.outlineBtn, { flex: 1 }]}>
+                    <Text style={ss.outlineBtnText}>Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    disabled={!canProceedStep1}
+                    onPress={() => {
+                      const digits = phone.replace(/\D/g, '');
+                      if (digits.length < 10) { setPhoneError('Enter a valid contact number'); return; }
+                      goNext();
+                    }}
+                    style={{ flex: 2, opacity: canProceedStep1 ? 1 : 0.4 }}
+                  >
+                    <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
+                      <Text style={ss.gradientBtnText}>Continue</Text>
+                      <Ionicons name="chevron-forward" size={18} color={ON_PRIMARY} />
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </Animated.View>
+            );
+          })()}
+
+          {/* ═══════════════════════════════════════════════════
+              STEP 2 — SCHEDULE  (web Step 3 of 6)
+          ═══════════════════════════════════════════════════ */}
+          {step === 2 && (
+            <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
+
+              {/* ── Calendar ── */}
+              <MonthCalendar
+                selectedDate={selectedDate}
+                onSelectDate={(dateKey, iso) => {
+                  setSelectedDate(dateKey);
+                  setSelectedTime('');
+                  setSlotStatuses([]);
+                  fetchSlotsForDate(iso);
+                }}
+                monthAvailability={monthAvailability}
+                onMonthChange={(y, m) => {
+                  setMonthAvailability({});
+                  setSelectedDate(null);
+                  setSelectedTime('');
+                  setSlotStatuses([]);
+                  fetchMonthAvailability(y, m);
+                }}
+              />
+
+              {/* Calendar Legend */}
+              <View style={sch.legend}>
+                {[
+                  { color: '#22c55e', label: 'Available' },
+                  { color: '#ef4444', label: 'Fully Booked' },
+                  { color: '#94a3b8', label: 'Closed' },
+                ].map((item) => (
+                  <View key={item.label} style={sch.legendItem}>
+                    <View style={[sch.legendDot, { backgroundColor: item.color }]} />
+                    <Text style={sch.legendText}>{item.label}</Text>
+                  </View>
+                ))}
               </View>
 
-              {/* ── Vehicle Type Selector ── */}
-              <Animated.View entering={FadeInDown.delay(80).duration(200)}>
-                <View style={s1.sectionHeader}>
-                  <View style={s1.sectionIconWrap}>
-                    <Ionicons name="car-outline" size={14} color={PRIMARY} />
+              {/* ── Preferred Time ── */}
+              <Text style={sch.sectionLabel}>PREFERRED TIME</Text>
+
+              {!selectedDate ? (
+                <View style={sch.emptyState}>
+                  <Text style={sch.emptyText}>Select a date to see available times</Text>
+                  <View style={sch.timeLegend}>
+                    {[
+                      { color: '#111827', label: 'Available' },
+                      { color: '#ef4444', label: 'Full' },
+                      { color: '#9ca3af', label: 'Closed' },
+                    ].map((item) => (
+                      <View key={item.label} style={sch.legendItem}>
+                        <View style={[sch.legendDot, { backgroundColor: item.color }]} />
+                        <Text style={sch.legendText}>{item.label}</Text>
+                      </View>
+                    ))}
                   </View>
-                  <Text style={ss.sectionLabel}>VEHICLE TYPE</Text>
                 </View>
-
-                {/* Chip row — 2 rows of 3-4 */}
-                <View style={s2.vehicleChipGrid}>
-                  {VEHICLE_OPTIONS.map((opt) => {
-                    const active = vehicleType === opt.key;
-                    return (
-                      <TouchableOpacity
-                        key={opt.key}
-                        activeOpacity={0.8}
-                        onPress={() => {
-                          setVehicleType(opt.key);
-                          setSelectedPkg(null);
-                          Haptics.selectionAsync();
-                        }}
-                        style={[
-                          s2.vehicleChip,
-                          active && s2.vehicleChipActive,
-                        ]}
-                      >
-                        <Ionicons
-                          name={opt.icon as any}
-                          size={14}
-                          color={active ? ON_PRIMARY : MUTED}
-                        />
-                        <Text style={[s2.vehicleChipText, active && s2.vehicleChipTextActive]}>
-                          {opt.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+              ) : slotsLoading ? (
+                <View style={sch.emptyState}>
+                  <ActivityIndicator size="small" color={PRIMARY} />
+                  <Text style={[sch.emptyText, { marginTop: 8 }]}>Checking availability…</Text>
                 </View>
-
-                <Text style={s2.vehicleTypeCaption}>
-                  Showing prices for {VEHICLE_OPTIONS.find(v => v.key === vehicleType)?.label} vehicles
-                </Text>
-              </Animated.View>
-
-              {/* ── SPF Package Cards — per vehicle type ── */}
-              <Animated.View entering={FadeInDown.delay(140).duration(200)}>
-                <View style={s1.sectionHeader}>
-                  <View style={s1.sectionIconWrap}>
-                    <Ionicons name="sparkles-outline" size={14} color={PRIMARY} />
-                  </View>
-                  <Text style={ss.sectionLabel}>SELECT PACKAGE</Text>
-                </View>
-
-                <View style={{ gap: 14 }}>
-                  {SPF_PACKAGES.map((pkg, idx) => {
-                    const price = pkg.prices[vehicleType];
-                    if (price === null) return null; // not for this vehicle
-                    const tintPrice = pkg.tintPrices[vehicleType];
-                    const originalPrice = price * 2;
-                    const isSelected = selectedPkg === pkg.key;
-                    const accentColor = pkg.badgeColor;
-                    const accentBg = `${accentColor}1A`; // 10% opacity
-
-                    return (
-                      <Animated.View
-                        key={pkg.key}
-                        entering={FadeInDown.delay(60 + idx * 70).duration(200)}
-                      >
+              ) : (
+                <Animated.View entering={FadeInDown.delay(80).duration(200)}>
+                  <View style={s2.timeGrid}>
+                    {(slotStatuses.length ? slotStatuses : TIME_SLOTS.map(t => ({ time: t, status: 'AVAILABLE' as const }))).map(({ time: t, status }) => {
+                      const isActive   = selectedTime === t;
+                      const isFull     = status === 'FULL';
+                      const isClosed   = status === 'CLOSED';
+                      const isDisabled = isFull || isClosed;
+                      return (
                         <TouchableOpacity
-                          activeOpacity={0.88}
+                          key={t}
                           onPress={() => {
-                            setSelectedPkg(pkg.key);
-                            // Also set selectedService to the matching DB service (or create a virtual one)
-                            const matched = services.find(sv =>
-                              sv.name.toLowerCase().includes(pkg.label.toLowerCase())
-                            ) || (services.length > 0 ? services[0] : null);
-                            if (matched) {
-                              // Override price with vehicle-specific price
-                              setSelectedService({ ...matched, price });
-                            }
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            if (isDisabled) return;
+                            setSelectedTime(t);
+                            Haptics.selectionAsync();
                           }}
+                          activeOpacity={isDisabled ? 1 : 0.85}
                           style={[
-                            s2.pricingCard,
-                            isSelected && {
-                              borderColor: accentColor,
-                              borderWidth: 1.5,
-                            },
+                            s2.timePill,
+                            isActive   && s2.timePillSelected,
+                            isFull     && s2.timePillFull,
+                            isClosed   && s2.timePillClosed,
                           ]}
                         >
-                          {/* Top accent bar */}
-                          <View style={[s2.pricingAccentBar, { backgroundColor: accentColor }]} />
-
-                          {/* Badge row */}
-                          <View style={[s2.pkgBadgeRow, { backgroundColor: `${accentColor}22` }]}>
-                            <Ionicons
-                              name={pkg.flagship ? 'trophy-outline' : pkg.popular ? 'star-outline' : 'flash-outline'}
-                              size={11}
-                              color={accentColor}
-                            />
-                            <Text style={[s2.pkgBadgeText, { color: accentColor }]}>
-                              {pkg.badge}
-                            </Text>
-                            {pkg.popular && (
-                              <View style={[s2.popularPill, { backgroundColor: `${accentColor}33` }]}>
-                                <Text style={[s2.popularPillText, { color: accentColor }]}>BEST SELLER</Text>
-                              </View>
-                            )}
-                          </View>
-
-                          {/* Header row */}
-                          <View style={s2.pricingHeader}>
-                            <View style={{ flex: 1, gap: 4 }}>
-                              <View style={[s2.categoryBadge, { backgroundColor: `${accentColor}22`, borderColor: `${accentColor}66` }]}>
-                                <Text style={[s2.categoryBadgeText, { color: accentColor }]}>
-                                  {pkg.tier.toUpperCase()} · {pkg.years} Protection
-                                </Text>
-                              </View>
-                              <Text style={s2.pricingName}>{pkg.label}</Text>
-                              <Text style={s2.pricingDuration}>Graphene Ceramic Coating — {pkg.years}</Text>
+                          {isActive ? (
+                            <LinearGradient
+                              colors={[PRIMARY_CTR, PRIMARY]}
+                              start={{ x: 0, y: 0.5 }}
+                              end={{ x: 1, y: 0.5 }}
+                              style={s2.timePillGradient}
+                            >
+                              <Text style={s2.timeTextSelected}>{t}</Text>
+                            </LinearGradient>
+                          ) : (
+                            <View style={{ alignItems: 'center', gap: 2 }}>
+                              <Text style={[
+                                s2.timeText,
+                                isFull   && { color: '#ef4444' },
+                                isClosed && { color: '#9ca3af' },
+                              ]}>{t}</Text>
+                              {isFull   && <Text style={{ fontSize: 9, color: '#ef4444', fontWeight: '600' }}>Full</Text>}
+                              {isClosed && <Text style={{ fontSize: 9, color: '#9ca3af' }}>Closed</Text>}
                             </View>
-
-                            {isSelected ? (
-                              <LinearGradient
-                                colors={[accentColor + 'CC', accentColor]}
-                                style={s2.pricingCheckBadge}
-                              >
-                                <Ionicons name="checkmark" size={16} color="#fff" />
-                              </LinearGradient>
-                            ) : (
-                              <View style={s2.pricingCheckEmpty} />
-                            )}
-                          </View>
-
-                          {/* Price */}
-                          <View style={s2.pricingPriceRow}>
-                            <View style={s2.priceOriginalRow}>
-                              <Text style={s2.pricingPriceLabel}>STARTING AT</Text>
-                              <View style={s2.originalPriceBadge}>
-                                <Text style={s2.originalPriceText}>₱{originalPrice.toLocaleString()}</Text>
-                                <View style={[s2.discountPill, { backgroundColor: '#EF444422' }]}>
-                                  <Text style={s2.discountText}>50% OFF</Text>
-                                </View>
-                              </View>
-                            </View>
-                            <Text style={[
-                              s2.pricingPrice,
-                              (pkg.flagship || pkg.popular) && { color: accentColor },
-                              isSelected && { color: accentColor },
-                            ]}>
-                              ₱{price.toLocaleString()}
-                            </Text>
-                            {tintPrice && (
-                              <Text style={s2.tintBundleText}>
-                                + Nano Ceramic Window Tint  ₱{tintPrice.toLocaleString()}
-                              </Text>
-                            )}
-                          </View>
-
-                          {/* Divider */}
-                          <View style={s2.pricingDivider} />
-
-                          {/* Features */}
-                          <View style={{ gap: 10, paddingBottom: 20 }}>
-                            {pkg.features.map((feat, fi) => (
-                              <View key={fi} style={s2.featureRow}>
-                                <View style={[s2.featureDot, { backgroundColor: accentColor }]} />
-                                <Text style={s2.featureText}>{feat}</Text>
-                              </View>
-                            ))}
-                          </View>
+                          )}
                         </TouchableOpacity>
-                      </Animated.View>
-                    );
-                  })}
-                </View>
-              </Animated.View>
-
-              {/* ── Date Selection ── */}
-              <Animated.View entering={FadeInDown.delay(300).duration(200)}>
-                <View style={s1.sectionHeader}>
-                  <View style={s1.sectionIconWrap}>
-                    <Ionicons name="calendar-outline" size={14} color={PRIMARY} />
+                      );
+                    })}
                   </View>
-                  <Text style={ss.sectionLabel}>SELECT DATE</Text>
-                </View>
-
-                <MonthCalendar
-                  selectedDate={selectedDate}
-                  onSelectDate={(val) => {
-                    setSelectedDate(val);
-                    Haptics.selectionAsync();
-                  }}
-                />
-                {/* Calendar Legend */}
-                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 18, marginTop: 12 }}>
-                  {[
-                    { color: '#34C759', label: 'Available' },
-                    { color: '#FF9500', label: 'Closed' },
-                    { color: '#FF3B30', label: 'Full Slot' },
-                  ].map((item) => (
-                    <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.color }} />
-                      <Text style={{ fontSize: 11, color: MUTED, fontWeight: '500', letterSpacing: 0.3 }}>{item.label}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                {/* Time slots */}
-                {selectedDate && (
-                  <Animated.View entering={FadeInDown.delay(80).duration(200)}>
-                    <View style={[s1.sectionHeader, { marginTop: 24 }]}>
-                      <View style={s1.sectionIconWrap}>
-                        <Ionicons name="time-outline" size={14} color={PRIMARY} />
-                      </View>
-                      <Text style={ss.sectionLabel}>AVAILABLE TIME</Text>
-                    </View>
-
-                    <View style={s2.timeGrid}>
-                      {TIME_SLOTS.map((t) => {
-                        const isActive = selectedTime === t;
-                        return (
-                          <TouchableOpacity
-                            key={t}
-                            onPress={() => {
-                              setSelectedTime(t);
-                              Haptics.selectionAsync();
-                            }}
-                            activeOpacity={0.85}
-                            style={[
-                              s2.timePill,
-                              isActive && s2.timePillSelected,
-                            ]}
-                          >
-                            {isActive ? (
-                              <LinearGradient
-                                colors={[PRIMARY_CTR, PRIMARY]}
-                                start={{ x: 0, y: 0.5 }}
-                                end={{ x: 1, y: 0.5 }}
-                                style={s2.timePillGradient}
-                              >
-                                <Text style={s2.timeTextSelected}>{t}</Text>
-                              </LinearGradient>
-                            ) : (
-                              <Text style={s2.timeText}>{t}</Text>
-                            )}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </Animated.View>
-                )}
-              </Animated.View>
+                </Animated.View>
+              )}
 
               {/* ── Notes ── */}
-              <Animated.View entering={FadeInDown.delay(400).duration(200)}>
-                <View style={s1.sectionHeader}>
-                  <View style={s1.sectionIconWrap}>
-                    <Ionicons name="document-text-outline" size={14} color={PRIMARY} />
-                  </View>
-                  <Text style={ss.sectionLabel}>NOTES & REQUESTS</Text>
-                </View>
+              <View style={sch.notesHeader}>
+                <Text style={sch.sectionLabel}>
+                  NOTES <Text style={sch.optional}>(optional)</Text>
+                </Text>
+                <Text style={[sch.counter, notes.length > 180 && { color: '#ef4444' }]}>{notes.length}/200</Text>
+              </View>
+              <TextInput
+                style={sch.notesInput}
+                placeholder="Any special requests..."
+                placeholderTextColor={MUTED}
+                value={notes}
+                onChangeText={(t: string) => setNotes(t.slice(0, 200))}
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+              />
 
-                <View style={s2.notesCard}>
-                  <PremiumInput
-                    label="SPECIAL INSTRUCTIONS (OPTIONAL)"
-                    iconName="document-text-outline"
-                    placeholder="e.g. Focus on the custom rims, tint darkness preference…"
-                    value={notes}
-                    onChangeText={setNotes}
-                    multiline
-                    numberOfLines={3}
-                  />
-                </View>
-              </Animated.View>
-
-              {/* Navigation */}
+              {/* Navigation — Schedule */}
               <View style={ss.btnRow}>
                 <TouchableOpacity activeOpacity={0.85} onPress={goBack} style={[ss.outlineBtn, { flex: 1 }]}>
                   <Text style={ss.outlineBtnText}>Back</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   activeOpacity={0.88}
-                  disabled={!canProceedStep1}
+                  disabled={!canProceedStep2}
                   onPress={goNext}
-                  style={{ flex: 2, opacity: canProceedStep1 ? 1 : 0.4 }}
+                  style={{ flex: 2, opacity: canProceedStep2 ? 1 : 0.4 }}
                 >
-                  <LinearGradient
-                    colors={[PRIMARY_CTR, PRIMARY]}
-                    start={{ x: 0, y: 0.5 }}
-                    end={{ x: 1, y: 0.5 }}
-                    style={ss.gradientBtn}
-                  >
+                  <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
                     <Text style={ss.gradientBtnText}>Continue</Text>
                     <Ionicons name="chevron-forward" size={18} color={ON_PRIMARY} />
                   </LinearGradient>
@@ -1717,289 +1701,265 @@ export default function BookScreen() {
           )}
 
           {/* ═══════════════════════════════════════════════════
-              STEP 2 — REVIEW & PAYMENT PROOF
+              STEP 3 — REVIEW BOOKING  (web Step 4 of 6)
           ═══════════════════════════════════════════════════ */}
-          {step === 2 && (
-            <Animated.View
-              entering={FadeInDown.duration(200)}
-              style={ss.stepWrap}
-            >
-              <View style={ss.editorialHeader}>
-                <Text style={ss.editorialLabel}>REVIEW DETAILS</Text>
-                <Text style={ss.editorialTitle}>Review &{'\n'}Payment</Text>
-                <Text style={ss.editorialSub}>Verify your booking details and upload payment proof.</Text>
-              </View>
+          {step === 3 && (() => {
+            const effectivePkg   = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
+            const effectivePrice: number = effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : (selectedService?.price ?? 0);
+            const effectiveName  = selectedService?.name || effectivePkg?.label || '—';
+            const RESERVATION_FEE = 500;
+            const balance = Math.max(0, effectivePrice - RESERVATION_FEE);
 
-              {/* ── Booking Summary ── */}
-              <Animated.View entering={FadeInDown.delay(100).duration(200)}>
-                <View style={s1.sectionHeader}>
-                  <View style={s1.sectionIconWrap}>
-                    <Ionicons name="receipt-outline" size={14} color={PRIMARY} />
+            // Formatted date: "Wednesday, May 27, 2026"
+            // selectedDate is stored as "May 27, 2026" — parse safely
+            const formattedDate = (() => {
+              if (!selectedDate) return '—';
+              const d = new Date(selectedDate);
+              if (isNaN(d.getTime())) return selectedDate; // fallback if parse fails
+              return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            })();
+
+            return (
+              <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
+
+                {/* Page heading */}
+                <View style={rv.heading}>
+                  <View style={rv.headingIcon}>
+                    <Ionicons name="clipboard-outline" size={22} color="#fff" />
                   </View>
-                  <Text style={ss.sectionLabel}>BOOKING SUMMARY</Text>
+                  <View>
+                    <Text style={rv.headingTitle}>Review Your Booking</Text>
+                    <Text style={rv.headingSub}>Please confirm all details before proceeding</Text>
+                  </View>
                 </View>
 
-                <View style={s3.summaryCard}>
-                  {/* Card header band */}
-                  <LinearGradient
-                    colors={[PRIMARY_CTR, PRIMARY]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={s3.summaryHeader}
-                  >
-                    <Ionicons name="car-sport-outline" size={16} color={ON_PRIMARY} />
-                    <Text style={s3.summaryHeaderText}>APPOINTMENT DETAILS</Text>
-                  </LinearGradient>
-
-                  <View style={s3.summaryBody}>
-                    {[
-                      { icon: 'person-outline', label: 'Customer', value: customerName.trim() || '—' },
-                      { icon: 'call-outline', label: 'Contact', value: contactNumber.trim() || '—' },
-                      { icon: 'car-outline', label: 'Vehicle', value: selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : '—' },
-                      { icon: 'barcode-outline', label: 'Plate No.', value: selectedVehicle?.plateNumber?.toUpperCase() || '—' },
-                      { icon: 'sparkles-outline', label: 'Service', value: selectedService?.name || '—' },
-                      { icon: 'calendar-outline', label: 'Date', value: selectedDate || '—' },
-                      { icon: 'time-outline', label: 'Time', value: selectedTime || '—' },
-                    ].map((item, i) => (
-                      <View key={i} style={[s3.summaryRow, i > 0 && { marginTop: 14 }]}>
-                        <View style={s3.summaryRowLeft}>
-                          <Ionicons name={item.icon as any} size={15} color={MUTED} />
-                          <Text style={s3.summaryLabel}>{item.label}</Text>
-                        </View>
-                        <Text style={s3.summaryValue} numberOfLines={1}>{item.value}</Text>
+                {/* ── CUSTOMER ── */}
+                <View style={rv.section}>
+                  <Text style={rv.sectionLabel}>CUSTOMER</Text>
+                  <View style={rv.card}>
+                    <View style={rv.row}>
+                      <View style={rv.rowLeft}>
+                        <Ionicons name="person-outline" size={15} color="#9ca3af" />
+                        <Text style={rv.rowKey}>Name</Text>
                       </View>
-                    ))}
-
-                    {/* Notes if present */}
-                    {notes.trim() !== '' && (
-                      <View style={[s3.summaryRow, { alignItems: 'flex-start', marginTop: 14 }]}>
-                        <View style={[s3.summaryRowLeft, { marginTop: 2 }]}>
-                          <Ionicons name="document-text-outline" size={15} color={MUTED} />
-                          <Text style={s3.summaryLabel}>Notes</Text>
-                        </View>
-                        <Text style={[s3.summaryValue, { flex: 1, textAlign: 'right' }]} numberOfLines={3}>
-                          {notes}
-                        </Text>
+                      <Text style={rv.rowVal}>{displayCustomerName || '—'}</Text>
+                    </View>
+                    <View style={rv.divider} />
+                    <View style={rv.row}>
+                      <View style={rv.rowLeft}>
+                        <Ionicons name="call-outline" size={15} color="#9ca3af" />
+                        <Text style={rv.rowKey}>Contact</Text>
                       </View>
-                    )}
+                      <Text style={rv.rowVal}>{displayCustomerPhone || '—'}</Text>
+                    </View>
+                  </View>
+                </View>
 
-                    {/* Total */}
-                    <View style={s3.totalRow}>
-                      <Text style={s3.totalLabel}>TOTAL AMOUNT</Text>
-                      <Text style={s3.totalValue}>
-                        ₱{Number(selectedService?.price || 0).toLocaleString()}
+                {/* ── VEHICLE ── */}
+                <View style={rv.section}>
+                  <Text style={rv.sectionLabel}>VEHICLE</Text>
+                  <View style={rv.card}>
+                    <View style={rv.row}>
+                      <Text style={rv.rowKey}>Brand &amp; Model</Text>
+                      <Text style={rv.rowVal}>
+                        {selectedVehicle ? `${selectedVehicle.make} ${selectedVehicle.model}`.trim() : '—'}
                       </Text>
                     </View>
-                  </View>
-                </View>
-              </Animated.View>
-
-              {/* ── Booking Reference ── */}
-              <Animated.View entering={FadeInDown.delay(200).duration(200)}>
-                <View style={s1.sectionHeader}>
-                  <View style={s1.sectionIconWrap}>
-                    <Ionicons name="bookmark-outline" size={14} color={PRIMARY} />
-                  </View>
-                  <Text style={ss.sectionLabel}>BOOKING REFERENCE</Text>
-                </View>
-
-                <View style={s3.refCard}>
-                  <View style={s3.refIconWrap}>
-                    <Ionicons name="qr-code-outline" size={28} color={PRIMARY} />
-                  </View>
-                  <Text style={s3.refCode}>{previewBookingRef}</Text>
-                  <Text style={s3.refHint}>
-                    Your official reference will be generated upon confirmation
-                  </Text>
-                </View>
-              </Animated.View>
-
-              {/* ── QR Code Payment ── */}
-              <Animated.View entering={FadeInDown.delay(280).duration(200)}>
-                <View style={s1.sectionHeader}>
-                  <View style={s1.sectionIconWrap}>
-                    <Ionicons name="qr-code-outline" size={14} color={PRIMARY} />
-                  </View>
-                  <Text style={ss.sectionLabel}>DOWN PAYMENT VIA QR CODE</Text>
-                </View>
-                <View style={{
-                  backgroundColor: SURFACE_MID,
-                  borderRadius: 16,
-                  padding: 16,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 16,
-                  marginBottom: 4,
-                }}>
-                  <View style={{ backgroundColor: '#fff', padding: 6, borderRadius: 8, width: 90, height: 90, alignItems: 'center', justifyContent: 'center' }}>
-                    <Image
-                      source={{ uri: 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=AutoSPFPayment' }}
-                      style={{ width: 78, height: 78 }}
-                      resizeMode="contain"
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14, marginBottom: 4 }}>Scan to Pay</Text>
-                    <Text style={{ color: DIM_TEXT, fontSize: 12, lineHeight: 18 }}>Scan the QR code with your GCash or payment app to make your down payment, then upload the receipt below.</Text>
-                  </View>
-                </View>
-              </Animated.View>
-
-              {/* ── GCash Downpayment Upload ── */}
-              <Animated.View entering={FadeInDown.delay(300).duration(200)}>
-                <View style={s1.sectionHeader}>
-                  <View style={s1.sectionIconWrap}>
-                    <Ionicons name="card-outline" size={14} color={PRIMARY} />
-                  </View>
-                  <Text style={ss.sectionLabel}>UPLOAD PAYMENT PROOF (OPTIONAL)</Text>
-                </View>
-
-                <View style={s3.uploadCard}>
-                  {downpaymentProof ? (
-                    <Animated.View entering={FadeInDown.duration(200)} style={s3.previewWrap}>
-                      <Image
-                        source={{ uri: downpaymentProof }}
-                        style={s3.previewImage}
-                        resizeMode="contain"
-                      />
-                      <View style={s3.previewActions}>
-                        <TouchableOpacity
-                          style={s3.previewActionBtn}
-                          activeOpacity={0.8}
-                          onPress={async () => {
-                            const result = await ImagePicker.launchImageLibraryAsync({
-                              mediaTypes: ['images'],
-                              allowsEditing: true,
-                              quality: 0.7,
-                              base64: true,
-                            });
-                            if (!result.canceled && result.assets[0]?.base64) {
-                              const mime = result.assets[0].mimeType || 'image/jpeg';
-                              setDownpaymentProof(`data:${mime};base64,${result.assets[0].base64}`);
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            }
-                          }}
-                        >
-                          <Ionicons name="swap-horizontal" size={16} color={PRIMARY} />
-                          <Text style={s3.previewActionText}>Replace</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[s3.previewActionBtn, { backgroundColor: 'rgba(255,68,68,0.08)' }]}
-                          activeOpacity={0.8}
-                          onPress={() => {
-                            setDownpaymentProof(null);
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          }}
-                        >
-                          <Ionicons name="trash-outline" size={16} color="#FF4444" />
-                          <Text style={[s3.previewActionText, { color: '#FF4444' }]}>Remove</Text>
-                        </TouchableOpacity>
+                    <View style={rv.divider} />
+                    <View style={rv.row}>
+                      <View style={rv.rowLeft}>
+                        <Ionicons name="color-palette-outline" size={15} color="#9ca3af" />
+                        <Text style={rv.rowKey}>Color</Text>
                       </View>
-                    </Animated.View>
-                  ) : (
-                    <View style={s3.uploadContent}>
-                      <View style={s3.uploadIconWrap}>
-                        <Ionicons name="cloud-upload-outline" size={32} color={MUTED} />
-                      </View>
-                      <Text style={s3.uploadTitle}>Upload Payment Screenshot</Text>
-                      <Text style={s3.uploadSubtitle}>GCash receipt or payment confirmation</Text>
-                      <View style={s3.uploadBtnRow}>
-                        <TouchableOpacity
-                          activeOpacity={0.85}
-                          onPress={async () => {
-                            const result = await ImagePicker.launchImageLibraryAsync({
-                              mediaTypes: ['images'],
-                              allowsEditing: true,
-                              quality: 0.7,
-                              base64: true,
-                            });
-                            if (!result.canceled && result.assets[0]?.base64) {
-                              const mime = result.assets[0].mimeType || 'image/jpeg';
-                              setDownpaymentProof(`data:${mime};base64,${result.assets[0].base64}`);
-                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                            }
-                          }}
-                        >
-                          <LinearGradient
-                            colors={[PRIMARY_CTR, PRIMARY]}
-                            start={{ x: 0, y: 0.5 }}
-                            end={{ x: 1, y: 0.5 }}
-                            style={s3.uploadGradientBtn}
-                          >
-                            <Ionicons name="images-outline" size={16} color={ON_PRIMARY} />
-                            <Text style={s3.uploadGradientText}>Gallery</Text>
-                          </LinearGradient>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={s3.uploadOutlineBtn}
-                          activeOpacity={0.85}
-                          onPress={async () => {
-                            const perms = await ImagePicker.requestCameraPermissionsAsync();
-                            if (!perms.granted) {
-                              Alert.alert('Permission Required', 'Camera access is needed to take a photo.');
-                              return;
-                            }
-                            const result = await ImagePicker.launchCameraAsync({
-                              allowsEditing: true,
-                              quality: 0.7,
-                              base64: true,
-                            });
-                            if (!result.canceled && result.assets[0]?.base64) {
-                              const mime = result.assets[0].mimeType || 'image/jpeg';
-                              setDownpaymentProof(`data:${mime};base64,${result.assets[0].base64}`);
-                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                            }
-                          }}
-                        >
-                          <Ionicons name="camera-outline" size={16} color={PRIMARY} />
-                          <Text style={s3.uploadOutlineText}>Camera</Text>
-                        </TouchableOpacity>
-                      </View>
+                      <Text style={rv.rowVal}>{selectedVehicle?.color || '—'}</Text>
                     </View>
-                  )}
-                </View>
-              </Animated.View>
-
-              {/* ── Disclaimer ── */}
-              <Animated.View entering={FadeInDown.delay(400).duration(200)}>
-                <View style={s3.disclaimerCard}>
-                  <LinearGradient
-                    colors={['rgba(255,140,0,0.08)', 'rgba(255,183,125,0.02)']}
-                    style={s3.disclaimerGradient}
-                  >
-                    <View style={{ alignItems: 'center' }}>
-                      <Ionicons name="shield-checkmark-outline" size={28} color={PRIMARY} />
+                    <View style={rv.divider} />
+                    <View style={rv.row}>
+                      <View style={rv.rowLeft}>
+                        <Ionicons name="card-outline" size={15} color="#9ca3af" />
+                        <Text style={rv.rowKey}>Plate</Text>
+                      </View>
+                      <Text style={rv.rowVal}>{selectedVehicle?.plateNumber?.toUpperCase() || '—'}</Text>
                     </View>
-                    {[
-                      { icon: 'calendar-outline', text: 'Your booking schedule may be adjusted based on shop availability.' },
-                      { icon: 'card-outline', text: 'GCash downpayment is recommended to secure your slot.' },
-                      { icon: 'ban-outline', text: 'Double bookings are not allowed. One slot per customer.' },
-                      { icon: 'checkmark-done-outline', text: 'Confirmation is subject to admin review and approval.' },
-                    ].map((item, i) => (
-                      <View key={i} style={s3.disclaimerRow}>
-                        <View style={s3.disclaimerRowIcon}>
-                          <Ionicons name={item.icon as any} size={14} color={PRIMARY} />
+                  </View>
+                </View>
+
+                {/* ── SERVICE & SCHEDULE ── */}
+                <View style={rv.section}>
+                  <Text style={rv.sectionLabel}>SERVICE &amp; SCHEDULE</Text>
+                  <View style={rv.card}>
+                    <View style={rv.row}>
+                      <View style={rv.rowLeft}>
+                        <Ionicons name="shield-checkmark-outline" size={15} color="#9ca3af" />
+                        <Text style={rv.rowKey}>Service</Text>
+                      </View>
+                      <Text style={rv.rowVal} numberOfLines={2}>{effectiveName}</Text>
+                    </View>
+                    <View style={rv.divider} />
+                    <View style={rv.row}>
+                      <View style={rv.rowLeft}>
+                        <Ionicons name="calendar-outline" size={15} color="#9ca3af" />
+                        <Text style={rv.rowKey}>Date</Text>
+                      </View>
+                      <Text style={rv.rowVal} numberOfLines={2}>{formattedDate}</Text>
+                    </View>
+                    <View style={rv.divider} />
+                    <View style={rv.row}>
+                      <View style={rv.rowLeft}>
+                        <Ionicons name="time-outline" size={15} color="#9ca3af" />
+                        <Text style={rv.rowKey}>Time</Text>
+                      </View>
+                      <Text style={rv.rowVal}>{selectedTime || '—'}</Text>
+                    </View>
+                    {notes.trim() !== '' && (
+                      <>
+                        <View style={rv.divider} />
+                        <View style={[rv.row, { alignItems: 'flex-start' }]}>
+                          <View style={[rv.rowLeft, { marginTop: 1 }]}>
+                            <Ionicons name="document-text-outline" size={15} color="#9ca3af" />
+                            <Text style={rv.rowKey}>Notes</Text>
+                          </View>
+                          <Text style={[rv.rowVal, { flex: 1, textAlign: 'right' }]} numberOfLines={4}>{notes}</Text>
                         </View>
-                        <Text style={s3.disclaimerRowText}>{item.text}</Text>
+                      </>
+                    )}
+                  </View>
+                </View>
+
+                {/* ── TOTAL PRICE CARD ── */}
+                <View style={rv.priceCard}>
+                  {/* Total row */}
+                  <View style={rv.priceTotalRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="pricetag-outline" size={16} color={PRIMARY} />
+                      <Text style={rv.priceTotalLabel}>Total Service Price</Text>
+                    </View>
+                    <Text style={rv.priceTotalValue}>₱{effectivePrice.toLocaleString()}</Text>
+                  </View>
+
+                  <View style={rv.priceDivider} />
+
+                  {/* GCash reservation fee */}
+                  <View style={rv.priceRow}>
+                    <View style={rv.priceRowLeft}>
+                      <Ionicons name="phone-portrait-outline" size={15} color="#f97316" />
+                      <View>
+                        <Text style={[rv.priceRowTitle, { color: '#f97316' }]}>GCash Reservation Fee — Due Now</Text>
+                        <Text style={rv.priceRowSub}>Fixed fee to secure your slot</Text>
                       </View>
-                    ))}
-                  </LinearGradient>
+                    </View>
+                    <Text style={[rv.priceRowAmt, { color: '#f97316' }]}>₱{RESERVATION_FEE.toLocaleString()}</Text>
+                  </View>
+
+                  <View style={rv.priceDivider} />
+
+                  {/* Balance */}
+                  <View style={rv.priceRow}>
+                    <View style={rv.priceRowLeft}>
+                      <Ionicons name="storefront-outline" size={15} color="#22c55e" />
+                      <View>
+                        <Text style={[rv.priceRowTitle, { color: '#22c55e' }]}>Balance — Pay Onsite</Text>
+                        <Text style={rv.priceRowSub}>Settle in full on your appointment day</Text>
+                      </View>
+                    </View>
+                    <Text style={[rv.priceRowAmt, { color: '#22c55e' }]}>₱{balance.toLocaleString()}</Text>
+                  </View>
+                </View>
+
+                {/* ── Notes (shown if filled, matching web) ── */}
+                {notes.trim() !== '' && (
+                  <View style={{ padding: 14, borderRadius: 12, backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fde68a' }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#92400e', marginBottom: 4 }}>Special Requests</Text>
+                    <Text style={{ fontSize: 12, color: '#78350f', lineHeight: 18 }}>{notes}</Text>
+                  </View>
+                )}
+
+                {/* Navigation — Review → Terms */}
+                <View style={[ss.btnRow, { marginTop: 8 }]}>
+                  <TouchableOpacity activeOpacity={0.85} onPress={goBack} style={[ss.outlineBtn, { flex: 1 }]}>
+                    <Text style={ss.outlineBtnText}>Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.88} onPress={goNext} style={{ flex: 2 }}>
+                    <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
+                      <Text style={ss.gradientBtnText}>Continue</Text>
+                      <Ionicons name="arrow-forward" size={18} color={ON_PRIMARY} />
+                    </LinearGradient>
+                  </TouchableOpacity>
                 </View>
               </Animated.View>
+            );
+          })()}
 
-              {/* Navigation */}
+          {/* ═══════════════════════════════════════════════════
+              STEP 4 — TERMS & CONDITIONS  (web Step 5 of 6)
+          ═══════════════════════════════════════════════════ */}
+          {step === 4 && (
+            <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
+              <View style={ss.editorialHeader}>
+                  <Text style={ss.editorialLabel}>STEP 5 OF 6</Text>
+                <Text style={ss.editorialTitle}>Terms &amp;{'\n'}Conditions</Text>
+                <Text style={ss.editorialSub}>Read and agree to proceed to payment.</Text>
+              </View>
+
+              <View>
+                <Text style={tc.heading}>Paint Protection Film General Terms and Conditions</Text>
+                <ScrollView
+                  style={tc.scrollBox}
+                  showsVerticalScrollIndicator
+                  nestedScrollEnabled
+                  onScroll={({ nativeEvent }) => {
+                    const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+                    if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 16) setTcScrolledToBottom(true);
+                  }}
+                  scrollEventThrottle={32}
+                >
+                  <Text style={tc.body}>Paint protection film is a complicated installation procedure. This document serves to set expectations on your installation, and can serve as a reference point in the future.</Text>
+                  <Text style={tc.sectionTitle}>ABOUT PAINT PROTECTION FILM</Text>
+                  <Text style={tc.body}>PPF is a sacrificial layer designed to protect your vehicle's paint from chips, scratches, and swirl marks. The customer understands that PPF is not a completely invisible or matte layer.</Text>
+                  <Text style={tc.sectionTitle}>DRYING TIME</Text>
+                  <Text style={tc.body}>Your PPF will take 3–4 weeks to fully cure. Do not wash the vehicle for the first 7 days. Water spots under the film will evaporate on their own.</Text>
+                  <Text style={tc.sectionTitle}>WARRANTY</Text>
+                  <Text style={tc.body}>5-year warranty against yellowing, cracking, and fading. Warranty does NOT cover abuse, accidents, improper maintenance, or debris damage.</Text>
+                  <Text style={tc.sectionTitle}>EXISTING ROCK CHIPS</Text>
+                  <Text style={tc.body}>Existing paint chips will appear as PPF imperfections. This is especially noticeable on dark vehicles.</Text>
+                  <Text style={tc.sectionTitle}>IMPERFECTIONS</Text>
+                  <Text style={tc.body}>We strive for perfection but due to the nature of film installation, minor dust or debris under the film is possible. No installation is actually perfect.</Text>
+                  <Text style={tc.sectionTitle}>BOOKING POLICY</Text>
+                  <Text style={tc.body}>A non-refundable downpayment is required to secure your slot. All bookings are subject to availability and approval. Customers must arrive within 30 minutes of their scheduled time. By proceeding, you confirm that all information provided is accurate.</Text>
+                  <View style={{ height: 8 }} />
+                </ScrollView>
+                {!tcScrolledToBottom && (
+                  <Text style={tc.scrollHint}>↓ Scroll to the bottom to enable the checkbox</Text>
+                )}
+              </View>
+
+              <TouchableOpacity
+                activeOpacity={0.85}
+                disabled={!tcScrolledToBottom}
+                onPress={() => { setAgreedToTerms(!agreedToTerms); Haptics.selectionAsync(); }}
+                style={[tc.checkRow, !tcScrolledToBottom && { opacity: 0.4 }, agreedToTerms && tc.checkRowActive]}
+              >
+                <View style={[tc.checkbox, agreedToTerms && tc.checkboxActive]}>
+                  {agreedToTerms && <Ionicons name="checkmark" size={14} color={ON_PRIMARY} />}
+                </View>
+                <Text style={[tc.checkText, agreedToTerms && { color: '#fff' }]}>
+                  I have read and agree to the{' '}
+                  <Text style={{ color: PRIMARY, fontWeight: '600' }}>terms and conditions</Text>.
+                </Text>
+              </TouchableOpacity>
+
               <View style={ss.btnRow}>
                 <TouchableOpacity activeOpacity={0.85} onPress={goBack} style={[ss.outlineBtn, { flex: 1 }]}>
                   <Text style={ss.outlineBtnText}>Back</Text>
                 </TouchableOpacity>
-                <TouchableOpacity activeOpacity={0.88} onPress={goNext} style={{ flex: 2 }}>
-                  <LinearGradient
-                    colors={[PRIMARY_CTR, PRIMARY]}
-                    start={{ x: 0, y: 0.5 }}
-                    end={{ x: 1, y: 0.5 }}
-                    style={ss.gradientBtn}
-                  >
-                    <Text style={ss.gradientBtnText}>Proceed</Text>
+                <TouchableOpacity
+                  activeOpacity={0.88}
+                  disabled={!canProceedStep4}
+                  onPress={goNext}
+                  style={{ flex: 2, opacity: canProceedStep4 ? 1 : 0.4 }}
+                >
+                  <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
+                    <Text style={ss.gradientBtnText}>Continue</Text>
                     <Ionicons name="arrow-forward" size={18} color={ON_PRIMARY} />
                   </LinearGradient>
                 </TouchableOpacity>
@@ -2008,166 +1968,154 @@ export default function BookScreen() {
           )}
 
           {/* ═══════════════════════════════════════════════════
-              STEP 3 — FINAL CONFIRMATION
+              STEP 5 — GCASH PAYMENT  (web Step 6 of 6)
           ═══════════════════════════════════════════════════ */}
-          {step === 3 && (
-            <Animated.View
-              entering={FadeInDown.duration(200)}
-              style={ss.stepWrap}
-            >
-              {/* Header */}
-              <View style={ss.editorialHeader}>
-                <Text style={ss.editorialLabel}>FINALIZE BOOKING</Text>
-                <Text style={[ss.editorialTitle, { fontSize: 32 }]}>Confirm{'\n'}Booking</Text>
-                <Text style={ss.editorialSub}>
-                  Your appointment is almost set. Tap confirm to submit.
-                </Text>
-              </View>
-
-              {/* Booking Reference */}
-              <Animated.View entering={FadeInDown.delay(100).duration(200)}>
-                <View style={s4.confirmRefCard}>
-                  <View style={s4.confirmRefIconWrap}>
-                    <Ionicons name="bookmark-outline" size={18} color={PRIMARY} />
-                  </View>
-                  <View>
-                    <Text style={s4.confirmRefLabel}>BOOKING REFERENCE</Text>
-                    <Text style={s4.confirmRefCode}>{previewBookingRef}</Text>
-                  </View>
+          {step === 5 && (() => {
+            const effectivePkg   = selectedPkg ? SPF_PACKAGES.find(p => p.key === selectedPkg) : null;
+            const effectivePrice: number = effectivePkg ? (effectivePkg.prices[vehicleType] ?? 0) : (selectedService?.price ?? 0);
+            const RESERVATION_FEE = 500;
+            const balance = Math.max(0, effectivePrice - RESERVATION_FEE);
+            const canSubmit = !!downpaymentProof && !isSubmitting;
+            return (
+              <Animated.View entering={FadeInDown.duration(200)} style={ss.stepWrap}>
+                <View style={ss.editorialHeader}>
+                  <Text style={ss.editorialLabel}>STEP 6 OF 6</Text>
+                  <Text style={ss.editorialTitle}>GCash{'\n'}Payment</Text>
+                  <Text style={ss.editorialSub}>Scan the QR and upload your receipt to confirm your booking.</Text>
                 </View>
-              </Animated.View>
 
-              {/* Compact Summary */}
-              <Animated.View entering={FadeInDown.delay(200).duration(200)}>
-                <View style={s4.confirmCard}>
-                  <LinearGradient
-                    colors={[PRIMARY_CTR, PRIMARY]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={s4.confirmCardHeader}
-                  >
-                    <Ionicons name="car-sport-outline" size={16} color={ON_PRIMARY} />
-                    <Text style={s4.confirmCardHeaderText}>APPOINTMENT DETAILS</Text>
-                  </LinearGradient>
-
-                  <View style={s4.confirmCardBody}>
-                    {[
-                      { icon: 'person-outline', label: 'Customer', value: customerName || '—' },
-                      { icon: 'car-outline', label: 'Vehicle', value: selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : '—' },
-                      { icon: 'sparkles-outline', label: 'Service', value: selectedService?.name || '—' },
-                      { icon: 'calendar-outline', label: 'Schedule', value: `${selectedDate} • ${selectedTime}` },
-                    ].map((item, i, arr) => (
-                      <View key={i} style={[s4.confirmRow, i > 0 && { marginTop: 14 }]}>
-                        <Ionicons name={item.icon as any} size={14} color={MUTED} />
-                        <Text style={s4.confirmLabel}>{item.label}</Text>
-                        <Text style={s4.confirmVal} numberOfLines={1}>{item.value}</Text>
+                {/* GCash banner */}
+                <View style={pay.banner}>
+                  <View style={pay.bannerTop}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="phone-portrait-outline" size={18} color="#fff" />
+                      <View>
+                        <Text style={pay.bannerTitle}>Send via GCash Now</Text>
+                        <Text style={pay.bannerSub}>Fixed reservation fee to confirm your slot</Text>
                       </View>
-                    ))}
-
-                    {/* Total */}
-                    <View style={s4.confirmTotalRow}>
-                      <Text style={s4.confirmTotalLabel}>TOTAL</Text>
-                      <Text style={s4.confirmTotalVal}>
-                        ₱{Number(selectedService?.price || 0).toLocaleString()}
-                      </Text>
                     </View>
+                    <Text style={pay.bannerAmt}>₱{RESERVATION_FEE.toLocaleString()}</Text>
+                  </View>
+                  <View style={pay.bannerBalance}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="storefront-outline" size={13} color="#92400e" />
+                      <Text style={pay.bannerBalLabel}>Remaining balance due onsite</Text>
+                    </View>
+                    <Text style={pay.bannerBalAmt}>₱{balance.toLocaleString()}</Text>
                   </View>
                 </View>
-              </Animated.View>
 
-              {/* Downpayment badge */}
-              {downpaymentProof && (
-                <Animated.View entering={FadeInDown.delay(250).duration(200)}>
-                  <View style={s4.paymentBadge}>
-                    <Ionicons name="checkmark-circle" size={18} color="#34C759" />
-                    <Text style={s4.paymentBadgeText}>GCash proof attached</Text>
+                {/* QR Code */}
+                <View style={pay.qrSection}>
+                  <Text style={pay.qrLabel}>SCAN TO PAY VIA GCASH</Text>
+                  <View style={pay.qrFrame}>
+                    <Image source={require('../../../assets/gcash-qr.png')} style={pay.qrImage} resizeMode="contain" />
                   </View>
-                </Animated.View>
-              )}
-
-              {/* Terms & Conditions Checkbox */}
-              <Animated.View entering={FadeInDown.delay(300).duration(200)}>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    setAgreedToTerms(!agreedToTerms);
-                    Haptics.selectionAsync();
-                  }}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'flex-start',
-                    gap: 12,
-                    backgroundColor: agreedToTerms ? 'rgba(255,183,125,0.06)' : SURFACE_MID,
-                    borderRadius: 14,
-                    padding: 14,
-                    borderWidth: 1,
-                    borderColor: agreedToTerms ? 'rgba(255,183,125,0.3)' : 'rgba(255,255,255,0.06)',
-                  }}
-                >
-                  <View style={{
-                    width: 22, height: 22, borderRadius: 6,
-                    backgroundColor: agreedToTerms ? PRIMARY : SURFACE_HIGH,
-                    alignItems: 'center', justifyContent: 'center',
-                    marginTop: 1, flexShrink: 0,
-                  }}>
-                    {agreedToTerms && <Ionicons name="checkmark" size={14} color={ON_PRIMARY} />}
-                  </View>
-                  <Text style={{ flex: 1, color: agreedToTerms ? '#fff' : DIM_TEXT, fontSize: 13, lineHeight: 20 }}>
-                    I agree to the{' '}
-                    <Text style={{ color: PRIMARY, fontWeight: '600' }}>terms and conditions</Text>
-                    {' '}and accept the booking policy. I understand that my booking is subject to approval by the sales team.
-                  </Text>
-                </TouchableOpacity>
-              </Animated.View>
-
-              {/* Notice */}
-              <Animated.View entering={FadeInDown.delay(350).duration(200)}>
-                <View style={s4.noticeBar}>
-                  <Ionicons name="information-circle-outline" size={18} color={PRIMARY} />
-                  <Text style={s4.noticeBarText}>
-                    By confirming, you agree to the booking terms. Arrive{' '}
-                    <Text style={{ color: PRIMARY, fontWeight: '700' }}>15 min early</Text>.
-                  </Text>
+                  <Text style={pay.qrHint}>Screenshot the QR or scan directly from GCash app</Text>
                 </View>
-              </Animated.View>
 
-              {/* Actions */}
-              <View style={ss.btnRow}>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={goBack}
-                  disabled={isSubmitting}
-                  style={[ss.outlineBtn, { flex: 1 }]}
-                >
-                  <Text style={ss.outlineBtnText}>Back</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.88}
-                  disabled={isSubmitting || !canConfirmBooking}
-                  onPress={handleConfirm}
-                  style={{ flex: 2, opacity: (isSubmitting || !canConfirmBooking) ? 0.4 : 1 }}
-                >
-                  <LinearGradient
-                    colors={[PRIMARY_CTR, PRIMARY]}
-                    start={{ x: 0, y: 0.5 }}
-                    end={{ x: 1, y: 0.5 }}
-                    style={ss.gradientBtn}
+                {/* Upload GCash Receipt */}
+                <View>
+                  <View style={pay.uploadHeader}>
+                    <Text style={pay.uploadTitle}>UPLOAD GCASH RECEIPT</Text>
+                    {!downpaymentProof
+                      ? <Text style={pay.uploadRequired}>Required</Text>
+                      : <Text style={pay.uploadDone}>✓ Uploaded</Text>}
+                  </View>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    style={[pay.uploadBox, downpaymentProof && pay.uploadBoxDone]}
+                    onPress={async () => {
+                      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.7, base64: true });
+                      if (!result.canceled && result.assets[0]?.base64) {
+                        const mime = result.assets[0].mimeType || 'image/jpeg';
+                        setDownpaymentProof(`data:${mime};base64,${result.assets[0].base64}`);
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                      }
+                    }}
                   >
-                    {isSubmitting ? (
-                      <ActivityIndicator size="small" color={ON_PRIMARY} />
-                    ) : (
+                    {downpaymentProof ? (
                       <>
-                        <Ionicons name="checkmark-circle" size={18} color={ON_PRIMARY} />
-                        <Text style={ss.gradientBtnText}>Confirm Booking</Text>
+                        <Image source={{ uri: downpaymentProof }} style={pay.proofThumb} resizeMode="cover" />
+                        <View style={pay.proofOverlay}>
+                          <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
+                          <Text style={pay.proofOverlayText}>Tap to Change</Text>
+                        </View>
                       </>
+                    ) : (
+                      <View style={pay.uploadInner}>
+                        <View style={pay.uploadIcon}>
+                          <Ionicons name="cloud-upload-outline" size={22} color="#9ca3af" />
+                        </View>
+                        <Text style={pay.uploadPrompt}>Tap to upload GCash receipt</Text>
+                        <Text style={pay.uploadPromptSub}>JPG or PNG photo of your transaction</Text>
+                      </View>
                     )}
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
-          )}
+                  </TouchableOpacity>
+                </View>
+
+                <View style={pay.infoBox}>
+                  <Ionicons name="information-circle-outline" size={15} color="#0284c7" style={{ marginTop: 1, flexShrink: 0 }} />
+                  <Text style={pay.infoText}>
+                    Your booking will be <Text style={{ fontWeight: '700' }}>pending confirmation</Text> until our team verifies your payment. The remaining balance is collected{' '}
+                    <Text style={{ fontWeight: '700' }}>on the day of your appointment</Text> at our shop.
+                  </Text>
+                </View>
+
+                <View style={ss.btnRow}>
+                  <TouchableOpacity activeOpacity={0.85} onPress={goBack} disabled={isSubmitting} style={[ss.outlineBtn, { flex: 1 }]}>
+                    <Text style={ss.outlineBtnText}>Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    disabled={!canSubmit}
+                    onPress={handleConfirm}
+                    style={{ flex: 2, opacity: canSubmit ? 1 : 0.4 }}
+                  >
+                    <LinearGradient colors={[PRIMARY_CTR, PRIMARY]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={ss.gradientBtn}>
+                      {isSubmitting
+                        ? <ActivityIndicator size="small" color={ON_PRIMARY} />
+                        : <><Ionicons name="checkmark-circle" size={18} color={ON_PRIMARY} /><Text style={ss.gradientBtnText}>Confirm Booking</Text></>
+                      }
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </Animated.View>
+            );
+          })()}
+
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ── "Why Advanced?" Bottom Sheet ─────────────────────────── */}
+      <Modal visible={whyOpen} transparent animationType="slide" onRequestClose={() => setWhyOpen(false)}>
+        <TouchableOpacity style={why.backdrop} activeOpacity={1} onPress={() => setWhyOpen(false)} />
+        <View style={why.sheet}>
+          <View style={why.handle} />
+          <Text style={why.title}>Why 78% choose SPF 89</Text>
+          <Text style={why.sub}>The Advanced package hits the sweet spot on every dimension</Text>
+          <View style={why.bullets}>
+            {[
+              { icon: 'shield-checkmark-outline', heading: 'Best balance of cost vs protection', body: '5-year graphene coating at a price point that makes financial sense for most vehicle owners.' },
+              { icon: 'repeat-outline',           heading: 'Free annual reboost included', body: 'One Reboost/Maintenance visit (₱1,500 value) keeps your coating performing like new — at no extra cost.' },
+              { icon: 'trending-up-outline',      heading: 'Highest resale value boost', body: 'Professionally coated cars retain 8–12% more resale value than uncoated — this package is the minimum threshold.' },
+            ].map((b, i) => (
+              <View key={i} style={why.bullet}>
+                <View style={why.bulletIcon}>
+                  <Ionicons name={b.icon as any} size={18} color="#F97316" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={why.bulletHeading}>{b.heading}</Text>
+                  <Text style={why.bulletBody}>{b.body}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+          <TouchableOpacity activeOpacity={0.85} onPress={() => setWhyOpen(false)} style={why.closeBtn}>
+            <Text style={why.closeBtnText}>Got it</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2253,14 +2201,6 @@ const ss = StyleSheet.create({
     fontWeight: '500',
     color: PRIMARY,
     letterSpacing: 0.01 * 11,
-  },
-
-  profileHint: {
-    fontSize: 11,
-    color: MUTED,
-    marginTop: 6,
-    textAlign: 'center',
-    fontStyle: 'italic',
   },
 
   // ── Gradient Button (Primary CTA) ──
@@ -2645,6 +2585,33 @@ const s2 = StyleSheet.create({
     fontSize: 13,
   },
 
+  /* ── Time slot status variants ── */
+  timePillFull: {
+    backgroundColor: 'rgba(239,68,68,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.20)',
+  },
+  timePillClosed: {
+    backgroundColor: 'rgba(148,163,184,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.12)',
+    opacity: 0.6,
+  },
+
+  /* ── "Select a date" empty state ── */
+  timeEmptyState: {
+    paddingVertical: 28,
+    alignItems: 'center',
+    backgroundColor: SURFACE_MID,
+    borderRadius: 16,
+  },
+  timeEmptyText: {
+    fontSize: 13,
+    color: MUTED,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
   /* ── Notes Card ── */
   notesCard: {
     backgroundColor: SURFACE_MID,
@@ -2657,6 +2624,148 @@ const s2 = StyleSheet.create({
 });
 
 /** Step 2 — Review & Payment Kinetic Gallery styles */
+/** Terms & Conditions step */
+const tc = StyleSheet.create({
+  heading: { fontSize: 10, fontWeight: '700', color: DIM_TEXT, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
+  scrollBox: { maxHeight: 200, borderWidth: 1, borderColor: GHOST, borderRadius: 10, padding: 14, backgroundColor: SURFACE_HIGH },
+  body:        { fontSize: 12, color: SECONDARY, lineHeight: 20, marginBottom: 10 },
+  sectionTitle: { fontSize: 10, fontWeight: '700', color: PRIMARY, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4, marginBottom: 4 },
+  scrollHint: { fontSize: 10, color: MUTED, fontStyle: 'italic', marginTop: 4, textAlign: 'center' },
+  checkRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+    backgroundColor: SURFACE_MID, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+  },
+  checkRowActive: { backgroundColor: 'rgba(255,183,125,0.06)', borderColor: 'rgba(255,183,125,0.3)' },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 6,
+    backgroundColor: SURFACE_HIGH, alignItems: 'center', justifyContent: 'center',
+    marginTop: 1, flexShrink: 0,
+  },
+  checkboxActive: { backgroundColor: PRIMARY },
+  checkText: { flex: 1, color: DIM_TEXT, fontSize: 13, lineHeight: 20 },
+});
+
+/** GCash Payment step */
+const pay = StyleSheet.create({
+  banner: { borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: `${PRIMARY}50` },
+  bannerTop: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    backgroundColor: PRIMARY_CTR,
+  },
+  bannerTitle: { fontSize: 12, color: ON_PRIMARY, fontWeight: '700', opacity: 0.9 },
+  bannerSub:   { fontSize: 10, color: ON_PRIMARY, marginTop: 2, opacity: 0.7 },
+  bannerAmt:   { fontSize: 28, fontWeight: '900', color: ON_PRIMARY, letterSpacing: -0.5 },
+  bannerBalance: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: SURFACE_HIGH,
+  },
+  bannerBalLabel: { fontSize: 12, color: DIM_TEXT, fontWeight: '600' },
+  bannerBalAmt:   { fontSize: 14, fontWeight: '700', color: PRIMARY },
+
+  qrSection: { alignItems: 'center' },
+  qrLabel:   { fontSize: 10, fontWeight: '700', color: DIM_TEXT, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 12 },
+  qrFrame: {
+    padding: 12, backgroundColor: '#fff', borderRadius: 16,
+    shadowColor: PRIMARY, shadowOpacity: 0.25, shadowRadius: 20, shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  qrImage: { width: 180, height: 180 },
+  qrHint:  { fontSize: 11, color: MUTED, marginTop: 10, textAlign: 'center' },
+
+  uploadHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  uploadTitle:    { fontSize: 11, fontWeight: '700', color: SECONDARY, textTransform: 'uppercase', letterSpacing: 0.5 },
+  uploadRequired: { fontSize: 10, fontWeight: '600', color: '#ef4444' },
+  uploadDone:     { fontSize: 10, fontWeight: '600', color: '#4ade80' },
+  uploadBox: {
+    borderWidth: 2, borderStyle: 'dashed', borderColor: GHOST,
+    borderRadius: 14, minHeight: 120,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: SURFACE_HIGH, overflow: 'hidden',
+  },
+  uploadBoxDone: { borderColor: 'rgba(74,222,128,0.45)', backgroundColor: 'rgba(74,222,128,0.06)' },
+  uploadInner: { alignItems: 'center', gap: 6 },
+  uploadIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: SURFACE_TOP, alignItems: 'center', justifyContent: 'center' },
+  uploadPrompt:    { fontSize: 13, fontWeight: '600', color: SECONDARY },
+  uploadPromptSub: { fontSize: 11, color: MUTED },
+  proofThumb: { ...StyleSheet.absoluteFillObject, opacity: 0.5 },
+  proofOverlay: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(13,13,18,0.82)', paddingHorizontal: 16, paddingVertical: 8,
+    borderRadius: 20, borderWidth: 1, borderColor: GHOST,
+  },
+  proofOverlayText: { fontSize: 12, fontWeight: '600', color: SECONDARY },
+
+  infoBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    padding: 14, borderRadius: 12,
+    backgroundColor: 'rgba(133,207,255,0.06)', borderWidth: 1, borderColor: 'rgba(133,207,255,0.22)',
+  },
+  infoText: { flex: 1, fontSize: 12, color: TERTIARY, lineHeight: 19 },
+});
+
+/** Review Booking step */
+const rv = StyleSheet.create({
+  heading: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 14,
+    marginBottom: 20,
+  },
+  headingIcon: {
+    width: 44, height: 44, borderRadius: 12,
+    backgroundColor: SURFACE_HIGH,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  headingTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF', lineHeight: 22 },
+  headingSub:   { fontSize: 12, color: DIM_TEXT, marginTop: 2, lineHeight: 17 },
+
+  section: { marginBottom: 16 },
+  sectionLabel: {
+    fontSize: 10, fontWeight: '700', color: DIM_TEXT,
+    letterSpacing: 0.8, textTransform: 'uppercase',
+    marginBottom: 8, marginLeft: 2,
+  },
+  card: {
+    backgroundColor: SURFACE_HIGH,
+    borderRadius: 14,
+    borderWidth: 1, borderColor: GHOST,
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingVertical: 14,
+  },
+  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rowKey:  { fontSize: 13, color: DIM_TEXT, fontWeight: '500' },
+  rowVal:  { fontSize: 13, color: SECONDARY, fontWeight: '600', maxWidth: '55%', textAlign: 'right' },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: GHOST, marginHorizontal: 14 },
+
+  /* Price breakdown card */
+  priceCard: {
+    backgroundColor: SURFACE_MID,
+    borderRadius: 14, overflow: 'hidden',
+    borderWidth: 1, borderColor: `${PRIMARY}30`,
+    marginBottom: 16,
+  },
+  priceTotalRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+  },
+  priceTotalLabel: { fontSize: 14, fontWeight: '600', color: '#f8fafc' },
+  priceTotalValue: { fontSize: 22, fontWeight: '900', color: '#ffffff', letterSpacing: -0.5 },
+  priceDivider: { height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.10)', marginHorizontal: 16 },
+  priceRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14, gap: 10,
+  },
+  priceRowLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, flex: 1 },
+  priceRowTitle: { fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  priceRowSub:   { fontSize: 11, color: '#64748b', marginTop: 2 },
+  priceRowAmt:   { fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+});
+
 const s3 = StyleSheet.create({
   /* ── Summary Card ── */
   summaryCard: {
@@ -3326,7 +3435,65 @@ const avf = StyleSheet.create({
   },
 });
 
-/** Step 0 — Customer & Vehicle glassmorphism */
+/** Step 0 — Vehicle selection glassmorphism */
+/** Step 1 — Details screen styles */
+const dt = StyleSheet.create({
+  fieldGroup: { gap: 4 },
+  fieldLabel: { fontSize: 10, fontWeight: '700', color: MUTED, letterSpacing: 0.8, marginBottom: 4 },
+  readOnlyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: SURFACE_HIGH,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderWidth: 1,
+    borderColor: GHOST,
+  },
+  readOnlyValue: { flex: 1, fontSize: 14, color: SECONDARY, fontWeight: '500' },
+  autoFillBadge: { backgroundColor: 'rgba(74,222,128,0.08)', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  autoFillText: { fontSize: 10, color: '#4ade80', fontWeight: '600' },
+  hintText: { fontSize: 11, color: MUTED, marginTop: 4, paddingHorizontal: 2 },
+  errorText: { fontSize: 11, color: '#ef4444', marginTop: 3 },
+  summaryCard: {
+    backgroundColor: SURFACE_HIGH,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: GHOST,
+    overflow: 'hidden',
+  },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 13 },
+  summaryKey: { fontSize: 13, color: DIM_TEXT },
+  summaryVal: { fontSize: 14, color: SECONDARY, fontWeight: '600', textAlign: 'right', flex: 1, marginLeft: 16 },
+  summaryDivider: { height: 1, backgroundColor: GHOST, marginHorizontal: 16 },
+  serviceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: `${PRIMARY}12`,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: `${PRIMARY}30`,
+  },
+  serviceName: { flex: 1, fontSize: 14, color: '#FFFFFF', fontWeight: '600' },
+  servicePrice: { fontSize: 16, color: PRIMARY, fontWeight: '700' },
+  gridCell: {
+    backgroundColor: SURFACE_HIGH,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: GHOST,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  gridLabel: { fontSize: 9, fontWeight: '700', color: MUTED, letterSpacing: 0.8 },
+  gridValueRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  gridValue: { flex: 1, fontSize: 13, fontWeight: '600', color: SECONDARY },
+});
+
 const s1 = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
@@ -3356,5 +3523,596 @@ const s1 = StyleSheet.create({
       },
       android: { elevation: 2 },
     }),
+  },
+});
+
+// ── Schedule step styles (mirrors web layout) ──────────────────────────────
+const sch = StyleSheet.create({
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: DIM_TEXT,
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  legend: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 18,
+    marginTop: 14,
+    marginBottom: 4,
+  },
+  timeLegend: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 14,
+    marginTop: 10,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  legendDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  legendText: {
+    fontSize: 11,
+    color: MUTED,
+    fontWeight: '500',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 18,
+  },
+  emptyText: {
+    fontSize: 13,
+    color: MUTED,
+    textAlign: 'center',
+  },
+  notesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  optional: {
+    fontSize: 11,
+    fontWeight: '400',
+    letterSpacing: 0,
+    textTransform: 'none',
+    color: MUTED,
+  },
+  counter: {
+    fontSize: 11,
+    color: MUTED,
+  },
+  notesInput: {
+    borderWidth: 1,
+    borderColor: GHOST,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: SECONDARY,
+    backgroundColor: SURFACE_HIGH,
+    minHeight: 96,
+    textAlignVertical: 'top',
+  },
+});
+
+// ── Service step (Step 0) — mirrors web's Choose Service card style ───────
+// ── Step 0 (Choose Service) — mobile-native dark design language ─────────────
+const svc = StyleSheet.create({
+  // "No vehicles" amber notice (dark-theme tonal amber)
+  noVehicleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: `${PRIMARY}18`,
+    borderWidth: 1,
+    borderColor: `${PRIMARY}40`,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  noVehicleText: {
+    fontSize: 12,
+    color: PRIMARY,
+    fontWeight: '500',
+    flex: 1,
+    lineHeight: 18,
+  },
+  // ── Section header with numbered badge ──
+  stepSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 4,
+  },
+  stepNumBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: `${PRIMARY_CTR}35`,
+    borderWidth: 1,
+    borderColor: `${PRIMARY}60`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: PRIMARY,
+  },
+  stepSectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: SECONDARY,
+    letterSpacing: 0.3,
+    flex: 1,
+  },
+  pricingForLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: DIM_TEXT,
+  },
+  // ── Full-width vehicle row card ──
+  vehicleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: SURFACE_HIGH,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: GHOST,
+  },
+  vehicleRowActive: {
+    backgroundColor: `${PRIMARY_CTR}18`,
+    borderColor: `${PRIMARY}70`,
+    ...Platform.select({
+      ios: { shadowColor: PRIMARY, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10 },
+      android: { elevation: 4 },
+    }),
+  },
+  vehicleIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: `${PRIMARY}15`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vehicleIconWrapActive: {
+    backgroundColor: PRIMARY_CTR,
+  },
+  vehicleRowName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: SECONDARY,
+    letterSpacing: -0.2,
+  },
+  vehicleRowType: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: MUTED,
+    marginTop: 2,
+  },
+  // Radio button
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: MUTED,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  radioOuterActive: {
+    borderColor: PRIMARY,
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: PRIMARY,
+  },
+  // Add another vehicle — subtle secondary row
+  addVehicleSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    alignSelf: 'flex-start',
+  },
+  addVehicleSecondaryText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: PRIMARY,
+  },
+  // Locked package placeholder
+  packageLockedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: SURFACE_HIGH,
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    borderWidth: 1,
+    borderColor: GHOST,
+    borderStyle: 'dashed',
+  },
+  packageLockedText: {
+    fontSize: 13,
+    color: MUTED,
+    fontWeight: '500',
+  },
+  // Package card check badge placeholder (unselected)
+  checkBadgeEmpty: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: GHOST,
+  },
+  // Add vehicle arrow badge
+  addVehicleArrow: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: PRIMARY_CTR,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  // Empty state — prominent add-vehicle card when no vehicles registered
+  addVehicleEmptyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: `${PRIMARY_CTR}18`,
+    borderWidth: 1,
+    borderColor: `${PRIMARY}50`,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+  },
+  addVehicleIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: `${PRIMARY_CTR}25`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addVehicleEmptyTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: PRIMARY,
+    marginBottom: 3,
+  },
+  addVehicleEmptySub: {
+    fontSize: 12,
+    color: DIM_TEXT,
+    lineHeight: 17,
+  },
+  // Vehicle selector chips
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: SURFACE_HIGH,
+    borderWidth: 1,
+    borderColor: GHOST,
+  },
+  chipActive: {
+    backgroundColor: `${PRIMARY_CTR}30`,
+    borderColor: PRIMARY,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: SECONDARY,
+  },
+  chipTextActive: {
+    color: PRIMARY,
+  },
+  chipBadge: {
+    backgroundColor: SURFACE_TOP,
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  chipBadgeActive: {
+    backgroundColor: `${PRIMARY_CTR}40`,
+  },
+  chipBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: MUTED,
+  },
+  // Package card — dark tonal surface, mobile depth
+  card: {
+    backgroundColor: SURFACE_HIGH,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: GHOST,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  cardSelected: {
+    borderColor: `${PRIMARY}80`,
+    backgroundColor: `${PRIMARY_CTR}15`,
+    ...Platform.select({
+      ios: { shadowColor: PRIMARY, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.18, shadowRadius: 12 },
+      android: { elevation: 4 },
+    }),
+  },
+  selectedBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: PRIMARY,
+    borderTopLeftRadius: 20,
+    borderBottomLeftRadius: 20,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  cardName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    lineHeight: 21,
+  },
+  cardDuration: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: DIM_TEXT,
+    marginTop: 3,
+  },
+  cardPrice: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: SECONDARY,
+    letterSpacing: -0.5,
+  },
+  checkBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardDivider: {
+    height: 1,
+    backgroundColor: GHOST,
+    marginVertical: 14,
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  featureDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: MUTED,
+    marginTop: 6,
+    flexShrink: 0,
+  },
+  featureText: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: SECONDARY,
+    flex: 1,
+    lineHeight: 19,
+  },
+});
+
+// ── Package cards — world-class redesign ──────────────────────────────────────
+const pkgCard = StyleSheet.create({
+  base: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: '#111111',
+    padding: 20,
+    overflow: 'hidden',
+  },
+  hero: {
+    borderColor: 'rgba(249,115,22,0.28)',
+    paddingVertical: 24,
+    paddingHorizontal: 22,
+    ...Platform.select({
+      ios: { shadowColor: '#F97316', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.18, shadowRadius: 24 },
+      android: { elevation: 8 },
+    }),
+  },
+  selected: {
+    borderColor: 'rgba(249,115,22,0.6)',
+  },
+  heroSelected: {
+    borderColor: '#F97316',
+    ...Platform.select({
+      ios: { shadowOpacity: 0.35, shadowRadius: 32 },
+    }),
+  },
+  tier: {
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 3,
+    color: 'rgba(255,255,255,0.35)',
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  name: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    flex: 1,
+    lineHeight: 26,
+  },
+  price: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -1.5,
+    lineHeight: 38,
+  },
+  tagline: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: 'rgba(255,255,255,0.4)',
+    lineHeight: 17,
+  },
+  socialProof: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: 'rgba(249,115,22,0.75)',
+    marginTop: 2,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginVertical: 14,
+  },
+  feature: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
+    lineHeight: 26,
+  },
+  whyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 10,
+    alignSelf: 'flex-start',
+  },
+  whyBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#F97316',
+  },
+  // Animated checkmark circle
+  checkCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  checkCircleActive: {
+    backgroundColor: '#F97316',
+    borderColor: '#F97316',
+  },
+});
+
+// ── "Why Advanced?" Bottom Sheet ─────────────────────────────────────────────
+const why = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  sheet: {
+    backgroundColor: '#111111',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 40,
+    borderTopWidth: 1,
+    borderColor: 'rgba(249,115,22,0.2)',
+    gap: 16,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignSelf: 'center',
+    marginBottom: 4,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.5,
+  },
+  sub: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.45)',
+    marginTop: -8,
+    lineHeight: 19,
+  },
+  bullets: { gap: 18 },
+  bullet: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
+  bulletIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(249,115,22,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  bulletHeading: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 3,
+  },
+  bulletBody: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+    lineHeight: 18,
+  },
+  closeBtn: {
+    backgroundColor: '#F97316',
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  closeBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0A0A0A',
+    letterSpacing: 0.3,
   },
 });

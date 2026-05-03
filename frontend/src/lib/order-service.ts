@@ -4,7 +4,7 @@ import type { Booking } from '@/types';
 import { db } from '@/config/firebase';
 import { collection, query, where, onSnapshot, orderBy, doc, setDoc } from 'firebase/firestore';
 
-const normalizeBooking = (raw: any): Booking => {
+export const normalizeBooking = (raw: any): Booking => {
     const id = raw?.id || raw?._id || '';
     const customerId =
         raw?.customerId

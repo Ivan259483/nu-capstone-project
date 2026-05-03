@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { OrderService } from '@/lib/order-service';
+import { OrderService, normalizeBooking } from '@/lib/order-service';
 import type { Booking, User } from '@/types';
 import { isAdminDashboardRole, isServiceStaffRole } from '@/lib/roles';
 import { getSharedSocket } from './useRealtimeSync';
 
-// ── Backup polling interval — socket is primary, this is fallback ────
-// 15 s is fast enough for demo reliability without hammering the server.
-const SYNC_INTERVAL_MS = 15_000;
+// ── Backup polling interval — socket is primary, this is a true last-resort ──
+// 60 s is ample; db_change events handle all live updates with zero HTTP cost.
+const SYNC_INTERVAL_MS = 60_000;
 
 /** Shape of a booking:status socket event from the backend (QC stage advances) */
 export interface BookingStatusEvent {
@@ -33,7 +33,7 @@ export function useLiveJobs(
     useEffect(() => { onBookingStatusRef.current = onBookingStatus; }, [onBookingStatus]);
     useEffect(() => { onNotificationRef.current  = onNotification;  }, [onNotification]);
 
-    // ── Shared fetch function — used by polling + socket events + visibility ──
+    // ── Shared fetch function — used for initial load + backup poll ───────────
     const fetchJobs = useCallback(async (silent = false) => {
         if (!silent) setIsLoading(true);
         try {
@@ -62,25 +62,22 @@ export function useLiveJobs(
     useEffect(() => {
         if (!user) return;
 
-        // ── Initial fetch ────────────────────────────────────────────────
+        // ── Initial fetch ────────────────────────────────────────────────────
         fetchJobs(false);
 
-        // ── Backup polling: 15 s — fires even if socket is silent ───────
+        // ── Backup poll: 60 s — true last-resort if socket is silent ────────
         const syncInterval = setInterval(() => {
-            console.log('[useLiveJobs] 15s backup poll');
+            console.log('[useLiveJobs] 60s backup poll');
             fetchJobs(true);
         }, SYNC_INTERVAL_MS);
 
-        // ── Use the SHARED socket — no new io() connection ───────────────
-        // getSharedSocket() is a singleton: one connection for the entire app.
-        // reconnectionAttempts is set to Infinity in useRealtimeSync.ts.
+        // ── Use the SHARED socket — no new io() connection ───────────────────
         const socket = getSharedSocket();
 
         // Join correct rooms — also fires on reconnect via 'connect' listener
         const joinRoom = () => {
             if (isAdminDashboardRole(user.role)) socket.emit('join_room', 'admin:chat');
             if (isServiceStaffRole(user.role))  socket.emit('join_room', `staff:${user.id}`);
-            // Customer + all other roles get their own user room
             socket.emit('join_room', `user:${user.id}`);
             if ((user as any)._id && (user as any)._id !== user.id) {
                 socket.emit('join_room', `user:${(user as any)._id}`);
@@ -90,32 +87,79 @@ export function useLiveJobs(
         if (socket.connected) joinRoom();
         socket.on('connect', joinRoom);
 
-        // ── booking:status — QC stage advances & staff assignments ───────
+        // ── booking:status — QC stage advances & staff assignments ────────────
         const handleBookingStatus = (event: BookingStatusEvent) => {
             console.log('[useLiveJobs] booking:status received:', event);
             onBookingStatusRef.current?.(event);
         };
         socket.on('booking:status', handleBookingStatus);
 
-        // ── notification:customer — real-time bell notifications ─────────
+        // ── notification:customer — real-time bell notifications ──────────────
         const handleCustomerNotification = (notif: any) => {
             console.log('[useLiveJobs] notification:customer received:', notif);
             onNotificationRef.current?.(notif);
         };
         socket.on('notification:customer', handleCustomerNotification);
 
-        // ── db_change — MongoDB Change Stream events ─────────────────────
-        // Fires when any 'orders' document is inserted/updated/deleted.
-        // We do a silent refetch rather than optimistic patch to stay simple.
+        // ── db_change — MongoDB Change Stream events ──────────────────────────
+        // Patch local state directly from the fullDocument in the socket payload.
+        // This eliminates the HTTP refetch that was previously triggered here.
         const handleDbChange = (payload: any) => {
-            if (payload.collection === 'orders') {
-                console.log('[useLiveJobs] db_change orders → refetching');
+            if (payload.collection !== 'orders') return;
+
+            const { operationType, documentKey, fullDocument } = payload;
+
+            // Fallback: if the server didn't include fullDocument (rare edge case
+            // for very large documents exceeding the 16 MB BSON limit), do a
+            // single silent HTTP fetch rather than showing stale data.
+            if (!fullDocument && operationType !== 'delete') {
+                console.warn('[useLiveJobs] db_change missing fullDocument — fallback HTTP fetch');
                 fetchJobs(true);
+                return;
+            }
+
+            const docId = String(fullDocument?._id || documentKey?._id || '');
+
+            if (operationType === 'insert') {
+                // For staff roles: only show jobs assigned to them
+                if (isServiceStaffRole(user.role)) {
+                    fetchJobs(true); // can't filter by assignment without fullDocument context
+                    return;
+                }
+                const normalized = normalizeBooking(fullDocument);
+                setJobs(prev => {
+                    // Prevent duplicates if the job already exists (e.g., from optimistic update)
+                    if (prev.some(j => (j.id || (j as any)._id) === normalized.id)) return prev;
+                    return [normalized, ...prev];
+                });
+                console.log('[useLiveJobs] db_change insert → prepended job', normalized.id);
+
+            } else if (operationType === 'update' || operationType === 'replace') {
+                const normalized = normalizeBooking(fullDocument);
+                setJobs(prev => {
+                    const exists = prev.some(j => (j.id || (j as any)._id) === docId || j.id === normalized.id);
+                    if (exists) {
+                        return prev.map(j =>
+                            ((j.id || (j as any)._id) === docId || j.id === normalized.id)
+                                ? { ...normalized, id: normalized.id || docId }
+                                : j
+                        );
+                    }
+                    // Document doesn't exist locally yet — add it
+                    return [normalized, ...prev];
+                });
+                console.log('[useLiveJobs] db_change update → patched job', docId);
+
+            } else if (operationType === 'delete') {
+                setJobs(prev => prev.filter(j =>
+                    (j.id || (j as any)._id) !== docId
+                ));
+                console.log('[useLiveJobs] db_change delete → removed job', docId);
             }
         };
         socket.on('db_change', handleDbChange);
 
-        // ── Optimistic state patch — legacy job events ───────────────────
+        // ── Optimistic state patch — legacy job events ────────────────────────
         const handleJobUpdate = (updatedJob: Booking) => {
             if (!updatedJob || typeof updatedJob !== 'object') return;
             const jobId = updatedJob.id || (updatedJob as any)._id;
@@ -159,12 +203,10 @@ export function useLiveJobs(
             socket.on(event, handleJobUpdate);
         }
 
-        // ── Visibility & Focus refresh (PRIORITY 3) ───────────────────────
-        // When the user switches back to this tab, immediately fetch fresh data.
+        // ── Visibility & Focus refresh ────────────────────────────────────────
         let visibilityTimer: ReturnType<typeof setTimeout> | null = null;
         const handleVisibility = () => {
             if (document.visibilityState === 'visible') {
-                // Small debounce so rapid tab switches don't hammer the server
                 if (visibilityTimer) clearTimeout(visibilityTimer);
                 visibilityTimer = setTimeout(() => {
                     console.log('[useLiveJobs] Tab visible — silent refresh');

@@ -625,6 +625,448 @@ export const confirmAiServiceRequest = async (params: {
 };
 
 /* ══════════════════════════════════════════════════════════════════════════════
+ * NEW AI SCAN MODULE — GPT-4 Vision (mock+real toggle), Meshy 3D, Estimator
+ *
+ * These methods power the new (customer)/ai-scan/ flow:
+ *   POST /api/ai/scan                  → analyze damage with GPT-4 Vision
+ *   GET  /api/ai/scan/:id              → fetch a saved scan
+ *   POST /api/ai/generate-3d-from-scan → start Meshy task using saved images
+ *   GET  /api/ai/generate-3d/:taskId   → poll Meshy progress
+ *   POST /api/ai/estimate-from-damages → recompute estimate
+ * ══════════════════════════════════════════════════════════════════════════════ */
+
+export type AiScanSeverity = 'high' | 'medium' | 'low';
+export type AiScanUrgency = 'Immediate' | 'Can Wait' | 'Optional';
+export type AiScanCondition = 'Excellent' | 'Good' | 'Fair' | 'Poor';
+
+export interface AiScanCoordinates {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface AiScanDamage {
+  id: string;
+  type: string;
+  severity: AiScanSeverity;
+  description: string;
+  confidence: number;
+  coordinates: AiScanCoordinates;
+  affectedArea: string;
+  imageIndex: number;
+  angleHint?: string;
+  urgency: AiScanUrgency;
+}
+
+export interface AiScanLineItem {
+  id: string;
+  damageId: string;
+  serviceId: string;
+  serviceName: string;
+  description: string;
+  affectedArea: string;
+  damageType: string;
+  severity: AiScanSeverity;
+  urgency: AiScanUrgency;
+  confidence: number;
+  subtotalMin: number;
+  subtotalMax: number;
+  formattedSubtotal: string;
+  color: string;
+  icon: string;
+}
+
+export interface AiScanRecommendedPackage {
+  id: string;
+  name: string;
+  tier: string;
+  durationYears: number;
+  basePrice: number;
+  premiumPrice: number;
+  description: string;
+  formattedPrice: string;
+  color: string;
+  icon: string;
+}
+
+export interface AiScanEstimate {
+  currency: 'PHP';
+  lineItems: AiScanLineItem[];
+  subtotal: number;
+  subtotalMax: number;
+  totalEstimate: number;
+  formattedSubtotal: string;
+  formattedTotal: string;
+  recommendedPackage: AiScanRecommendedPackage;
+  savingsAmount: number;
+  formattedSavings: string;
+  condition: AiScanCondition;
+  urgency: AiScanUrgency;
+  assumptions: string[];
+}
+
+export interface AiScanResult {
+  scanId: string | null;
+  source: 'mock' | 'gpt4_vision' | 'fallback';
+  model: string;
+  vehicleDetected: boolean;
+  overallCondition: AiScanCondition;
+  recommendedPackage: string;
+  urgency: AiScanUrgency;
+  summary: string;
+  damages: AiScanDamage[];
+  estimate: AiScanEstimate;
+  imageUrls: string[];
+  angles: string[];
+  vehicleId?: string;
+  openaiConfigured?: boolean;
+  meshyConfigured?: boolean;
+  createdAt: string;
+  elapsedMs?: number;
+}
+
+export interface AiScanInputImage {
+  uri: string;
+  fileName?: string;
+  mimeType?: string;
+  angle?: string;
+}
+
+export interface AiScan3DProgress {
+  status: 'processing' | 'ar_ready' | 'failed' | 'unavailable';
+  taskId?: string;
+  progress: number;
+  modelUrl?: string;
+  repairedModelUrl?: string;
+  message?: string;
+}
+
+const toAiSeverity = (value: unknown): AiScanSeverity => {
+  const v = String(value || '').toLowerCase();
+  if (v === 'high' || v === 'severe') return 'high';
+  if (v === 'low' || v === 'minor') return 'low';
+  return 'medium';
+};
+
+const toAiUrgency = (value: unknown): AiScanUrgency => {
+  const v = String(value || '').toLowerCase();
+  if (v.includes('immediate') || v.includes('urgent')) return 'Immediate';
+  if (v.includes('optional') || v.includes('low')) return 'Optional';
+  return 'Can Wait';
+};
+
+const toAiCondition = (value: unknown): AiScanCondition => {
+  const v = String(value || '').toLowerCase();
+  if (v.startsWith('exc')) return 'Excellent';
+  if (v.startsWith('good')) return 'Good';
+  if (v.startsWith('poor')) return 'Poor';
+  return 'Fair';
+};
+
+const mapDamage = (raw: any, index: number): AiScanDamage => ({
+  id: String(raw?.id || `dmg_${index + 1}`),
+  type: String(raw?.type || raw?.damage_type || raw?.name || 'Damage'),
+  severity: toAiSeverity(raw?.severity),
+  description: String(raw?.description || ''),
+  confidence: Math.max(0, Math.min(1, Number(raw?.confidence) || 0.85)),
+  coordinates: {
+    x: Math.max(0, Math.min(1, Number(raw?.coordinates?.x) || 0.1)),
+    y: Math.max(0, Math.min(1, Number(raw?.coordinates?.y) || 0.2)),
+    width: Math.max(0.02, Math.min(0.95, Number(raw?.coordinates?.width) || 0.2)),
+    height: Math.max(0.02, Math.min(0.95, Number(raw?.coordinates?.height) || 0.2)),
+  },
+  affectedArea: String(raw?.affectedArea || raw?.affected_area || raw?.location || 'Vehicle Body'),
+  imageIndex: Number.isFinite(Number(raw?.imageIndex)) ? Number(raw.imageIndex) : 0,
+  angleHint: raw?.angleHint || raw?.angle_hint || 'close_up',
+  urgency: toAiUrgency(raw?.urgency),
+});
+
+const mapLineItem = (raw: any, index: number): AiScanLineItem => ({
+  id: String(raw?.id || `line_${index + 1}`),
+  damageId: String(raw?.damageId || raw?.damage_id || `dmg_${index + 1}`),
+  serviceId: String(raw?.serviceId || raw?.service_id || 'spf89'),
+  serviceName: String(raw?.serviceName || raw?.service_name || 'SPF 89 Advanced'),
+  description: String(raw?.description || ''),
+  affectedArea: String(raw?.affectedArea || raw?.affected_area || 'Vehicle Body'),
+  damageType: String(raw?.damageType || raw?.damage_type || 'Damage'),
+  severity: toAiSeverity(raw?.severity),
+  urgency: toAiUrgency(raw?.urgency),
+  confidence: Math.max(0, Math.min(1, Number(raw?.confidence) || 0.85)),
+  subtotalMin: Math.max(0, Number(raw?.subtotalMin || raw?.subtotal_min) || 0),
+  subtotalMax: Math.max(0, Number(raw?.subtotalMax || raw?.subtotal_max) || 0),
+  formattedSubtotal: String(raw?.formattedSubtotal || raw?.formatted_subtotal || ''),
+  color: String(raw?.color || '#F59E0B'),
+  icon: String(raw?.icon || 'shield-outline'),
+});
+
+const mapRecommendedPackage = (raw: any): AiScanRecommendedPackage => ({
+  id: String(raw?.id || 'spf89'),
+  name: String(raw?.name || 'SPF 89 Advanced'),
+  tier: String(raw?.tier || 'advanced'),
+  durationYears: Number(raw?.durationYears || raw?.duration_years || 5),
+  basePrice: Math.max(0, Number(raw?.basePrice || raw?.base_price) || 0),
+  premiumPrice: Math.max(0, Number(raw?.premiumPrice || raw?.premium_price) || 0),
+  description: String(raw?.description || ''),
+  formattedPrice: String(raw?.formattedPrice || raw?.formatted_price || ''),
+  color: String(raw?.color || '#F59E0B'),
+  icon: String(raw?.icon || 'shield-outline'),
+});
+
+const mapEstimate = (raw: any): AiScanEstimate => ({
+  currency: 'PHP',
+  lineItems: (Array.isArray(raw?.lineItems) ? raw.lineItems : []).map(mapLineItem),
+  subtotal: Math.max(0, Number(raw?.subtotal) || 0),
+  subtotalMax: Math.max(0, Number(raw?.subtotalMax || raw?.subtotal_max) || 0),
+  totalEstimate: Math.max(0, Number(raw?.totalEstimate || raw?.total_estimate) || 0),
+  formattedSubtotal: String(raw?.formattedSubtotal || raw?.formatted_subtotal || ''),
+  formattedTotal: String(raw?.formattedTotal || raw?.formatted_total || ''),
+  recommendedPackage: mapRecommendedPackage(raw?.recommendedPackage || raw?.recommended_package || {}),
+  savingsAmount: Math.max(0, Number(raw?.savingsAmount || raw?.savings_amount) || 0),
+  formattedSavings: String(raw?.formattedSavings || raw?.formatted_savings || ''),
+  condition: toAiCondition(raw?.condition),
+  urgency: toAiUrgency(raw?.urgency),
+  assumptions: Array.isArray(raw?.assumptions) ? raw.assumptions.map(String) : [],
+});
+
+const mapAiScanResult = (raw: any): AiScanResult => ({
+  scanId: raw?.scanId ? String(raw.scanId) : null,
+  source: ['mock', 'gpt4_vision', 'fallback'].includes(raw?.source) ? raw.source : 'mock',
+  model: String(raw?.model || 'gpt-4-vision-mock'),
+  vehicleDetected: raw?.vehicleDetected !== false,
+  overallCondition: toAiCondition(raw?.overallCondition),
+  recommendedPackage: String(raw?.recommendedPackage || 'SPF 89 Advanced'),
+  urgency: toAiUrgency(raw?.urgency),
+  summary: String(raw?.summary || ''),
+  damages: (Array.isArray(raw?.damages) ? raw.damages : []).map(mapDamage),
+  estimate: mapEstimate(raw?.estimate || {}),
+  imageUrls: Array.isArray(raw?.imageUrls) ? raw.imageUrls.map(String) : [],
+  angles: Array.isArray(raw?.angles) ? raw.angles.map(String) : [],
+  vehicleId: raw?.vehicleId ? String(raw.vehicleId) : undefined,
+  openaiConfigured: Boolean(raw?.openaiConfigured),
+  meshyConfigured: Boolean(raw?.meshyConfigured),
+  createdAt: String(raw?.createdAt || new Date().toISOString()),
+  elapsedMs: Number.isFinite(Number(raw?.elapsedMs)) ? Number(raw.elapsedMs) : undefined,
+});
+
+/**
+ * POST /api/ai/scan — Run GPT-4 Vision damage analysis on uploaded images.
+ * If OPENAI_API_KEY is not set on the backend, a realistic mock response is
+ * returned. When the key is added later, the same call automatically uses
+ * the live API.
+ */
+export const runAiScan = async (
+  images: AiScanInputImage[],
+  options: {
+    vehicleId?: string;
+    onUploadProgress?: (progress: number) => void;
+  } = {}
+): Promise<AiScanResult> => {
+  if (!Array.isArray(images) || images.length === 0) {
+    throw buildError('AI_SCAN_INVALID', 'At least one photo is required.', false);
+  }
+
+  const formData = new FormData();
+  images.forEach((image, index) => {
+    formData.append('images', {
+      uri: image.uri,
+      name: image.fileName || `vehicle_${index + 1}.jpg`,
+      type: image.mimeType || 'image/jpeg',
+    } as never);
+  });
+
+  const angles = images.map((img) => img.angle || 'close_up');
+  formData.append('angles', JSON.stringify(angles));
+  if (options.vehicleId) {
+    formData.append('vehicleId', options.vehicleId);
+  }
+
+  const response = await apiClient.post('/ai/scan', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 90_000,
+    onUploadProgress: (event) => {
+      if (!options.onUploadProgress || !event.total) return;
+      options.onUploadProgress(Math.round((event.loaded / event.total) * 60));
+    },
+  });
+
+  options.onUploadProgress?.(100);
+
+  if (!response.data?.success) {
+    throw buildError(
+      'AI_SCAN_FAILED',
+      String(response.data?.message || 'AI scan failed.'),
+      true
+    );
+  }
+
+  return mapAiScanResult(response.data.data || {});
+};
+
+/**
+ * GET /api/ai/scan/:id — Retrieve a previously saved scan.
+ * Used to rehydrate state when navigating between screens via expo-router params.
+ */
+export const fetchAiScanById = async (scanId: string): Promise<AiScanResult> => {
+  const response = await apiClient.get(`/ai/scan/${scanId}`);
+  if (!response.data?.success) {
+    throw buildError(
+      'AI_SCAN_NOT_FOUND',
+      String(response.data?.message || 'Scan not found.'),
+      false
+    );
+  }
+  return mapAiScanResult(response.data.data || {});
+};
+
+/**
+ * POST /api/ai/generate-3d-from-scan — Kick off Meshy AI .glb generation
+ * using the images saved with this scan.
+ */
+export const startAiScan3D = async (
+  scanId: string
+): Promise<AiScan3DProgress> => {
+  const response = await apiClient.post(
+    '/ai/generate-3d-from-scan',
+    { scanId },
+    { validateStatus: () => true }
+  );
+
+  const status = String(response.data?.status || '').toLowerCase();
+
+  if (status === 'unavailable') {
+    return {
+      status: 'unavailable',
+      progress: 0,
+      message: String(response.data?.message || '3D generation is unavailable.'),
+    };
+  }
+
+  if (status !== 'processing' || !response.data?.task_id) {
+    return {
+      status: 'unavailable',
+      progress: 0,
+      message: String(
+        response.data?.message ||
+          'Meshy did not return a valid task ID. The 3D viewer will be skipped.'
+      ),
+    };
+  }
+
+  return {
+    status: 'processing',
+    taskId: String(response.data.task_id),
+    progress: 0,
+    message: 'Meshy 3D generation started.',
+  };
+};
+
+/**
+ * Polls the Meshy task until it reaches ar_ready, fails, or times out.
+ * Streams progress updates via the optional onProgress callback.
+ */
+export const pollAiScan3D = async (
+  taskId: string,
+  options: {
+    intervalMs?: number;
+    timeoutMs?: number;
+    onProgress?: (progress: AiScan3DProgress) => void;
+  } = {}
+): Promise<AiScan3DProgress> => {
+  const intervalMs = options.intervalMs ?? 4_000;
+  const timeoutMs = options.timeoutMs ?? 240_000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await apiClient.get(`/ai/generate-3d/${taskId}`, {
+      validateStatus: () => true,
+    });
+
+    const status = String(response.data?.status || '').toLowerCase();
+    const progress = Math.max(0, Math.min(100, Number(response.data?.progress) || 0));
+    const modelUrl =
+      typeof response.data?.model_url === 'string' && response.data.model_url
+        ? response.data.model_url
+        : undefined;
+    const repairedModelUrl =
+      typeof response.data?.repaired_model_url === 'string' && response.data.repaired_model_url
+        ? response.data.repaired_model_url
+        : undefined;
+
+    const update: AiScan3DProgress = {
+      status: status === 'ar_ready' ? 'ar_ready' : status === 'failed' ? 'failed' : 'processing',
+      taskId,
+      progress: status === 'ar_ready' ? 100 : progress,
+      modelUrl,
+      repairedModelUrl,
+      message: response.data?.message ? String(response.data.message) : undefined,
+    };
+
+    options.onProgress?.(update);
+
+    if (status === 'ar_ready' && modelUrl) {
+      return update;
+    }
+
+    if (status === 'failed') {
+      throw buildError(
+        'MESHY_3D_FAILED',
+        String(response.data?.message || '3D model generation failed.'),
+        true
+      );
+    }
+
+    if (status === 'unavailable') {
+      return {
+        status: 'unavailable',
+        taskId,
+        progress: 0,
+        message: String(response.data?.message || '3D generation is unavailable.'),
+      };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw buildError(
+    'MESHY_3D_TIMEOUT',
+    '3D model generation is taking longer than expected. You can retry from the scan results.',
+    true
+  );
+};
+
+/**
+ * POST /api/ai/estimate-from-damages — Recompute the estimate from a damage list.
+ * Used when the user toggles services on the estimate screen.
+ */
+export const recomputeAiScanEstimate = async (
+  damages: AiScanDamage[]
+): Promise<AiScanEstimate> => {
+  const response = await apiClient.post('/ai/estimate-from-damages', {
+    damages: damages.map((d) => ({
+      id: d.id,
+      type: d.type,
+      severity: d.severity,
+      description: d.description,
+      confidence: d.confidence,
+      coordinates: d.coordinates,
+      affectedArea: d.affectedArea,
+      imageIndex: d.imageIndex,
+      urgency: d.urgency,
+    })),
+  });
+
+  if (!response.data?.success) {
+    throw buildError(
+      'ESTIMATE_FAILED',
+      String(response.data?.message || 'Failed to recompute estimate.'),
+      true
+    );
+  }
+  return mapEstimate(response.data.data || {});
+};
+
+/* ══════════════════════════════════════════════════════════════════════════════
  * AI Repair Preview — Inpainting
  * ══════════════════════════════════════════════════════════════════════════════ */
 

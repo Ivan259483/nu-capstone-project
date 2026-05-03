@@ -114,13 +114,12 @@ const activityLogSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Indexes for faster queries
+// Per-user/staff activity timeline
+activityLogSchema.index({ userId: 1, createdAt: -1 });
+// Admin log filtering by category + recency
+activityLogSchema.index({ type: 1, module: 1, createdAt: -1 });
+// Keep bare createdAt for global timeline queries (admin dashboard)
 activityLogSchema.index({ createdAt: -1 });
-activityLogSchema.index({ type: 1 });
-activityLogSchema.index({ module: 1 });
-activityLogSchema.index({ status: 1 });
-activityLogSchema.index({ userName: 1 });
-activityLogSchema.index({ userId: 1 });
 
 const ActivityLog = mongoose.model('ActivityLog', activityLogSchema);
 

@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover"/>
+<title>AR Viewer</title>
+<script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100vw;height:100vh;overflow:hidden;background:#0A0A0A}
+model-viewer{
+  width:100vw;height:100vh;
+  background-color:#0A0A0A;
+  --poster-color:#0A0A0A;
+  --progress-bar-color:#F97316;
+  transition:filter 500ms ease;
+}
+model-viewer.after{filter:brightness(1.22) contrast(0.88) saturate(1.12)}
+#loader{
+  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  z-index:30;background:radial-gradient(circle at 50% 35%,rgba(249,115,22,.18),transparent 42%),#0A0A0A;
+  color:#fff;font:800 13px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  letter-spacing:.4px;text-align:center;
+}
+#loader .box{
+  padding:14px 18px;border-radius:18px;
+  background:rgba(12,12,12,.82);border:1px solid rgba(249,115,22,.32);
+  box-shadow:0 18px 60px rgba(0,0,0,.45);
+}
+#loader .spin{
+  width:24px;height:24px;margin:0 auto 10px;border-radius:50%;
+  border:3px solid rgba(249,115,22,.25);border-top-color:#F97316;
+  animation:spin 900ms linear infinite;
+}
+.hs{width:28px;height:28px;border:0;background:transparent;position:relative;outline:none;cursor:pointer}
+.hs.hidden{opacity:0;pointer-events:none;transition:opacity 320ms}
+.hs:not(.hidden){opacity:1;transition:opacity 320ms}
+.ring{position:absolute;inset:0;border-radius:50%;border:2px solid var(--hc);animation:pulse 1.8s ease-out infinite}
+.dot{position:absolute;left:50%;top:50%;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:var(--hc);border:2px solid #fff;box-shadow:0 0 14px var(--hc)}
+.dot.green{background:#10B981;box-shadow:0 0 14px #10B981}
+.tip{position:absolute;left:50%;bottom:32px;transform:translateX(-50%);white-space:nowrap;padding:5px 9px;border-radius:99px;color:#fff;background:rgba(0,0,0,.72);border:1px solid var(--hc);font:800 10px/1 -apple-system,sans-serif;pointer-events:none}
+#sweep{position:fixed;inset:0;pointer-events:none;z-index:20;background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.22) 45%,rgba(249,115,22,.28) 50%,rgba(255,255,255,.22) 55%,transparent 70%);transform:translateX(-140%);opacity:0}
+#sweep.fwd{animation:sweepFwd 500ms cubic-bezier(.16,1,.3,1) forwards}
+#sweep.rev{animation:sweepRev 500ms cubic-bezier(.16,1,.3,1) forwards}
+#status{position:fixed;bottom:8px;left:0;right:0;text-align:center;font:700 10px/1 -apple-system,sans-serif;color:rgba(255,255,255,.35);pointer-events:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{from{transform:scale(.7);opacity:1}to{transform:scale(2.2);opacity:0}}
+@keyframes sweepFwd{0%{transform:translateX(-140%);opacity:0}25%{opacity:1}100%{transform:translateX(140%);opacity:0}}
+@keyframes sweepRev{0%{transform:translateX(140%);opacity:0}25%{opacity:1}100%{transform:translateX(-140%);opacity:0}}
+</style>
+</head>
+<body>
+<model-viewer
+  id="mv"
+  alt="Vehicle 3D model"
+  ar ar-modes="webxr scene-viewer quick-look"
+  camera-controls touch-action="pan-y"
+  auto-rotate auto-rotate-delay="2000"
+  rotation-per-second="15deg"
+  shadow-intensity="1.2"
+  environment-image="neutral"
+  exposure="1.05"
+  camera-orbit="30deg 65deg 4m"
+  field-of-view="30deg"
+  interaction-prompt="none"
+  loading="eager"
+  reveal="auto"
+>
+  <button slot="ar-button" style="display:none" id="ar-btn">AR</button>
+</model-viewer>
+
+<div id="loader">
+  <div class="box">
+    <div class="spin"></div>
+    <div>Loading 3D model...</div>
+  </div>
+</div>
+<div id="sweep"></div>
+<div id="status">Waiting for model...</div>
+
+<script>
+(function() {
+  var mv      = document.getElementById('mv');
+  var loader  = document.getElementById('loader');
+  var sweep   = document.getElementById('sweep');
+  var stat    = document.getElementById('status');
+  var curState    = 'before';
+  var modelLoaded = false;
+  var pendingUrl      = null;
+  var pendingDamages  = null;
+  var elementDefined  = false;
+
+  /* Severity → hotspot ring/dot colour (must match RN severityMeta) */
+  var SEV_COLORS = { high: '#EF4444', medium: '#F59E0B', low: '#10B981' };
+
+  /* ── Post a plain-string message back to React Native ── */
+  function post(msg) {
+    try {
+      if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(String(msg));
+    } catch(e) {}
+  }
+
+  /* ── Apply a GLB URL to model-viewer ── */
+  function applyUrl(url) {
+    mv.setAttribute('src', url);
+    stat.textContent = 'Fetching 3D model...';
+    post('SET_MODEL_APPLIED');
+  }
+
+  /* ── Render damage + repair hotspots inside model-viewer ── */
+  function renderDamages(damages) {
+    /* Remove any previous hotspots */
+    mv.querySelectorAll('button[slot^="hotspot-"]').forEach(function(el){ el.remove(); });
+    if (!Array.isArray(damages)) return;
+
+    damages.forEach(function(d, i) {
+      var cx    = (d.coordinates.x || 0) + (d.coordinates.width  || 0) / 2;
+      var cy    = (d.coordinates.y || 0) + (d.coordinates.height || 0) / 2;
+      var px    = ((cx - 0.5) * 1.4).toFixed(3);
+      var py    = (-(cy - 0.5) * 0.85).toFixed(3);
+      var pz    = (0.45 - i * 0.012).toFixed(3);
+      var pos   = px + ' ' + py + ' ' + pz;
+      var color = SEV_COLORS[d.severity] || '#F97316';
+      var label = String(d.affectedArea || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+      /* Damage marker */
+      var dmg = document.createElement('button');
+      dmg.setAttribute('slot', 'hotspot-dmg-' + i);
+      dmg.className = 'hs dmg';
+      dmg.setAttribute('data-position', pos);
+      dmg.setAttribute('data-normal', '0 0 1');
+      dmg.setAttribute('data-visibility-attribute', 'visible');
+      dmg.style.setProperty('--hc', color);
+      dmg.innerHTML = '<span class="ring"></span><span class="dot"></span><span class="tip">' + label + '</span>';
+      mv.appendChild(dmg);
+
+      /* Repair marker (hidden by default) */
+      var rep = document.createElement('button');
+      rep.setAttribute('slot', 'hotspot-rep-' + i);
+      rep.className = 'hs rep hidden';
+      rep.setAttribute('data-position', pos);
+      rep.setAttribute('data-normal', '0 0 1');
+      rep.setAttribute('data-visibility-attribute', 'visible');
+      rep.style.setProperty('--hc', '#10B981');
+      rep.innerHTML = '<span class="dot green"></span><span class="tip">Repaired \u2713</span>';
+      mv.appendChild(rep);
+    });
+  }
+
+  /* ── Wait for model-viewer custom element to be registered ── */
+  if (window.customElements && window.customElements.whenDefined) {
+    window.customElements.whenDefined('model-viewer').then(function() {
+      elementDefined = true;
+      post('MODEL_VIEWER_DEFINED');
+      if (pendingDamages) { renderDamages(pendingDamages); pendingDamages = null; }
+      if (pendingUrl)     { applyUrl(pendingUrl);          pendingUrl = null;     }
+    });
+  } else {
+    /* Fallback: element might already be defined */
+    elementDefined = true;
+    post('CUSTOM_ELEMENTS_API_UNAVAILABLE');
+  }
+
+  /* Timeout guard: if model-viewer never defines after 8 s, show an error */
+  setTimeout(function() {
+    if (elementDefined) return;
+    stat.textContent = '3D viewer failed to initialize';
+    stat.style.color = '#EF4444';
+    loader.innerHTML = '<div class="box">3D viewer failed to initialize</div>';
+    post('MODEL_VIEWER_INIT_TIMEOUT');
+  }, 8000);
+
+  /* ── model-viewer events ── */
+  function hideLoader(reason) {
+    modelLoaded = true;
+    stat.textContent = 'Model ready';
+    loader.style.display = 'none';
+    setTimeout(function(){ stat.style.display = 'none'; }, 2000);
+    post(reason || 'MODEL_LOADED');
+  }
+
+  mv.addEventListener('load', function() {
+    hideLoader('MODEL_LOADED');
+  });
+
+  mv.addEventListener('scene-graph-ready', function() {
+    if (!modelLoaded) hideLoader('MODEL_SCENE_READY');
+  });
+
+  mv.addEventListener('error', function(e) {
+    var detail = String((e && e.detail) ? JSON.stringify(e.detail) : 'unknown');
+    stat.textContent = 'Load error - check GLB URL';
+    stat.style.color = '#EF4444';
+    loader.innerHTML = '<div class="box" style="border-color:rgba(239,68,68,.5)">Unable to load 3D model</div>';
+    post('MODEL_ERROR:' + detail);
+  });
+
+  mv.addEventListener('progress', function(e) {
+    var p = (e && e.detail && typeof e.detail.totalProgress === 'number') ? e.detail.totalProgress : 0;
+    if (!modelLoaded) {
+      stat.textContent = p < 1 ? ('Loading ' + Math.round(p * 100) + '%...') : 'Finalizing...';
+    }
+    post('PROGRESS:' + p);
+    if (p >= 1 && !modelLoaded) {
+      setTimeout(function(){ if (!modelLoaded) hideLoader('MODEL_PROGRESS_COMPLETE'); }, 500);
+    }
+  });
+
+  /* ── Before / After toggle logic ── */
+  function applyBefore() {
+    mv.querySelectorAll('.dmg').forEach(function(el){ el.classList.remove('hidden'); });
+    mv.querySelectorAll('.rep').forEach(function(el){ el.classList.add('hidden'); });
+    mv.setAttribute('exposure', '1.05');
+    mv.classList.remove('after');
+  }
+  function applyAfter() {
+    mv.querySelectorAll('.dmg').forEach(function(el){ el.classList.add('hidden'); });
+    mv.querySelectorAll('.rep').forEach(function(el){ el.classList.remove('hidden'); });
+    mv.setAttribute('exposure', '1.60');
+    mv.classList.add('after');
+  }
+  function triggerSweep(dir) {
+    sweep.className = '';
+    void sweep.offsetWidth;
+    sweep.className = dir;
+    sweep.addEventListener('animationend', function(){ sweep.className = ''; }, { once: true });
+  }
+
+  /* ── Message handler (from React Native injectJavaScript) ── */
+  function handleMsg(raw) {
+    var msg;
+    try { msg = JSON.parse(raw); } catch(e) { return; }
+
+    if (msg.type === 'SET_MODEL') {
+      var url = String(msg.url || '');
+      if (!url) return;
+      if (elementDefined) {
+        applyUrl(url);
+      } else {
+        pendingUrl = url;
+        post('SET_MODEL_QUEUED');
+      }
+    }
+
+    if (msg.type === 'SET_DAMAGES') {
+      if (elementDefined) {
+        renderDamages(msg.damages);
+      } else {
+        pendingDamages = msg.damages;
+        post('SET_DAMAGES_QUEUED');
+      }
+    }
+
+    if (msg.type === 'SET_STATE') {
+      var next = msg.state;
+      if (next === curState) return;
+      triggerSweep(next === 'after' ? 'fwd' : 'rev');
+      setTimeout(function() {
+        curState = next;
+        next === 'after' ? applyAfter() : applyBefore();
+      }, 200);
+    }
+
+    if (msg.type === 'ACTIVATE_AR') {
+      try { mv.activateAR(); } catch(e) {}
+    }
+  }
+
+  /* Both listeners needed: Android uses window, iOS uses document */
+  document.addEventListener('message', function(e){ handleMsg(e.data); });
+  window.addEventListener('message', function(e){ handleMsg(e.data); });
+
+  post('SIMULATOR_BOOT');
+  applyBefore();
+})();
+</script>
+</body>
+</html>

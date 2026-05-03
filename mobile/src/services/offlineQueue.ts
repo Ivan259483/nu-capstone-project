@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiClient as api } from './api/client';
+import type { AxiosInstance } from 'axios';
 
 export interface QueuedRequest {
   id: string;
@@ -16,10 +16,35 @@ const QUEUE_STORAGE_KEY = '@autospf_offline_queue';
 const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Returns true for requests that cannot be faithfully serialised to JSON and
+ * replayed later. Multipart uploads carry binary blobs that are destroyed by
+ * JSON.stringify, so replaying them always produces a mangled payload.
+ */
+const isUnserializableRequest = (config: any): boolean => {
+  const contentType: string = config.headers?.['Content-Type'] || config.headers?.['content-type'] || '';
+  if (contentType.includes('multipart/form-data')) return true;
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) return true;
+  return false;
+};
+
+/**
  * Push a failed or offline request into the queue to be replayed later.
+ *
+ * Multipart/FormData requests are intentionally skipped — binary image data
+ * cannot survive JSON serialisation, so any replay would reach the server
+ * with a malformed payload. Callers that upload files must handle offline
+ * scenarios themselves (e.g. the AI scan already falls back to the offline
+ * damage engine when the API is unreachable).
  */
 export const enqueueRequest = async (config: any) => {
   try {
+    if (isUnserializableRequest(config)) {
+      console.warn(
+        `[OfflineQueue] Skipping multipart/FormData request — cannot serialise binary data: ${config.method?.toUpperCase()} ${config.url}`
+      );
+      return;
+    }
+
     const queueData = await AsyncStorage.getItem(QUEUE_STORAGE_KEY);
     const queue: QueuedRequest[] = queueData ? JSON.parse(queueData) : [];
 
@@ -78,10 +103,12 @@ export const clearQueue = async () => {
 
 /**
  * Replay the queued requests sequentially when online.
+ *
+ * The axios instance is injected by the caller to avoid a circular import
+ * between this module and `api/client.ts`.
  */
-export const processQueue = async () => {
+export const processQueue = async (api: AxiosInstance) => {
   try {
-    // Always prune stale entries first so stuck requests never loop forever.
     await pruneStaleRequests();
 
     const queueData = await AsyncStorage.getItem(QUEUE_STORAGE_KEY);
@@ -92,7 +119,7 @@ export const processQueue = async () => {
 
     console.log(`[OfflineQueue] Processing ${queue.length} offline requests...`);
 
-    // We process sequentially to preserve order (e.g., Last-Write-Wins works based on timestamp)
+    // Sequential replay preserves order (Last-Write-Wins via timestamp).
     for (let i = 0; i < queue.length; i++) {
       const req = queue[i];
       try {
@@ -102,7 +129,7 @@ export const processQueue = async () => {
           method: req.method,
           data: req.data,
           headers: req.headers,
-          // We attach a special flag so our interceptor doesn't re-queue it indefinitely if it fails
+          // Flag prevents the response interceptor from re-queueing on failure.
           _isRetry: true,
         } as any);
         
@@ -110,14 +137,21 @@ export const processQueue = async () => {
         queue = queue.filter((q) => q.id !== req.id);
         await AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
       } catch (error: any) {
-        if (error.response && error.response.status >= 400 && error.response.status < 500) {
-          console.warn(`[OfflineQueue] Request ${req.id} rejected by server (${error.response.status}). Discarding.`);
-          // Remove from queue since server explicitly rejected it
+        const status: number | undefined = error.response?.status;
+
+        if (status !== undefined) {
+          // Any HTTP error response (4xx or 5xx) means the server received the
+          // request and rejected it. Retrying will not help, so discard.
+          // 5xx specifically covers multer-style "Unexpected field" (500) that
+          // occurs when a previously-queued payload was malformed on serialisation.
+          console.warn(
+            `[OfflineQueue] Request ${req.id} permanently rejected by server (${status}). Discarding.`
+          );
           queue = queue.filter((q) => q.id !== req.id);
           await AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
         } else {
           console.warn(`[OfflineQueue] Request ${req.id} failed again during replay:`, error.message);
-          // Break out of replay loop if we hit another network constraint
+          // No HTTP response — device is still offline; pause the loop.
           break;
         }
       }

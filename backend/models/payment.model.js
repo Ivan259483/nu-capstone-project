@@ -60,5 +60,11 @@ const paymentSchema = new mongoose.Schema(
 );
 
 paymentSchema.index({ createdAt: -1 });
+// Payment de-duplication check on booking create/pay
+paymentSchema.index({ order: 1, status: 1 });
+// Stripe & Maya webhook handlers look up by provider reference
+paymentSchema.index({ providerReference: 1 }, { sparse: true });
+// Customer payment history page
+paymentSchema.index({ customer: 1, createdAt: -1 });
 
 export default mongoose.model('Payment', paymentSchema);

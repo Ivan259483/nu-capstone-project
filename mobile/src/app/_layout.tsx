@@ -37,9 +37,12 @@ SplashScreen.preventAutoHideAsync();
 // ── Inner Layout (consumes AuthContext) ────────────────────────────────
 function InnerLayout() {
   const { isDark, colors } = useTheme();
-  const { session, profile, initialized } = useAuth();
+  const { session, token, profile, initialized } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  // isAuthed: Firebase session (Google/Apple) OR a stored JWT (email/password users)
+  const isAuthed = !!(session || token);
 
   useEffect(() => {
     if (!initialized) return;
@@ -50,12 +53,12 @@ function InnerLayout() {
   useEffect(() => {
     if (!initialized) return;
     const inAuthGroup = segments[0] === '(auth)';
-    if (session && inAuthGroup) {
+    if (isAuthed && inAuthGroup) {
       // Authenticated but still on auth screens → route by role
       const target = resolveRouteForRole(profile?.role);
       router.replace(target);
     }
-  }, [session, initialized, segments, router, profile?.role]);
+  }, [isAuthed, initialized, segments, router, profile?.role]);
 
   // ── Block ALL rendering until Firebase auth is confirmed ──────────────
   if (!initialized) {
@@ -69,7 +72,7 @@ function InnerLayout() {
   // ── Not authenticated: force login immediately via <Redirect> (sync) ──
   // Using <Redirect> instead of router.replace() fires on the same render
   // cycle, guaranteeing zero flash of protected screens.
-  if (!session) {
+  if (!isAuthed) {
     return (
       <>
         <Stack screenOptions={{ headerShown: false }}>
@@ -152,6 +155,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { processQueue } from '@/services/offlineQueue';
+import { apiClient } from '@/services/api/client';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -168,7 +172,7 @@ NetInfo.addEventListener((state: any) => {
   onlineManager.setOnline(!!state.isConnected);
   if (state.isConnected) {
     // Attempt to drain queue immediately when network connects!
-    processQueue();
+    processQueue(apiClient);
   }
 });
 

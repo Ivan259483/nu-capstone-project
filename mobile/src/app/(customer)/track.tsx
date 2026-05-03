@@ -1,547 +1,495 @@
 /**
- * Live Tracker — Production-Grade Service Progress Screen
+ * Service Tracker — 5-Step Vertical Timeline
+ * Source of truth: CustomerDashboard.tsx web tracker (5-step flow + serviceTrackingStage logic)
  *
- * Architecture:
- *   1. Live Status Header — pulsing "LIVE" indicator
- *   2. Progress Card — service info + 5-stage horizontal stepper
- *   3. Assigned Technician — trust-building card
- *   4. Stage Checklist — real-time sub-step tracking
- *   5. Service Location — facility card
- *   6. Empty State — past service history fallback
- *
- * Data Sources:
- *   - GET /api/orders (customer filtered)
- *   - Fields: assignedDetailer, customerStatus
- *   - Customer tracker uses ONLY order.status (8-step pipeline)
- *   - Detailer checklist (serviceSteps) is shown separately as activity feed
- *   - Polling: 12-second interval for near real-time
+ * Steps:
+ *   1. Appointment Confirmed  → status: confirmed / approved / assigned
+ *   2. Vehicle Arrive         → status: received / serviceTrackingStage: received
+ *   3. Service In Progress    → status: in_progress / customerStatus: washing|detailing|finishing
+ *   4. Quality Check          → status: completed / serviceTrackingStage: quality_check
+ *   5. Ready for Pickup       → status: paid / released / serviceTrackingStage: ready_pickup
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   RefreshControl,
+  ActivityIndicator,
   Platform,
   Image,
   Alert,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import Svg, { Circle } from 'react-native-svg';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
+  FadeIn,
   FadeInDown,
   useSharedValue,
   useAnimatedStyle,
+  useAnimatedProps,
   withRepeat,
   withTiming,
   withSequence,
   Easing,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { bookingService } from '@/services/api/bookingService';
-import { getApiErrorMessage } from '@/services/api/client';
-import { TabBarHeight } from '@/constants/theme';
+import { getApiErrorMessage, invalidateCache } from '@/services/api/client';
 import AnimatedHeader from '@/components/ui/AnimatedHeader';
 import type { BookingRecord } from '@/services/api/types';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery } from '@tanstack/react-query';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
-import { invalidateCache } from '@/services/api/client';
+import { TabBarHeight } from '@/constants/theme';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Design System
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ─── Design Tokens ────────────────────────────────────────────────────────────
 const C = {
-  bg:         '#050506',
-  surface:    '#0E0E12',
-  surfaceAlt: '#16161C',
-  elevated:   '#1C1C24',
-  border:     '#222228',
-  borderSub:  '#1A1A20',
-  text:       '#F5F5F7',
-  textSec:    '#A1A1AA',
-  textMut:    '#71717A',
-  textDim:    '#52525B',
-  accent:     '#FF6B35',
-  accentDim:  'rgba(255,107,53,0.12)',
-  accentBrd:  'rgba(255,107,53,0.25)',
-  success:    '#22C55E',
-  successDim: 'rgba(34,197,94,0.10)',
-  info:       '#3B82F6',
-  infoDim:    'rgba(59,130,246,0.10)',
-  warn:       '#F59E0B',
-  warnDim:    'rgba(245,158,11,0.10)',
+  bg:        '#0A0A0A',
+  surface:   '#111111',
+  surfaceAlt:'#161616',
+  elevated:  '#1C1C1C',
+  border:    '#222222',
+  text:      '#FFFFFF',
+  textSec:   '#A1A1AA',
+  textMut:   '#71717A',
+  textDim:   '#3F3F46',
+  orange:    '#F97316',
+  orangeDim: 'rgba(249,115,22,0.10)',
+  orangeBrd: 'rgba(249,115,22,0.25)',
+  green:     '#22C55E',
+  greenDim:  'rgba(34,197,94,0.10)',
+  greenBrd:  'rgba(34,197,94,0.25)',
 } as const;
 
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 8-Stage Workflow Pipeline (centralized source of truth)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const WORKFLOW_PIPELINE = [
-  { key: 'pending',        label: 'Booked',         icon: 'receipt-outline'          },
-  { key: 'confirmed',      label: 'Confirmed',      icon: 'checkmark-circle-outline' },
-  { key: 'assigned',       label: 'Assigned',       icon: 'person-outline'           },
-  { key: 'received',       label: 'Checked-In',     icon: 'car-outline'              },
-  { key: 'in_progress',    label: 'In Service',     icon: 'construct-outline'        },
-  { key: 'completed',      label: 'Quality Check',  icon: 'shield-checkmark-outline' },
-  { key: 'paid',           label: 'Payment',        icon: 'card-outline'             },
-  { key: 'released',       label: 'Released',       icon: 'checkmark-done-outline'   },
+// ─── 5-Step Pipeline (mirrors CustomerDashboard.tsx TRACKER_STEPS) ────────────
+const TRACKER_STEPS = [
+  { id: 'confirmed',   label: 'Appointment Confirmed', sub: 'Waiting for your vehicle', icon: 'calendar-outline'         },
+  { id: 'received',    label: 'Vehicle Arrive',        sub: 'In shop',                  icon: 'car-outline'              },
+  { id: 'in_progress', label: 'Service In Progress',   sub: 'Working on vehicle',       icon: 'construct-outline'        },
+  { id: 'completed',   label: 'Quality Check',         sub: 'Final inspection',         icon: 'shield-checkmark-outline' },
+  { id: 'paid',        label: 'Ready for Pickup',      sub: 'Service complete',         icon: 'checkmark-done-outline'   },
 ] as const;
 
-// Centralized status → step index map (single source, never skips)
-const STATUS_TO_STEP: Record<string, number> = {};
-WORKFLOW_PIPELINE.forEach((stage, i) => { STATUS_TO_STEP[stage.key] = i; });
-// Aliases for legacy/alternative status keys
-STATUS_TO_STEP['in-progress'] = STATUS_TO_STEP['in_progress'];
-STATUS_TO_STEP['queued']      = STATUS_TO_STEP['confirmed'];
-STATUS_TO_STEP['ready']       = STATUS_TO_STEP['completed'];
+// ── serviceTrackingStage → 5-step index ──────────────────────────────────────
+// Source: QCServiceControlPanel STAGE_ORDER + QCLiveTrackerView STAGES
+// Backend stageToStatus: quality_check → 'in_progress', ready_pickup → 'in_progress'
+// So order.status alone CANNOT distinguish Step 4 from Step 5 — must use serviceTrackingStage.
+const STAGE_TO_STEP: Record<string, number> = {
+  // Step 1 – Appointment Confirmed
+  confirmed: 0,
+  // Step 2 – Vehicle Arrive
+  received: 1,
+  // Step 3 – Service In Progress
+  in_progress: 2,
+  // Step 4 – Quality Check (order.status stays 'in_progress' here!)
+  quality_check: 3,
+  // Step 5 – Ready for Pickup (order.status stays 'in_progress' here too!)
+  ready_pickup: 4,
+  // 'released' maps to 4 so that an already-released booking on open shows all steps complete
+  released: 4, completed: 4,
+};
 
-function resolveStageIndex(booking: any): number {
-  const s = booking.status || '';
+// ── order.status → 5-step index (fallback only — cannot distinguish QC from Ready) ──
+const STATUS_TO_STEP: Record<string, number> = {
+  // Step 1
+  pending: 0, approved: 0, confirmed: 0, assigned: 0,
+  // Step 2
+  received: 1,
+  // Step 3 (quality_check and ready_pickup both produce 'in_progress' on backend)
+  in_progress: 2, 'in-progress': 2,
+  // Step 4
+  completed: 3,
+  // Step 5
+  paid: 4, done: 4,
+  // released → 4 for static display (live transition is handled by forceStepIdx)
+  released: 4,
+};
+
+function resolveStep(booking: any): number {
+  const s = String(booking?.status || '').toLowerCase();
   if (['cancelled', 'failed'].includes(s)) return -1;
+
+  // 1. serviceTrackingStage is the ONLY reliable field that separates:
+  //    Step 4 (quality_check) from Step 5 (ready_pickup) because the backend
+  //    maps both to order.status = 'in_progress'.
+  const ts = String(booking?.serviceTrackingStage || '').toLowerCase();
+  if (ts && STAGE_TO_STEP[ts] !== undefined) return STAGE_TO_STEP[ts];
+
+  // 2. customerStatus — fine-grained live status during active service
+  //    (web: LIVE_STATUS_CUSTOMER_STATES)
+  const cs = String(booking?.customerStatus || '').toLowerCase();
+  if (['washing', 'detailing', 'finishing', 'in-progress'].includes(cs)) return 2;
+  if (cs === 'ready') return 4; // "ready" customerStatus = Ready for Pickup (Step 5)
+
+  // 3. order.status — last resort; cannot distinguish quality_check from ready_pickup
   return STATUS_TO_STEP[s] ?? 0;
 }
 
-function getStageProgress(stageIdx: number): number {
-  if (stageIdx < 0) return 0;
-  return Math.round(((stageIdx + 1) / WORKFLOW_PIPELINE.length) * 100);
+// Progress % — web formula: (currentIdx / (steps.length - 1)) * 100
+function getPct(idx: number): number {
+  if (idx < 0) return 0;
+  if (idx >= TRACKER_STEPS.length - 1) return 100;
+  return Math.round((idx / (TRACKER_STEPS.length - 1)) * 100);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Premium Internal Components
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Time Helpers (mirrors web getStepTimestamps + formatEtaLabel) ─────────────
+function formatTime(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const hr = d.getHours();
+  const min = d.getMinutes().toString().padStart(2, '0');
+  const ampm = hr >= 12 ? 'PM' : 'AM';
+  const time = `${(hr % 12) || 12}:${min} ${ampm}`;
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return time;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[d.getMonth()]} ${d.getDate()}, ${time}`;
+}
 
-function PageSkeleton() {
-  const op = useSharedValue(0.1);
+function getStepTimestamps(booking: any): string[] {
+  const base      = booking?.approvedAt || booking?.createdAt || '';
+  const ingress   = booking?.jobOrder?.ingressDateTime || booking?.updatedAt || base;
+  const workStart = booking?.customerStatusUpdatedAt || booking?.updatedAt || ingress;
+  const qcAt      = booking?.qcCompletedAt || booking?.updatedAt || workStart;
+  const readyAt   = booking?.paidAt || booking?.updatedAt || qcAt;
+  return [base, ingress, workStart, qcAt, readyAt];
+}
+
+function getEtaLabel(booking: any): string {
+  if (booking?.bookingTime) return booking.bookingTime;
+  const eta = booking?.estimatedCompletion || booking?.jobOrder?.targetReleaseDate;
+  if (eta) {
+    const d = new Date(eta);
+    if (!isNaN(d.getTime())) {
+      const hr = d.getHours();
+      const min = d.getMinutes().toString().padStart(2, '0');
+      return `${(hr % 12) || 12}:${min} ${hr >= 12 ? 'PM' : 'AM'}`;
+    }
+  }
+  return '—';
+}
+
+// ─── Circular Progress Ring (react-native-svg + Reanimated) ──────────────────
+const RING_SIZE   = 180;
+const RING_STROKE = 14;
+const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
+const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+function CircularRing({ pct }: { pct: number }) {
+  const progress = useSharedValue(0);
+
   useEffect(() => {
-    op.value = withRepeat(
-      withSequence(
-        withTiming(0.4, { duration: 1000 }),
-        withTiming(0.1, { duration: 1000 })
-      ),
-      -1,
-      true
-    );
-  }, []);
+    progress.value = withTiming(pct / 100, { duration: 1400, easing: Easing.out(Easing.cubic) });
+  }, [pct]);
 
-  const aStyle = useAnimatedStyle(() => ({ opacity: op.value }));
+  const animatedProps = useAnimatedProps(() => ({
+    strokeDashoffset: CIRCUMFERENCE * (1 - progress.value),
+  }));
 
   return (
-    <View style={{ paddingTop: 10, gap: 16 }}>
-      {/* Skeleton Header Card */}
-      <Animated.View style={[aStyle, { height: 260, backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border }]} />
-      {/* Double Skeleton metrics */}
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-         <Animated.View style={[aStyle, { flex: 1, height: 80, backgroundColor: C.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: C.border }]} />
-         <Animated.View style={[aStyle, { flex: 1, height: 80, backgroundColor: C.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: C.border }]} />
+    <View style={{ width: RING_SIZE, height: RING_SIZE }}>
+      <Svg
+        width={RING_SIZE}
+        height={RING_SIZE}
+        style={{ transform: [{ rotate: '-90deg' }] }}
+      >
+        {/* Track */}
+        <Circle
+          cx={RING_SIZE / 2}
+          cy={RING_SIZE / 2}
+          r={RING_RADIUS}
+          stroke="#1C1C1C"
+          strokeWidth={RING_STROKE}
+          fill="none"
+        />
+        {/* Progress arc */}
+        <AnimatedCircle
+          cx={RING_SIZE / 2}
+          cy={RING_SIZE / 2}
+          r={RING_RADIUS}
+          stroke={C.orange}
+          strokeWidth={RING_STROKE}
+          fill="none"
+          strokeDasharray={CIRCUMFERENCE}
+          strokeLinecap="round"
+          animatedProps={animatedProps}
+        />
+      </Svg>
+
+      {/* Center text */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={rg.pct}>{pct}%</Text>
+          <Text style={rg.done}>DONE</Text>
+        </View>
       </View>
-      {/* Secondary Card */}
-      <Animated.View style={[aStyle, { height: 120, backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border }]} />
     </View>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// LIVE Badge with Pulse Animation
-// ─────────────────────────────────────────────────────────────────────────────
+const rg = StyleSheet.create({
+  pct:  { fontSize: 34, fontWeight: '800', color: C.orange, letterSpacing: -1.5 },
+  done: { fontSize: 11, fontWeight: '700', color: C.textMut, letterSpacing: 2.5, marginTop: 2 },
+});
 
+// ─── Live Badge ───────────────────────────────────────────────────────────────
 function LiveBadge() {
-  const opacity = useSharedValue(0.4);
-
+  const op = useSharedValue(1);
   useEffect(() => {
-    opacity.value = withRepeat(
+    op.value = withRepeat(
       withSequence(
-        withTiming(0.3, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
-        withTiming(1,    { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.25, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1,    { duration: 800, easing: Easing.inOut(Easing.ease) }),
       ),
       -1,
       false,
     );
   }, []);
-
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ scale: opacity.value * 0.3 + 0.7 }], // Pulse scale 0.7 -> 1.0
-  }));
+  const dotStyle = useAnimatedStyle(() => ({ opacity: op.value }));
 
   return (
-    <View style={lb.container}>
-      <Animated.View style={[lb.dot, pulseStyle]} />
-      <Text style={lb.label}>LIVE</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+      <Animated.View style={[
+        { width: 8, height: 8, borderRadius: 4, backgroundColor: C.green },
+        dotStyle,
+      ]} />
+      <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, letterSpacing: 1.2 }}>
+        LIVE TRACKING
+      </Text>
     </View>
   );
 }
 
-function ActiveGlow({ color }: { color: string }) {
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(0.6);
-
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+function PageSkeleton() {
+  const op = useSharedValue(0.12);
   useEffect(() => {
-    scale.value = withRepeat(
-      withTiming(1.7, { duration: 1500, easing: Easing.out(Easing.ease) }),
-      -1,
-      false
-    );
-    opacity.value = withRepeat(
-      withTiming(0, { duration: 1500, easing: Easing.out(Easing.ease) }),
-      -1,
-      false
-    );
-  }, []);
-
-  const style = useAnimatedStyle(() => ({
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
-    borderRadius: 50,
-    backgroundColor: color,
-    opacity: opacity.value,
-    transform: [{ scale: scale.value }],
-  }));
-
-  return <Animated.View style={style} />;
-}
-
-function ProgressBar({ pct }: { pct: number }) {
-  const widthVal = useSharedValue(0);
-
-  useEffect(() => {
-    widthVal.value = withTiming(pct, { duration: 1400, easing: Easing.out(Easing.cubic) });
-  }, [pct]);
-
-  const fillStyle = useAnimatedStyle(() => ({
-    width: `${widthVal.value}%`,
-  }));
-
-  return (
-    <View style={s.barWrap}>
-      <View style={s.barTrack}>
-        <Animated.View style={[s.barFill, fillStyle]} />
-      </View>
-      <View style={s.barRow}>
-        <Text style={s.barLabel}>Progress</Text>
-        <Text style={s.barPct}>{pct}%</Text>
-      </View>
-    </View>
-  );
-}
-
-const lb = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: C.accent,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: C.accent,
-  },
-  label: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    color: C.accent,
-  },
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Horizontal Stepper
-// ─────────────────────────────────────────────────────────────────────────────
-
-function HorizontalStepper({ current }: { current: number }) {
-  return (
-    <View style={hs.container}>
-      {WORKFLOW_PIPELINE.map((stage, i) => {
-        const done   = current >= 0 && i < current;
-        const active = i === current;
-        const last   = i === WORKFLOW_PIPELINE.length - 1;
-
-        return (
-          <View key={stage.key} style={hs.stageGroup}>
-            <View style={hs.dotRow}>
-              {/* Connector (before) */}
-              <View style={[
-                hs.connector, 
-                done && hs.connectorDone,
-                active && hs.connectorActive,
-                i === 0 && { backgroundColor: 'transparent' }
-              ]} />
-
-              {/* Dot */}
-              <View style={[
-                hs.dot,
-                done && hs.dotDone,
-                active && hs.dotActive,
-              ]}>
-                {active && <ActiveGlow color={C.accent} />}
-                {done ? (
-                  <Ionicons name="checkmark" size={14} color="#FFF" />
-                ) : active ? (
-                  <Ionicons name={stage.icon as any} size={14} color={C.accent} />
-                ) : (
-                  <Ionicons name={stage.icon as any} size={14} color={C.textDim} />
-                )}
-              </View>
-
-              {/* Connector (after) */}
-              <View style={[
-                hs.connector, 
-                done && hs.connectorDone,
-                last && { backgroundColor: 'transparent' }
-              ]} />
-            </View>
-            <Text style={[
-              hs.label,
-              done && hs.labelDone,
-              active && hs.labelActive,
-            ]} numberOfLines={1} adjustsFontSizeToFit>
-              {stage.label}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-const hs = StyleSheet.create({
-  container: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 0 },
-  stageGroup: { flex: 1, alignItems: 'center' },
-  dotRow: { flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'center' },
-  connector: { flex: 1, height: 2, backgroundColor: C.border },
-  connectorDone: { backgroundColor: C.accent },
-  connectorActive: { backgroundColor: 'rgba(255,107,53,0.4)' },
-  dot: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.border,
-    alignItems: 'center', justifyContent: 'center', zIndex: 1,
-  },
-  dotDone: { backgroundColor: C.accent, borderColor: C.accent },
-  dotActive: { borderColor: C.accent, borderWidth: 2, backgroundColor: 'rgba(255,107,53,0.12)' },
-  label: { fontSize: 8, fontWeight: '600', color: C.textDim, textAlign: 'center', marginTop: 6, lineHeight: 10 },
-  labelDone: { color: C.accent },
-  labelActive: { color: C.accent, fontWeight: '700' },
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Technician Card
-// ─────────────────────────────────────────────────────────────────────────────
-
-function TechnicianCard({ detailer }: { detailer: any }) {
-  if (!detailer) return null;
-
-  const name  = detailer?.name || 'Technician';
-  const initials = name.split(' ').map((w: string) => w[0]).join('').substring(0, 2).toUpperCase();
-
-  return (
-    <Animated.View entering={FadeInDown.delay(300).duration(200)}>
-      <View style={tc.card}>
-        <View style={tc.row}>
-          <View style={tc.avatar}>
-            <Text style={tc.avatarText}>{initials}</Text>
-          </View>
-          <View style={tc.info}>
-            <Text style={tc.name}>{name}</Text>
-            <Text style={tc.role}>Lead Detailer · PPF Specialist</Text>
-            <View style={tc.statusNote}>
-              <View style={tc.statusDot}>
-                <ActiveGlow color="#10B981" />
-              </View>
-              <Text style={tc.statusText}>Active on your vehicle</Text>
-            </View>
-          </View>
-          <TouchableOpacity style={tc.msgBtn} activeOpacity={0.7}>
-            <Ionicons name="chatbubble-ellipses" size={20} color="#FFF" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Animated.View>
-  );
-}
-
-const tc = StyleSheet.create({
-  card: {
-    backgroundColor: '#16161C',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#222',
-    padding: 16,
-  },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  avatar: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: 'transparent',
-    borderWidth: 2, borderColor: C.accent,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  avatarText: { fontSize: 18, fontWeight: '700', color: C.accent },
-  info: { flex: 1 },
-  name: { fontSize: 16, fontWeight: '700', color: '#FFF' },
-  role: { fontSize: 12, color: C.textMut, marginTop: 2, marginBottom: 6 },
-  statusNote: {
-    flexDirection: 'row', alignItems: 'center', gap: 6
-  },
-  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' },
-  statusText: { fontSize: 11, fontWeight: '600', color: '#10B981' },
-  msgBtn: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: '#333',
-    alignItems: 'center', justifyContent: 'center'
-  }
-});
-
-function SearchingTechnicianCard() {
-  const rotation = useSharedValue(0);
-  const opacity = useSharedValue(0.4);
-
-  useEffect(() => {
-    rotation.value = withRepeat(
-      withTiming(360, { duration: 3000, easing: Easing.linear }),
-      -1,
-      false
-    );
-    opacity.value = withRepeat(
+    op.value = withRepeat(
       withSequence(
-        withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0.4, { duration: 1200, easing: Easing.inOut(Easing.ease) })
+        withTiming(0.38, { duration: 850 }),
+        withTiming(0.12, { duration: 850 }),
       ),
       -1,
-      false
+      true,
     );
   }, []);
-
-  const spinnerStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${rotation.value}deg` }],
-  }));
-
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-  }));
+  const aStyle = useAnimatedStyle(() => ({ opacity: op.value }));
 
   return (
-    <Animated.View style={[s.pendingCard, pulseStyle, { borderColor: 'rgba(255, 107, 53, 0.4)', borderWidth: 1, backgroundColor: 'rgba(255, 107, 53, 0.05)' }]}>
-      <Animated.View style={spinnerStyle}>
-        <Ionicons name="scan-outline" size={20} color={C.accent} />
-      </Animated.View>
-      <Text style={[s.pendingText, { color: C.accent, fontWeight: '600', letterSpacing: 0.5 }]}>
-        Scanning for available technician...
-      </Text>
-    </Animated.View>
+    <View style={{ gap: 16, paddingTop: 12 }}>
+      <Animated.View style={[aStyle, { height: 48, backgroundColor: C.surface, borderRadius: 12 }]} />
+      <Animated.View style={[aStyle, { height: RING_SIZE, backgroundColor: C.surface, borderRadius: RING_SIZE / 2, alignSelf: 'center', width: RING_SIZE }]} />
+      <Animated.View style={[aStyle, { height: 52, backgroundColor: C.surface, borderRadius: 14 }]} />
+      {[0, 1, 2].map(i => (
+        <Animated.View key={i} style={[aStyle, { height: 76, backgroundColor: C.surface, borderRadius: 14 }]} />
+      ))}
+    </View>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Stage Checklist
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Timeline Step Card ───────────────────────────────────────────────────────
+function TimelineStep({
+  step,
+  index,
+  currentIdx,
+  timestamp,
+  isLast,
+}: {
+  step: typeof TRACKER_STEPS[number];
+  index: number;
+  currentIdx: number;
+  timestamp: string;
+  isLast: boolean;
+}) {
+  const isDone    = currentIdx > index;
+  const isActive  = currentIdx === index;
+  const isPending = currentIdx < index;
 
-function DetailerActivityFeed({ steps }: { steps: any[] }) {
-  if (!steps || steps.length === 0) return null;
+  const glowOp = useSharedValue(0);
+  useEffect(() => {
+    if (isActive) {
+      glowOp.value = withRepeat(
+        withSequence(
+          withTiming(0.6, { duration: 900 }),
+          withTiming(0,   { duration: 900 }),
+        ),
+        -1,
+        false,
+      );
+    } else {
+      glowOp.value = 0;
+    }
+  }, [isActive]);
+
+  const glowStyle = useAnimatedStyle(() => ({ opacity: glowOp.value }));
 
   return (
-    <Animated.View entering={FadeInDown.delay(400).duration(200)}>
-      <Text style={cl.sectionLabel}>SERVICE ACTIVITY</Text>
-      <View style={cl.card}>
-        {steps.map((step: any, i: number) => {
-          const isDone = step.status === 'completed';
-          const isInProgress = step.status === 'in-progress';
+    <View style={[tl.row, isLast && { paddingBottom: 0 }]}>
 
-          return (
-            <Animated.View key={i} entering={FadeInDown.delay(450 + i * 50).duration(200)} style={cl.row}>
-              <View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
-                {isDone ? (
-                  <Ionicons name="checkmark-circle" size={16} color={C.textDim} />
-                ) : isInProgress ? (
-                  <View style={[cl.dot, { backgroundColor: C.accent }]}>
-                    <ActiveGlow color={C.accent} />
-                  </View>
-                ) : (
-                  <View style={[cl.dot, { backgroundColor: C.border }]} />
-                )}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[
-                  cl.stepName,
-                  isDone && { color: C.textDim, textDecorationLine: 'line-through' },
-                  isInProgress && { color: '#FFF' },
-                  !isDone && !isInProgress && { color: C.textMut }
-                ]}>
-                  {step.name}
-                </Text>
-              </View>
-            </Animated.View>
-          );
-        })}
+      {/* Left column: icon + connector */}
+      <View style={tl.leftCol}>
+        <View style={[
+          tl.iconWrap,
+          isDone    && tl.iconDone,
+          isActive  && tl.iconActive,
+          isPending && tl.iconPending,
+        ]}>
+          {isDone ? (
+            <Ionicons name="checkmark" size={16} color="#FFF" />
+          ) : (
+            <Ionicons
+              name={step.icon as any}
+              size={15}
+              color={isActive ? C.orange : C.textDim}
+            />
+          )}
+          {isActive && (
+            <Animated.View style={[tl.glow, glowStyle]} />
+          )}
+        </View>
+        {!isLast && (
+          <View style={[tl.connector, isDone && tl.connectorDone]} />
+        )}
       </View>
-    </Animated.View>
+
+      {/* Right: card */}
+      <View style={[
+        tl.card,
+        isDone    && tl.cardDone,
+        isActive  && tl.cardActive,
+        isPending && tl.cardPending,
+        isLast    && { marginBottom: 0 },
+      ]}>
+        <View style={tl.cardTop}>
+          <View style={{ flex: 1 }}>
+            <Text style={[
+              tl.label,
+              isDone    && tl.labelDone,
+              isActive  && tl.labelActive,
+              isPending && tl.labelPending,
+            ]}>
+              {step.label}
+            </Text>
+            <Text style={[tl.sub, isPending && { color: C.textDim }]}>
+              {step.sub}
+            </Text>
+          </View>
+
+          {isPending && (
+            <Ionicons name="chevron-forward" size={13} color={C.textDim} />
+          )}
+          {(isDone || isActive) && !!timestamp && (
+            <Text style={[tl.timestamp, isDone && { color: C.textMut }]}>
+              {formatTime(timestamp)}
+            </Text>
+          )}
+        </View>
+
+        {isActive && (
+          <View style={tl.activeRow}>
+            <View style={tl.activeDot} />
+            <Text style={tl.activeText}>In progress</Text>
+          </View>
+        )}
+      </View>
+    </View>
   );
 }
 
-const cl = StyleSheet.create({
-  sectionLabel: {
-    fontSize: 10, fontWeight: '700', letterSpacing: 1.5,
-    color: C.textDim, marginBottom: 8,
+const tl = StyleSheet.create({
+  row:     { flexDirection: 'row', gap: 12, paddingBottom: 4 },
+  leftCol: { alignItems: 'center', width: 38 },
+
+  iconWrap: {
+    width: 38, height: 38, borderRadius: 19,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: '#252525',
+    backgroundColor: '#141414', zIndex: 1,
   },
+  iconDone:    { backgroundColor: C.green,                 borderColor: C.green },
+  iconActive:  { backgroundColor: 'rgba(249,115,22,0.10)', borderColor: C.orange },
+  iconPending: { backgroundColor: '#111',                  borderColor: '#1E1E1E' },
+
+  glow: {
+    position: 'absolute', width: 38, height: 38, borderRadius: 19,
+    borderWidth: 2, borderColor: C.orange, opacity: 0,
+  },
+
+  connector:     { width: 2, flex: 1, minHeight: 20, backgroundColor: '#252525', marginVertical: 3 },
+  connectorDone: { backgroundColor: C.green },
+
   card: {
-    backgroundColor: 'transparent',
-    padding: 0,
-    gap: 8,
+    flex: 1, borderRadius: 14, borderWidth: 1,
+    backgroundColor: '#131313', borderColor: '#1E1E1E',
+    padding: 14, marginBottom: 8,
   },
-  row: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
+  cardDone: {
+    backgroundColor: '#0D1810',
+    borderColor: 'rgba(34,197,94,0.18)',
   },
-  dot: {
-    width: 6, height: 6, borderRadius: 3,
+  cardActive: {
+    backgroundColor: 'rgba(249,115,22,0.06)',
+    borderColor: 'rgba(249,115,22,0.35)',
+    ...Platform.select({
+      ios: { shadowColor: C.orange, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 14 },
+      android: { elevation: 5 },
+    }),
   },
-  stepName: { fontSize: 13, fontWeight: '500', color: C.textMut },
+  cardPending: { opacity: 0.55 },
+
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+
+  label:        { fontSize: 14, fontWeight: '600', color: C.textSec,  marginBottom: 3 },
+  labelDone:    { color: C.green,   fontWeight: '700' },
+  labelActive:  { color: C.orange,  fontWeight: '700' },
+  labelPending: { color: C.textDim },
+
+  sub:       { fontSize: 12, color: C.textMut },
+  timestamp: { fontSize: 10, fontWeight: '700', color: C.orange, flexShrink: 0, marginTop: 2 },
+
+  activeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 10, paddingTop: 10,
+    borderTopWidth: 1, borderTopColor: 'rgba(249,115,22,0.15)',
+  },
+  activeDot:  { width: 6, height: 6, borderRadius: 3, backgroundColor: C.orange },
+  activeText: { fontSize: 11, fontWeight: '600', color: C.orange },
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// History Card (for empty state)
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ─── History Card ─────────────────────────────────────────────────────────────
 function HistoryCard({ booking, index }: { booking: BookingRecord; index: number }) {
-  const displayDate = booking.bookingDate || booking.date || '';
-  const displayService = booking.serviceName || booking.serviceType || 'Service';
+  const service = booking.serviceName || booking.serviceType || 'Service';
+  const date    = booking.bookingDate || (booking as any).date || '';
+  const isDone  = ['completed', 'paid', 'released'].includes(booking.status);
 
   return (
-    <Animated.View entering={FadeInDown.delay(200 + index * 60).duration(200)}>
+    <Animated.View entering={FadeInDown.delay(150 + index * 50).duration(200)}>
       <View style={hc.card}>
         <View style={hc.row}>
-          <View style={hc.iconWrap}>
+          <View style={[hc.icon, { backgroundColor: isDone ? C.greenDim : 'rgba(239,68,68,0.08)' }]}>
             <Ionicons
-              name={booking.status === 'completed' ? 'checkmark-circle' : 'close-circle'}
+              name={isDone ? 'checkmark-circle' : 'close-circle'}
               size={18}
-              color={booking.status === 'completed' ? C.success : '#EF4444'}
+              color={isDone ? C.green : '#EF4444'}
             />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={hc.service}>{displayService}</Text>
-            <Text style={hc.date}>{displayDate}</Text>
+            <Text style={hc.service}>{service}</Text>
+            <Text style={hc.date}>{date}</Text>
           </View>
-          <View style={[
-            hc.statusPill,
-            booking.status === 'completed' ? hc.statusCompleted : hc.statusCancelled,
-          ]}>
-            <Text style={[
-              hc.statusText,
-              { color: booking.status === 'completed' ? C.success : '#EF4444' },
-            ]}>
-              {booking.status === 'completed' ? 'Completed' : 'Cancelled'}
+          <View style={[hc.pill, { backgroundColor: isDone ? C.greenDim : 'rgba(239,68,68,0.08)' }]}>
+            <Text style={[hc.pillText, { color: isDone ? C.green : '#EF4444' }]}>
+              {isDone ? 'Done' : 'Cancelled'}
             </Text>
           </View>
         </View>
@@ -551,45 +499,160 @@ function HistoryCard({ booking, index }: { booking: BookingRecord; index: number
 }
 
 const hc = StyleSheet.create({
-  card: {
-    backgroundColor: C.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: C.border,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  iconWrap: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: C.elevated,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  service: { fontSize: 13, fontWeight: '600', color: C.text },
-  date: { fontSize: 11, color: C.textMut, marginTop: 2 },
-  statusPill: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
-  statusCompleted: { backgroundColor: C.successDim },
-  statusCancelled: { backgroundColor: 'rgba(239,68,68,0.10)' },
-  statusText: { fontSize: 9, fontWeight: '700' },
+  card:     { backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 14 },
+  row:      { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  icon:     { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  service:  { fontSize: 13, fontWeight: '600', color: C.text },
+  date:     { fontSize: 11, color: C.textMut, marginTop: 2 },
+  pill:     { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  pillText: { fontSize: 10, fontWeight: '700' },
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main Screen
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Service Complete Screen ──────────────────────────────────────────────────
+function ServiceCompleteCard({
+  booking,
+  countdown,
+  onViewSummary,
+}: {
+  booking: any;
+  countdown: number;
+  onViewSummary: () => void;
+}) {
+  const checkScale = useSharedValue(0.4);
+  const ringScale  = useSharedValue(0.6);
+  const pulse      = useSharedValue(1);
 
+  useEffect(() => {
+    checkScale.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.back(1.8)) });
+    ringScale.value  = withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) });
+    // Subtle pulse starts after entrance
+    setTimeout(() => {
+      pulse.value = withRepeat(
+        withSequence(
+          withTiming(1.07, { duration: 1400, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1,    { duration: 1400, easing: Easing.inOut(Easing.ease) }),
+        ),
+        -1,
+        true,
+      );
+    }, 600);
+  }, []);
+
+  const checkStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: checkScale.value * pulse.value }],
+  }));
+  const ringStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: ringScale.value }],
+    opacity: ringScale.value,
+  }));
+
+  const orderNum = (() => {
+    if (booking?.orderNumber) return `ORD-${booking.orderNumber}`;
+    const raw = booking?._id || booking?.id || '';
+    return raw ? `ORD-${String(raw).slice(-8).toUpperCase()}` : '';
+  })();
+
+  return (
+    <View style={sc.container}>
+      <Animated.View entering={FadeIn.duration(350)} style={sc.card}>
+
+        {/* Animated green checkmark */}
+        <Animated.View style={ringStyle}>
+          <View style={sc.ringOuter}>
+            <Animated.View style={checkStyle}>
+              <Ionicons name="checkmark-circle" size={84} color={C.green} />
+            </Animated.View>
+          </View>
+        </Animated.View>
+
+        {/* Text block */}
+        <View style={sc.textBlock}>
+          <Text style={sc.title}>Service Complete</Text>
+          <Text style={sc.sub}>Your vehicle is ready for pickup.</Text>
+          {!!orderNum && <Text style={sc.order}>{orderNum}</Text>}
+        </View>
+
+        {/* Orange CTA */}
+        <TouchableOpacity style={sc.cta} onPress={onViewSummary} activeOpacity={0.85}>
+          <Text style={sc.ctaText}>View Booking Summary</Text>
+          <Ionicons name="arrow-forward" size={16} color="#000" />
+        </TouchableOpacity>
+
+        {/* Countdown hint */}
+        <Text style={sc.hint}>Redirecting in {countdown}s…</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
+const sc = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: '100%',
+    backgroundColor: C.surface,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: C.greenBrd,
+    padding: 36,
+    alignItems: 'center',
+    gap: 22,
+    ...Platform.select({
+      ios:     { shadowColor: C.green, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.15, shadowRadius: 28 },
+      android: { elevation: 8 },
+    }),
+  },
+  ringOuter: {
+    width: 112, height: 112, borderRadius: 56,
+    backgroundColor: C.greenDim,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  textBlock: { alignItems: 'center', gap: 8 },
+  title: { fontSize: 26, fontWeight: '800', color: C.text, letterSpacing: -0.5 },
+  sub:   { fontSize: 14, color: C.textMut, textAlign: 'center', lineHeight: 20 },
+  order: { fontSize: 12, fontWeight: '700', color: C.textDim, letterSpacing: 1.2, marginTop: 2 },
+  cta: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.orange, borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 28,
+    width: '100%', justifyContent: 'center',
+    ...Platform.select({
+      ios:     { shadowColor: C.orange, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.35, shadowRadius: 14 },
+      android: { elevation: 5 },
+    }),
+  },
+  ctaText: { fontSize: 15, fontWeight: '700', color: '#000' },
+  hint: { fontSize: 12, color: C.textDim, marginTop: -10 },
+});
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function TrackScreen() {
   const { profile } = useAuth();
-  const router = useRouter();
+  const router      = useRouter();
+  const insets      = useSafeAreaInsets();
   const { id: routeBookingId } = useLocalSearchParams<{ id?: string }>();
 
-  const [booking, setBooking] = useState<any>(null);
-  const [allBookings, setAllBookings] = useState<BookingRecord[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [booking,        setBooking]        = useState<any>(null);
+  const [allBookings,    setAllBookings]    = useState<BookingRecord[]>([]);
+  const [uploading,      setUploading]      = useState(false);
+  // Release completion state
+  const [showComplete,   setShowComplete]   = useState(false);
+  const [completeBooking,setCompleteBooking]= useState<any>(null);
+  const [countdown,      setCountdown]      = useState(3);
+  // forceStepIdx: override step display when release fires before customer saw Step 5
+  const [forceStepIdx,   setForceStepIdx]   = useState<number | null>(null);
+  const prevStatusRef  = useRef<string | null>(null); // tracks previous status to detect transition
+  const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const step5Timer     = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Data fetching ──
   const {
     data: defaultBookings = [],
-    isLoading: isLoadingAll,
+    isLoading,
     refetch,
   } = useQuery({
     queryKey: ['bookings'],
@@ -601,9 +664,7 @@ export default function TrackScreen() {
     refetchInterval: 8_000,
   });
 
-  const {
-    data: specificBooking = null
-  } = useQuery({
+  const { data: specificBooking = null } = useQuery({
     queryKey: ['booking', routeBookingId],
     queryFn: () => {
       invalidateCache('/bookings');
@@ -613,154 +674,209 @@ export default function TrackScreen() {
     refetchInterval: 8_000,
   });
 
-  // ── Real-time socket sync: invalidates React Query caches on db_change ──
+  // ── Real-time socket invalidation (mirrors useLiveJobs.ts) ──
   useRealtimeSync(['orders']);
 
   useEffect(() => {
-    if (defaultBookings) {
+    if (defaultBookings.length || defaultBookings !== undefined) {
       setAllBookings(defaultBookings);
       if (!routeBookingId) {
-        const active = defaultBookings
+        const active = [...defaultBookings]
           .filter((b: any) => !['cancelled', 'failed'].includes(b.status))
-          .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+          .sort((a: any, b: any) =>
+            new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+          );
         setBooking(active[0] || null);
       }
     }
   }, [defaultBookings, routeBookingId]);
 
   useEffect(() => {
-    if (specificBooking) {
-      setBooking(specificBooking);
-    }
+    if (specificBooking) setBooking(specificBooking);
   }, [specificBooking]);
+
+  // ── Detect "Released" transition in real-time ─────────────────────────────
+  // Only fires when status CHANGES to released (not on initial load).
+  // prevStatusRef starts null → first assignment sets baseline without triggering.
+  //
+  // Step 5 buffer: if release fires while customer is still on Step ≤4 (e.g. staff
+  // pressed Release directly from Quality Check without Advancing to Ready for Pickup),
+  // we force-display Step 5 for 1.5s so the customer always sees the final step
+  // before the ServiceCompleteCard appears. This mirrors the web enforcement that
+  // Release is only valid after ready_pickup — but guards against timing gaps.
+  useEffect(() => {
+    if (!booking) return;
+    const newStatus = String(booking.status || '').toLowerCase();
+    // Also detect via serviceTrackingStage for faster response (socket may deliver
+    // serviceTrackingStage = 'released' before order.status updates)
+    const newStage  = String(booking.serviceTrackingStage || '').toLowerCase();
+    const isReleased = newStatus === 'released' || newStage === 'released';
+
+    if (
+      isReleased &&
+      prevStatusRef.current !== null &&
+      prevStatusRef.current !== 'released' &&
+      !showComplete
+    ) {
+      const currentStep = resolveStep({ ...booking, status: prevStatusRef.current });
+
+      if (currentStep < 4) {
+        // Customer hasn't seen Step 5 yet — show it briefly first
+        setForceStepIdx(4);
+        step5Timer.current = setTimeout(() => {
+          setForceStepIdx(null);
+          setCompleteBooking({ ...booking });
+          setShowComplete(true);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }, 1500);
+      } else {
+        // Already at Ready for Pickup (Step 5) — show completion immediately
+        setCompleteBooking({ ...booking });
+        setShowComplete(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    }
+
+    prevStatusRef.current = newStatus;
+  }, [booking?.status, booking?.serviceTrackingStage]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Countdown timer — only decrements the number, never navigates ──────────
+  useEffect(() => {
+    if (!showComplete) return;
+    // Cancel the Step 5 buffer timer if it's still pending (shouldn't happen, but safe)
+    if (step5Timer.current) clearTimeout(step5Timer.current);
+    setCountdown(3);
+    countdownTimer.current = setInterval(() => {
+      setCountdown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => {
+      if (countdownTimer.current) clearInterval(countdownTimer.current);
+    };
+  }, [showComplete]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Navigation — fires after render once countdown reaches 0 ────────────────
+  // Kept separate so router.replace() is never called inside a state updater
+  // (which would trigger "Cannot update a component while rendering another").
+  useEffect(() => {
+    if (!showComplete || countdown !== 0) return;
+    clearInterval(countdownTimer.current!);
+    router.replace('/(screens)/appointments');
+  }, [showComplete, countdown]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Derived state ──
+  // forceStepIdx takes priority: used during the 1.5s Step 5 buffer before ServiceCompleteCard
+  const stepIdx   = forceStepIdx !== null ? forceStepIdx : (booking ? resolveStep(booking) : -1);
+  const pct       = getPct(stepIdx);
+  const hasActive = !!booking && !['cancelled', 'failed'].includes(booking?.status || '');
+
+  const stepTimestamps = booking ? getStepTimestamps(booking) : ['', '', '', '', ''];
+  const etaLabel       = booking ? getEtaLabel(booking) : '—';
+
+  // Vehicle info card
+  const vehiclePlate = booking?.vehiclePlate || booking?.vehicleModel || 'Vehicle';
+  const vehicleColor = booking?.vehicleColor || '';
+  const vehicleInfo  = vehicleColor ? `${vehiclePlate} · ${vehicleColor}` : vehiclePlate;
+
+  // Team badge: prefer serviceStaffAssignments[] then assignedDetailer
+  const staffAssignments: any[] = booking?.serviceStaffAssignments || [];
+  const teamLabel = (() => {
+    if (staffAssignments.length > 0) {
+      return staffAssignments
+        .map((a: any) => (a.name || '').split(' ')[0])
+        .filter(Boolean)
+        .join(' & ');
+    }
+    if (booking?.assignedDetailer?.name) {
+      return booking.assignedDetailer.name.split(' ')[0];
+    }
+    return '';
+  })();
+
+  const pastBookings = allBookings.filter(
+    (b) => (!booking || b.id !== booking.id) &&
+    ['completed', 'paid', 'released', 'cancelled'].includes(b.status)
+  );
 
   const onRefresh = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await refetch();
   };
 
-  // Derived
-  const stageIdx = booking ? resolveStageIndex(booking) : 0;
-  const pct      = booking ? getStageProgress(stageIdx) : 0;
-  const stageLabel = booking ? WORKFLOW_PIPELINE[stageIdx]?.label || 'Pending' : 'Pending';
-  // Treat released services generally as active until they are totally archived, but for UI sake, we display them up to 'released'.
-  const hasActive = !!booking && !['cancelled', 'failed'].includes(booking.status);
-  // Customer tracker: ONLY depends on order.status (via resolveStageIndex)
-  // Detailer activity feed: independent internal checklist (cosmetic only)
-  const detailerSteps: any[] = booking?.serviceSteps || [];
-  const detailer = booking?.assignedDetailer;
-  const pastBookings = allBookings.filter((b) => 
-    (!booking || b.id !== booking.id) && ['completed', 'paid', 'released', 'cancelled'].includes(b.status)
-  );
-
-  // Calculate elapsed time from booking creation
-  const getElapsedTime = () => {
-    if (!booking?.createdAt) return '--';
-    const created = new Date(booking.createdAt).getTime();
-    const now = Date.now();
-    const diffMs = now - created;
-    const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 60) return `${diffMins}m`;
-    const hours = Math.floor(diffMins / 60);
-    const mins = diffMins % 60;
-    return `${hours}h ${mins}m`;
-  };
-
-  // Estimate remaining time based on stage progress
-  const getEstRemaining = () => {
-    if (!booking?.createdAt || pct >= 100) return 'Done';
-    if (pct === 0) return 'Waiting';
-    const created = new Date(booking.createdAt).getTime();
-    const elapsed = Date.now() - created;
-    const totalEstimate = (elapsed / pct) * 100;
-    const remaining = totalEstimate - elapsed;
-    const remainingMins = Math.max(0, Math.round(remaining / 60000));
-    if (remainingMins < 60) return `~${remainingMins} min`;
-    const hours = Math.floor(remainingMins / 60);
-    const mins = remainingMins % 60;
-    return `~${hours}h ${mins}m`;
-  };
-
-  const trackTitle = (booking?.vehicleType && booking?.vehicleColor)
-    ? `${booking.vehicleType} • ${booking.vehicleColor}`
-    : (booking?.customerName && booking?.serviceName)
-    ? `${booking.customerName} - ${booking.serviceName}`
-    : booking?.vehicleModel
-    ? booking.vehicleModel
-    : booking?.vehiclePlate || 'Vehicle Service';
-
   const pickImage = async () => {
     try {
-      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permissionResult.granted) {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
         Alert.alert('Permission required', 'We need access to your camera roll to upload payment proof.');
         return;
       }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         quality: 0.7,
         base64: true,
       });
-
-      if (!result.canceled && result.assets && result.assets[0].base64) {
+      if (!result.canceled && result.assets?.[0]?.base64) {
         setUploading(true);
-        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
-        await bookingService.uploadPaymentProof(booking.id, base64Image);
+        const img = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        await bookingService.uploadPaymentProof(booking.id, img);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        // Assuming real-time takes care of updating, but we manually update local state just in case
-        setBooking({ ...booking, paymentProofUrl: base64Image });
+        setBooking({ ...booking, paymentProofUrl: img });
       }
-    } catch (error: any) {
-      console.error('[Track] Error uploading proof:', error);
-      Alert.alert('Upload Failed', getApiErrorMessage(error));
+    } catch (err: any) {
+      Alert.alert('Upload Failed', getApiErrorMessage(err));
     } finally {
       setUploading(false);
     }
   };
 
-  const trackSubTitle = booking?.orderNumber
-    ? `Order #${booking.orderNumber}`
-    : booking?.serviceName
-    ? booking.serviceName
-    : 'Active Order';
+  const showBottomBar =
+    hasActive &&
+    !['pending_confirmation', 'rejected', 'pending'].includes(booking?.status || '');
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <View style={s.screen}>
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
       <AnimatedHeader />
 
+      {/* ── Service Complete (released) — full-content takeover ── */}
+      {showComplete ? (
+        <ServiceCompleteCard
+          booking={completeBooking}
+          countdown={countdown}
+          onViewSummary={() => {
+            if (countdownTimer.current) clearInterval(countdownTimer.current);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            router.replace('/(screens)/appointments');
+          }}
+        />
+      ) : (
+      <>
+
       <ScrollView
-        style={s.scroll}
-        contentContainerStyle={[s.content, { paddingBottom: TabBarHeight + 32 }]}
+        style={{ flex: 1 }}
+        contentContainerStyle={[
+          s.content,
+          { paddingBottom: TabBarHeight + (showBottomBar ? 72 : 24) + (insets.bottom || 0) },
+        ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />
+          <RefreshControl refreshing={false} onRefresh={onRefresh} tintColor={C.orange} />
         }
       >
-        {/* ─── Header Row ─── */}
-        <Animated.View entering={FadeInDown.delay(80).duration(200)} style={s.titleRow}>
-          <View>
-            <Text style={s.pageTitle}>Service Tracker</Text>
-            <Text style={s.pageSub}>
-              {hasActive ? 'Your vehicle is being serviced.' : 'No active service right now.'}
-            </Text>
-          </View>
-          {hasActive && <LiveBadge />}
-        </Animated.View>
-
-        {isLoadingAll ? (
+        {/* ───────────────── Loading ───────────────── */}
+        {isLoading ? (
           <PageSkeleton />
+
+        /* ───────────────── Empty State ──────────────── */
         ) : !hasActive ? (
-          /* ─────── Empty State ─────── */
           <>
-            <Animated.View entering={FadeInDown.delay(150).duration(200)} style={s.emptyCard}>
-              <View style={s.emptyIconWrap}>
-                <Ionicons name="car-outline" size={40} color={C.textDim} />
+            <Animated.View entering={FadeInDown.delay(80).duration(220)} style={s.emptyCard}>
+              <View style={s.emptyIcon}>
+                <Ionicons name="car-outline" size={36} color={C.textDim} />
               </View>
               <Text style={s.emptyTitle}>No Active Service</Text>
               <Text style={s.emptySub}>
-                When you book a service, real-time{'\n'}progress tracking will appear here.
+                {'When you book a service, your real-time\nprogress will appear here.'}
               </Text>
               <TouchableOpacity
                 style={s.emptyBtn}
@@ -771,13 +887,12 @@ export default function TrackScreen() {
                 }}
               >
                 <Text style={s.emptyBtnText}>Book a Service</Text>
-                <Ionicons name="arrow-forward" size={16} color={C.bg} />
+                <Ionicons name="arrow-forward" size={15} color="#000" />
               </TouchableOpacity>
             </Animated.View>
 
-            {/* Past History */}
             {pastBookings.length > 0 && (
-              <Animated.View entering={FadeInDown.delay(250).duration(200)}>
+              <Animated.View entering={FadeInDown.delay(200).duration(220)}>
                 <Text style={s.sectionLabel}>PAST SERVICES</Text>
                 <View style={{ gap: 8 }}>
                   {pastBookings.slice(0, 5).map((b, i) => (
@@ -787,173 +902,135 @@ export default function TrackScreen() {
               </Animated.View>
             )}
           </>
-        ) : booking.status === 'pending_confirmation' ? (
-          /* ─────── Pending Confirmation ─────── */
-          <Animated.View entering={FadeInDown.delay(120).duration(200)} style={[s.progressCard, { padding: 24, alignItems: 'center' }]}>
-            <Ionicons name="time-outline" size={48} color="#FF6B35" style={{ marginBottom: 16 }} />
-            <Text style={{ color: '#FFF', fontSize: 20, fontWeight: '700', marginBottom: 8 }}>Waiting for confirmation</Text>
-            <Text style={{ color: '#A1A1AA', fontSize: 14, textAlign: 'center', marginBottom: 24, lineHeight: 22 }}>
-              Please allow 1–3 minutes for verification. Upload your GCash proof of payment below.
-            </Text>
 
+        /* ───────────── Pending Confirmation (upload GCash) ──────────── */
+        ) : booking?.status === 'pending_confirmation' ? (
+          <Animated.View
+            entering={FadeInDown.delay(120).duration(220)}
+            style={[s.stateCard, { borderColor: C.orangeBrd }]}
+          >
+            <Ionicons name="time-outline" size={48} color={C.orange} />
+            <Text style={s.stateTitle}>Waiting for Confirmation</Text>
+            <Text style={s.stateSub}>
+              Allow 1–3 minutes for verification. Upload your GCash receipt below.
+            </Text>
             {booking.paymentProofUrl ? (
-              <View style={{ width: '100%', alignItems: 'center', marginBottom: 16 }}>
-                <Image 
-                  source={{ uri: booking.paymentProofUrl }} 
-                  style={{ width: 120, height: 160, borderRadius: 12, marginBottom: 8 }} 
-                  resizeMode="cover" 
+              <View style={{ alignItems: 'center', gap: 8 }}>
+                <Image
+                  source={{ uri: booking.paymentProofUrl }}
+                  style={{ width: 100, height: 140, borderRadius: 10 }}
+                  resizeMode="cover"
                 />
-                <Text style={{ color: '#22C55E', fontSize: 14, fontWeight: '600' }}>Proof Uploaded</Text>
+                <Text style={{ color: C.green, fontWeight: '700', fontSize: 14 }}>
+                  Receipt Uploaded ✓
+                </Text>
               </View>
             ) : (
-              <TouchableOpacity 
-                style={{ backgroundColor: '#FF6B35', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, width: '100%', alignItems: 'center' }}
+              <TouchableOpacity
+                style={s.uploadBtn}
                 onPress={pickImage}
                 disabled={uploading}
+                activeOpacity={0.85}
               >
                 {uploading ? (
                   <ActivityIndicator color="#FFF" />
                 ) : (
-                  <Text style={{ color: '#FFF', fontWeight: '600', fontSize: 16 }}>Upload GCash Screenshot</Text>
+                  <>
+                    <Ionicons name="cloud-upload-outline" size={18} color="#FFF" />
+                    <Text style={s.uploadBtnText}>Upload GCash Screenshot</Text>
+                  </>
                 )}
               </TouchableOpacity>
             )}
           </Animated.View>
-        ) : booking.status === 'rejected' ? (
-          /* ─────── Rejected ─────── */
-          <Animated.View entering={FadeInDown.delay(120).duration(200)} style={[s.progressCard, { padding: 24, alignItems: 'center', borderColor: 'rgba(239,68,68,0.5)', borderWidth: 1 }]}>
-            <Ionicons name="close-circle-outline" size={48} color="#EF4444" style={{ marginBottom: 16 }} />
-            <Text style={{ color: '#FFF', fontSize: 20, fontWeight: '700', marginBottom: 8 }}>Payment Rejected</Text>
-            <Text style={{ color: '#A1A1AA', fontSize: 14, textAlign: 'center', marginBottom: 24, lineHeight: 22 }}>
-              {booking.rejectionReason || 'The payment proof provided could not be verified. Please upload a clear screenshot.'}
-            </Text>
 
-            <TouchableOpacity 
-              style={{ backgroundColor: '#EF4444', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, width: '100%', alignItems: 'center' }}
+        /* ───────────────── Rejected ─────────────────── */
+        ) : booking?.status === 'rejected' ? (
+          <Animated.View
+            entering={FadeInDown.delay(120).duration(220)}
+            style={[s.stateCard, { borderColor: 'rgba(239,68,68,0.4)' }]}
+          >
+            <Ionicons name="close-circle-outline" size={48} color="#EF4444" />
+            <Text style={[s.stateTitle, { color: '#EF4444' }]}>Payment Rejected</Text>
+            <Text style={s.stateSub}>
+              {booking.rejectionReason || 'Upload a clearer GCash screenshot to resubmit.'}
+            </Text>
+            <TouchableOpacity
+              style={[s.uploadBtn, { backgroundColor: '#EF4444' }]}
               onPress={pickImage}
               disabled={uploading}
+              activeOpacity={0.85}
             >
               {uploading ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
-                <Text style={{ color: '#FFF', fontWeight: '600', fontSize: 16 }}>Re-upload Proof</Text>
+                <>
+                  <Ionicons name="reload-outline" size={18} color="#FFF" />
+                  <Text style={s.uploadBtnText}>Re-upload Proof</Text>
+                </>
               )}
             </TouchableOpacity>
           </Animated.View>
+
+        /* ───────────────── Active Tracking ──────────── */
         ) : (
-          /* ─────── Active Tracking ─────── */
           <>
-            {/* Progress Card */}
-            <Animated.View entering={FadeInDown.delay(120).duration(200)}>
-              <View style={s.progressCard}>
-                <LinearGradient
-                  colors={['rgba(255,107,53,0.08)', 'transparent']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={{ flex: 1 }}
-                >
-                  {/* Header */}
-                  <View style={s.pcHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.pcServiceName}>
-                        {trackTitle}
-                      </Text>
-                      <Text style={s.pcOrderId}>
-                        {trackSubTitle}
-                      </Text>
-                    </View>
-                    <View style={s.pcEstDoneWrap}>
-                      <Text style={s.pcEstDoneText}>EST. DONE {booking.bookingTime || '2:00 PM'}</Text>
-                    </View>
-                  </View>
-
-                  {/* Status Pill */}
-                  <View style={s.pcStatusRow}>
-                    <View style={s.pcStatusPill}>
-                      <View style={s.pcStatusDot}>
-                        <ActiveGlow color={C.accent} />
-                      </View>
-                      <Text style={s.pcStatusText}>{stageLabel}</Text>
-                    </View>
-                  </View>
-
-                  {/* Progress Bar */}
-                  <ProgressBar pct={pct} />
-
-                  {/* Horizontal Stepper */}
-                  <View style={s.stepperWrap}>
-                    <HorizontalStepper current={stageIdx} />
-                  </View>
-                </LinearGradient>
-              </View>
-
-              {/* Time Cards Row */}
-              <View style={s.timeRow}>
-                <View style={[s.timeCard, { flex: 1 }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <Ionicons name="time-outline" size={14} color={C.textMut} />
-                    <Text style={s.timeLabel}>ELAPSED</Text>
-                  </View>
-                  <Text style={s.timeValueOrange}>{getElapsedTime()}</Text>
-                </View>
-                <View style={[s.timeCard, { flex: 1, borderColor: 'rgba(255, 107, 53, 0.25)', backgroundColor: 'rgba(255, 107, 53, 0.05)' }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.accent }}>
-                      <ActiveGlow color={C.accent} />
-                    </View>
-                    <Text style={[s.timeLabel, { color: C.accent }]}>EST. REMAINING</Text>
-                  </View>
-                  <Text style={s.timeValueWhite}>{getEstRemaining()}</Text>
-                </View>
+            {/* ── Top row: LIVE TRACKING + Est. Time pill ── */}
+            <Animated.View entering={FadeInDown.delay(60).duration(200)} style={s.headerRow}>
+              <LiveBadge />
+              <View style={s.etaPill}>
+                <Ionicons name="time-outline" size={11} color={C.orange} />
+                <Text style={s.etaText}>Est. {etaLabel}</Text>
               </View>
             </Animated.View>
 
-            {/* Technician */}
-            <Animated.View entering={FadeInDown.delay(200).duration(200)}>
-              <Text style={s.sectionLabel}>ASSIGNED TECHNICIAN</Text>
-              {detailer ? (
-                <TechnicianCard detailer={detailer} />
-              ) : (
-                <SearchingTechnicianCard />
+            {/* ── Step counter ── */}
+            <Animated.View entering={FadeInDown.delay(80).duration(200)}>
+              <Text style={s.stepCounter}>
+                Step {Math.min(Math.max(stepIdx + 1, 1), 5)} of 5
+              </Text>
+            </Animated.View>
+
+            {/* ── Circular progress ring ── */}
+            <Animated.View entering={FadeInDown.delay(100).duration(200)} style={s.ringWrap}>
+              <CircularRing pct={pct} />
+            </Animated.View>
+
+            {/* ── Vehicle info card ── */}
+            <Animated.View entering={FadeInDown.delay(140).duration(200)} style={s.vehicleCard}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                <View style={s.vehicleIcon}>
+                  <Ionicons name="car-sport-outline" size={18} color={C.orange} />
+                </View>
+                <Text style={s.vehicleText} numberOfLines={1}>{vehicleInfo}</Text>
+              </View>
+              {!!teamLabel && (
+                <View style={s.teamBadge}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.green }} />
+                  <Text style={s.teamText}>{teamLabel}</Text>
+                </View>
               )}
             </Animated.View>
 
-            {/* Detailer Activity Feed (independent from status tracker) */}
-            <DetailerActivityFeed steps={detailerSteps} />
-
-            {/* Location */}
-            <Animated.View entering={FadeInDown.delay(500).duration(200)}>
-              <Text style={s.sectionLabel}>SERVICE LOCATION</Text>
-              <View style={s.locationCard}>
-                <View style={s.locationRow}>
-                  <View style={s.locationIcon}>
-                    <Ionicons name="location" size={16} color={C.accent} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.locationName}>AutoGloss Service Center</Text>
-                    <Text style={s.locationAddr}>Imus, Cavite</Text>
-                  </View>
-                  <Ionicons name="open-outline" size={14} color={C.textDim} />
-                </View>
+            {/* ── Vertical Timeline ── */}
+            <Animated.View entering={FadeInDown.delay(180).duration(200)}>
+              <Text style={s.sectionLabel}>PROGRESS TIMELINE</Text>
+              <View style={s.timeline}>
+                {TRACKER_STEPS.map((step, i) => (
+                  <TimelineStep
+                    key={step.id}
+                    step={step}
+                    index={i}
+                    currentIdx={stepIdx}
+                    timestamp={stepTimestamps[i]}
+                    isLast={i === TRACKER_STEPS.length - 1}
+                  />
+                ))}
               </View>
             </Animated.View>
 
-            {/* Media & Documentation */}
-            <Animated.View entering={FadeInDown.delay(550).duration(200)}>
-              <Text style={s.sectionLabel}>MEDIA & DOCUMENTATION</Text>
-              <View style={s.docCard}>
-                <View style={s.docEmptyContent}>
-                  <Ionicons name="images-outline" size={32} color={C.textDim} style={{ marginBottom: 4 }} />
-                  <Text style={s.docEmptyTitle}>No updates available yet</Text>
-                  <Text style={s.docEmptySub}>
-                    Before/After photos and official e-receipts will appear here as your detailing service progresses.
-                  </Text>
-                </View>
-              </View>
-            </Animated.View>
-
-            {/* Bottom Actions */}
-            <Animated.View entering={FadeInDown.delay(600).duration(200)} style={s.actionRow}>
+            {/* ── Quick actions ── */}
+            <Animated.View entering={FadeInDown.delay(300).duration(200)} style={s.actionsRow}>
               <TouchableOpacity
                 style={s.actionBtn}
                 activeOpacity={0.85}
@@ -962,7 +1039,7 @@ export default function TrackScreen() {
                   router.push('/(screens)/appointments');
                 }}
               >
-                <Ionicons name="list-outline" size={16} color={C.textSec} />
+                <Ionicons name="list-outline" size={15} color={C.textMut} />
                 <Text style={s.actionText}>All Bookings</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -973,162 +1050,155 @@ export default function TrackScreen() {
                   router.push('/(screens)/waiver');
                 }}
               >
-                <Ionicons name="document-text-outline" size={16} color={C.textSec} />
+                <Ionicons name="document-text-outline" size={15} color={C.textMut} />
                 <Text style={s.actionText}>Sign Waiver</Text>
               </TouchableOpacity>
             </Animated.View>
           </>
         )}
       </ScrollView>
+
+      {/* ── Fixed Bottom Completion Bar ── */}
+      {showBottomBar && (
+        <View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+          <View>
+            <Text style={s.bottomTitle}>AutoSPF+</Text>
+            <Text style={s.bottomSub}>Premium Service</Text>
+          </View>
+          <View style={s.bottomPill}>
+            <Text style={s.bottomPillText}>{pct}% COMPLETE</Text>
+          </View>
+        </View>
+      )}
+      {/* closes showComplete false branch */}
+      </>
+      )}
     </View>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Stylesheet
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ─── Stylesheet ───────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: C.bg },
-  scroll: { flex: 1 },
-  content: { paddingHorizontal: 20, gap: 22, paddingTop: 14 },
-
-  titleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    gap: 20,
   },
-  pageTitle: { fontSize: 22, fontWeight: '800', color: C.text, letterSpacing: 0.2 },
-  pageSub: { fontSize: 13, color: C.textMut, marginTop: 3 },
 
   sectionLabel: {
     fontSize: 10, fontWeight: '700', letterSpacing: 1.5,
     color: C.textDim, marginBottom: 10,
   },
 
-  loadCenter: { alignItems: 'center', paddingVertical: 80 },
-
-  // Empty State
+  // Empty state
   emptyCard: {
-    backgroundColor: C.surface,
-    borderRadius: 16, borderWidth: 1, borderColor: C.border,
-    padding: 36, alignItems: 'center', gap: 12,
+    backgroundColor: C.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: C.border,
+    padding: 32, alignItems: 'center', gap: 10,
   },
-  emptyIconWrap: {
-    width: 72, height: 72, borderRadius: 36,
+  emptyIcon: {
+    width: 68, height: 68, borderRadius: 34,
     backgroundColor: C.elevated,
     alignItems: 'center', justifyContent: 'center', marginBottom: 4,
   },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: C.textSec },
-  emptySub: { fontSize: 13, color: C.textMut, textAlign: 'center', lineHeight: 19 },
+  emptySub:   { fontSize: 13, color: C.textMut, textAlign: 'center', lineHeight: 19 },
   emptyBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: C.accent, borderRadius: 12,
-    paddingVertical: 12, paddingHorizontal: 24, marginTop: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: C.orange, borderRadius: 12,
+    paddingVertical: 11, paddingHorizontal: 22, marginTop: 6,
     ...Platform.select({
-      ios: { shadowColor: C.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12 },
+      ios:     { shadowColor: C.orange, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 12 },
       android: { elevation: 4 },
     }),
   },
-  emptyBtnText: { fontSize: 14, fontWeight: '700', color: C.bg },
+  emptyBtnText: { fontSize: 14, fontWeight: '700', color: '#000' },
 
-  // Progress Card
-  progressCard: {
-    backgroundColor: C.surface,
-    borderRadius: 16, 
-    borderWidth: 1, 
-    borderColor: '#2A2A35',
-    borderLeftWidth: 4,
-    borderLeftColor: C.accent,
-    overflow: 'hidden',
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 24 },
-      android: { elevation: 6 },
-    }),
+  // State cards
+  stateCard: {
+    backgroundColor: C.surface, borderRadius: 16,
+    borderWidth: 1, padding: 28,
+    alignItems: 'center', gap: 14,
   },
-  pcHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-    padding: 18, paddingBottom: 0,
-  },
-  pcServiceName: { fontSize: 17, fontWeight: '700', color: C.text },
-  pcOrderId: { fontSize: 11, fontWeight: '600', color: C.textMut, marginTop: 3, letterSpacing: 0.5 },
-  
-  pcEstDoneWrap: {
-    borderWidth: 1, borderColor: '#333340', borderRadius: 12,
-    paddingHorizontal: 10, paddingVertical: 4,
-  },
-  pcEstDoneText: { fontSize: 9, fontWeight: '700', color: C.textDim, letterSpacing: 0.5 },
-
-  pcStatusRow: { paddingHorizontal: 18, paddingTop: 12 },
-  pcStatusPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(255,107,53,0.1)',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(255,107,53,0.3)',
-  },
-  pcStatusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.accent },
-  pcStatusText: { fontSize: 11, fontWeight: '600', color: C.accent },
-
-  barWrap: { paddingHorizontal: 18, paddingTop: 20, gap: 6 },
-  barTrack: { height: 6, backgroundColor: '#222', borderRadius: 3, overflow: 'hidden' },
-  barFill: { height: '100%', borderRadius: 3, backgroundColor: C.accent },
-  barRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 },
-  barLabel: { fontSize: 10, color: C.textMut },
-  barPct: { fontSize: 10, fontWeight: '700', color: C.accent },
-
-  stepperWrap: {
-    padding: 18, paddingTop: 20,
-    marginTop: 10,
-  },
-
-  timeRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  timeCard: {
-    backgroundColor: '#16161C', borderRadius: 12,
-    padding: 14, borderWidth: 1, borderColor: '#222',
-  },
-  timeLabel: { fontSize: 10, color: C.textMut, fontWeight: '600', letterSpacing: 0.5 },
-  timeValueOrange: { fontSize: 18, fontWeight: '700', color: C.accent, marginTop: 4 },
-  timeValueWhite: { fontSize: 18, fontWeight: '700', color: '#FFF', marginTop: 4 },
-
-  // Pending Technician
-  pendingCard: {
+  stateTitle:    { fontSize: 18, fontWeight: '700', color: C.text },
+  stateSub:      { fontSize: 13, color: C.textMut, textAlign: 'center', lineHeight: 20 },
+  uploadBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: C.surface, borderRadius: 12, borderWidth: 1,
-    borderColor: C.border, paddingVertical: 14, paddingHorizontal: 16,
+    backgroundColor: C.orange, borderRadius: 12,
+    paddingVertical: 13, paddingHorizontal: 20,
+    width: '100%', justifyContent: 'center',
   },
-  pendingText: { fontSize: 12, color: C.textDim },
+  uploadBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
 
-  // Location
-  locationCard: {
-    backgroundColor: C.surface, borderRadius: 12, borderWidth: 1,
-    borderColor: C.border, padding: 14,
+  // Active tracking header
+  headerRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
-  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  locationIcon: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: C.accentDim,
+  etaPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.orangeDim, borderWidth: 1, borderColor: C.orangeBrd,
+    borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5,
+  },
+  etaText: { fontSize: 11, fontWeight: '700', color: C.orange },
+
+  stepCounter: {
+    fontSize: 12, fontWeight: '600', color: C.textDim, letterSpacing: 0.5,
+    marginTop: -8,
+  },
+
+  // Ring
+  ringWrap: { alignItems: 'center' },
+
+  // Vehicle card
+  vehicleCard: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: C.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: C.border, padding: 14,
+  },
+  vehicleIcon: {
+    width: 34, height: 34, borderRadius: 10,
+    backgroundColor: C.orangeDim,
     alignItems: 'center', justifyContent: 'center',
   },
-  locationName: { fontSize: 13, fontWeight: '600', color: C.text },
-  locationAddr: { fontSize: 11, color: C.textMut, marginTop: 1 },
-
-  // Media & Documentation
-  docCard: {
-    backgroundColor: C.surfaceAlt, borderRadius: 12, borderWidth: 1,
-    borderColor: C.border, borderStyle: 'dashed', padding: 24,
-    alignItems: 'center', justifyContent: 'center',
+  vehicleText: { fontSize: 14, fontWeight: '600', color: C.text, flex: 1, marginLeft: 0 },
+  teamBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.greenDim, borderWidth: 1, borderColor: C.greenBrd,
+    borderRadius: 12, paddingHorizontal: 9, paddingVertical: 4,
   },
-  docEmptyContent: { alignItems: 'center', gap: 6 },
-  docEmptyTitle: { fontSize: 13, fontWeight: '700', color: C.textSec },
-  docEmptySub: { fontSize: 11, color: C.textMut, textAlign: 'center', lineHeight: 16, paddingHorizontal: 12 },
+  teamText: { fontSize: 11, fontWeight: '700', color: C.green },
 
-  // Bottom Actions
-  actionRow: { flexDirection: 'row', gap: 10 },
+  // Timeline
+  timeline: { gap: 0 },
+
+  // Quick actions
+  actionsRow: { flexDirection: 'row', gap: 10 },
   actionBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     backgroundColor: C.surface, borderRadius: 12, borderWidth: 1,
-    borderColor: C.border, paddingVertical: 13,
+    borderColor: C.border, paddingVertical: 12,
   },
-  actionText: { fontSize: 12, fontWeight: '600', color: C.textSec },
+  actionText: { fontSize: 12, fontWeight: '600', color: C.textMut },
+
+  // Fixed bottom bar
+  bottomBar: {
+    position: 'absolute',
+    bottom: TabBarHeight,
+    left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: C.surface,
+    borderTopWidth: 1, borderTopColor: C.border,
+    paddingHorizontal: 22, paddingTop: 13,
+    ...Platform.select({
+      ios:     { shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.18, shadowRadius: 14 },
+      android: { elevation: 8 },
+    }),
+  },
+  bottomTitle: { fontSize: 13, fontWeight: '800', color: C.text },
+  bottomSub:   { fontSize: 11, color: C.textMut, marginTop: 1 },
+  bottomPill: {
+    backgroundColor: C.orangeDim, borderWidth: 1, borderColor: C.orangeBrd,
+    borderRadius: 20, paddingHorizontal: 13, paddingVertical: 6,
+  },
+  bottomPillText: { fontSize: 12, fontWeight: '700', color: C.orange },
 });

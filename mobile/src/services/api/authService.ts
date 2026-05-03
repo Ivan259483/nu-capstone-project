@@ -171,11 +171,8 @@ const exchangeTokenForRegistration = async (
   email: string,
   password: string
 ): Promise<{ token: string; user: BackendUser }> => {
-  // The signup screen already verifies OTP before calling registerWithEmail.
-  // So we first ensure the backend user exists (via /auth/register),
-  // then obtain the JWT via /auth/social-login (which handles both new and existing users).
-
-  // Step 1: Register in MongoDB (creates the user record, returns requiresOtp or success)
+  // Used only for Google/Apple OAuth paths where we have a real Firebase user.
+  // Email/password registration now uses loginEmailDirect instead.
   try {
     await apiClient.post('/auth/register', {
       name,
@@ -185,20 +182,33 @@ const exchangeTokenForRegistration = async (
       firebaseUid: firebaseUser.uid,
     });
   } catch (regErr: any) {
-    // 409 Conflict = user already exists (e.g. re-registration after OTP) — that's OK
     const status = regErr?.response?.status;
-    if (status !== 409) {
-      // Other errors (500, network, etc.) should propagate
-      throw regErr;
-    }
+    if (status !== 409) throw regErr;
     console.warn('[Auth] /auth/register returned 409 (user exists) — continuing with social-login');
   }
 
-  // Step 2: Authenticate the newly-created (or already-existing) user via social-login
-  // This returns the JWT and user object regardless of OTP state,
-  // because Firebase authentication is already the source of truth.
   if (__DEV__) console.log('[Auth] Registration complete → obtaining JWT via social-login');
   return socialLogin(firebaseUser);
+};
+
+/**
+ * Direct email/password login — calls POST /api/auth/login.
+ * Used for OTP-registered users who have no Firebase account.
+ * Handles both response shapes: { token, user } and { data: { token, user } }.
+ */
+const loginEmailDirect = async (
+  email: string,
+  password: string
+): Promise<{ token: string; user: BackendUser }> => {
+  const response = await apiClient.post('/auth/login', { email, password });
+  const d = response?.data;
+  // Backend returns either { success, token, user } or { success, data: { token, user } }
+  const token: string = d?.data?.token || d?.token;
+  const rawUser: any = d?.data?.user || d?.user;
+  if (!token || !rawUser) {
+    throw new Error('Login response is missing token or user data.');
+  }
+  return { token, user: normalizeBackendUser(rawUser) };
 };
 
 export const authService = {
@@ -210,6 +220,45 @@ export const authService = {
   async verifyOtp(email: string, otp: string): Promise<{ success: boolean; message: string }> {
     const response = await apiClient.post('/auth/verify-otp', { email, otp });
     return response.data;
+  },
+
+  /**
+   * Email/password login — calls POST /api/auth/login directly (no Firebase).
+   * This is the correct path for OTP-registered users and any user without a
+   * Firebase account. Social (Google/Apple) users go through loginWithGoogle instead.
+   */
+  async loginWithEmailPassword(email: string, password: string): Promise<{
+    token: string;
+    backendUser: BackendUser;
+  }> {
+    const { token, user } = await loginEmailDirect(email, password);
+    await persistSession(token, user);
+    return { token, backendUser: user };
+  },
+
+  /**
+   * Email/password registration (OTP already verified before calling this).
+   * Creates the MongoDB account then immediately logs in to obtain a JWT.
+   * Does NOT create a Firebase account — email users are purely backend-authenticated.
+   */
+  async registerWithEmail(name: string, email: string, password: string): Promise<{
+    token: string;
+    backendUser: BackendUser;
+  }> {
+    // Step 1: Create backend account
+    try {
+      await apiClient.post('/auth/register', { name, email, password, role: DEFAULT_ROLE });
+    } catch (err: any) {
+      // 409 = user already exists (OTP re-verification race) — safe to continue
+      if (err?.response?.status !== 409) throw err;
+      console.warn('[Auth] /auth/register 409 (user exists) — proceeding to login');
+    }
+
+    // Step 2: Login to get JWT (password is still in memory from the form)
+    if (__DEV__) console.log('[Auth] Registration complete → logging in directly');
+    const { token, user } = await loginEmailDirect(email, password);
+    await persistSession(token, user);
+    return { token, backendUser: user };
   },
 
   async preFlightLogin(email: string, password: string): Promise<{ success: boolean; message?: string }> {
@@ -247,7 +296,7 @@ export const authService = {
       ) {
         if (__DEV__) console.log('[Auth] Attempting Firebase recovery via backend...');
         try {
-          const recoveryResponse = await apiClient.post('/auth/recover-firebase', { email, password });
+          const recoveryResponse = await apiClient.post('/auth/recover-firebase', { email, password }, { timeout: 8000 });
           const recoveryData = recoveryResponse?.data;
           if (__DEV__) console.log('[Auth] recover-firebase response:', recoveryData?.success, '| needsClientCreate:', recoveryData?.data?.needsClientCreate);
 
@@ -331,44 +380,12 @@ export const authService = {
     };
   },
 
-  async registerWithEmail(name: string, email: string, password: string): Promise<{
-    firebaseUser: FirebaseUser;
-    token: string;
-    backendUser: BackendUser;
-  }> {
-    let firebaseUser: FirebaseUser;
-    try {
-      const credentials = await createUserWithEmailAndPassword(auth, email, password);
-      firebaseUser = credentials.user;
-    } catch (firebaseError: any) {
-      throw new Error(getFirebaseAuthErrorMessage(firebaseError));
-    }
-
-    if (name.trim()) {
-      await updateProfile(firebaseUser, { displayName: name.trim() });
-    }
-
-    const authPayload = await exchangeTokenForRegistration(
-      firebaseUser,
-      name.trim() || safeNameFromEmail(email),
-      email,
-      password
-    );
-    await persistSession(authPayload.token, authPayload.user);
-
-    let syncedUser = authPayload.user;
-    try {
-      syncedUser = await syncUserWithMongo(firebaseUser, authPayload.user);
-      await persistSession(authPayload.token, syncedUser);
-    } catch (error) {
-      console.warn('Mongo user sync failed during registration:', getApiErrorMessage(error));
-    }
-
-    return {
-      firebaseUser,
-      token: authPayload.token,
-      backendUser: syncedUser,
-    };
+  /**
+   * Change password for email/password users — calls POST /api/auth/change-password.
+   * Requires a valid JWT in authStorage (set automatically by apiClient interceptor).
+   */
+  async changePasswordDirect(currentPassword: string, newPassword: string): Promise<void> {
+    await apiClient.post('/auth/change-password', { currentPassword, newPassword });
   },
 
   /**

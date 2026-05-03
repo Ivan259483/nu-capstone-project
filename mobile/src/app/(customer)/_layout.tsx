@@ -99,9 +99,15 @@ function TabBarButton({
   );
 }
 
+const VISIBLE_TAB_NAMES = new Set(['index', 'book', 'track', 'scan', 'settings']);
+
 function CustomTabBar({ state, navigation }: any) {
-  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+
+  const visibleRoutes = (state.routes as any[]).filter((r) =>
+    VISIBLE_TAB_NAMES.has(r.name)
+  );
+  const activeRouteName = (state.routes as any[])[state.index]?.name as string;
 
   return (
     <View
@@ -129,8 +135,8 @@ function CustomTabBar({ state, navigation }: any) {
         ]}
       />
       <View style={styles.tabBarInner}>
-        {state.routes.map((route: any, index: number) => {
-          const isFocused = state.index === index;
+        {visibleRoutes.map((route) => {
+          const isFocused = activeRouteName === route.name;
           const onPress = () => {
             if (!isFocused) {
               navigation.navigate(route.name);
@@ -164,11 +170,22 @@ export default function TabLayout() {
           freezeOnBlur: true,
         }}
       >
+        {/* ── Visible bottom tabs (5 total) ───────────────────────────── */}
         <Tabs.Screen name="index" options={{ title: 'Home' }} />
         <Tabs.Screen name="book" options={{ title: 'Book' }} />
         <Tabs.Screen name="track" options={{ title: 'Tracker' }} />
         <Tabs.Screen name="scan" options={{ title: 'AI Scan' }} />
         <Tabs.Screen name="settings" options={{ title: 'Profile' }} />
+
+        {/* ── Hidden routes — prevent Expo Router from inserting them as
+             visible tabs when file-system discovery picks them up. ------- */}
+        <Tabs.Screen name="scan/index"     options={{ href: null }} />
+        <Tabs.Screen name="scan/analyzing" options={{ href: null }} />
+        <Tabs.Screen name="scan/results"   options={{ href: null }} />
+        <Tabs.Screen name="scan/ar-view"   options={{ href: null }} />
+        <Tabs.Screen name="scan/estimate"  options={{ href: null }} />
+        <Tabs.Screen name="scan/confirm"   options={{ href: null }} />
+        <Tabs.Screen name="ai-scan"        options={{ href: null }} />
       </Tabs>
 
       {/* Floating Ask AI button — appears on all customer tabs */}

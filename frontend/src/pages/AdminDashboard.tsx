@@ -681,8 +681,8 @@ export default function AdminDashboard() {
         // 1. Initial robust fetch directly from DB
         fetchBookingsFromMongo();
 
-        // 2. Poll every 30s to ensure near real-time sync if sockets fail
-        const pid = window.setInterval(fetchBookingsFromMongo, 30000);
+        // 2. Poll every 60s as last-resort backup (sockets maintain live state)
+        const pid = window.setInterval(fetchBookingsFromMongo, 60_000);
 
         return () => window.clearInterval(pid);
     }, [fetchBookingsFromMongo, needsBookingsData, user]);

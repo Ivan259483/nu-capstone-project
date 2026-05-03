@@ -1,6 +1,8 @@
 import axios, { type AxiosError, type AxiosRequestConfig } from 'axios';
 import { API_BASE_URL } from '@/config/env';
 import { authStorage } from '@/services/storage/authStorage';
+import { enqueueRequest } from '../offlineQueue';
+import { Toast } from '@/components/ui/PremiumToast';
 
 // ── Axios client ─────────────────────────────────────────────────────
 export const apiClient = axios.create({
@@ -23,9 +25,6 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
-import { enqueueRequest } from '../offlineQueue';
-import { Toast } from '@/components/ui/PremiumToast';
-
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<{ message?: string }>) => {
@@ -34,8 +33,33 @@ apiClient.interceptors.response.use(
     if (__DEV__) {
       const status = error.response?.status;
       const url = `${config?.baseURL || ''}${config?.url || ''}`;
+      const path = config?.url || '';
+      const method = config?.method?.toLowerCase();
       const msg = (error.response?.data as any)?.message || error.message;
-      console.error(`[API] ERROR ${status || 'NETWORK'} ${config?.method?.toUpperCase()} ${url} \u2014 ${msg}`);
+      const headers: any = config?.headers || {};
+      const authHeader =
+        typeof headers.get === 'function'
+          ? headers.get('Authorization') || headers.get('authorization')
+          : headers.Authorization || headers.authorization;
+
+      const isLogoutWithoutToken =
+        status === 401 &&
+        method === 'post' &&
+        path.includes('/auth/logout') &&
+        !authHeader;
+
+      const isSocialLoginMiss =
+        status === 404 &&
+        method === 'post' &&
+        path.includes('/auth/social-login');
+
+      if (isLogoutWithoutToken || isSocialLoginMiss) {
+        // Expected auth edge cases: keep rejecting, but do not flood the console.
+      } else if (!error.response) {
+        console.warn(`[API] WARN NETWORK ${config?.method?.toUpperCase()} ${url} \u2014 ${msg}`);
+      } else {
+        console.error(`[API] ERROR ${status || 'NETWORK'} ${config?.method?.toUpperCase()} ${url} \u2014 ${msg}`);
+      }
     }
 
     // \u2500\u2500 Auto-retry on network errors (max 1 retry) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500

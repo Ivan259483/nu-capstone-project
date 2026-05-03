@@ -154,15 +154,21 @@ export default function VehiclesScreen() {
   // ── Add vehicle mutation ──
   const addMutation = useMutation({
     mutationFn: vehicleService.addVehicle,
-    onSuccess: () => {
+    onSuccess: ({ alreadyOwned }) => {
       queryClient.invalidateQueries({ queryKey: ['my-vehicles'] });
-      Toast.show('Vehicle added successfully!', 'success');
+      Toast.show(alreadyOwned ? 'Already in your list!' : 'Vehicle added successfully!', 'success');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       resetForm();
       setModalVisible(false);
     },
     onError: (error: any) => {
-      Toast.show(error.message || 'Failed to add vehicle', 'error');
+      const code = error?.response?.data?.code;
+      const msg = error?.response?.data?.message || error.message || 'Failed to add vehicle';
+      if (code === 'PLATE_TAKEN' || msg.toLowerCase().includes('another account')) {
+        Toast.show('Plate already registered to another account', 'error');
+      } else {
+        Toast.show(msg, 'error');
+      }
     },
   });
 

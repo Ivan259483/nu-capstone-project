@@ -45,6 +45,13 @@ router.delete('/account', authenticate, authController.deleteAccount);
 router.post('/set-password', authenticate, authController.setPassword);
 
 /**
+ * @route POST /api/auth/change-password
+ * @desc  Authenticated user changes their own password (requires current password)
+ * @access Private (JWT required)
+ */
+router.post('/change-password', authenticate, authController.changePassword);
+
+/**
  * @route POST /api/auth/create-staff
  * @desc Admin creates a new staff account
  * @access Private — administrator, office_admin, operation_manager, hr only

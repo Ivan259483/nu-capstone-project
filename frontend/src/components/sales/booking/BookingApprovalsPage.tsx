@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { createPortal } from 'react-dom';
 import { X, Search, CheckCircle2, XCircle, Clock, Calendar, Car, Image as ImageIcon, TrendingUp, ShieldCheck, RefreshCw } from 'lucide-react';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
+import { normalizeBooking } from '@/lib/order-service';
 
 const DOWNPAYMENT = 500;
 
@@ -378,38 +379,72 @@ export default function BookingApprovalsPage() {
     setLoading(false);
   }, []);
 
+  const APPROVAL_STATUSES = ['pending_confirmation', 'approved', 'rejected'];
+
   useEffect(() => {
     fetchAll();
 
-    // ── 10s backup polling — ensures demo stays fresh even if socket drops ──
+    // ── 60s backup polling — true last-resort if socket is silent ────────
     const interval = setInterval(() => {
-      // Silent fetch: re-use fetchAll but skip the loading spinner after first load
       import('@/lib/order-service').then(({ OrderService }) =>
         OrderService.getAllOrders({ suppressErrorToast: true }).then(res => {
           if (res.success && Array.isArray(res.data)) {
             setAllBookings(res.data.filter((o: any) =>
-              ['pending_confirmation', 'approved', 'rejected'].includes(o.status)
+              APPROVAL_STATUSES.includes(o.status)
             ));
           }
         })
       ).catch(() => {});
-    }, 10_000);
+    }, 60_000);
 
-    // ── Shared socket: instant update on any orders change ───────────────
+    // ── Shared socket: instant state patch from fullDocument ──────────────
+    // No HTTP call — we use the document already embedded in the socket event.
     const socket = getSharedSocket();
     const handleDbChange = (payload: any) => {
-      if (payload.collection === 'orders') {
-        console.log('[BookingApprovals] db_change orders → silent refetch');
+      if (payload.collection !== 'orders') return;
+
+      const { operationType, documentKey, fullDocument } = payload;
+
+      // Fallback to HTTP only if fullDocument is absent
+      if (!fullDocument && operationType !== 'delete') {
+        console.warn('[BookingApprovals] db_change missing fullDocument — fallback HTTP fetch');
         import('@/lib/order-service').then(({ OrderService }) =>
           OrderService.getAllOrders({ suppressErrorToast: true }).then(res => {
             if (res.success && Array.isArray(res.data)) {
-              setAllBookings(res.data.filter((o: any) =>
-                ['pending_confirmation', 'approved', 'rejected'].includes(o.status)
-              ));
+              setAllBookings(res.data.filter((o: any) => APPROVAL_STATUSES.includes(o.status)));
             }
           })
         ).catch(() => {});
+        return;
       }
+
+      const docId = String(fullDocument?._id || documentKey?._id || '');
+
+      if (operationType === 'delete') {
+        setAllBookings(prev => prev.filter(b => String(b._id || b.id) !== docId));
+        console.log('[BookingApprovals] db_change delete → removed', docId);
+        return;
+      }
+
+      const normalized = normalizeBooking(fullDocument);
+      const inScope = APPROVAL_STATUSES.includes(normalized.status ?? '');
+
+      setAllBookings(prev => {
+        const existsAt = prev.findIndex(b => String(b._id || b.id) === docId);
+        if (!inScope) {
+          // Status moved out of approval scope (e.g. confirmed) — remove it
+          return existsAt >= 0 ? prev.filter((_, i) => i !== existsAt) : prev;
+        }
+        if (existsAt >= 0) {
+          // Update existing
+          const next = [...prev];
+          next[existsAt] = { ...normalized, _id: fullDocument._id };
+          return next;
+        }
+        // New document in scope — prepend
+        return [{ ...normalized, _id: fullDocument._id }, ...prev];
+      });
+      console.log('[BookingApprovals] db_change', operationType, '→ patched', docId);
     };
     socket.on('db_change', handleDbChange);
 

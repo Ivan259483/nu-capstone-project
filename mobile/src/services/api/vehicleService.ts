@@ -13,6 +13,9 @@ const toVehicle = (raw: any): Vehicle => ({
   model: raw?.model || '',
   color: raw?.color,
   plateNumber: raw?.plateNumber || '',
+  vehicleType: raw?.vehicleType,
+  transmission: raw?.transmission,
+  fuelType: raw?.fuelType,
   customer: raw?.customer,
 });
 
@@ -29,10 +32,16 @@ export const vehicleService = {
     model: string;
     color?: string;
     plateNumber: string;
-  }): Promise<Vehicle> {
+    vehicleType?: string;
+    transmission?: string;
+    fuelType?: string;
+  }): Promise<{ vehicle: Vehicle; alreadyOwned: boolean }> {
     const response = await apiClient.post<ApiEnvelope<any>>('/customers/vehicles', params);
-    invalidateCache(VEHICLES_URL); // bust cache so next fetch is fresh
-    return toVehicle(response.data.data);
+    invalidateCache(VEHICLES_URL);
+    // 200 = plate already belonged to this customer (idempotent return)
+    // 201 = freshly created
+    const alreadyOwned = response.status === 200;
+    return { vehicle: toVehicle(response.data.data), alreadyOwned };
   },
 
   async deleteVehicle(vehicleId: string): Promise<void> {

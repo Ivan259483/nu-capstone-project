@@ -51,6 +51,9 @@ export interface Vehicle {
   model: string;
   color?: string;
   plateNumber: string;
+  vehicleType?: string;
+  transmission?: string;
+  fuelType?: string;
   customer?: string;
 }
 

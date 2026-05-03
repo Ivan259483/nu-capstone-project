@@ -495,15 +495,26 @@ export const register = async (req, res, next) => {
       }
     }
 
-    // Create new PENDING customer account
+    // Check if the email's OTP was already verified by the client BEFORE calling /register
+    // (mobile flow: send-otp → verify-otp → register → login, all in sequence).
+    // If so, create the account as already-verified so the immediately-following /login
+    // call succeeds without requiring a second OTP round-trip.
+    const preVerifiedOtp = await OTP.findOne({
+      email,
+      verified: true,
+      expiresAt: { $gt: new Date() },
+    });
+    const isPreVerified = !!preVerifiedOtp;
+
+    // Create new customer account (verified if OTP was pre-validated, pending otherwise)
     const user = new User({
       name,
       email,
       password, // hashed by pre-save hook
       role: 'customer',
-      isVerified: false,
+      isVerified: isPreVerified,
       isActive: true,
-      status: 'pending',
+      status: isPreVerified ? 'active' : 'pending',
       ...(linkedFirebaseUid ? { firebaseUid: linkedFirebaseUid } : {}),
     });
 
@@ -520,36 +531,46 @@ export const register = async (req, res, next) => {
 
     await user.save();
 
-    // Generate & send OTP
-    const otp = generateOTP(config.otpLength);
-    await OTP.deleteMany({ email });
-    await OTP.create({
-      email,
-      otp,
-      expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
-      attempts: 0,
-      maxAttempts: 5,
-      verified: false,
-    });
+    if (isPreVerified) {
+      // OTP was already verified before /register was called (mobile flow).
+      // Clean up the used OTP record and skip sending another email.
+      await OTP.deleteMany({ email });
+      console.log(`✅ [Register] Account for ${email} created as pre-verified (mobile OTP flow)`);
+      sendWelcomeEmail(email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
+    } else {
+      // Traditional web flow: user registers first, then verifies email.
+      const otp = generateOTP(config.otpLength);
+      await OTP.deleteMany({ email });
+      await OTP.create({
+        email,
+        otp,
+        expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
+        attempts: 0,
+        maxAttempts: 5,
+        verified: false,
+      });
 
-    if (process.env.NODE_ENV === 'development') console.log(`🔑 [Register] OTP for ${email}: ${otp}`);
+      if (process.env.NODE_ENV === 'development') console.log(`🔑 [Register] OTP for ${email}: ${otp}`);
 
-    const emailResult = await sendOtpEmail(email, otp);
-    if (!emailResult.success) {
-      console.error('❌ OTP email failed:', emailResult.error);
-      // Don't fail registration — dev can get OTP from console
+      const emailResult = await sendOtpEmail(email, otp);
+      if (!emailResult.success) {
+        console.error('❌ OTP email failed:', emailResult.error);
+      }
     }
 
     logActivity({
       userId: user._id, userName: user.name || email, userRole: user.role,
       type: 'customer_registered', module: 'Auth', action: 'User Registered',
-      description: `New customer account created: ${user.name || email}. Awaiting OTP verification.`, status: 'success',
+      description: `New customer account created: ${user.name || email}. ${isPreVerified ? 'Pre-verified via OTP.' : 'Awaiting OTP verification.'}`,
+      status: 'success',
     });
 
     res.status(201).json({
       success: true,
-      message: 'Account created! Please check your email for a verification code.',
-      data: { email, requiresOtp: true },
+      message: isPreVerified
+        ? 'Account created successfully.'
+        : 'Account created! Please check your email for a verification code.',
+      data: { email, requiresOtp: !isPreVerified },
     });
   } catch (error) {
     console.error('❌ Registration Error:', error);
@@ -1501,6 +1522,62 @@ export const setPassword = async (req, res) => {
 };
 
 /**
+ * Change Password (authenticated user changes their own password)
+ * POST /api/auth/change-password
+ * Requires: Bearer token
+ */
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user?.id;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Current password and new password are required.' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user || user.isDeleted || !user.isActive) {
+      return res.status(403).json({ success: false, message: 'Account not accessible.' });
+    }
+
+    // Verify current password
+    const isValid = await user.comparePassword(currentPassword);
+    if (!isValid) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect.' });
+    }
+
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ success: false, message: 'New password must be different from current password.' });
+    }
+
+    // Enforce same password policy as registration
+    const passwordErrors = [];
+    if (newPassword.length < 8) passwordErrors.push('at least 8 characters');
+    if (!/[A-Z]/.test(newPassword)) passwordErrors.push('one uppercase letter');
+    if (!/[a-z]/.test(newPassword)) passwordErrors.push('one lowercase letter');
+    if (!/[0-9]/.test(newPassword)) passwordErrors.push('one number');
+    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(newPassword)) passwordErrors.push('one special character');
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({ success: false, message: `Password must contain: ${passwordErrors.join(', ')}` });
+    }
+
+    user.password = newPassword; // hashed by pre-save hook
+    await user.save();
+
+    logActivity({
+      userId: user._id, userName: user.name || user.email, userRole: user.role,
+      type: 'password_changed', module: 'Auth', action: 'Change Password',
+      description: `${user.name || user.email} changed their account password.`, status: 'success',
+    });
+
+    res.json({ success: true, message: 'Password changed successfully.' });
+  } catch (error) {
+    console.error('❌ [changePassword] Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to change password.', error: error.message });
+  }
+};
+
+/**
  * Resend OTP (registration / account verification)
  * POST /api/auth/resend-otp
  */
@@ -1616,6 +1693,18 @@ export const recoverFirebase = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
     }
 
+    // ── Helper: wrap Admin SDK calls with a timeout ─────────────────────────
+    // Firebase Admin SDK calls can hang indefinitely if credentials are
+    // misconfigured or the server can't reach Google APIs. This prevents
+    // the mobile client from timing out with no response.
+    const withAdminTimeout = (promise, ms = 8000) =>
+      Promise.race([
+        promise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(Object.assign(new Error('ADMIN_SDK_TIMEOUT'), { code: 'admin/timeout' })), ms)
+        ),
+      ]);
+
     if (admin.apps.length === 0) {
       // ── Fallback: Firebase Admin SDK not configured ─────────────────────
       // Password is valid in MongoDB. Tell the mobile client to create the
@@ -1647,20 +1736,37 @@ export const recoverFirebase = async (req, res) => {
     // Check if a Firebase account already exists
     let firebaseUid = user.firebaseUid;
     try {
-      const existingFbUser = await admin.auth().getUserByEmail(email);
+      const existingFbUser = await withAdminTimeout(admin.auth().getUserByEmail(email));
       firebaseUid = existingFbUser.uid;
       console.log(`[recoverFirebase] Firebase account already exists for ${email} (uid: ${firebaseUid})`);
     } catch (fbErr) {
       if (fbErr.code === 'auth/user-not-found') {
         // Create a new Firebase Auth account with the same password
-        const newFbUser = await admin.auth().createUser({
-          email,
-          password,
-          displayName: user.name,
-          emailVerified: true,
-        });
-        firebaseUid = newFbUser.uid;
-        console.log(`[recoverFirebase] ✅ Restored Firebase account for ${email} (uid: ${firebaseUid})`);
+        try {
+          const newFbUser = await withAdminTimeout(admin.auth().createUser({
+            email,
+            password,
+            displayName: user.name,
+            emailVerified: true,
+          }));
+          firebaseUid = newFbUser.uid;
+          console.log(`[recoverFirebase] ✅ Restored Firebase account for ${email} (uid: ${firebaseUid})`);
+        } catch (createErr) {
+          if (createErr.code === 'admin/timeout') {
+            // Admin SDK hung on createUser — fall back to client-side creation
+            console.warn(`[recoverFirebase] Admin SDK createUser timed out for ${email} — instructing client-side create`);
+            if (!user.isVerified) { user.isVerified = true; await user.save(); }
+            const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, config.jwtSecret, { expiresIn: '7d' });
+            return res.json({ success: true, needsClientCreate: true, message: 'MongoDB credentials valid. Please create Firebase account on device.', data: { token, needsClientCreate: true, userName: user.name } });
+          }
+          throw createErr;
+        }
+      } else if (fbErr.code === 'admin/timeout') {
+        // Admin SDK hung on getUserByEmail — fall back to client-side creation
+        console.warn(`[recoverFirebase] Admin SDK getUserByEmail timed out for ${email} — instructing client-side create`);
+        if (!user.isVerified) { user.isVerified = true; await user.save(); }
+        const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, config.jwtSecret, { expiresIn: '7d' });
+        return res.json({ success: true, needsClientCreate: true, message: 'MongoDB credentials valid. Please create Firebase account on device.', data: { token, needsClientCreate: true, userName: user.name } });
       } else {
         throw fbErr;
       }

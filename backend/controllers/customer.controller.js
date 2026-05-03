@@ -211,7 +211,7 @@ export const addVehicle = async (req, res, next) => {
       });
     }
 
-    const { year, make, model, color, plateNumber, vehicleType } = req.body;
+    const { year, make, model, color, plateNumber, vehicleType, transmission, fuelType } = req.body;
     const customerId = req.user.id; // From authenticate middleware
     const normalizedPlate = typeof plateNumber === 'string'
       ? plateNumber.toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -225,14 +225,42 @@ export const addVehicle = async (req, res, next) => {
       });
     }
 
+    const txAllowed = ['', 'Automatic', 'Manual', 'CVT'];
+    const fuelAllowed = ['', 'Gasoline', 'Diesel', 'Electric', 'Hybrid'];
+    const tx = txAllowed.includes(transmission) ? transmission : '';
+    const fuel = fuelAllowed.includes(fuelType) ? fuelType : '';
+
+    // ── Plate uniqueness check (before insert to give a helpful response) ────
+    const existingVehicle = await Vehicle.findOne({ plateNumber: normalizedPlate });
+    if (existingVehicle) {
+      if (existingVehicle.customer.toString() === customerId) {
+        // Same customer — return the existing record instead of an error.
+        // This makes the endpoint idempotent: adding a plate you already own
+        // just hands you back the vehicle rather than failing.
+        return res.status(200).json({
+          success: true,
+          message: 'Vehicle already registered to your account.',
+          data: existingVehicle,
+        });
+      }
+      // Different customer — the plate is genuinely taken
+      return res.status(400).json({
+        success: false,
+        message: 'This plate number is already registered to another account.',
+        code: 'PLATE_TAKEN',
+      });
+    }
+
     const vehicle = new Vehicle({
       customer: customerId,
       year: year || '',
       make: make || '',
       model: model || '',
-      color,
+      color: color || 'Unknown',
       plateNumber: normalizedPlate,
       vehicleType: vehicleType || '',
+      transmission: tx,
+      fuelType: fuel,
     });
 
     await vehicle.save();
@@ -249,10 +277,12 @@ export const addVehicle = async (req, res, next) => {
       data: vehicle,
     });
   } catch (error) {
+    // Fallback for any race-condition duplicate key error that slips past the pre-check
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: 'Vehicle with this plate number already exists',
+        message: 'This plate number is already registered to another account.',
+        code: 'PLATE_TAKEN',
       });
     }
     next(error);
@@ -273,7 +303,7 @@ export const getVehicles = async (req, res, next) => {
     }
 
     const vehicles = await Vehicle.find({ customer: req.user.id })
-      .select('year make model color plateNumber vehicleType customer')
+      .select('year make model color plateNumber vehicleType transmission fuelType customer')
       .lean();
 
     res.json({
@@ -298,8 +328,10 @@ export const updateVehicle = async (req, res, next) => {
       });
     }
 
-    const { year, make, model, color, plateNumber, vehicleType } = req.body;
+    const { year, make, model, color, plateNumber, vehicleType, transmission, fuelType } = req.body;
     const platePattern = /^[A-Z0-9]{4,9}$/;
+    const txAllowed = ['', 'Automatic', 'Manual', 'CVT'];
+    const fuelAllowed = ['', 'Gasoline', 'Diesel', 'Electric', 'Hybrid'];
 
     // Find vehicle first to check ownership
     const vehicle = await Vehicle.findById(req.params.id);
@@ -336,6 +368,12 @@ export const updateVehicle = async (req, res, next) => {
         });
       }
       vehicle.plateNumber = normalizedPlate;
+    }
+    if (transmission !== undefined) {
+      vehicle.transmission = txAllowed.includes(transmission) ? transmission : '';
+    }
+    if (fuelType !== undefined) {
+      vehicle.fuelType = fuelAllowed.includes(fuelType) ? fuelType : '';
     }
 
     await vehicle.save();

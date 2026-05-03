@@ -21,4 +21,9 @@ const notificationSchema = new mongoose.Schema({
   metadata: mongoose.Schema.Types.Mixed
 }, { timestamps: true });
 
+// Per-user targeted notifications, sorted by recency
+notificationSchema.index({ recipientUserId: 1, createdAt: -1 });
+// Role-based broadcast notifications (recipientUserId is null for broadcasts)
+notificationSchema.index({ recipientRole: 1, recipientUserId: 1, createdAt: -1 });
+
 export default mongoose.model('Notification', notificationSchema);

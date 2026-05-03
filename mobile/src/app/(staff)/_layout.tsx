@@ -4,7 +4,7 @@ import { useTheme } from '@/hooks/useThemeContext';
 import { BlurView } from 'expo-blur';
 import { StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LayoutDashboard, Inbox, ListChecks, CheckSquare, User } from '@/components/ui/Icons';
+import { LayoutDashboard, Inbox, ListChecks, CheckSquare, User, Shield } from '@/components/ui/Icons';
 
 export default function StaffTabsLayout() {
   const { colors, isDark } = useTheme();
@@ -54,8 +54,8 @@ export default function StaffTabsLayout() {
       <Tabs.Screen
         name="jobs"
         options={{
-          title: 'Jobs',
-          tabBarIcon: ({ color, size }) => <ListChecks color={color} size={size} />,
+          title: 'QC Review',
+          tabBarIcon: ({ color, size }) => <Shield color={color} size={size} />,
         }}
       />
       <Tabs.Screen

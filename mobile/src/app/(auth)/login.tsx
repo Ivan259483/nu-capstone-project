@@ -161,14 +161,14 @@ export default function LoginScreen() {
             {/* Lock / Attempt Banner */}
             {isLocked && (
               <Animated.View entering={FadeInDown.duration(200)} style={styles.alertBox}>
-                <Ionicons name="lock-closed" size={14} color="#DC2626" />
+                <Ionicons name="lock-closed" size={14} color="#FCA5A5" />
                 <Text style={styles.alertText}> Locked — try again in {lockCountdown || '15:00'}</Text>
               </Animated.View>
             )}
             {!isLocked && loginAttempts > 0 && remainingAttempts !== null && (
               <Animated.View entering={FadeInDown.duration(200)} style={[styles.alertBox, styles.alertWarn]}>
-                <Ionicons name="warning-outline" size={14} color="#B45309" />
-                <Text style={[styles.alertText, { color: '#92400E' }]}> {loginAttempts} failed attempt{loginAttempts !== 1 ? 's' : ''} · {remainingAttempts} remaining</Text>
+                <Ionicons name="warning-outline" size={14} color="#FCD34D" />
+                <Text style={[styles.alertText, { color: '#FCD34D' }]}> {loginAttempts} failed attempt{loginAttempts !== 1 ? 's' : ''} · {remainingAttempts} remaining</Text>
               </Animated.View>
             )}
 
@@ -181,7 +181,7 @@ export default function LoginScreen() {
                 <TextInput
                   style={styles.input}
                   placeholder="name@example.com"
-                  placeholderTextColor="#C0C0C0"
+                  placeholderTextColor="rgba(255,255,255,0.28)"
                   value={email}
                   onChangeText={t => { setEmail(t); setEmailError(''); }}
                   autoCapitalize="none"
@@ -202,13 +202,13 @@ export default function LoginScreen() {
                 <TextInput
                   style={[styles.input, { flex: 1 }]}
                   placeholder="••••••••"
-                  placeholderTextColor="#C0C0C0"
+                  placeholderTextColor="rgba(255,255,255,0.28)"
                   value={password}
                   onChangeText={t => { setPassword(t); setPasswordError(''); }}
                   secureTextEntry={!showPassword}
                 />
                 <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
-                  <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={18} color="#BBBBBB" />
+                  <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={18} color="rgba(255,255,255,0.40)" />
                 </TouchableOpacity>
               </View>
               {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
@@ -279,7 +279,7 @@ export default function LoginScreen() {
                 activeOpacity={0.87}
                 onPress={() => Toast.show('Apple Sign-In coming soon.', 'info')}
               >
-                <Ionicons name="logo-apple" size={18} color="#111" style={{ marginRight: 10 }} />
+                <Ionicons name="logo-apple" size={18} color="#FFFFFF" style={{ marginRight: 10 }} />
                 <Text style={styles.socialBtnText}>Continue with Apple</Text>
               </TouchableOpacity>
 
@@ -303,7 +303,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#0A0A0A',
   },
   scrollContent: {
     flexGrow: 1,
@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
   logoText: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#111111',
+    color: '#FFFFFF',
     letterSpacing: -0.2,
     marginBottom: 20,
   },
@@ -330,38 +330,38 @@ const styles = StyleSheet.create({
     color: '#F97316',
   },
   heading: {
-    fontSize: 26,
+    fontSize: 32,
     fontWeight: '800',
-    color: '#111111',
+    color: '#FFFFFF',
     letterSpacing: -0.5,
     marginBottom: 6,
   },
   subheading: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: 'rgba(255,255,255,0.50)',
     fontWeight: '400',
     lineHeight: 20,
   },
 
-  // Alert banners
+  // Alert banners — dark variants
   alertBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEF2F2',
+    backgroundColor: 'rgba(220,38,38,0.10)',
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: 'rgba(220,38,38,0.25)',
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 18,
   },
   alertWarn: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
+    backgroundColor: 'rgba(180,83,9,0.10)',
+    borderColor: 'rgba(180,83,9,0.25)',
   },
   alertText: {
     fontSize: 13,
-    color: '#991B1B',
+    color: '#FCA5A5',
     fontWeight: '500',
   },
 
@@ -374,35 +374,37 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   label: {
-    fontSize: 13,
+    fontSize: 10,
     fontWeight: '600',
-    color: '#374151',
+    color: 'rgba(255,255,255,0.40)',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
     marginBottom: 8,
     marginTop: 16,
   },
   forgotLink: {
     fontSize: 13,
-    color: '#9CA3AF',
+    color: '#F97316',
     fontWeight: '500',
   },
   inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#E9EAEC',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     borderRadius: 12,
     paddingHorizontal: 14,
-    height: 48,
-    backgroundColor: '#FAFAFA',
+    height: 50,
+    backgroundColor: '#111111',
   },
   inputWrapError: {
-    borderColor: '#F87171',
-    backgroundColor: '#FFF9F9',
+    borderColor: 'rgba(239,68,68,0.70)',
+    backgroundColor: 'rgba(239,68,68,0.06)',
   },
   input: {
     flex: 1,
     fontSize: 15,
-    color: '#111111',
+    color: '#FFFFFF',
     fontWeight: '400',
   },
   eyeBtn: { padding: 4 },
@@ -425,37 +427,37 @@ const styles = StyleSheet.create({
     height: 19,
     borderRadius: 5,
     borderWidth: 1.5,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFF',
+    borderColor: 'rgba(255,255,255,0.20)',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 9,
   },
   checkboxOn: {
-    backgroundColor: '#111111',
-    borderColor: '#111111',
+    backgroundColor: '#F97316',
+    borderColor: '#F97316',
   },
   checkLabel: {
     fontSize: 13,
-    color: '#6B7280',
+    color: 'rgba(255,255,255,0.70)',
     fontWeight: '500',
   },
 
-  // Sign In Button
+  // Sign In Button — orange
   signInBtn: {
     height: 50,
     borderRadius: 13,
-    backgroundColor: '#111111',
+    backgroundColor: '#F97316',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#111',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowColor: '#F97316',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.30,
+    shadowRadius: 10,
+    elevation: 4,
   },
   signInBtnOff: {
-    backgroundColor: '#9CA3AF',
+    backgroundColor: '#1A1A1A',
     shadowOpacity: 0,
   },
   signInBtnText: {
@@ -471,37 +473,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: 20,
   },
-  divLine: { flex: 1, height: 1, backgroundColor: '#F0F0F0' },
+  divLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.10)' },
   divText: {
-    color: '#C4C4C4',
+    color: 'rgba(255,255,255,0.30)',
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: 1.5,
     marginHorizontal: 12,
   },
 
-  // Social Buttons
+  // Social Buttons — dark cards
   socialBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 48,
+    height: 50,
     borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#EBEBEB',
-    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#111111',
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
   },
   googleIconWrap: { marginRight: 10 },
   socialBtnText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1F2937',
+    color: '#FFFFFF',
   },
 
   // Footer
@@ -511,6 +508,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 20,
   },
-  footerText: { fontSize: 13, color: '#9CA3AF' },
-  footerLink: { fontSize: 13, color: '#111111', fontWeight: '700' },
+  footerText: { fontSize: 13, color: 'rgba(255,255,255,0.40)' },
+  footerLink: { fontSize: 13, color: '#F97316', fontWeight: '700' },
 });

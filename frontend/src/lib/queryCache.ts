@@ -19,8 +19,10 @@ const inflight = new Map<string, Promise<AxiosResponse>>();
 
 /** Default TTL values in milliseconds */
 export const TTL = {
-    /** Fast-moving data (orders, bookings) — 5 seconds */
-    SHORT: 5_000,
+    /** Fast-moving data (orders, bookings) — 30s deduplication window.
+     *  Real-time updates are handled by WebSocket db_change events;
+     *  the cache just prevents duplicate HTTP calls on page mount. */
+    SHORT: 30_000,
     /** Semi-static data (services, products) — 30 seconds */
     MEDIUM: 30_000,
     /** Rarely changing data (settings, categories) — 60 seconds */

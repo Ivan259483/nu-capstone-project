@@ -1,24 +1,53 @@
 // ── API URL Resolution ────────────────────────────────────────────────
-// Priority: EXPO_PUBLIC_API_URL env var → fallback production domain
+// Priority:
+//   1. EXPO_PUBLIC_API_URL env var (explicit override)
+//   2. In dev: auto-detect the LAN IP from Expo's debugger host
+//      (whichever IP `expo start` bound to, e.g. 192.168.x.x)
+//   3. Fallback to the production Railway domain
 //
-// ⚠️  DO NOT use "localhost" or "127.0.0.1" here.
-//     Mobile devices can NOT reach your Mac's localhost.
-//     Use your machine's LAN IP (e.g. 192.168.x.x) for local dev,
-//     or deploy to Railway/Render and use the production domain.
-//
-// Local dev: set EXPO_PUBLIC_API_URL=http://192.168.18.164:3000/api in .env
-// Production: set EXPO_PUBLIC_API_URL=https://your-backend.railway.app/api
+// This means swapping Wi-Fi networks or moving between routers
+// "just works" — no .env edits needed for local dev.
+import Constants from 'expo-constants';
 
 const FALLBACK_API_ORIGIN = 'https://nu-capstone-project-production.up.railway.app';
+const DEV_API_PORT = 3000;
 
-const rawApiUrl = (process.env.EXPO_PUBLIC_API_URL || FALLBACK_API_ORIGIN).trim();
-const sanitizedApiUrl = rawApiUrl.replace(/\/+$/, '');
+/**
+ * Pull the host:port that Metro/Expo Dev Server is bound to.
+ * Works across SDK versions (expoConfig, expoGoConfig, manifest2).
+ */
+const getExpoDebuggerHost = (): string | undefined => {
+  const c = Constants as any;
+  return (
+    c.expoConfig?.hostUri ||
+    c.expoGoConfig?.debuggerHost ||
+    c.manifest2?.extra?.expoGo?.debuggerHost ||
+    c.manifest?.debuggerHost ||
+    c.manifest?.hostUri
+  );
+};
+
+const resolveApiOrigin = (): string => {
+  const explicit = process.env.EXPO_PUBLIC_API_URL?.trim();
+  if (explicit) return explicit;
+
+  if (__DEV__) {
+    const host = getExpoDebuggerHost();
+    const ip = host?.split(':')[0];
+    if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
+      return `http://${ip}:${DEV_API_PORT}`;
+    }
+  }
+
+  return FALLBACK_API_ORIGIN;
+};
+
+const sanitizedApiUrl = resolveApiOrigin().replace(/\/+$/, '');
 
 export const API_BASE_URL = sanitizedApiUrl.endsWith('/api')
   ? sanitizedApiUrl
   : `${sanitizedApiUrl}/api`;
 
-// ── Debug: log API URL on startup ────────────────────────────────────
 if (__DEV__) {
   console.log('[Config] API_BASE_URL:', API_BASE_URL);
 }

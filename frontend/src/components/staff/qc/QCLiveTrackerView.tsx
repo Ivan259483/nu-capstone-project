@@ -211,7 +211,6 @@ function JobTrackerCard({ job, onAdvance, onSaveStaff }: {
                     style={isActive ? {
                       borderColor: stage.color,
                       color: stage.color,
-                      ringColor: stage.bg,
                       boxShadow: `0 8px 24px ${stage.dot}40`,
                     } : {}}
                   >

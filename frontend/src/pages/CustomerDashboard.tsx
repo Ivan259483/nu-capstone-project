@@ -260,7 +260,7 @@ export default function CustomerDashboard() {
         const res = await VehicleService.getVehicles();
         if (res.success && Array.isArray(res.data)) {
           // Map backend fields (make/model/year/plateNumber) → frontend shape (name/plate/type)
-          setVehicles(res.data.map((v: any) => ({
+          const mapped = res.data.map((v: any) => ({
             _id: v._id || v.id,
             id: v._id || v.id,
             plate: v.plateNumber || v.plate || '',
@@ -270,7 +270,10 @@ export default function CustomerDashboard() {
             name: [v.year, v.make, v.model].filter(Boolean).join(' ') || v.name || '',
             color: v.color || '',
             type: v.vehicleType || v.type || '',
-          })));
+          }));
+          setVehicles(mapped);
+          // Show onboarding for brand-new customers with no vehicles
+          if (mapped.length === 0) setShowOnboarding(true);
         }
       } catch (err) {
         console.warn('[Garage] Failed to fetch vehicles:', err);
@@ -422,7 +425,9 @@ export default function CustomerDashboard() {
   }, [user]);
 
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
-  const [newVehicle, setNewVehicle] = useState({ plate: '', name: '', color: '', type: '' });
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [newVehicle, setNewVehicle] = useState({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
+  const [newVehicleShowColorInput, setNewVehicleShowColorInput] = useState(false);
   const [vehicleErrors, setVehicleErrors] = useState<Record<string, string>>({});
   const [vehicleApiError, setVehicleApiError] = useState('');
   // Booking Modal
@@ -434,6 +439,8 @@ export default function CustomerDashboard() {
   const [bookingSelectedVehicleIdx, setBookingSelectedVehicleIdx] = useState<number>(-1);
   const [bookingAgreed, setBookingAgreed] = useState(false);
   const [bookingDownpaymentProof, setBookingDownpaymentProof] = useState<string | null>(null);
+  // True when booking was opened from a garage vehicle card (pre-filled, read-only vehicle fields)
+  const [bookingFromVehicle, setBookingFromVehicle] = useState(false);
 
   // Vehicle History Modal
   const [vehicleHistoryOpen, setVehicleHistoryOpen] = useState(false);
@@ -564,14 +571,17 @@ export default function CustomerDashboard() {
       ? vehicles.findIndex(v => (v._id || v.id) === targetId)
       : targetVehicle ? 0 : -1;
     setBookingSelectedVehicleIdx(targetIdx);
+    // Track whether booking was opened FROM a vehicle card (pre-fills & locks vehicle fields)
+    setBookingFromVehicle(!!preSelectedVehicle);
     setBookingForm({
       service: '', serviceName: '', servicePrice: 0,
-      vehicleMake: '',
-      vehicleModel: targetVehicle ? targetVehicle.name : '',
-      vehicleYear: '',
+      // Populate individual vehicle fields from the garage record
+      vehicleMake: targetVehicle ? (targetVehicle.make || '') : '',
+      vehicleModel: targetVehicle ? (targetVehicle.model || '') : '',
+      vehicleYear: targetVehicle ? (targetVehicle.year || '') : '',
       vehicleColor: targetVehicle ? (targetVehicle.color || '') : '',
-      vehiclePlate: targetVehicle ? targetVehicle.plate : '',
-      contactNo: profile.phone || user?.phone || '',
+      vehiclePlate: targetVehicle ? (targetVehicle.plate || '') : '',
+      contactNo: profile.phone || (user as any)?.phone || '',
       date: '', time: '', notes: '',
     });
   };
@@ -788,29 +798,23 @@ export default function CustomerDashboard() {
     e.preventDefault();
     const errors: Record<string, string> = {};
     const plate = newVehicle.plate.trim();
-    const name = newVehicle.name.trim();
+    const brand = newVehicle.brand.trim();
+    const model = newVehicle.model.trim();
     const type = newVehicle.type.trim();
 
-    // Plate: required, 3-12 alphanumeric/space/hyphen
+    // Plate: required
     if (!plate) {
       errors.plate = 'Plate number is required.';
     } else if (!/^[A-Za-z0-9][A-Za-z0-9 \-]{2,11}$/.test(plate)) {
       errors.plate = 'Enter a valid plate (e.g. ABC 1234).';
     }
-    // Make & Model: at least 2 words, min 5 chars, letters/numbers/spaces/hyphens
-    if (!name) {
-      errors.name = 'Make & Model is required.';
-    } else if (name.length < 5) {
-      errors.name = 'Too short — enter full make and model (e.g. Toyota Camry).';
-    } else if (!/^[A-Za-z0-9][A-Za-z0-9 \-]{3,}$/.test(name)) {
-      errors.name = 'Only letters, numbers, spaces and hyphens allowed.';
-    } else if (name.split(/\s+/).length < 2) {
-      errors.name = 'Enter both make and model (e.g. Toyota Camry).';
+    if (!brand) errors.brand = 'Select a brand.';
+    if (!model) {
+      errors.model = 'Model is required (e.g. Vios, Civic).';
+    } else if (model.length < 2) {
+      errors.model = 'Too short — enter the model name.';
     }
-    // Type: required
-    if (!type) {
-      errors.type = 'Please select a vehicle type.';
-    }
+    if (!type) errors.type = 'Please select a vehicle type.';
 
     if (Object.keys(errors).length > 0) {
       setVehicleErrors(errors);
@@ -821,28 +825,31 @@ export default function CustomerDashboard() {
     setVehicleApiError('');
     try {
       const { VehicleService } = await import('../lib/vehicle-service');
-      // Parse: treat entire name as "make", last word as model if multi-word
-      const parts = name.trim().split(/\s+/);
-      const make = parts.length >= 2 ? parts.slice(0, -1).join(' ') : name;
-      const model = parts.length >= 2 ? parts[parts.length - 1] : name;
-      const year = '';
       const res = await VehicleService.addVehicle({
         plateNumber: plate.toUpperCase(),
-        year,
-        make,
+        year: newVehicle.year || '',
+        make: brand,
         model,
         color: newVehicle.color.trim() || 'Unknown',
         vehicleType: type,
+        transmission: newVehicle.transmission || '',
+        fuelType: newVehicle.fuelType || '',
       });
       if (res.success && res.data) {
         const v = res.data;
+        const displayName = [newVehicle.year, brand, model].filter(Boolean).join(' ');
         setVehicles(prev => [...prev, {
           _id: v._id || v.id,
           id: v._id || v.id,
           plate: v.plateNumber || plate.toUpperCase(),
-          name,
-          color: newVehicle.color.trim(),
+          year: newVehicle.year || '',
+          make: brand,
+          model,
+          name: displayName,
+          color: newVehicle.color.trim() || 'Unknown',
           type,
+          transmission: newVehicle.transmission || '',
+          fuelType: newVehicle.fuelType || '',
         }]);
       } else {
         setVehicleApiError(res.message || 'Failed to add vehicle. Please try again.');
@@ -853,7 +860,8 @@ export default function CustomerDashboard() {
       return;
     }
     setAddVehicleOpen(false);
-    setNewVehicle({ plate: '', name: '', color: '', type: '' });
+    setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
+    setNewVehicleShowColorInput(false);
     setVehicleErrors({});
     setVehicleApiError('');
   };
@@ -1416,13 +1424,7 @@ export default function CustomerDashboard() {
                   Book Service
                 </button>
               )}
-              <button
-                onClick={() => nav('scan')}
-                className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-md font-medium transition-colors shadow-sm"
-              >
-                <iconify-icon icon="solar:scanner-linear" width="18"></iconify-icon>
-                Scan Vehicle
-              </button>
+
 
               <div className="w-px h-6 bg-slate-200 hidden sm:block mx-1"></div>
 
@@ -1756,13 +1758,18 @@ export default function CustomerDashboard() {
                     {/* ── Header ── */}
                     <div className="flex items-center justify-between">
                       <div>
-                        <h2 className="text-[22px] font-semibold text-slate-900 tracking-tight">My Bookings</h2>
-                        <p className="text-sm text-slate-500 mt-0.5">Track and manage all your service appointments</p>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h2 className="text-[24px] font-bold text-slate-900 tracking-tight">My Bookings</h2>
+                          {myBookings.length > 0 && (
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full text-indigo-600" style={{ background: '#eef2ff' }}>{myBookings.length}</span>
+                          )}
+                        </div>
+                        <p className="text-[13px] text-slate-400 font-medium">Track and manage all your service appointments</p>
                       </div>
                       <button
                         onClick={() => openBookingModal()}
-                        className="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl text-sm font-semibold transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
-                        style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 50%, #818cf8 100%)' }}
+                        className="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl text-sm font-semibold transition-all hover:-translate-y-0.5"
+                        style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)', boxShadow: '0 4px 14px rgba(99,102,241,0.4)' }}
                       >
                         <iconify-icon icon="solar:add-circle-bold" width="16"></iconify-icon>
                         New Booking
@@ -1772,39 +1779,51 @@ export default function CustomerDashboard() {
                     {/* ── Stats Summary ── */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       {[
-                        { label: 'Total', count: filterCounts.all, icon: 'solar:notebook-bookmark-linear', color: '#6366f1', bg: '#eef2ff' },
-                        { label: 'Upcoming', count: filterCounts.upcoming, icon: 'solar:clock-circle-linear', color: '#f59e0b', bg: '#fffbeb' },
-                        { label: 'Active', count: filterCounts.active, icon: 'solar:play-circle-linear', color: '#3b82f6', bg: '#eff6ff' },
-                        { label: 'Completed', count: filterCounts.completed, icon: 'solar:check-circle-linear', color: '#10b981', bg: '#f0fdf4' },
+                        { label: 'Total', count: filterCounts.all, icon: 'solar:notebook-bookmark-bold', color: '#fff', iconBg: 'linear-gradient(135deg,#6366f1,#818cf8)', cardBg: 'linear-gradient(135deg,#6366f1,#4f46e5)', text: '#fff', sub: '#c7d2fe' },
+                        { label: 'Upcoming', count: filterCounts.upcoming, icon: 'solar:clock-circle-bold', color: '#fff', iconBg: 'linear-gradient(135deg,#f59e0b,#fbbf24)', cardBg: 'linear-gradient(135deg,#f59e0b,#d97706)', text: '#fff', sub: '#fde68a' },
+                        { label: 'Active', count: filterCounts.active, icon: 'solar:play-circle-bold', color: '#fff', iconBg: 'linear-gradient(135deg,#3b82f6,#60a5fa)', cardBg: 'linear-gradient(135deg,#3b82f6,#2563eb)', text: '#fff', sub: '#bfdbfe' },
+                        { label: 'Completed', count: filterCounts.completed, icon: 'solar:check-circle-bold', color: '#fff', iconBg: 'linear-gradient(135deg,#10b981,#34d399)', cardBg: 'linear-gradient(135deg,#10b981,#059669)', text: '#fff', sub: '#a7f3d0' },
                       ].map(s => (
-                        <div key={s.label} className="bg-white rounded-2xl border border-slate-100 p-4 flex items-center gap-3 shadow-sm hover:shadow-md transition-shadow">
-                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: s.bg }}>
-                            <iconify-icon icon={s.icon} width="20" style={{ color: s.color }}></iconify-icon>
+                        <div key={s.label} className="rounded-2xl p-4 flex items-center gap-3 relative overflow-hidden" style={{ background: s.cardBg, boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}>
+                          <div className="absolute -right-3 -top-3 w-20 h-20 rounded-full opacity-20" style={{ background: 'rgba(255,255,255,0.3)' }} />
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.2)' }}>
+                            <iconify-icon icon={s.icon} width="20" style={{ color: '#fff' }}></iconify-icon>
                           </div>
                           <div>
-                            <p className="text-[22px] font-bold text-slate-900 leading-none">{s.count}</p>
-                            <p className="text-[11px] text-slate-500 font-medium mt-0.5">{s.label}</p>
+                            <p className="text-[26px] font-black leading-none" style={{ color: s.text }}>{s.count}</p>
+                            <p className="text-[11px] font-semibold mt-0.5" style={{ color: s.sub }}>{s.label}</p>
                           </div>
                         </div>
                       ))}
                     </div>
 
                     {/* ── Filter Tabs ── */}
-                    <div className="flex items-center gap-1 bg-white border border-slate-200 p-1.5 rounded-2xl w-fit overflow-x-auto shadow-sm">
+                    <div className="flex items-center gap-1.5 bg-white border border-slate-100 p-1.5 rounded-2xl w-fit overflow-x-auto" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
                       {(['all', 'upcoming', 'active', 'completed', 'cancelled'] as const).map(f => {
-                        const icons = { all: 'solar:layers-linear', upcoming: 'solar:clock-circle-linear', active: 'solar:play-circle-linear', completed: 'solar:check-circle-linear', cancelled: 'solar:close-circle-linear' };
+                        const meta: Record<string, { icon: string; activeGrad: string; activeTxt: string }> = {
+                          all:       { icon: 'solar:layers-bold',        activeGrad: 'linear-gradient(135deg,#4f46e5,#6366f1)', activeTxt: '#fff' },
+                          upcoming:  { icon: 'solar:clock-circle-bold',  activeGrad: 'linear-gradient(135deg,#d97706,#f59e0b)', activeTxt: '#fff' },
+                          active:    { icon: 'solar:play-circle-bold',   activeGrad: 'linear-gradient(135deg,#2563eb,#3b82f6)', activeTxt: '#fff' },
+                          completed: { icon: 'solar:check-circle-bold',  activeGrad: 'linear-gradient(135deg,#059669,#10b981)', activeTxt: '#fff' },
+                          cancelled: { icon: 'solar:close-circle-bold',  activeGrad: 'linear-gradient(135deg,#dc2626,#ef4444)', activeTxt: '#fff' },
+                        };
+                        const m = meta[f];
+                        const isActive = bookingsFilter === f;
                         return (
                           <button
                             key={f}
                             onClick={() => setBookingsFilter(f)}
-                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap capitalize ${bookingsFilter === f ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                              }`}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap capitalize"
+                            style={isActive
+                              ? { background: m.activeGrad, color: m.activeTxt, boxShadow: '0 3px 10px rgba(0,0,0,0.18)' }
+                              : { color: '#64748b' }
+                            }
                           >
-                            <iconify-icon icon={icons[f]} width="14"></iconify-icon>
+                            <iconify-icon icon={m.icon} width="13"></iconify-icon>
                             {f}
                             {filterCounts[f] > 0 && (
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${bookingsFilter === f ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
-                                }`}>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                                style={isActive ? { background: 'rgba(255,255,255,0.25)', color: '#fff' } : { background: '#f1f5f9', color: '#64748b' }}>
                                 {filterCounts[f]}
                               </span>
                             )}
@@ -1882,121 +1901,116 @@ export default function CustomerDashboard() {
                           })();
                           const timeStr = booking.bookingTime || booking.time || '';
                           const serviceIcons: Record<string, string> = {
-                            'exterior': 'solar:washing-machine-linear', 'interior': 'solar:sofa-2-linear',
-                            'paint': 'solar:pallete-2-linear', 'ceramic': 'solar:shield-check-linear',
-                            'engine': 'solar:settings-linear', 'full': 'solar:star-shine-linear',
+                            'exterior': 'solar:washing-machine-bold', 'interior': 'solar:sofa-2-bold',
+                            'paint': 'solar:pallete-2-bold', 'ceramic': 'solar:shield-check-bold',
+                            'engine': 'solar:settings-bold', 'full': 'solar:star-shine-bold',
                           };
                           const svcName = (booking.serviceName || booking.serviceType || '').toLowerCase();
-                          const svcIcon = Object.entries(serviceIcons).find(([k]) => svcName.includes(k))?.[1] || 'solar:car-wash-linear';
+                          const svcIcon = Object.entries(serviceIcons).find(([k]) => svcName.includes(k))?.[1] || 'solar:car-wash-bold';
+                          const vehicleLabel = [booking.vehicleBrand || booking.vehicleMake, booking.vehicleModel].filter(Boolean).join(' ') || booking.vehicleModel || booking.vehicleMake || '';
+                          const plateLabel = booking.vehiclePlate || '';
 
                           return (
                             <div
                               key={bookingId}
-                              className="bg-white rounded-2xl border border-slate-100 overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-[2px] group"
-                              style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03)' }}
+                              className="rounded-3xl overflow-hidden transition-all duration-300 hover:-translate-y-1 group"
+                              style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.1), 0 1px 4px rgba(0,0,0,0.06)' }}
                             >
-                              {/* Cancel confirmation */}
+                              {/* Cancel banner */}
                               {isCancelling && (
-                                <div className="px-6 py-3.5 flex items-center justify-between gap-4" style={{ background: 'linear-gradient(135deg, #fef2f2, #fff1f2)' }}>
+                                <div className="px-5 py-3 flex items-center justify-between gap-4" style={{ background: '#fef2f2', borderBottom: '1px solid #fecaca' }}>
                                   <div className="flex items-center gap-2">
-                                    <iconify-icon icon="solar:danger-triangle-linear" width="16" style={{ color: '#ef4444' }}></iconify-icon>
+                                    <iconify-icon icon="solar:danger-triangle-bold" width="15" style={{ color: '#ef4444' }}></iconify-icon>
                                     <p className="text-sm font-semibold text-red-700">Cancel this booking?</p>
                                   </div>
                                   <div className="flex gap-2">
-                                    <button onClick={() => setCancelConfirmId(null)}
-                                      className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
-                                      Keep it
-                                    </button>
-                                    <button
-                                      onClick={async () => {
-                                        try {
-                                          const { OrderService } = await import('../lib/order-service');
-                                          await (OrderService as any).updateOrder?.(bookingId, { status: 'cancelled' });
-                                          setMyBookings(prev => prev.map(b => (b._id || b.id) === bookingId ? { ...b, status: 'cancelled' } : b));
-                                        } catch { /* silently fail */ }
-                                        setCancelConfirmId(null);
-                                      }}
-                                      className="px-3.5 py-1.5 text-xs font-bold text-white rounded-lg transition-colors shadow-sm"
-                                      style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>
-                                      Yes, cancel
-                                    </button>
+                                    <button onClick={() => setCancelConfirmId(null)} className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">Keep it</button>
+                                    <button onClick={async () => { try { const { OrderService } = await import('../lib/order-service'); await (OrderService as any).updateOrder?.(bookingId, { status: 'cancelled' }); setMyBookings(prev => prev.map(b => (b._id || b.id) === bookingId ? { ...b, status: 'cancelled' } : b)); } catch {} setCancelConfirmId(null); }} className="px-3 py-1.5 text-xs font-bold text-white rounded-lg" style={{ background: '#ef4444' }}>Yes, cancel</button>
                                   </div>
                                 </div>
                               )}
 
-                              <div className="flex">
-                                {/* Status strip — thicker */}
-                                <div className="w-1 shrink-0 rounded-l-2xl" style={{ background: `linear-gradient(to bottom, ${cfg.strip}, ${cfg.strip}88)` }} />
-
-                                <div className="flex-1 p-5 sm:p-6">
-                                  <div className="flex items-start gap-4">
-                                    {/* Service icon */}
-                                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105"
-                                      style={{ background: cfg.bg, border: `1px solid ${cfg.strip}25` }}>
-                                      <iconify-icon icon={svcIcon} width="22" style={{ color: cfg.strip }}></iconify-icon>
+                              {/* ── CARD HEADER (dark themed) ── */}
+                              <div className="relative px-5 pt-5 pb-6 overflow-hidden" style={{ background: `linear-gradient(135deg, #0f172a 0%, #1e293b 60%, ${cfg.strip}33 100%)` }}>
+                                {/* Background blur orb */}
+                                <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full opacity-20 blur-2xl pointer-events-none" style={{ background: cfg.strip }} />
+                                <div className="relative flex items-start justify-between gap-4">
+                                  <div className="flex items-center gap-3">
+                                    {/* Icon */}
+                                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `${cfg.strip}30`, border: `1px solid ${cfg.strip}50` }}>
+                                      <iconify-icon icon={svcIcon} width="21" style={{ color: cfg.strip }}></iconify-icon>
                                     </div>
-
-                                    {/* Info */}
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-2 mb-1.5">
-                                        <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full"
-                                          style={{ background: cfg.bg, color: cfg.color }}>
-                                          {cfg.label}
-                                        </span>
+                                    <div>
+                                      {/* Status pill */}
+                                      <div className="flex items-center gap-1.5 mb-1">
                                         {cfg.dot && (
-                                          <span className="relative flex h-2 w-2">
+                                          <span className="relative flex h-1.5 w-1.5">
                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: cfg.strip }} />
-                                            <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: cfg.strip }} />
+                                            <span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: cfg.strip }} />
                                           </span>
                                         )}
+                                        <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: cfg.strip }}>{cfg.label}</span>
                                       </div>
-                                      <h3 className="font-bold text-slate-900 text-[16px] leading-snug">
+                                      <h3 className="font-bold text-white text-[16px] leading-tight">
                                         {booking.serviceName || booking.serviceType || 'Auto Service'}
                                       </h3>
-                                      <p className="text-[13px] text-slate-500 mt-0.5 flex items-center gap-1.5">
-                                        <iconify-icon icon="solar:car-linear" width="13"></iconify-icon>
-                                        {[booking.vehicleModel || booking.vehicleMake, booking.vehiclePlate].filter(Boolean).join(' · ') || 'Vehicle'}
-                                      </p>
                                     </div>
-
-                                    {/* Price */}
+                                  </div>
+                                  {/* Price */}
+                                  {booking.price && (
                                     <div className="text-right shrink-0">
-                                      <p className="font-black text-slate-900 text-[20px] tracking-tight">
-                                        {booking.price ? `₱${Number(booking.price).toLocaleString()}` : '—'}
-                                      </p>
+                                      <p className="text-[10px] font-semibold uppercase tracking-widest mb-0.5" style={{ color: cfg.strip }}>Amount</p>
+                                      <p className="text-[22px] font-black text-white leading-none tracking-tight">₱{Number(booking.price).toLocaleString()}</p>
                                     </div>
-                                  </div>
+                                  )}
+                                </div>
+                              </div>
 
-                                  {/* Date + Actions footer */}
-                                  <div className="flex items-center justify-between mt-5 pt-4 border-t border-slate-100/80">
-                                    <div className="flex items-center gap-4 text-xs text-slate-500">
-                                      <span className="flex items-center gap-1.5">
-                                        <iconify-icon icon="solar:calendar-linear" width="13" style={{ color: cfg.strip }}></iconify-icon>
-                                        <span className="font-medium">{dateStr}</span>
-                                      </span>
-                                      {timeStr && (
-                                        <span className="flex items-center gap-1.5">
-                                          <iconify-icon icon="solar:clock-circle-linear" width="13" style={{ color: cfg.strip }}></iconify-icon>
-                                          <span className="font-medium">{timeStr}</span>
-                                        </span>
+                              {/* ── TICKET NOTCH DIVIDER ── */}
+                              <div className="relative flex items-center" style={{ background: '#f8fafc' }}>
+                                <div className="absolute -left-3 w-6 h-6 rounded-full bg-white" style={{ boxShadow: 'inset -2px 0 4px rgba(0,0,0,0.06)' }} />
+                                <div className="flex-1 mx-3 border-t-2 border-dashed" style={{ borderColor: '#e2e8f0' }} />
+                                <div className="absolute -right-3 w-6 h-6 rounded-full bg-white" style={{ boxShadow: 'inset 2px 0 4px rgba(0,0,0,0.06)' }} />
+                              </div>
+
+                              {/* ── CARD BODY ── */}
+                              <div className="px-5 pt-4 pb-5 bg-white">
+                                {/* Vehicle + Date row */}
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                  <div>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Vehicle</p>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      {vehicleLabel
+                                        ? <span className="text-[13px] font-semibold text-slate-800">{vehicleLabel}</span>
+                                        : <span className="text-[13px] text-slate-400">—</span>
+                                      }
+                                      {plateLabel && (
+                                        <span className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-md" style={{ background: '#f1f5f9', color: '#475569' }}>{plateLabel}</span>
                                       )}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      {canCancel && (
-                                        <button onClick={() => setCancelConfirmId(bookingId)}
-                                          className="text-xs font-medium text-slate-400 hover:text-red-600 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-all">
-                                          Cancel
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={() => nav('tracker')}
-                                        className="flex items-center gap-1.5 text-xs font-bold text-white px-4 py-2 rounded-xl transition-all hover:-translate-y-0.5 shadow-sm hover:shadow-md"
-                                        style={{ background: `linear-gradient(135deg, ${cfg.strip}, ${cfg.strip}cc)` }}>
-                                        <iconify-icon icon="solar:map-arrow-right-linear" width="13"></iconify-icon>
-                                        Track
-                                      </button>
                                     </div>
                                   </div>
+                                  <div>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Schedule</p>
+                                    <p className="text-[13px] font-semibold text-slate-800">{dateStr}</p>
+                                    {timeStr && <p className="text-[12px] text-slate-500 font-medium">{timeStr}</p>}
+                                  </div>
+                                </div>
+
+                                {/* Actions */}
+                                <div className="flex items-center justify-between">
+                                  {canCancel ? (
+                                    <button onClick={() => setCancelConfirmId(bookingId)}
+                                      className="text-xs font-semibold text-slate-400 hover:text-red-500 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-all">
+                                      Cancel booking
+                                    </button>
+                                  ) : <div />}
+                                  <button
+                                    onClick={() => nav('tracker')}
+                                    className="flex items-center gap-2 text-sm font-bold text-white px-5 py-2.5 rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-lg"
+                                    style={{ background: `linear-gradient(135deg, ${cfg.strip}, ${cfg.strip}cc)`, boxShadow: `0 4px 16px ${cfg.strip}50` }}>
+                                    <iconify-icon icon="solar:map-arrow-right-bold" width="15"></iconify-icon>
+                                    Track Service
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -2840,7 +2854,7 @@ export default function CustomerDashboard() {
                         const isFullyPaid = b.paymentStatus === 'paid' || ['completed', 'released'].includes(b.status);
                         const fullBadge = isFullyPaid
                           ? <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">✓ Paid</span>
-                          : <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-500 border border-slate-200">Unpaid</span>;
+                          : <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-600 border border-amber-200">Pending</span>;
 
                         return (
                           <div key={orderId} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden hover:border-slate-300 transition-colors">
@@ -3717,18 +3731,40 @@ export default function CustomerDashboard() {
                   </div>
 
                   {vehicles.length === 0 ? (
-                    <div className="bg-white border border-slate-200 rounded-lg p-8 text-center flex flex-col items-center justify-center shadow-sm min-h-[220px]">
-                      <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mb-3">
-                        <iconify-icon icon="solar:car-linear" width="24" className="text-slate-300"></iconify-icon>
+                    <div className="rounded-3xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #312e81 100%)', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+                      <div className="relative px-8 py-10 flex flex-col items-center text-center overflow-hidden">
+                        {/* Glow orbs */}
+                        <div className="absolute -left-8 -top-8 w-36 h-36 rounded-full blur-3xl opacity-30 pointer-events-none" style={{ background: '#818cf8' }} />
+                        <div className="absolute -right-8 -bottom-8 w-36 h-36 rounded-full blur-3xl opacity-20 pointer-events-none" style={{ background: '#6366f1' }} />
+                        {/* Icon */}
+                        <div className="relative w-16 h-16 rounded-2xl flex items-center justify-center mb-5" style={{ background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.4)' }}>
+                          <iconify-icon icon="solar:car-bold" width="32" style={{ color: '#818cf8' }}></iconify-icon>
+                        </div>
+                        <h3 className="text-white font-black text-[18px] mb-2">Your Garage is Empty</h3>
+                        <p className="text-slate-400 text-[13px] font-medium mb-6 max-w-[260px] leading-relaxed">
+                          Add your vehicle first — it auto-fills your details every time you book. Fast, easy, no repeat typing.
+                        </p>
+                        {/* Steps hint */}
+                        <div className="flex items-center gap-2 mb-6">
+                          {['Add Vehicle', 'Book Service', 'Track Live'].map((s, i) => (
+                            <div key={s} className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl" style={i === 0 ? { background: 'rgba(99,102,241,0.35)', border: '1px solid rgba(99,102,241,0.5)' } : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                <span className="text-[10px] font-bold" style={{ color: i === 0 ? '#a5b4fc' : '#475569' }}>{i + 1}</span>
+                                <span className="text-[11px] font-semibold" style={{ color: i === 0 ? '#c7d2fe' : '#475569' }}>{s}</span>
+                              </div>
+                              {i < 2 && <iconify-icon icon="solar:arrow-right-bold" width="12" style={{ color: '#334155' }}></iconify-icon>}
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => setAddVehicleOpen(true)}
+                          className="relative flex items-center gap-2 px-6 py-3 rounded-2xl text-white font-bold text-[14px] transition-all hover:-translate-y-0.5"
+                          style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)', boxShadow: '0 6px 20px rgba(99,102,241,0.5)' }}
+                        >
+                          <iconify-icon icon="solar:add-circle-bold" width="18"></iconify-icon>
+                          Add Your First Vehicle
+                        </button>
                       </div>
-                      <p className="text-[14px] font-medium text-slate-900">Your garage is empty</p>
-                      <p className="text-[12px] text-slate-500 mt-1 mb-4 max-w-[200px] mx-auto">Add your vehicles here to easily book and track services.</p>
-                      <button
-                        onClick={() => setAddVehicleOpen(true)}
-                        className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-md text-sm font-medium transition-colors"
-                      >
-                        Add Your First Vehicle
-                      </button>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -3855,14 +3891,7 @@ export default function CustomerDashboard() {
                               </div>
 
                               {/* Actions */}
-                              <div className="mt-4 grid grid-cols-3 gap-1 border-t border-slate-100 pt-3">
-                                <button
-                                  onClick={() => openScanStudio(v)}
-                                  className="flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700 transition-colors py-1.5 rounded-lg hover:bg-slate-50"
-                                >
-                                  <iconify-icon icon="solar:scanner-linear" width="17"></iconify-icon>
-                                  <span className="text-[11px] font-medium">Scan</span>
-                                </button>
+                              <div className="mt-4 grid grid-cols-2 gap-1 border-t border-slate-100 pt-3">
                                 <button
                                   onClick={() => openBookingModal(v)}
                                   className="flex flex-col items-center justify-center gap-1 py-1.5 rounded-lg transition-all font-medium"
@@ -3966,17 +3995,99 @@ export default function CustomerDashboard() {
           </main>
         </div>
       </div>
+      {/* ── First-Time Onboarding Modal ── */}
+      {showOnboarding && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)' }}>
+          <div className="w-full max-w-md bg-white rounded-3xl overflow-hidden shadow-2xl" style={{ boxShadow: '0 32px 80px rgba(0,0,0,0.35)' }}>
+
+            {/* Header banner */}
+            <div className="relative px-8 pt-8 pb-10 text-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #312e81 100%)' }}>
+              <div className="absolute -left-10 -top-10 w-40 h-40 rounded-full opacity-20 blur-3xl" style={{ background: '#818cf8' }} />
+              <div className="absolute -right-10 -bottom-10 w-40 h-40 rounded-full opacity-20 blur-3xl" style={{ background: '#6366f1' }} />
+              {/* Welcome icon */}
+              <div className="relative w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.4)' }}>
+                <iconify-icon icon="solar:car-bold" width="32" style={{ color: '#818cf8' }}></iconify-icon>
+              </div>
+              <h2 className="text-white text-[22px] font-black tracking-tight mb-1">Welcome to AutoSPF+</h2>
+              <p className="text-slate-400 text-[13px] font-medium">Let's get your garage ready in 2 easy steps</p>
+            </div>
+
+            {/* Steps */}
+            <div className="px-6 py-6 space-y-3">
+
+              {/* Step 1 — Active */}
+              <div className="flex items-start gap-4 p-4 rounded-2xl border-2" style={{ background: 'linear-gradient(135deg, #eef2ff, #f5f3ff)', borderColor: '#6366f1' }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-white text-[14px]" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}>1</div>
+                <div className="flex-1">
+                  <p className="font-bold text-slate-900 text-[14px]">Add Your Vehicle</p>
+                  <p className="text-[12px] text-slate-500 mt-0.5">Register your car so we can pre-fill it when you book a service.</p>
+                </div>
+                <iconify-icon icon="solar:arrow-right-bold" width="18" style={{ color: '#6366f1', marginTop: '10px', flexShrink: 0 }}></iconify-icon>
+              </div>
+
+              {/* Connector */}
+              <div className="flex items-center gap-3 px-2">
+                <div className="w-[1px] h-6 ml-[28px]" style={{ background: 'linear-gradient(to bottom, #6366f1, #e2e8f0)' }} />
+              </div>
+
+              {/* Step 2 — Locked */}
+              <div className="flex items-start gap-4 p-4 rounded-2xl border border-slate-200" style={{ background: '#f8fafc' }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-slate-400 text-[14px]" style={{ background: '#e2e8f0' }}>2</div>
+                <div className="flex-1">
+                  <p className="font-bold text-slate-400 text-[14px]">Book a Service</p>
+                  <p className="text-[12px] text-slate-400 mt-0.5">Choose a service — your vehicle info auto-fills instantly.</p>
+                </div>
+                <iconify-icon icon="solar:lock-keyhole-bold" width="16" style={{ color: '#cbd5e1', marginTop: '12px', flexShrink: 0 }}></iconify-icon>
+              </div>
+
+              {/* Connector */}
+              <div className="flex items-center gap-3 px-2">
+                <div className="w-[1px] h-6 ml-[28px]" style={{ background: '#e2e8f0' }} />
+              </div>
+
+              {/* Step 3 — Locked */}
+              <div className="flex items-start gap-4 p-4 rounded-2xl border border-slate-200" style={{ background: '#f8fafc' }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-slate-400 text-[14px]" style={{ background: '#e2e8f0' }}>3</div>
+                <div className="flex-1">
+                  <p className="font-bold text-slate-400 text-[14px]">Track in Real-Time</p>
+                  <p className="text-[12px] text-slate-400 mt-0.5">Watch your car's service status live on the tracker.</p>
+                </div>
+                <iconify-icon icon="solar:lock-keyhole-bold" width="16" style={{ color: '#cbd5e1', marginTop: '12px', flexShrink: 0 }}></iconify-icon>
+              </div>
+            </div>
+
+            {/* CTA */}
+            <div className="px-6 pb-6 space-y-2">
+              <button
+                onClick={() => { setShowOnboarding(false); setAddVehicleOpen(true); }}
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-white font-bold text-[15px] transition-all hover:-translate-y-0.5"
+                style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)', boxShadow: '0 6px 20px rgba(99,102,241,0.45)' }}
+              >
+                <iconify-icon icon="solar:add-circle-bold" width="18"></iconify-icon>
+                Add My First Vehicle
+              </button>
+              <button
+                onClick={() => setShowOnboarding(false)}
+                className="w-full py-2.5 text-[13px] font-medium text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                I'll do this later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Vehicle Modal */}
+
       {addVehicleOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,.4)', backdropFilter: 'blur(4px)' }} onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', name: '', color: '', type: '' }); }}>
-          <div className="bg-white rounded-xl w-full max-w-[400px] shadow-2xl" onClick={e => e.stopPropagation()} style={{ animation: 'modalIn .2s ease-out' }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,.4)', backdropFilter: 'blur(4px)' }} onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}>
+          <div className="bg-white rounded-xl w-full max-w-[420px] shadow-2xl" onClick={e => e.stopPropagation()} style={{ animation: 'modalIn .2s ease-out', maxHeight: '90vh', overflowY: 'auto' }}>
 
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <h3 className="text-[15px] font-semibold text-gray-900">Add Vehicle</h3>
               <button
-                onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', name: '', color: '', type: '' }); }}
+                onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}
                 className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
@@ -3994,6 +4105,33 @@ export default function CustomerDashboard() {
                 </div>
               )}
 
+              {/* ── Live Vehicle Card Preview ── */}
+              {(newVehicle.brand || newVehicle.model || newVehicle.plate) && (() => {
+                const colorHex: Record<string, string> = {
+                  White: '#e2e8f0', Black: '#1e293b', Silver: '#94a3b8', Gray: '#64748b',
+                  Blue: '#3b82f6', Red: '#ef4444', Green: '#22c55e', Yellow: '#eab308',
+                  Orange: '#f97316', Brown: '#92400e',
+                };
+                const bg = colorHex[newVehicle.color] || '#94a3b8';
+                const isLight = ['White', 'Silver', 'Yellow', ''].includes(newVehicle.color);
+                const txt = isLight ? '#1e293b' : '#f8fafc';
+                const previewName = [newVehicle.year, newVehicle.brand, newVehicle.model].filter(Boolean).join(' ') || 'Your Vehicle';
+                return (
+                  <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                    <div style={{ background: `linear-gradient(135deg, ${bg}, ${bg}dd)`, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <iconify-icon icon="solar:car-bold" width="36" style={{ color: txt, opacity: 0.8, flexShrink: 0 }}></iconify-icon>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 13, fontWeight: 700, color: txt, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previewName}</p>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
+                          {newVehicle.plate && <span style={{ fontSize: 10, fontWeight: 700, color: txt, opacity: 0.8, letterSpacing: '0.05em', background: 'rgba(255,255,255,0.2)', padding: '1px 6px', borderRadius: 4 }}>{newVehicle.plate.toUpperCase()}</span>}
+                          {newVehicle.type && <span style={{ fontSize: 10, fontWeight: 600, color: txt, opacity: 0.7 }}>{newVehicle.type}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ background: '#f8fafc', padding: '6px 16px', fontSize: 10, color: '#94a3b8', fontWeight: 500, textAlign: 'center' }}>Live Preview — this is how your card will look</div>
+                  </div>
+                );
+              })()}
               <div className="grid grid-cols-2 gap-3">
                 {/* Plate Number */}
                 <div>
@@ -4007,9 +4145,15 @@ export default function CustomerDashboard() {
                     onChange={(e) => { setNewVehicle({ ...newVehicle, plate: e.target.value }); setVehicleErrors(er => ({ ...er, plate: '' })); }}
                     className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${vehicleErrors.plate ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
                   />
-                  {vehicleErrors.plate && (
+                  {vehicleErrors.plate ? (
                     <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.plate}</p>
-                  )}
+                  ) : newVehicle.plate.trim() ? (
+                    /^[A-Za-z]{3}\s?\d{3,4}$/.test(newVehicle.plate.trim()) ? (
+                      <p className="mt-1 text-[11px] text-emerald-500 flex items-center gap-1"><iconify-icon icon="solar:check-circle-bold" width="11"></iconify-icon> Valid plate format</p>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-amber-500 flex items-center gap-1"><iconify-icon icon="solar:info-circle-bold" width="11"></iconify-icon> Format: ABC 1234</p>
+                    )
+                  ) : null}
                 </div>
 
                 {/* Vehicle Type */}
@@ -4068,42 +4212,155 @@ export default function CustomerDashboard() {
                 );
               })()}
 
-              {/* Make & Model */}
+              {/* Brand + Year */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Brand <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={newVehicle.brand}
+                    onChange={(e) => { setNewVehicle({ ...newVehicle, brand: e.target.value }); setVehicleErrors(er => ({ ...er, brand: '' })); }}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${vehicleErrors.brand ? 'border-red-300 bg-red-50 text-red-700' : newVehicle.brand ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
+                  >
+                    <option value="">Select brand</option>
+                    {CAR_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                  {vehicleErrors.brand && <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.brand}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Year <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <select
+                    value={newVehicle.year}
+                    onChange={(e) => setNewVehicle({ ...newVehicle, year: e.target.value })}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${newVehicle.year ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
+                  >
+                    <option value="">Year</option>
+                    {Array.from({ length: 36 }, (_, i) => String(2025 - i)).map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Model */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Make &amp; Model <span className="text-red-500">*</span>
+                  Model <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. 2023 Toyota Camry"
-                  value={newVehicle.name}
-                  onChange={(e) => { setNewVehicle({ ...newVehicle, name: e.target.value }); setVehicleErrors(er => ({ ...er, name: '' })); }}
-                  className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${vehicleErrors.name ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
+                  placeholder="e.g. Vios, Civic, Ranger"
+                  value={newVehicle.model}
+                  onChange={(e) => { setNewVehicle({ ...newVehicle, model: e.target.value }); setVehicleErrors(er => ({ ...er, model: '' })); }}
+                  className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${vehicleErrors.model ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
                 />
-                {vehicleErrors.name && (
-                  <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.name}</p>
+                {vehicleErrors.model && <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.model}</p>}
+              </div>
+
+              {/* Color Swatch Picker */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                  Color <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {[
+                    { name: 'White', hex: '#f1f5f9' }, { name: 'Black', hex: '#1e293b' },
+                    { name: 'Silver', hex: '#94a3b8' }, { name: 'Gray', hex: '#64748b' },
+                    { name: 'Blue', hex: '#3b82f6' }, { name: 'Red', hex: '#ef4444' },
+                    { name: 'Green', hex: '#22c55e' }, { name: 'Yellow', hex: '#eab308' },
+                    { name: 'Orange', hex: '#f97316' }, { name: 'Brown', hex: '#92400e' },
+                  ].map(c => {
+                    const sel = newVehicle.color === c.name && !newVehicleShowColorInput;
+                    return (
+                      <button key={c.name} type="button" title={c.name}
+                        onClick={() => { setNewVehicle(nv => ({ ...nv, color: c.name })); setNewVehicleShowColorInput(false); }}
+                        style={{
+                          width: 28, height: 28, borderRadius: '50%', border: sel ? '2.5px solid #0f172a' : '2px solid #e2e8f0',
+                          background: c.hex, cursor: 'pointer', transition: 'all 0.15s',
+                          boxShadow: sel ? '0 0 0 2px #fff, 0 0 0 4px #0f172a' : 'none',
+                          outline: 'none', flexShrink: 0,
+                        }}
+                      />
+                    );
+                  })}
+                  {/* Other button */}
+                  <button type="button"
+                    onClick={() => { setNewVehicleShowColorInput(true); setNewVehicle(nv => ({ ...nv, color: '' })); }}
+                    style={{
+                      height: 28, padding: '0 10px', borderRadius: 14, fontSize: 11, fontWeight: 600,
+                      border: newVehicleShowColorInput ? '2px solid #0f172a' : '2px solid #e2e8f0',
+                      background: newVehicleShowColorInput ? '#f8fafc' : '#fff', color: '#64748b',
+                      cursor: 'pointer', transition: 'all 0.15s',
+                    }}
+                  >Other</button>
+                </div>
+                {newVehicleShowColorInput && (
+                  <input
+                    type="text" placeholder="e.g. Champagne Gold"
+                    value={newVehicle.color}
+                    onChange={(e) => setNewVehicle({ ...newVehicle, color: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 transition-colors mt-2"
+                    autoFocus
+                  />
+                )}
+                {newVehicle.color && !newVehicleShowColorInput && (
+                  <p className="mt-1.5 text-[11px] text-gray-400 pl-0.5">Selected: <span className="font-semibold text-gray-600">{newVehicle.color}</span></p>
                 )}
               </div>
 
-              {/* Color */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Color <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Pearl White"
-                  value={newVehicle.color}
-                  onChange={(e) => setNewVehicle({ ...newVehicle, color: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 transition-colors"
-                />
+              {/* Transmission + Fuel Type */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Transmission <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <select
+                    value={newVehicle.transmission}
+                    onChange={(e) => setNewVehicle({ ...newVehicle, transmission: e.target.value })}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${newVehicle.transmission ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
+                  >
+                    <option value="">Select...</option>
+                    <option value="Automatic">Automatic</option>
+                    <option value="Manual">Manual</option>
+                    <option value="CVT">CVT</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Fuel Type <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <select
+                    value={newVehicle.fuelType}
+                    onChange={(e) => setNewVehicle({ ...newVehicle, fuelType: e.target.value })}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${newVehicle.fuelType ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
+                  >
+                    <option value="">Select...</option>
+                    <option value="Gasoline">Gasoline</option>
+                    <option value="Diesel">Diesel</option>
+                    <option value="Electric">Electric</option>
+                    <option value="Hybrid">Hybrid</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Hint */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #dcfce7' }}>
+                <iconify-icon icon="solar:calendar-add-bold" width="14" style={{ color: '#16a34a', flexShrink: 0 }}></iconify-icon>
+                <p style={{ fontSize: 11, color: '#15803d', fontWeight: 500, lineHeight: 1.4 }}>
+                  After adding, tap <strong>📅 Book</strong> on your vehicle card to book instantly with all details pre-filled.
+                </p>
               </div>
 
               {/* Actions */}
               <div className="flex gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', name: '', color: '', type: '' }); }}
+                  onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}
                   className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                 >
                   Cancel
@@ -4403,72 +4660,131 @@ export default function CustomerDashboard() {
                       )}
                   </div>
 
-                  {/* Brand + Model */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Brand <span className="text-red-500">*</span></label>
-                      <select
-                        value={bookingForm.vehicleMake}
-                        onChange={e => {
-                          setBookingForm(f => ({ ...f, vehicleMake: e.target.value }));
-                          if (step2Errors.vehicleMake) setStep2Errors(err => ({ ...err, vehicleMake: '' }));
-                        }}
-                        className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none ${step2Errors.vehicleMake ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-                      >
-                        <option value="">Select brand</option>
-                        {CAR_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
-                      </select>
-                      {step2Errors.vehicleMake && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleMake}</p>}
+                  {/* Vehicle Fields — read-only from garage, or editable if not pre-selected */}
+                  {bookingFromVehicle ? (
+                    /* ── Read-only vehicle info from garage ── */
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Vehicle Details</p>
+                        <button
+                          type="button"
+                          onClick={() => setBookingOpen(false)}
+                          className="text-[11px] font-semibold text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition-colors"
+                        >
+                          <iconify-icon icon="solar:pen-linear" width="12"></iconify-icon>
+                          Edit Vehicle
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* Brand */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Brand</p>
+                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                            <iconify-icon icon="solar:car-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleMake || '—'}</span>
+                            <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
+                          </div>
+                        </div>
+                        {/* Model */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Model</p>
+                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                            <iconify-icon icon="solar:car-2-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleModel || '—'}</span>
+                            <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
+                          </div>
+                        </div>
+                        {/* Color */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Color</p>
+                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                            <iconify-icon icon="solar:palette-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleColor || '—'}</span>
+                            <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
+                          </div>
+                        </div>
+                        {/* Plate */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Plate No.</p>
+                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                            <iconify-icon icon="solar:tag-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 tracking-widest">{bookingForm.vehiclePlate || '—'}</span>
+                            <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-gray-400 pl-1">Auto-filled from your garage · <button type="button" onClick={() => setBookingOpen(false)} className="text-indigo-500 hover:underline">Go to garage to update</button></p>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Model <span className="text-red-500">*</span></label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Vios, Civic"
-                        value={bookingForm.vehicleModel}
-                        onChange={e => {
-                          setBookingForm(f => ({ ...f, vehicleModel: e.target.value }));
-                          if (step2Errors.vehicleModel) setStep2Errors(err => ({ ...err, vehicleModel: '' }));
-                        }}
-                        className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 ${step2Errors.vehicleModel ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-                      />
-                      {step2Errors.vehicleModel && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleModel}</p>}
-                    </div>
-                  </div>
+                  ) : (
+                    /* ── Manual entry when not opened from a vehicle card ── */
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Brand <span className="text-red-500">*</span></label>
+                          <select
+                            value={bookingForm.vehicleMake}
+                            onChange={e => {
+                              setBookingForm(f => ({ ...f, vehicleMake: e.target.value }));
+                              if (step2Errors.vehicleMake) setStep2Errors(err => ({ ...err, vehicleMake: '' }));
+                            }}
+                            className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none ${step2Errors.vehicleMake ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                          >
+                            <option value="">Select brand</option>
+                            {CAR_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                          </select>
+                          {step2Errors.vehicleMake && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleMake}</p>}
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Model <span className="text-red-500">*</span></label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Vios, Civic"
+                            value={bookingForm.vehicleModel}
+                            onChange={e => {
+                              setBookingForm(f => ({ ...f, vehicleModel: e.target.value }));
+                              if (step2Errors.vehicleModel) setStep2Errors(err => ({ ...err, vehicleModel: '' }));
+                            }}
+                            className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 ${step2Errors.vehicleModel ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                          />
+                          {step2Errors.vehicleModel && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleModel}</p>}
+                        </div>
+                      </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Color <span className="text-red-500">*</span></label>
-                      <select
-                        value={bookingForm.vehicleColor}
-                        onChange={e => {
-                          setBookingForm(f => ({ ...f, vehicleColor: e.target.value }));
-                          if (step2Errors.vehicleColor) setStep2Errors(err => ({ ...err, vehicleColor: '' }));
-                        }}
-                        className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none ${step2Errors.vehicleColor ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-                      >
-                        <option value="">Select color</option>
-                        {['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Brown', 'Other'].map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                      {step2Errors.vehicleColor && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleColor}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Plate No. <span className="text-red-500">*</span></label>
-                      <input
-                        type="text"
-                        placeholder="ABC 1234"
-                        value={bookingForm.vehiclePlate}
-                        onChange={e => {
-                          setBookingForm(f => ({ ...f, vehiclePlate: e.target.value.toUpperCase() }));
-                          if (step2Errors.vehiclePlate) setStep2Errors(err => ({ ...err, vehiclePlate: '' }));
-                        }}
-                        className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 ${step2Errors.vehiclePlate ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-                      />
-                      {step2Errors.vehiclePlate
-                        ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehiclePlate}</p>
-                        : <p className="text-[10px] text-gray-400 mt-1 pl-1">Format: ABC123 or ABC 1234</p>}
-                    </div>
-                  </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Color <span className="text-red-500">*</span></label>
+                          <select
+                            value={bookingForm.vehicleColor}
+                            onChange={e => {
+                              setBookingForm(f => ({ ...f, vehicleColor: e.target.value }));
+                              if (step2Errors.vehicleColor) setStep2Errors(err => ({ ...err, vehicleColor: '' }));
+                            }}
+                            className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none ${step2Errors.vehicleColor ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                          >
+                            <option value="">Select color</option>
+                            {['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Brown', 'Other'].map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                          {step2Errors.vehicleColor && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleColor}</p>}
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Plate No. <span className="text-red-500">*</span></label>
+                          <input
+                            type="text"
+                            placeholder="ABC 1234"
+                            value={bookingForm.vehiclePlate}
+                            onChange={e => {
+                              setBookingForm(f => ({ ...f, vehiclePlate: e.target.value.toUpperCase() }));
+                              if (step2Errors.vehiclePlate) setStep2Errors(err => ({ ...err, vehiclePlate: '' }));
+                            }}
+                            className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 ${step2Errors.vehiclePlate ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                          />
+                          {step2Errors.vehiclePlate
+                            ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehiclePlate}</p>
+                            : <p className="text-[10px] text-gray-400 mt-1 pl-1">Format: ABC123 or ABC 1234</p>}
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   {/* Service - with Edit button */}
                   <div>
@@ -4997,14 +5313,19 @@ export default function CustomerDashboard() {
               const phPhone = /^09\d{9}$/;
               const plateRx = /^[A-Z]{3}\s?\d{3,4}$/i;
               const step1Valid = !!bookingForm.service;
+              const vehicleFieldsValid = bookingFromVehicle
+                // Pre-filled from garage: vehicle fields already populated, no extra validation needed
+                ? true
+                // Manual entry: all vehicle fields required and plate must match format
+                : !!bookingForm.vehicleMake &&
+                  !!(bookingForm.vehicleModel || '').trim() &&
+                  !!bookingForm.vehicleColor &&
+                  !!(bookingForm.vehiclePlate || '').trim() &&
+                  plateRx.test((bookingForm.vehiclePlate || '').trim());
               const step2Valid =
                 !!(bookingForm.contactNo || '').trim() &&
                 phPhone.test((bookingForm.contactNo || '').replace(/\s/g, '')) &&
-                !!bookingForm.vehicleMake &&
-                !!(bookingForm.vehicleModel || '').trim() &&
-                !!bookingForm.vehicleColor &&
-                !!(bookingForm.vehiclePlate || '').trim() &&
-                plateRx.test((bookingForm.vehiclePlate || '').trim());
+                vehicleFieldsValid;
               const selectedSlotStatus = slotStatuses.find(s => s.time === bookingForm.time)?.status;
               const step3Valid =
                 !!bookingForm.date &&
@@ -5054,11 +5375,14 @@ export default function CustomerDashboard() {
                             const errs: Record<string, string> = {};
                             if (!(bookingForm.contactNo || '').trim()) errs.contactNo = 'Contact number is required.';
                             else if (!phPhone.test(bookingForm.contactNo.replace(/\s/g, ''))) errs.contactNo = 'Must be a valid PH number (09XXXXXXXXX).';
-                            if (!bookingForm.vehicleMake) errs.vehicleMake = 'Select a brand.';
-                            if (!(bookingForm.vehicleModel || '').trim()) errs.vehicleModel = 'Model is required.';
-                            if (!bookingForm.vehicleColor) errs.vehicleColor = 'Select a color.';
-                            if (!(bookingForm.vehiclePlate || '').trim()) errs.vehiclePlate = 'Plate number is required.';
-                            else if (!plateRx.test((bookingForm.vehiclePlate || '').trim())) errs.vehiclePlate = 'Format: ABC123 or ABC 1234.';
+                            // Only validate vehicle fields when not pre-filled from garage
+                            if (!bookingFromVehicle) {
+                              if (!bookingForm.vehicleMake) errs.vehicleMake = 'Select a brand.';
+                              if (!(bookingForm.vehicleModel || '').trim()) errs.vehicleModel = 'Model is required.';
+                              if (!bookingForm.vehicleColor) errs.vehicleColor = 'Select a color.';
+                              if (!(bookingForm.vehiclePlate || '').trim()) errs.vehiclePlate = 'Plate number is required.';
+                              else if (!plateRx.test((bookingForm.vehiclePlate || '').trim())) errs.vehiclePlate = 'Format: ABC123 or ABC 1234.';
+                            }
                             if (Object.keys(errs).length > 0) {
                               setStep2Errors(errs);
                               const firstErr = Object.values(errs)[0];
