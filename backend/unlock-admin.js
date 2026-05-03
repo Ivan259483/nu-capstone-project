@@ -13,23 +13,20 @@ if (!MONGODB_URI) {
 await mongoose.connect(MONGODB_URI);
 console.log('✅ Connected to MongoDB');
 
-const result = await mongoose.connection.collection('users').findOneAndUpdate(
+const { value: doc } = await mongoose.connection.collection('users').findOneAndUpdate(
   { email: TARGET_EMAIL },
-  {
-    $set: { loginAttempts: 0, lockUntil: null },
-    $unset: { lockUntil: '' }
-  },
+  { $set: { loginAttempts: 0, lockUntil: null } },
   { returnDocument: 'after' }
 );
 
-if (!result) {
+if (!doc) {
   console.error(`❌ User not found: ${TARGET_EMAIL}`);
 } else {
   console.log(`✅ Account unlocked successfully!`);
-  console.log(`   Email:         ${result.email}`);
-  console.log(`   Role:          ${result.role}`);
-  console.log(`   loginAttempts: ${result.loginAttempts}`);
-  console.log(`   lockUntil:     ${result.lockUntil ?? 'null (cleared)'}`);
+  console.log(`   Email:         ${doc.email}`);
+  console.log(`   Role:          ${doc.role}`);
+  console.log(`   loginAttempts: ${doc.loginAttempts}`);
+  console.log(`   lockUntil:     ${doc.lockUntil ?? 'null (cleared)'}`);
 }
 
 await mongoose.disconnect();
