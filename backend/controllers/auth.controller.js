@@ -11,6 +11,7 @@ import { logActivity } from '../utils/logActivity.utils.js';
 import { admin } from '../config/firebaseAdmin.js';
 import { parseRegisterPhone } from '../utils/phone.utils.js';
 import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
+import { decrypt } from '../utils/encryption.utils.js';
 
 // Roles that require Email OTP 2FA after password verification.
 // 'customer' is intentionally excluded — direct JWT login.
@@ -35,7 +36,24 @@ function attachPhoneForClient(userDoc, userPayload) {
   const raw = userDoc.phone;
   if (raw == null || raw === '') return;
   const s = typeof raw === 'string' ? raw.trim() : String(raw).trim();
-  if (s) userPayload.phone = s;
+  if (!s) return;
+  try {
+    const decrypted = decrypt(s);
+    const compact = decrypted.replace(/[\s.-]/g, '');
+    if (decrypted && /^\+?\d{7,15}$/.test(compact)) {
+      userPayload.phone = decrypted;
+    } else {
+      console.error(
+        '[Phone] Decryption returned invalid value (len=%s, hasColon=%s)',
+        decrypted?.length,
+        decrypted?.includes?.(':')
+      );
+      userPayload.phone = '';
+    }
+  } catch (err) {
+    console.error('[Phone] Decrypt error:', err);
+    userPayload.phone = '';
+  }
 }
 
 /**

@@ -51,11 +51,18 @@ export function isValidPhilippineBookingContact(raw: string): boolean {
 /** Prefer 09XXXXXXXXX in UI when the value is a Philippine mobile. */
 export const normalizePhilippineMobileForBooking = normalizePhilippineMobileInput;
 
+/** AES-256-CBC payloads look like `ivHex:cipherHex` — never surface that in UI. */
+export function looksLikeEncryptedPhoneField(val?: string): boolean {
+  const s = val?.trim();
+  return !!s && s.includes(':') && s.length > 30;
+}
+
 /**
  * Default Contact No. from profile/auth — PH numbers shown as 09… for placeholder parity.
  */
 export function formatContactNoInputFromProfile(phone?: string): string {
   if (!phone?.trim()) return '';
+  if (looksLikeEncryptedPhoneField(phone)) return '';
   const compact = phone.replace(/\s/g, '');
   if (isValidPhilippineMobileInput(compact)) return normalizePhilippineMobileInput(compact);
   return phone.trim();

@@ -7,12 +7,15 @@ const IV_LENGTH = 16;
 // aes-256-cbc requires exactly 32 bytes (256 bits).
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 if (!ENCRYPTION_KEY || Buffer.byteLength(ENCRYPTION_KEY, 'utf8') !== 32) {
-  throw new Error(
+    throw new Error(
     '[encryption.utils] ENCRYPTION_KEY environment variable must be set to exactly 32 characters (256 bits). ' +
     `Current length: ${ENCRYPTION_KEY ? Buffer.byteLength(ENCRYPTION_KEY, 'utf8') : 0}. ` +
     'Set a valid key in your .env file and restart the server.'
   );
 }
+
+console.log('[Encryption] Key set:', !!process.env.ENCRYPTION_KEY);
+console.log('[Encryption] Key length:', process.env.ENCRYPTION_KEY?.length);
 
 // ── Optional legacy key for migrating old records ────────────────────────────
 // If a LEGACY_ENCRYPTION_KEY is provided and is exactly 32 bytes, it will be
