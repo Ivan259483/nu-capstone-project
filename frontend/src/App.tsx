@@ -4,39 +4,37 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense, type ReactNode } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
-import Gallery from "./pages/Gallery";
-import Services from "./pages/Services";
-import BookingPage from "./pages/BookingPage";
-import CustomerDashboard from "./pages/CustomerDashboard";
-import CustomerLiveTrackerPage from "./pages/CustomerLiveTrackerPage";
-import DetailerDashboard from "./pages/DetailerDashboard";
-import AdminDashboard from "./pages/AdminDashboard";
-import SalesDashboard from "./pages/SalesDashboard";
-import InventoryPanel from "./components/inventory/InventoryPanel";
-import OpsManagerDashboard from "./components/ops-manager/OpsManagerDashboard";
-
-import CreateStaffAccountPage from "./pages/admin/CreateStaffAccountPage";
-import AccountRequestsPage from "./pages/admin/AccountRequestsPage";
 import ChatWidget from "./components/ChatWidget";
 import Navbar from "./components/Navbar";
-import AIEstimatorPage from "./pages/AIEstimatorPage";
 import VerifyOtpPage from "./pages/VerifyOtpPage";
 import SetPasswordPage from "./pages/SetPasswordPage";
 import {
     ADMIN_DASHBOARD_ROLES,
     CUSTOMER_ROLE,
     INVENTORY_DASHBOARD_ROLES,
-    SERVICE_STAFF_ROLE,
     STAFF_ROLES,
-    USER_ROLES,
     getDashboardPathForRole,
 } from "@/lib/roles";
+
+const Gallery = lazy(() => import("./pages/Gallery"));
+const Services = lazy(() => import("./pages/Services"));
+const BookingPage = lazy(() => import("./pages/BookingPage"));
+const CustomerDashboard = lazy(() => import("./pages/CustomerDashboard"));
+const CustomerLiveTrackerPage = lazy(() => import("./pages/CustomerLiveTrackerPage"));
+const DetailerDashboard = lazy(() => import("./pages/DetailerDashboard"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const SalesDashboard = lazy(() => import("./pages/SalesDashboard"));
+const InventoryPanel = lazy(() => import("./components/inventory/InventoryPanel"));
+const OpsManagerDashboard = lazy(() => import("./components/ops-manager/OpsManagerDashboard"));
+const CreateStaffAccountPage = lazy(() => import("./pages/admin/CreateStaffAccountPage"));
+const AccountRequestsPage = lazy(() => import("./pages/admin/AccountRequestsPage"));
+const AIEstimatorPage = lazy(() => import("./pages/AIEstimatorPage"));
 
 const queryClient = new QueryClient();
 
@@ -55,8 +53,41 @@ const cleanGlobalTheme = () => {
 
 cleanGlobalTheme();
 
+/** Full-page skeleton while lazy route chunks load (matches protected dashboard feel). */
+function RoutePageSkeleton() {
+    return (
+        <div className="min-h-screen flex bg-[#0a0e1a]">
+            <div className="hidden md:flex w-64 flex-col border-r border-white/5 bg-[#0d1220] p-5 gap-6">
+                <div className="h-8 w-32 rounded-lg bg-white/5 animate-pulse" />
+                <div className="space-y-3 mt-4">
+                    {[...Array(6)].map((_, i) => (
+                        <div key={i} className="h-9 rounded-lg bg-white/[0.04] animate-pulse" style={{ animationDelay: `${i * 80}ms` }} />
+                    ))}
+                </div>
+                <div className="mt-auto h-10 rounded-lg bg-white/[0.03] animate-pulse" />
+            </div>
+            <div className="flex-1 p-8 space-y-6">
+                <div className="flex items-center justify-between">
+                    <div className="h-8 w-48 rounded-lg bg-white/5 animate-pulse" />
+                    <div className="h-8 w-8 rounded-full bg-white/5 animate-pulse" />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    {[...Array(3)].map((_, i) => (
+                        <div key={i} className="h-28 rounded-2xl bg-white/[0.04] animate-pulse" style={{ animationDelay: `${i * 120}ms` }} />
+                    ))}
+                </div>
+                <div className="h-64 rounded-2xl bg-white/[0.03] animate-pulse" style={{ animationDelay: '400ms' }} />
+                <div className="grid grid-cols-2 gap-5">
+                    <div className="h-40 rounded-2xl bg-white/[0.03] animate-pulse" style={{ animationDelay: '520ms' }} />
+                    <div className="h-40 rounded-2xl bg-white/[0.03] animate-pulse" style={{ animationDelay: '640ms' }} />
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // Protected Route Component — shows skeleton loader instead of blocking spinner
-function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
+function ProtectedRoute({ children, allowedRoles }: { children: ReactNode; allowedRoles: string[] }) {
     // isFirebaseAuthReady: true once Firebase's onAuthStateChanged has fired and
     // resolved (either a session was found or confirmed absent). We MUST NOT
     // redirect unauthenticated users until this is true, otherwise a brief window
@@ -67,39 +98,9 @@ function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode;
     const location = useLocation();
 
     // Show skeleton while Firebase is initialising OR during any loading phase.
-    // This is the key guard: do NOT make routing decisions until auth is confirmed.
+    // The key guard: do NOT make routing decisions until auth is confirmed.
     if (!isFirebaseAuthReady || isLoading) {
-        return (
-            <div className="min-h-screen flex bg-[#0a0e1a]">
-                {/* Skeleton sidebar */}
-                <div className="hidden md:flex w-64 flex-col border-r border-white/5 bg-[#0d1220] p-5 gap-6">
-                    <div className="h-8 w-32 rounded-lg bg-white/5 animate-pulse" />
-                    <div className="space-y-3 mt-4">
-                        {[...Array(6)].map((_, i) => (
-                            <div key={i} className="h-9 rounded-lg bg-white/[0.04] animate-pulse" style={{ animationDelay: `${i * 80}ms` }} />
-                        ))}
-                    </div>
-                    <div className="mt-auto h-10 rounded-lg bg-white/[0.03] animate-pulse" />
-                </div>
-                {/* Skeleton main content */}
-                <div className="flex-1 p-8 space-y-6">
-                    <div className="flex items-center justify-between">
-                        <div className="h-8 w-48 rounded-lg bg-white/5 animate-pulse" />
-                        <div className="h-8 w-8 rounded-full bg-white/5 animate-pulse" />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                        {[...Array(3)].map((_, i) => (
-                            <div key={i} className="h-28 rounded-2xl bg-white/[0.04] animate-pulse" style={{ animationDelay: `${i * 120}ms` }} />
-                        ))}
-                    </div>
-                    <div className="h-64 rounded-2xl bg-white/[0.03] animate-pulse" style={{ animationDelay: '400ms' }} />
-                    <div className="grid grid-cols-2 gap-5">
-                        <div className="h-40 rounded-2xl bg-white/[0.03] animate-pulse" style={{ animationDelay: '520ms' }} />
-                        <div className="h-40 rounded-2xl bg-white/[0.03] animate-pulse" style={{ animationDelay: '640ms' }} />
-                    </div>
-                </div>
-            </div>
-        );
+        return <RoutePageSkeleton />;
     }
 
     if (!user) {
@@ -138,98 +139,100 @@ function AppRoutes() {
         <ErrorBoundary>
             <ScrollToTop />
             {!isDashboardRoute && !isStandaloneRoute && <Navbar />}
-            <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/about" element={<About />} />
-                <Route path="/contact" element={<Contact />} />
-                <Route path="/gallery" element={<Gallery />} />
-                <Route path="/services" element={<Services />} />
-                <Route path="/booking" element={<BookingPage />} />
-                <Route path="/ar-estimator" element={<AIEstimatorPage />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/verify-otp" element={<VerifyOtpPage />} />
-                <Route path="/set-password" element={<SetPasswordPage />} />
-                <Route
-                    path="/customer/dashboard"
-                    element={
-                        <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
-                            <CustomerDashboard />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/customer/live-tracker"
-                    element={
-                        <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
-                            <CustomerLiveTrackerPage />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/customer/book"
-                    element={
-                        <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
-                            <CustomerDashboard />
-                        </ProtectedRoute>
-                    }
-                />
+            <Suspense fallback={<RoutePageSkeleton />}>
+                <Routes>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/about" element={<About />} />
+                    <Route path="/contact" element={<Contact />} />
+                    <Route path="/gallery" element={<Gallery />} />
+                    <Route path="/services" element={<Services />} />
+                    <Route path="/booking" element={<BookingPage />} />
+                    <Route path="/ar-estimator" element={<AIEstimatorPage />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/verify-otp" element={<VerifyOtpPage />} />
+                    <Route path="/set-password" element={<SetPasswordPage />} />
+                    <Route
+                        path="/customer/dashboard"
+                        element={
+                            <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
+                                <CustomerDashboard />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/customer/live-tracker"
+                        element={
+                            <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
+                                <CustomerLiveTrackerPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/customer/book"
+                        element={
+                            <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
+                                <CustomerDashboard />
+                            </ProtectedRoute>
+                        }
+                    />
 
-                <Route
-                    path="/detailer/dashboard"
-                    element={
-                        <ProtectedRoute allowedRoles={STAFF_ROLES}>
-                            <DetailerDashboard />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/admin/dashboard"
-                    element={
-                        <ProtectedRoute allowedRoles={ADMIN_DASHBOARD_ROLES}>
-                            <AdminDashboard />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/sales/dashboard"
-                    element={
-                        <ProtectedRoute allowedRoles={['administrator', 'sales', 'operation_manager']}>
-                            <SalesDashboard />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/inventory/dashboard"
-                    element={
-                        <ProtectedRoute allowedRoles={INVENTORY_DASHBOARD_ROLES}>
-                            <InventoryPanel />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/ops/dashboard"
-                    element={
-                        <ProtectedRoute allowedRoles={['administrator', 'operation_manager']}>
-                            <OpsManagerDashboard />
-                        </ProtectedRoute>
-                    }
-                />
-                {/* Backward compatibility for old routes */}
-                <Route path="/customer" element={<Navigate to="/customer/dashboard" replace />} />
-                <Route path="/detailer" element={<Navigate to="/detailer/dashboard" replace />} />
-                <Route path="/sales" element={<Navigate to="/sales/dashboard" replace />} />
-                <Route
-                    path="/admin/create-staff"
-                    element={<CreateStaffAccountPage />}
-                />
-                <Route
-                    path="/admin/account-requests"
-                    element={<AccountRequestsPage />}
-                />
-                {/* Backward compatibility for old routes */}
-                <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+                    <Route
+                        path="/detailer/dashboard"
+                        element={
+                            <ProtectedRoute allowedRoles={STAFF_ROLES}>
+                                <DetailerDashboard />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/dashboard"
+                        element={
+                            <ProtectedRoute allowedRoles={ADMIN_DASHBOARD_ROLES}>
+                                <AdminDashboard />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/sales/dashboard"
+                        element={
+                            <ProtectedRoute allowedRoles={['administrator', 'sales', 'operation_manager']}>
+                                <SalesDashboard />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/inventory/dashboard"
+                        element={
+                            <ProtectedRoute allowedRoles={INVENTORY_DASHBOARD_ROLES}>
+                                <InventoryPanel />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/ops/dashboard"
+                        element={
+                            <ProtectedRoute allowedRoles={['administrator', 'operation_manager']}>
+                                <OpsManagerDashboard />
+                            </ProtectedRoute>
+                        }
+                    />
+                    {/* Backward compatibility for old routes */}
+                    <Route path="/customer" element={<Navigate to="/customer/dashboard" replace />} />
+                    <Route path="/detailer" element={<Navigate to="/detailer/dashboard" replace />} />
+                    <Route path="/sales" element={<Navigate to="/sales/dashboard" replace />} />
+                    <Route
+                        path="/admin/create-staff"
+                        element={<CreateStaffAccountPage />}
+                    />
+                    <Route
+                        path="/admin/account-requests"
+                        element={<AccountRequestsPage />}
+                    />
+                    {/* Backward compatibility for old routes */}
+                    <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+            </Suspense>
         </ErrorBoundary>
     );
 }

@@ -14,4 +14,20 @@ const ensureCleanHtml = () => {
 
 ensureCleanHtml();
 
+if (typeof performance !== 'undefined' && performance.mark) {
+    performance.mark('app-start');
+}
+
 createRoot(document.getElementById('root')!).render(<App />);
+
+if (import.meta.env.DEV && typeof performance !== 'undefined' && performance.mark && performance.measure) {
+    requestAnimationFrame(() => {
+        try {
+            performance.mark('app-root-mounted');
+            performance.measure('app-bootstrap', 'app-start', 'app-root-mounted');
+            const entries = performance.getEntriesByName('app-bootstrap');
+            const m = entries[entries.length - 1];
+            if (m) console.debug(`[perf] app-bootstrap: ${m.duration.toFixed(1)}ms`);
+        } catch { /* ignore */ }
+    });
+}

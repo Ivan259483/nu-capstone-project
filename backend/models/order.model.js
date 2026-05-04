@@ -381,7 +381,7 @@ orderSchema.post('init', function (doc) {
 // eliminate full collection scans on the orders collection.
 orderSchema.index({ customer: 1, archived: 1, createdAt: -1 });       // Customer bookings (getAllOrders for customers)
 orderSchema.index({ assignedDetailer: 1, status: 1 });                // Detailer queue & active jobs
-orderSchema.index({ status: 1, archived: 1 });                        // Admin status filtering
+orderSchema.index({ status: 1, archived: 1, createdAt: -1 });      // Admin status + recency (getAllOrders)
 orderSchema.index({ bookingDate: 1, bookingTime: 1, status: 1 });     // Available slots lookup
 orderSchema.index({ archived: 1, createdAt: -1 });                    // Archived orders listing
 orderSchema.index({ bookingReference: 1 }, { unique: true, sparse: true }); // Booking ref lookup

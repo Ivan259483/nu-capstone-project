@@ -383,6 +383,17 @@ const response = await fetch(`${API_BASE}/products`, {
 });
 ```
 
+## Railway cold start and keep-alive
+
+Hobby/free tiers may **sleep** the Node process after idle time. The first browser request after sleep waits for a **cold boot** (often tens of seconds).
+
+- **In-process `setInterval` that calls your own `/api/health` does not prevent sleep**: when the process is stopped, no timers run.
+- **Do this instead**:
+  1. In the Railway service settings, set the **Healthcheck path** to `/api/health` (same route as `GET /api/health` in `server.js`).
+  2. Use an **external** HTTP monitor (e.g. UptimeRobot, cron-job.org, GitHub Actions on a schedule) to `GET` `https://<your-railway-host>/api/health` every **5 minutes** (or the minimum interval your plan allows). Use the same host you configure for the API (see frontend `VITE_API_URL` / `VITE_BACKEND_URL`).
+
+The health response body is unchanged (`success`, `message`, `timestamp`); it uses a short **`Cache-Control: public, max-age=60`** so repeated probes do not fight `no-store` on the rest of the API.
+
 ## 📞 Support
 
 For issues or questions:

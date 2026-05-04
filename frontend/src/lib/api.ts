@@ -31,10 +31,11 @@ api.interceptors.request.use(
         if (token && token !== 'undefined' && token !== 'null') {
             config.headers.Authorization = `Bearer ${token}`;
         }
-        console.log(`📤 [API REQUEST] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`, {
-            hasToken: !!token,
-            baseURL: config.baseURL
-        });
+        if (import.meta.env.DEV) {
+            (config as { _reqStarted?: number })._reqStarted = typeof performance !== 'undefined' ? performance.now() : 0;
+            const path = `${config.baseURL || ''}${config.url || ''}`;
+            console.debug(`📤 [API REQUEST] ${config.method?.toUpperCase()} ${path}`, { hasToken: !!token });
+        }
         return config;
     },
     (error) => {
@@ -45,7 +46,16 @@ api.interceptors.request.use(
 
 // Response Interceptor: Global Error Handling & 401 Cleanup
 api.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        if (import.meta.env.DEV) {
+            const cfg = response.config as { _reqStarted?: number; method?: string; url?: string };
+            if (cfg._reqStarted != null && typeof performance !== 'undefined') {
+                const ms = performance.now() - cfg._reqStarted;
+                console.debug(`[perf api] ${cfg.method?.toUpperCase()} ${cfg.url} ${ms.toFixed(0)}ms`);
+            }
+        }
+        return response;
+    },
     async (error) => {
         const { response, config } = error;
         const suppressErrorToast = Boolean((config as any)?.meta?.suppressErrorToast);

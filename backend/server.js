@@ -134,11 +134,14 @@ app.use((req, res, next) => {
     console.log('  -> Preflight request');
   }
   
-  // Prevent aggressive browser caching of API responses (e.g., Safari GET caching)
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  res.setHeader('Surrogate-Control', 'no-store');
+  // Prevent aggressive browser caching of API responses (e.g., Safari GET caching).
+  // Skip for /api/health so probes and optional edge caching can use short TTL.
+  if (req.path !== '/api/health') {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+  }
 
   // API versioning header — enterprise standard
   res.setHeader('X-API-Version', '1.0.0');
@@ -155,8 +158,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint
+// Health check endpoint (Railway healthcheck path; safe to cache briefly)
 app.get('/api/health', (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=60');
   res.json({
     success: true,
     message: 'Server is running',
