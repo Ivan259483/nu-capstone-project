@@ -499,15 +499,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
      */
     const backgroundRefreshUser = useCallback(async (email: string, uid: string, currentUser: User) => {
         try {
-            const resp = await fetch(
-                `${BACKEND_URL}/users?email=${encodeURIComponent(email)}`,
-                { signal: AbortSignal.timeout(5000) }
-            );
-            if (!resp.ok) return;
-            const json = await resp.json();
-            const found = Array.isArray(json.data)
-                ? json.data.find((u: any) => u.email?.toLowerCase() === email.toLowerCase())
-                : json.data;
+            const token = localStorage.getItem('autospf_token');
+            let found: any = null;
+
+            // Prefer authenticated /auth/me — returns the session user with decrypted phone (same as dashboard needs).
+            if (token && token !== 'undefined' && token !== 'null') {
+                const meResp = await fetch(`${BACKEND_URL}/auth/me`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal: AbortSignal.timeout(5000),
+                });
+                if (meResp.ok) {
+                    const meJson = await meResp.json();
+                    found = meJson.data;
+                }
+            }
+
+            // Fallback: unauthenticated directory lookup (may omit fields or fail cross-origin on some setups).
+            if (!found) {
+                const resp = await fetch(
+                    `${BACKEND_URL}/users?email=${encodeURIComponent(email)}`,
+                    { signal: AbortSignal.timeout(5000) }
+                );
+                if (!resp.ok) return;
+                const json = await resp.json();
+                found = Array.isArray(json.data)
+                    ? json.data.find((u: any) => u.email?.toLowerCase() === email.toLowerCase())
+                    : json.data;
+            }
+
             if (!found) return;
 
             // If the account was deactivated while the user is active, force logout immediately
@@ -525,9 +544,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             const migratedRole = migrateLegacyUserRole(found.role);
             const newRole = migratedRole || currentUser.role;
+            const nextPhone = found.phone || currentUser.phone;
+            const phoneChanged = String(nextPhone || '') !== String(currentUser.phone || '');
             const hasChanged = newRole !== currentUser.role
                 || found.name !== currentUser.name
-                || (found._id || found.id) !== currentUser._id;
+                || (found._id || found.id) !== currentUser._id
+                || phoneChanged;
 
             if (hasChanged) {
                 const refreshedUser: User = {
@@ -536,7 +558,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     name: found.name || currentUser.name,
                     role: newRole as import('@/types').UserRole,
                     avatar: found.avatar || currentUser.avatar,
-                    phone: found.phone || currentUser.phone,
+                    phone: nextPhone || currentUser.phone,
                     isActive: found.isActive ?? currentUser.isActive,
                     lastActive: found.updatedAt || currentUser.lastActive,
                 };
@@ -551,6 +573,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Silent fail — user is already using cached data
         }
     }, [sanitizeUser]);
+
+    /** If JWT exists but React user has no phone (stale session/cache), pull /auth/me once and merge. */
+    useEffect(() => {
+        const token = localStorage.getItem('autospf_token');
+        if (!user || !token || token === 'undefined' || token === 'null') return;
+
+        const phoneTrim = String(user.phone ?? '').trim();
+        if (phoneTrim) return;
+
+        let cancelled = false;
+
+        void (async () => {
+            try {
+                const resp = await fetch(`${BACKEND_URL}/auth/me`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal: AbortSignal.timeout(8000),
+                });
+                if (!resp.ok || cancelled) return;
+                const json = await resp.json();
+                const me = json.data;
+                if (!me || cancelled) return;
+                const raw = me.phone;
+                if (raw == null || String(raw).trim() === '') return;
+
+                setUser((prev) => {
+                    if (!prev || cancelled) return prev;
+                    if (String(prev.phone ?? '').trim()) return prev;
+
+                    const merged: User = {
+                        ...prev,
+                        phone: typeof raw === 'string' ? raw.trim() : String(raw).trim(),
+                        _id: me.id || me._id || prev._id,
+                    };
+                    const sanitized = sanitizeUser(merged);
+                    userStorage.setCurrentUser(sanitized);
+                    setSessionCache(merged, token);
+                    try {
+                        const backendRaw = localStorage.getItem('autospf_backend_user');
+                        if (backendRaw) {
+                            const bu = JSON.parse(backendRaw);
+                            bu.phone = merged.phone;
+                            if (me.id || me._id) bu._id = me.id || me._id;
+                            localStorage.setItem('autospf_backend_user', JSON.stringify(bu));
+                        }
+                    } catch {
+                        /* ignore */
+                    }
+                    if (import.meta.env.DEV) {
+                        console.log('[Auth] Hydrated user.phone from GET /auth/me for booking/profile UI');
+                    }
+                    return merged;
+                });
+            } catch {
+                /* silent */
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [user?.id, user?.phone, sanitizeUser]);
 
 
     const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; data?: { requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; email?: string; remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }> => {
@@ -1190,7 +1273,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         try {
             console.log('📦 [Frontend] Attempting API update with avatar length:', updatedUser.avatar?.length || 0);
-            const response = await UserService.updateUser(updatedUser.id, {
+            const response = await UserService.patchMyProfile({
                 name: updatedUser.name,
                 email: updatedUser.email,
                 avatar: updatedUser.avatar,

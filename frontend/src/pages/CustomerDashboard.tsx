@@ -5,6 +5,8 @@ import { NotificationService, SystemNotification } from '../lib/notification-ser
 import { toast } from 'sonner';
 import { invalidate } from '../lib/queryCache';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
+import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking } from '../lib/phone';
+import { normalizePlateNumber } from '../lib/plate';
 
 type DashboardSection = 'dashboard' | 'scan' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker' | 'payments';
 
@@ -16,6 +18,13 @@ type ScanUpload = {
 };
 
 // ---- STATIC DATA FOR BOOKING ----
+const ADD_VEHICLE_TYPE_LABELS = ['Hatchback', 'Sedan', 'Midsized', 'SUV', 'Pick UP', 'Large SUV / Van', 'Highend Sedan'] as const;
+
+const BOOKING_YEAR_OPTIONS = Array.from({ length: 36 }, (_, i) => String(2025 - i));
+
+/** Preset names matching Add Vehicle color swatches (custom colors use free-text). */
+const EDIT_VEHICLE_COLOR_PRESETS = ['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Brown'] as const;
+
 const VEHICLE_OPTIONS = [
   { type: "hatchback", label: "Hatchback", icon: "lucide:car-front" },
   { type: "sedan", label: "Sedan", icon: "lucide:car" },
@@ -146,6 +155,23 @@ const formatFileSize = (size: number) => {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+/** Normalize API vehicle → garage / booking UI shape (single source of truth). */
+function mapCustomerVehicleApiRecord(v: any) {
+  return {
+    _id: v._id || v.id,
+    id: v._id || v.id,
+    plate: v.plateNumber || v.plate || '',
+    year: v.year || '',
+    make: v.make || '',
+    model: v.model || '',
+    name: [v.year, v.make, v.model].filter(Boolean).join(' ') || v.name || '',
+    color: v.color || '',
+    type: v.vehicleType || v.type || '',
+    transmission: v.transmission || '',
+    fuelType: v.fuelType || '',
+  };
+}
+
 export default function CustomerDashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
@@ -190,6 +216,8 @@ export default function CustomerDashboard() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
+  /** Bumps when we mutate garage or need to ignore stale in-flight GET list responses (fixes race with initial fetch). */
+  const vehiclesFetchGenRef = useRef(0);
   const [scanVehicleId, setScanVehicleId] = useState('');
   const [scanUploads, setScanUploads] = useState<ScanUpload[]>([]);
   const [scanDragActive, setScanDragActive] = useState(false);
@@ -250,37 +278,6 @@ export default function CustomerDashboard() {
     });
   }, []);
   useLiveJobs(user, handleBookingStatus, handleIncomingNotification);
-
-  // Fetch vehicles from DB on mount
-  useEffect(() => {
-    if (!user) return;
-    const loadVehicles = async () => {
-      try {
-        const { VehicleService } = await import('../lib/vehicle-service');
-        const res = await VehicleService.getVehicles();
-        if (res.success && Array.isArray(res.data)) {
-          // Map backend fields (make/model/year/plateNumber) → frontend shape (name/plate/type)
-          const mapped = res.data.map((v: any) => ({
-            _id: v._id || v.id,
-            id: v._id || v.id,
-            plate: v.plateNumber || v.plate || '',
-            year: v.year || '',
-            make: v.make || '',
-            model: v.model || '',
-            name: [v.year, v.make, v.model].filter(Boolean).join(' ') || v.name || '',
-            color: v.color || '',
-            type: v.vehicleType || v.type || '',
-          }));
-          setVehicles(mapped);
-          // Show onboarding for brand-new customers with no vehicles
-          if (mapped.length === 0) setShowOnboarding(true);
-        }
-      } catch (err) {
-        console.warn('[Garage] Failed to fetch vehicles:', err);
-      }
-    };
-    loadVehicles();
-  }, [user]);
 
   useEffect(() => {
     if (vehicles.length === 0) {
@@ -450,31 +447,81 @@ export default function CustomerDashboard() {
   // Edit Vehicle Modal
   const [editVehicleOpen, setEditVehicleOpen] = useState(false);
   const [editVehicleIndex, setEditVehicleIndex] = useState<number>(-1);
-  const [editVehicleForm, setEditVehicleForm] = useState({ plate: '', name: '', color: '', type: '' });
+  const [editVehicleForm, setEditVehicleForm] = useState({
+    plate: '', brand: '', model: '', year: '', color: '', type: '', transmission: '', fuelType: '',
+  });
+  const [editVehicleShowColorInput, setEditVehicleShowColorInput] = useState(false);
   const [editVehicleErrors, setEditVehicleErrors] = useState<Record<string, string>>({});
   const [editVehicleApiError, setEditVehicleApiError] = useState('');
   const [deleteConfirmIdx, setDeleteConfirmIdx] = useState<number>(-1);
 
+  const fetchVehiclesAndApply = useCallback(async (expectedGen: number): Promise<boolean> => {
+    try {
+      const { VehicleService } = await import('../lib/vehicle-service');
+      const res = await VehicleService.getVehicles();
+      if (expectedGen !== vehiclesFetchGenRef.current) return false;
+      if (res.success && Array.isArray(res.data)) {
+        const mapped = res.data.map(mapCustomerVehicleApiRecord);
+        setVehicles(mapped);
+        if (mapped.length === 0) setShowOnboarding(true);
+        return true;
+      }
+    } catch (err) {
+      console.warn('[Garage] Failed to fetch vehicles:', err);
+    }
+    return false;
+  }, []);
+
+  const refetchVehiclesAfterMutation = useCallback(async (): Promise<boolean> => {
+    vehiclesFetchGenRef.current += 1;
+    const gen = vehiclesFetchGenRef.current;
+    invalidate('/customers/vehicles');
+    return fetchVehiclesAndApply(gen);
+  }, [fetchVehiclesAndApply]);
+
+  const vehicleOwnerId = user?._id ?? user?.id ?? '';
+
+  useEffect(() => {
+    if (!vehicleOwnerId) return;
+    vehiclesFetchGenRef.current += 1;
+    const gen = vehiclesFetchGenRef.current;
+    void fetchVehiclesAndApply(gen);
+  }, [vehicleOwnerId, fetchVehiclesAndApply]);
+
   const openEditVehicle = (v: any, idx: number) => {
     setEditVehicleIndex(idx);
-    setEditVehicleForm({ plate: v.plate || '', name: v.name || '', color: v.color || '', type: v.type || '' });
+    const rawColor = (v.color || '').trim();
+    const presetMatch = EDIT_VEHICLE_COLOR_PRESETS.find(c => c.toLowerCase() === rawColor.toLowerCase());
+    setEditVehicleShowColorInput(Boolean(rawColor && !presetMatch));
+    setEditVehicleForm({
+      plate: v.plate || '',
+      brand: (v.make || '').trim(),
+      model: (v.model || '').trim(),
+      year: v.year != null && v.year !== '' ? String(v.year) : '',
+      color: presetMatch || rawColor,
+      type: (v.type || '').trim(),
+      transmission: (v.transmission || '').trim(),
+      fuelType: (v.fuelType || '').trim(),
+    });
     setEditVehicleErrors({});
+    setEditVehicleApiError('');
     setEditVehicleOpen(true);
   };
   const saveEditVehicle = async () => {
     const errors: Record<string, string> = {};
-    const plate = editVehicleForm.plate.trim().toUpperCase();
-    const name = editVehicleForm.name.trim();
-    const type = editVehicleForm.type;
-    // Plate: required, 3-12 alphanumeric/space/hyphen
-    if (!plate) errors.plate = 'Plate number is required.';
-    else if (!/^[A-Za-z0-9][A-Za-z0-9 \-]{2,11}$/.test(plate)) errors.plate = 'Enter a valid plate (e.g. ABC 1234).';
-    // Make & Model: must be at least 2 words, letters/numbers/spaces only, min 5 chars total
-    if (!name) errors.name = 'Make & Model is required.';
-    else if (name.length < 5) errors.name = 'Too short — enter full make and model (e.g. Toyota Camry).';
-    else if (!/^[A-Za-z0-9][A-Za-z0-9 \-]{3,}$/.test(name)) errors.name = 'Only letters, numbers, spaces and hyphens allowed.';
-    else if (name.split(/\s+/).length < 2) errors.name = 'Enter both make and model (e.g. Toyota Camry).';
-    // Type: required
+    const plateRaw = editVehicleForm.plate.trim();
+    const plateNorm = normalizePlateNumber(plateRaw);
+    const brand = editVehicleForm.brand.trim();
+    const model = editVehicleForm.model.trim();
+    const type = editVehicleForm.type.trim();
+
+    if (!plateRaw) errors.plate = 'Plate number is required.';
+    else if (plateNorm.length < 4 || plateNorm.length > 9) {
+      errors.plate = 'Use 4–9 letters and numbers (spaces are ignored).';
+    }
+    if (!brand) errors.brand = 'Select a brand.';
+    if (!model) errors.model = 'Model is required (e.g. Vios, Civic).';
+    else if (model.length < 2) errors.model = 'Too short — enter the model name.';
     if (!type) errors.type = 'Please select a vehicle type.';
     if (Object.keys(errors).length > 0) { setEditVehicleErrors(errors); return; }
     const targetVehicle = vehicles[editVehicleIndex];
@@ -482,16 +529,15 @@ export default function CustomerDashboard() {
     setEditVehicleApiError('');
     try {
       const { VehicleService } = await import('../lib/vehicle-service');
-      const parts = name.trim().split(/\s+/);
-      const make = parts.length >= 2 ? parts.slice(0, -1).join(' ') : name;
-      const model = parts.length >= 2 ? parts[parts.length - 1] : name;
       const res = await VehicleService.updateVehicle(vehicleId, {
-        plateNumber: plate,
-        year: '',
-        make,
+        plateNumber: plateNorm,
+        year: editVehicleForm.year || '',
+        make: brand,
         model,
-        color: editVehicleForm.color.trim(),
+        color: editVehicleForm.color.trim() || 'Unknown',
         vehicleType: type,
+        transmission: editVehicleForm.transmission || '',
+        fuelType: editVehicleForm.fuelType || '',
       });
       if (!res.success) {
         setEditVehicleApiError(res.message || 'Failed to update vehicle.');
@@ -501,8 +547,7 @@ export default function CustomerDashboard() {
       setEditVehicleApiError(err?.response?.data?.message || 'Failed to update. Please check your details.');
       return;
     }
-    const updated = vehicles.map((v, i) => i === editVehicleIndex ? { ...v, plate, name, color: editVehicleForm.color.trim(), type } : v);
-    setVehicles(updated);
+    await refetchVehiclesAfterMutation();
     setEditVehicleOpen(false);
     setEditVehicleApiError('');
   };
@@ -521,12 +566,13 @@ export default function CustomerDashboard() {
       alert(err?.response?.data?.message || 'Failed to delete vehicle.');
       return;
     }
-    setVehicles(prev => prev.filter((_, i) => i !== idx));
+    await refetchVehiclesAfterMutation();
     setDeleteConfirmIdx(-1);
   };
   const [bookingForm, setBookingForm] = useState({
     service: '', serviceName: '', servicePrice: 0,
     vehicleMake: '', vehicleModel: '', vehicleYear: '', vehicleColor: '', vehiclePlate: '',
+    vehicleCategory: '', vehicleTransmission: '', vehicleFuelType: '',
     contactNo: '',
     date: '', time: '', notes: '',
   });
@@ -581,7 +627,10 @@ export default function CustomerDashboard() {
       vehicleYear: targetVehicle ? (targetVehicle.year || '') : '',
       vehicleColor: targetVehicle ? (targetVehicle.color || '') : '',
       vehiclePlate: targetVehicle ? (targetVehicle.plate || '') : '',
-      contactNo: profile.phone || (user as any)?.phone || '',
+      vehicleCategory: targetVehicle ? (targetVehicle.type || '') : '',
+      vehicleTransmission: targetVehicle ? (targetVehicle.transmission || '') : '',
+      vehicleFuelType: targetVehicle ? (targetVehicle.fuelType || '') : '',
+      contactNo: formatContactNoInputFromProfile(profile.phone || (user as any)?.phone || ''),
       date: '', time: '', notes: '',
     });
   };
@@ -698,7 +747,9 @@ export default function CustomerDashboard() {
         const myOrders = res.data.filter((o: any) => {
           const custId = o.customerId || o.customer?._id || o.customer;
           const isMine = custId === user?.id || custId === user?._id || o.customerName === user?.name;
-          const matchesPlate = v.plate && (o.vehiclePlate || '').toUpperCase() === v.plate.toUpperCase();
+          const matchesPlate =
+            v.plate &&
+            normalizePlateNumber(String(o.vehiclePlate || '')) === normalizePlateNumber(String(v.plate));
           return isMine && (matchesPlate || !v.plate);
         });
         setVehicleHistoryOrders(myOrders.sort((a: any, b: any) =>
@@ -717,10 +768,19 @@ export default function CustomerDashboard() {
     try {
       const { OrderService } = await import('../lib/order-service');
       const payload = {
-        customer: user.id, customerName: user.name || '', customerPhone: bookingForm.contactNo || '',
+        customer: user.id,
+        customerName: user.name || '',
+        customerPhone: (() => {
+          const raw = (bookingForm.contactNo || '').trim().replace(/\s/g, '');
+          if (!raw) return '';
+          if (isValidPhilippineBookingContact(bookingForm.contactNo || '')) {
+            return normalizePhilippineMobileForBooking(bookingForm.contactNo || '');
+          }
+          return raw;
+        })(),
         vehicleYear: bookingForm.vehicleYear, vehicleMake: bookingForm.vehicleMake,
         vehicleModel: bookingForm.vehicleModel, vehicleColor: bookingForm.vehicleColor,
-        vehiclePlate: bookingForm.vehiclePlate, serviceType: bookingForm.serviceName,
+        vehiclePlate: normalizePlateNumber(bookingForm.vehiclePlate || ''),
         price: bookingForm.servicePrice, bookingDate: bookingForm.date,
         bookingTime: bookingForm.time, notes: bookingForm.notes,
         items: JSON.stringify([{ product: bookingForm.service, quantity: 1, price: bookingForm.servicePrice }]),
@@ -798,15 +858,16 @@ export default function CustomerDashboard() {
     e.preventDefault();
     const errors: Record<string, string> = {};
     const plate = newVehicle.plate.trim();
+    const plateNorm = normalizePlateNumber(plate);
     const brand = newVehicle.brand.trim();
     const model = newVehicle.model.trim();
     const type = newVehicle.type.trim();
 
     // Plate: required
-    if (!plate) {
+    if (!plate.trim()) {
       errors.plate = 'Plate number is required.';
-    } else if (!/^[A-Za-z0-9][A-Za-z0-9 \-]{2,11}$/.test(plate)) {
-      errors.plate = 'Enter a valid plate (e.g. ABC 1234).';
+    } else if (plateNorm.length < 4 || plateNorm.length > 9) {
+      errors.plate = 'Use 4–9 letters and numbers (spaces are ignored).';
     }
     if (!brand) errors.brand = 'Select a brand.';
     if (!model) {
@@ -821,12 +882,32 @@ export default function CustomerDashboard() {
       return;
     }
 
-    // Save to DB
+    // Save to DB — optimistic row + refetch so list can't be overwritten by a stale in-flight GET
     setVehicleApiError('');
+    const displayName = [newVehicle.year, brand, model].filter(Boolean).join(' ');
+    const optimisticId = `optimistic-${Date.now()}`;
+    const optimisticVehicle = {
+      _id: optimisticId,
+      id: optimisticId,
+      _optimistic: true,
+      plate: plateNorm,
+      year: newVehicle.year || '',
+      make: brand,
+      model,
+      name: displayName,
+      color: newVehicle.color.trim() || 'Unknown',
+      type,
+      transmission: newVehicle.transmission || '',
+      fuelType: newVehicle.fuelType || '',
+    };
+
+    vehiclesFetchGenRef.current += 1;
+    setVehicles(prev => [...prev, optimisticVehicle]);
+
     try {
       const { VehicleService } = await import('../lib/vehicle-service');
       const res = await VehicleService.addVehicle({
-        plateNumber: plate.toUpperCase(),
+        plateNumber: plateNorm,
         year: newVehicle.year || '',
         make: brand,
         model,
@@ -836,34 +917,29 @@ export default function CustomerDashboard() {
         fuelType: newVehicle.fuelType || '',
       });
       if (res.success && res.data) {
-        const v = res.data;
-        const displayName = [newVehicle.year, brand, model].filter(Boolean).join(' ');
-        setVehicles(prev => [...prev, {
-          _id: v._id || v.id,
-          id: v._id || v.id,
-          plate: v.plateNumber || plate.toUpperCase(),
-          year: newVehicle.year || '',
-          make: brand,
-          model,
-          name: displayName,
-          color: newVehicle.color.trim() || 'Unknown',
-          type,
-          transmission: newVehicle.transmission || '',
-          fuelType: newVehicle.fuelType || '',
-        }]);
+        const refreshed = await refetchVehiclesAfterMutation();
+        if (!refreshed) {
+          setVehicles(prev => {
+            const rest = prev.filter(v => v.id !== optimisticId);
+            const merged = mapCustomerVehicleApiRecord(res.data);
+            const mid = merged._id || merged.id;
+            if (!mid || rest.some(x => String(x._id || x.id) === String(mid))) return rest;
+            return [...rest, merged];
+          });
+        }
+        setAddVehicleOpen(false);
+        setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
+        setNewVehicleShowColorInput(false);
+        setVehicleErrors({});
+        setVehicleApiError('');
       } else {
+        setVehicles(prev => prev.filter(v => v.id !== optimisticId));
         setVehicleApiError(res.message || 'Failed to add vehicle. Please try again.');
-        return;
       }
     } catch (err: any) {
+      setVehicles(prev => prev.filter(v => v.id !== optimisticId));
       setVehicleApiError(err?.response?.data?.message || 'Failed to add vehicle. Please check your details.');
-      return;
     }
-    setAddVehicleOpen(false);
-    setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' });
-    setNewVehicleShowColorInput(false);
-    setVehicleErrors({});
-    setVehicleApiError('');
   };
 
   useEffect(() => {
@@ -890,15 +966,35 @@ export default function CustomerDashboard() {
   const [rewardRedeemMessage, setRewardRedeemMessage] = useState('');
 
   // Settings — Profile
-  const [profile, setProfile] = useState({ fullName: user?.name || '', email: user?.email || '', phone: (user as any)?.phone || '' });
+  const [profile, setProfile] = useState({
+    fullName: user?.name || '',
+    email: user?.email || '',
+    phone: formatContactNoInputFromProfile((user as any)?.phone || ''),
+  });
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   const [profileSaved, setProfileSaved] = useState(false);
 
   useEffect(() => {
     if (user) {
-      setProfile(p => ({ ...p, fullName: user.name || '', email: user.email || '', phone: (user as any).phone || p.phone }));
+      setProfile(p => ({
+        ...p,
+        fullName: user.name || '',
+        email: user.email || '',
+        phone: formatContactNoInputFromProfile((user as any).phone) || formatContactNoInputFromProfile(p.phone) || p.phone,
+      }));
     }
   }, [user]);
+
+  // Booking Step 2: keep Contact No. in sync when auth/profile gains a phone after modal opened (or field still empty).
+  useEffect(() => {
+    if (!bookingOpen || !user) return;
+    const pref = formatContactNoInputFromProfile(profile.phone || (user as any)?.phone || '');
+    if (!pref.trim()) return;
+    setBookingForm(f => {
+      if ((f.contactNo || '').trim()) return f;
+      return { ...f, contactNo: pref };
+    });
+  }, [bookingOpen, user, profile.phone]);
 
   // Settings — Password
   const [passwords, setPasswords] = useState({ current: '', newPass: '', confirm: '' });
@@ -912,7 +1008,7 @@ export default function CustomerDashboard() {
   function validateProfile() {
     const errs: Record<string, string> = {};
     if (!(profile.fullName || '').trim() || (profile.fullName || '').trim().length < 2) errs.fullName = 'Full name must be at least 2 characters.';
-    if (!(profile.phone || '').trim() || !/^[+\d\s\-()]{7,20}$/.test(profile.phone || '')) errs.phone = 'Enter a valid phone number.';
+    if (!(profile.phone || '').trim() || !isValidPhilippineMobileInput(profile.phone || '')) errs.phone = 'Enter 09XXXXXXXXX or +639XXXXXXXXX.';
     setProfileErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -1094,9 +1190,14 @@ export default function CustomerDashboard() {
       setBookingSelectedVehicleIdx(0);
       setBookingForm(f => ({
         ...f,
-        vehicleModel: f.vehicleModel || vehicles[0].name || '',
+        vehicleMake: f.vehicleMake || vehicles[0].make || '',
+        vehicleModel: f.vehicleModel || vehicles[0].model || '',
+        vehicleYear: f.vehicleYear || vehicles[0].year || '',
         vehicleColor: f.vehicleColor || vehicles[0].color || '',
         vehiclePlate: f.vehiclePlate || vehicles[0].plate || '',
+        vehicleCategory: f.vehicleCategory || vehicles[0].type || '',
+        vehicleTransmission: f.vehicleTransmission || vehicles[0].transmission || '',
+        vehicleFuelType: f.vehicleFuelType || vehicles[0].fuelType || '',
       }));
     }
   }, [vehicles, bookingSelectedVehicleIdx, bookingOpen]);
@@ -4123,7 +4224,7 @@ export default function CustomerDashboard() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <p style={{ fontSize: 13, fontWeight: 700, color: txt, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previewName}</p>
                         <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
-                          {newVehicle.plate && <span style={{ fontSize: 10, fontWeight: 700, color: txt, opacity: 0.8, letterSpacing: '0.05em', background: 'rgba(255,255,255,0.2)', padding: '1px 6px', borderRadius: 4 }}>{newVehicle.plate.toUpperCase()}</span>}
+                          {newVehicle.plate && <span style={{ fontSize: 10, fontWeight: 700, color: txt, opacity: 0.8, letterSpacing: '0.05em', background: 'rgba(255,255,255,0.2)', padding: '1px 6px', borderRadius: 4 }}>{normalizePlateNumber(newVehicle.plate)}</span>}
                           {newVehicle.type && <span style={{ fontSize: 10, fontWeight: 600, color: txt, opacity: 0.7 }}>{newVehicle.type}</span>}
                         </div>
                       </div>
@@ -4148,11 +4249,14 @@ export default function CustomerDashboard() {
                   {vehicleErrors.plate ? (
                     <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.plate}</p>
                   ) : newVehicle.plate.trim() ? (
-                    /^[A-Za-z]{3}\s?\d{3,4}$/.test(newVehicle.plate.trim()) ? (
+                    (() => {
+                      const pn = normalizePlateNumber(newVehicle.plate);
+                      return pn.length >= 4 && pn.length <= 9 ? (
                       <p className="mt-1 text-[11px] text-emerald-500 flex items-center gap-1"><iconify-icon icon="solar:check-circle-bold" width="11"></iconify-icon> Valid plate format</p>
                     ) : (
-                      <p className="mt-1 text-[11px] text-amber-500 flex items-center gap-1"><iconify-icon icon="solar:info-circle-bold" width="11"></iconify-icon> Format: ABC 1234</p>
-                    )
+                      <p className="mt-1 text-[11px] text-amber-500 flex items-center gap-1"><iconify-icon icon="solar:info-circle-bold" width="11"></iconify-icon> 4–9 letters/numbers (spaces ignored)</p>
+                    );
+                    })()
                   ) : null}
                 </div>
 
@@ -4562,9 +4666,14 @@ export default function CustomerDashboard() {
                                 setBookingForm(f => ({
                                   ...f,
                                   service: '', servicePrice: 0,
-                                  vehicleModel: v.name,
-                                  vehiclePlate: v.plate,
+                                  vehicleMake: v.make || '',
+                                  vehicleModel: v.model || '',
+                                  vehicleYear: v.year || '',
+                                  vehiclePlate: v.plate || '',
                                   vehicleColor: v.color || '',
+                                  vehicleCategory: v.type || '',
+                                  vehicleTransmission: v.transmission || '',
+                                  vehicleFuelType: v.fuelType || '',
                                 }));
                               }}
                               className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all duration-200 ${isActive
@@ -4655,9 +4764,12 @@ export default function CustomerDashboard() {
                     />
                     {step2Errors.contactNo
                       ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.contactNo}</p>
-                      : (user as any)?.phone && bookingForm.contactNo === (user as any).phone && (
+                      : (() => {
+                          const src = formatContactNoInputFromProfile(profile.phone || (user as any)?.phone || '');
+                          return src && formatContactNoInputFromProfile(bookingForm.contactNo) === src ? (
                         <p className="text-[10px] text-gray-400 mt-1 pl-1">Auto-filled from your profile</p>
-                      )}
+                          ) : null;
+                        })()}
                   </div>
 
                   {/* Vehicle Fields — read-only from garage, or editable if not pre-selected */}
@@ -4708,7 +4820,45 @@ export default function CustomerDashboard() {
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Plate No.</p>
                           <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
                             <iconify-icon icon="solar:tag-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
-                            <span className="text-sm font-semibold text-gray-700 flex-1 tracking-widest">{bookingForm.vehiclePlate || '—'}</span>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 tracking-widest">{bookingForm.vehiclePlate ? normalizePlateNumber(bookingForm.vehiclePlate) : '—'}</span>
+                            <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
+                          </div>
+                        </div>
+                        {/* Year */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Year</p>
+                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                            <iconify-icon icon="solar:calendar-date-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleYear || '—'}</span>
+                            <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
+                          </div>
+                        </div>
+                        {/* Type */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Type</p>
+                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                            <iconify-icon icon="solar:clipboard-list-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleCategory || '—'}</span>
+                            <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* Transmission */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Transmission</p>
+                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                            <iconify-icon icon="solar:settings-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleTransmission || '—'}</span>
+                            <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
+                          </div>
+                        </div>
+                        {/* Fuel */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Fuel Type</p>
+                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                            <iconify-icon icon="solar:gas-station-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleFuelType || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
                           </div>
                         </div>
@@ -4780,7 +4930,74 @@ export default function CustomerDashboard() {
                           />
                           {step2Errors.vehiclePlate
                             ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehiclePlate}</p>
-                            : <p className="text-[10px] text-gray-400 mt-1 pl-1">Format: ABC123 or ABC 1234</p>}
+                            : <p className="text-[10px] text-gray-400 mt-1 pl-1">4–9 letters/numbers (spaces ignored)</p>}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Year <span className="text-gray-400 font-normal">(optional)</span></label>
+                          <select
+                            value={bookingForm.vehicleYear}
+                            onChange={e => { setBookingForm(f => ({ ...f, vehicleYear: e.target.value })); }}
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none"
+                          >
+                            <option value="">Year</option>
+                            {BOOKING_YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Type <span className="text-red-500">*</span></label>
+                          <select
+                            value={bookingForm.vehicleCategory}
+                            onChange={e => {
+                              const type = e.target.value;
+                              setBookingVehicleType(getVehiclePriceKey(type));
+                              setBookingForm(f => ({
+                                ...f,
+                                vehicleCategory: type,
+                                service: '',
+                                serviceName: '',
+                                servicePrice: 0,
+                              }));
+                              if (step2Errors.vehicleCategory) setStep2Errors(err => ({ ...err, vehicleCategory: '' }));
+                            }}
+                            className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none ${step2Errors.vehicleCategory ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                          >
+                            <option value="">Select type</option>
+                            {ADD_VEHICLE_TYPE_LABELS.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                          {step2Errors.vehicleCategory && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleCategory}</p>}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Transmission <span className="text-gray-400 font-normal">(optional)</span></label>
+                          <select
+                            value={bookingForm.vehicleTransmission}
+                            onChange={e => setBookingForm(f => ({ ...f, vehicleTransmission: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none"
+                          >
+                            <option value="">Select...</option>
+                            <option value="Automatic">Automatic</option>
+                            <option value="Manual">Manual</option>
+                            <option value="CVT">CVT</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Fuel Type <span className="text-gray-400 font-normal">(optional)</span></label>
+                          <select
+                            value={bookingForm.vehicleFuelType}
+                            onChange={e => setBookingForm(f => ({ ...f, vehicleFuelType: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none"
+                          >
+                            <option value="">Select...</option>
+                            <option value="Gasoline">Gasoline</option>
+                            <option value="Diesel">Diesel</option>
+                            <option value="Electric">Electric</option>
+                            <option value="Hybrid">Hybrid</option>
+                          </select>
                         </div>
                       </div>
                     </>
@@ -5310,22 +5527,23 @@ export default function CustomerDashboard() {
             {/* Footer */}
             {!bookingDone && (() => {
               // ── Per-step validity — single source of truth ──────────────────
-              const phPhone = /^09\d{9}$/;
-              const plateRx = /^[A-Z]{3}\s?\d{3,4}$/i;
+              const contactCompact = (bookingForm.contactNo || '').replace(/\s/g, '');
+              const contactOk =
+                !!contactCompact &&
+                (isValidPhilippineBookingContact(bookingForm.contactNo || '') ||
+                  /^\+[1-9]\d{7,14}$/.test(contactCompact));
+              const plateNormStep = normalizePlateNumber(bookingForm.vehiclePlate || '');
+              const plateOk = plateNormStep.length >= 4 && plateNormStep.length <= 9;
               const step1Valid = !!bookingForm.service;
               const vehicleFieldsValid = bookingFromVehicle
-                // Pre-filled from garage: vehicle fields already populated, no extra validation needed
                 ? true
-                // Manual entry: all vehicle fields required and plate must match format
                 : !!bookingForm.vehicleMake &&
                   !!(bookingForm.vehicleModel || '').trim() &&
                   !!bookingForm.vehicleColor &&
                   !!(bookingForm.vehiclePlate || '').trim() &&
-                  plateRx.test((bookingForm.vehiclePlate || '').trim());
-              const step2Valid =
-                !!(bookingForm.contactNo || '').trim() &&
-                phPhone.test((bookingForm.contactNo || '').replace(/\s/g, '')) &&
-                vehicleFieldsValid;
+                  plateOk &&
+                  !!bookingForm.vehicleCategory;
+              const step2Valid = contactOk && vehicleFieldsValid;
               const selectedSlotStatus = slotStatuses.find(s => s.time === bookingForm.time)?.status;
               const step3Valid =
                 !!bookingForm.date &&
@@ -5373,15 +5591,19 @@ export default function CustomerDashboard() {
                           if (bookingStep === 2) {
                             // Trigger inline errors on fields even if button was somehow clickable
                             const errs: Record<string, string> = {};
+                            const cc = (bookingForm.contactNo || '').replace(/\s/g, '');
                             if (!(bookingForm.contactNo || '').trim()) errs.contactNo = 'Contact number is required.';
-                            else if (!phPhone.test(bookingForm.contactNo.replace(/\s/g, ''))) errs.contactNo = 'Must be a valid PH number (09XXXXXXXXX).';
+                            else if (!isValidPhilippineBookingContact(bookingForm.contactNo || '') && !/^\+[1-9]\d{7,14}$/.test(cc)) {
+                              errs.contactNo = 'Enter a valid PH mobile (09…) or international number.';
+                            }
                             // Only validate vehicle fields when not pre-filled from garage
                             if (!bookingFromVehicle) {
                               if (!bookingForm.vehicleMake) errs.vehicleMake = 'Select a brand.';
                               if (!(bookingForm.vehicleModel || '').trim()) errs.vehicleModel = 'Model is required.';
                               if (!bookingForm.vehicleColor) errs.vehicleColor = 'Select a color.';
+                              if (!bookingForm.vehicleCategory) errs.vehicleCategory = 'Select vehicle type.';
                               if (!(bookingForm.vehiclePlate || '').trim()) errs.vehiclePlate = 'Plate number is required.';
-                              else if (!plateRx.test((bookingForm.vehiclePlate || '').trim())) errs.vehiclePlate = 'Format: ABC123 or ABC 1234.';
+                              else if (!plateOk) errs.vehiclePlate = 'Use 4–9 letters/numbers (spaces ignored).';
                             }
                             if (Object.keys(errs).length > 0) {
                               setStep2Errors(errs);
@@ -5628,15 +5850,14 @@ export default function CustomerDashboard() {
       {editVehicleOpen && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-          style={{ backgroundColor: 'rgba(0,0,0,.45)', backdropFilter: 'blur(5px)' }}
-          onClick={() => setEditVehicleOpen(false)}
+          style={{ backgroundColor: 'rgba(0,0,0,.4)', backdropFilter: 'blur(4px)' }}
+          onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); }}
         >
           <div
-            className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden"
+            className="bg-white rounded-xl w-full max-w-[420px] shadow-2xl max-h-[90vh] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
             onClick={e => e.stopPropagation()}
-            style={{ animation: 'modalIn .2s ease-out' }}
+            style={{ animation: 'modalIn .2s ease-out', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
-            {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
@@ -5644,15 +5865,16 @@ export default function CustomerDashboard() {
                 </div>
                 <h3 className="text-[15px] font-semibold text-gray-900">Edit Vehicle</h3>
               </div>
-              <button onClick={() => setEditVehicleOpen(false)} className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+              <button
+                type="button"
+                onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); }}
+                className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
                 <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
               </button>
             </div>
 
-            {/* Form */}
-            <div className="p-5 space-y-4">
-
-              {/* API error banner */}
+            <div className="px-5 py-4 space-y-3">
               {editVehicleApiError && (
                 <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-red-50 border border-red-100">
                   <iconify-icon icon="solar:danger-triangle-bold" width="15" style={{ color: '#ef4444', marginTop: '1px', flexShrink: 0 }}></iconify-icon>
@@ -5660,81 +5882,251 @@ export default function CustomerDashboard() {
                 </div>
               )}
 
-              {/* Plate */}
+              {(editVehicleForm.brand || editVehicleForm.model || editVehicleForm.plate) && (() => {
+                const colorHex: Record<string, string> = {
+                  White: '#e2e8f0', Black: '#1e293b', Silver: '#94a3b8', Gray: '#64748b',
+                  Blue: '#3b82f6', Red: '#ef4444', Green: '#22c55e', Yellow: '#eab308',
+                  Orange: '#f97316', Brown: '#92400e',
+                };
+                const bg = colorHex[editVehicleForm.color] || '#94a3b8';
+                const isLight = ['White', 'Silver', 'Yellow', ''].includes(editVehicleForm.color);
+                const txt = isLight ? '#1e293b' : '#f8fafc';
+                const previewName = [editVehicleForm.year, editVehicleForm.brand, editVehicleForm.model].filter(Boolean).join(' ') || 'Your Vehicle';
+                return (
+                  <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                    <div style={{ background: `linear-gradient(135deg, ${bg}, ${bg}dd)`, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <iconify-icon icon="solar:car-bold" width="36" style={{ color: txt, opacity: 0.8, flexShrink: 0 }}></iconify-icon>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 13, fontWeight: 700, color: txt, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previewName}</p>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
+                          {editVehicleForm.plate && <span style={{ fontSize: 10, fontWeight: 700, color: txt, opacity: 0.8, letterSpacing: '0.05em', background: 'rgba(255,255,255,0.2)', padding: '1px 6px', borderRadius: 4 }}>{normalizePlateNumber(editVehicleForm.plate)}</span>}
+                          {editVehicleForm.type && <span style={{ fontSize: 10, fontWeight: 600, color: txt, opacity: 0.7 }}>{editVehicleForm.type}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ background: '#f8fafc', padding: '6px 16px', fontSize: 10, color: '#94a3b8', fontWeight: 500, textAlign: 'center' }}>Live Preview</div>
+                  </div>
+                );
+              })()}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Plate Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. ABC-1234"
+                    value={editVehicleForm.plate}
+                    onChange={(e) => { setEditVehicleForm(f => ({ ...f, plate: e.target.value })); setEditVehicleErrors(er => ({ ...er, plate: '' })); }}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${editVehicleErrors.plate ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
+                  />
+                  {editVehicleErrors.plate ? (
+                    <p className="mt-1 text-[11px] text-red-500">{editVehicleErrors.plate}</p>
+                  ) : editVehicleForm.plate.trim() ? (
+                    (() => {
+                      const pn = normalizePlateNumber(editVehicleForm.plate);
+                      return pn.length >= 4 && pn.length <= 9 ? (
+                        <p className="mt-1 text-[11px] text-emerald-500 flex items-center gap-1"><iconify-icon icon="solar:check-circle-bold" width="11"></iconify-icon> Valid plate format</p>
+                      ) : (
+                        <p className="mt-1 text-[11px] text-amber-500 flex items-center gap-1"><iconify-icon icon="solar:info-circle-bold" width="11"></iconify-icon> 4–9 letters/numbers (spaces ignored)</p>
+                      );
+                    })()
+                  ) : null}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Type <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={editVehicleForm.type}
+                    onChange={(e) => { setEditVehicleForm(f => ({ ...f, type: e.target.value })); setEditVehicleErrors(er => ({ ...er, type: '' })); }}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${editVehicleErrors.type ? 'border-red-300 bg-red-50 text-red-700 focus:border-red-400' : editVehicleForm.type ? 'border-gray-200 text-gray-900 focus:border-gray-400' : 'border-gray-200 text-gray-400 focus:border-gray-400'}`}
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
+                  >
+                    <option value="" disabled>Select...</option>
+                    {ADD_VEHICLE_TYPE_LABELS.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  {editVehicleErrors.type && <p className="mt-1 text-[11px] text-red-500">{editVehicleErrors.type}</p>}
+                </div>
+              </div>
+
+              {editVehicleForm.type && (() => {
+                const priceKey = getVehiclePriceKey(editVehicleForm.type);
+                return (
+                  <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 12, padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                      <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#f59e0b' }}></iconify-icon>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: '#f59e0b', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {editVehicleForm.type} Pricing — Locked to this vehicle
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                      {RAW_SPF_PACKAGES.map(pkg => (
+                        <div key={pkg.id} style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: '8px 10px' }}>
+                          <p style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginBottom: 2, lineHeight: 1.3 }}>
+                            {pkg.name.split('—')[0].trim()}
+                          </p>
+                          <p style={{ fontSize: 14, fontWeight: 900, color: '#fff', letterSpacing: '-0.01em' }}>
+                            ₱{(pkg.prices[priceKey as keyof typeof pkg.prices] || 0).toLocaleString()}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Brand <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={editVehicleForm.brand}
+                    onChange={(e) => { setEditVehicleForm(f => ({ ...f, brand: e.target.value })); setEditVehicleErrors(er => ({ ...er, brand: '' })); }}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${editVehicleErrors.brand ? 'border-red-300 bg-red-50 text-red-700' : editVehicleForm.brand ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
+                  >
+                    <option value="">Select brand</option>
+                    {editVehicleForm.brand && !CAR_BRANDS.includes(editVehicleForm.brand) && (
+                      <option value={editVehicleForm.brand}>{editVehicleForm.brand}</option>
+                    )}
+                    {CAR_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                  {editVehicleErrors.brand && <p className="mt-1 text-[11px] text-red-500">{editVehicleErrors.brand}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Year <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <select
+                    value={editVehicleForm.year}
+                    onChange={(e) => setEditVehicleForm(f => ({ ...f, year: e.target.value }))}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${editVehicleForm.year ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
+                  >
+                    <option value="">Year</option>
+                    {BOOKING_YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </div>
+
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                  Plate Number <span className="text-red-500">*</span>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Model <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
-                  value={editVehicleForm.plate}
-                  onChange={e => { setEditVehicleForm(f => ({ ...f, plate: e.target.value })); setEditVehicleErrors(er => ({ ...er, plate: '' })); }}
-                  placeholder="e.g. ABC-1234"
-                  className={`w-full px-3 py-2.5 rounded-xl border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${editVehicleErrors.plate ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-gray-400'}`}
+                  placeholder="e.g. Vios, Civic, Ranger"
+                  value={editVehicleForm.model}
+                  onChange={(e) => { setEditVehicleForm(f => ({ ...f, model: e.target.value })); setEditVehicleErrors(er => ({ ...er, model: '' })); }}
+                  className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${editVehicleErrors.model ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
                 />
-                {editVehicleErrors.plate && <p className="text-xs text-red-500 mt-1">{editVehicleErrors.plate}</p>}
+                {editVehicleErrors.model && <p className="mt-1 text-[11px] text-red-500">{editVehicleErrors.model}</p>}
               </div>
 
-              {/* Make & Model */}
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                  Make & Model <span className="text-red-500">*</span>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                  Color <span className="text-gray-400 font-normal">(optional)</span>
                 </label>
-                <input
-                  type="text"
-                  value={editVehicleForm.name}
-                  onChange={e => { setEditVehicleForm(f => ({ ...f, name: e.target.value })); setEditVehicleErrors(er => ({ ...er, name: '' })); }}
-                  placeholder="e.g. 2023 Toyota Vios"
-                  className={`w-full px-3 py-2.5 rounded-xl border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${editVehicleErrors.name ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-gray-400'}`}
-                />
-                {editVehicleErrors.name && <p className="text-xs text-red-500 mt-1">{editVehicleErrors.name}</p>}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {[
+                    { name: 'White', hex: '#f1f5f9' }, { name: 'Black', hex: '#1e293b' },
+                    { name: 'Silver', hex: '#94a3b8' }, { name: 'Gray', hex: '#64748b' },
+                    { name: 'Blue', hex: '#3b82f6' }, { name: 'Red', hex: '#ef4444' },
+                    { name: 'Green', hex: '#22c55e' }, { name: 'Yellow', hex: '#eab308' },
+                    { name: 'Orange', hex: '#f97316' }, { name: 'Brown', hex: '#92400e' },
+                  ].map(c => {
+                    const sel = editVehicleForm.color === c.name && !editVehicleShowColorInput;
+                    return (
+                      <button key={c.name} type="button" title={c.name}
+                        onClick={() => { setEditVehicleForm(f => ({ ...f, color: c.name })); setEditVehicleShowColorInput(false); }}
+                        style={{
+                          width: 28, height: 28, borderRadius: '50%', border: sel ? '2.5px solid #0f172a' : '2px solid #e2e8f0',
+                          background: c.hex, cursor: 'pointer', transition: 'all 0.15s',
+                          boxShadow: sel ? '0 0 0 2px #fff, 0 0 0 4px #0f172a' : 'none',
+                          outline: 'none', flexShrink: 0,
+                        }}
+                      />
+                    );
+                  })}
+                  <button type="button"
+                    onClick={() => { setEditVehicleShowColorInput(true); setEditVehicleForm(f => ({ ...f, color: '' })); }}
+                    style={{
+                      height: 28, padding: '0 10px', borderRadius: 14, fontSize: 11, fontWeight: 600,
+                      border: editVehicleShowColorInput ? '2px solid #0f172a' : '2px solid #e2e8f0',
+                      background: editVehicleShowColorInput ? '#f8fafc' : '#fff', color: '#64748b',
+                      cursor: 'pointer', transition: 'all 0.15s',
+                    }}
+                  >Other</button>
+                </div>
+                {editVehicleShowColorInput && (
+                  <input
+                    type="text"
+                    placeholder="e.g. Champagne Gold"
+                    value={editVehicleForm.color}
+                    onChange={(e) => setEditVehicleForm(f => ({ ...f, color: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 transition-colors mt-2"
+                    autoFocus
+                  />
+                )}
+                {editVehicleForm.color && !editVehicleShowColorInput && (
+                  <p className="mt-1.5 text-[11px] text-gray-400 pl-0.5">Selected: <span className="font-semibold text-gray-600">{editVehicleForm.color}</span></p>
+                )}
               </div>
 
-              {/* Vehicle Type */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                  Vehicle Type <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={editVehicleForm.type}
-                  onChange={e => { setEditVehicleForm(f => ({ ...f, type: e.target.value })); setEditVehicleErrors(er => ({ ...er, type: '' })); }}
-                  className={`w-full px-3 py-2.5 rounded-xl border text-sm text-gray-900 outline-none transition-colors appearance-none ${editVehicleErrors.type ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-gray-400'}`}
-                >
-                  <option value="" disabled>Select type...</option>
-                  {['Hatchback', 'Sedan', 'Midsized', 'SUV', 'Pick UP', 'Large SUV / Van', 'Highend Sedan'].map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-                {editVehicleErrors.type && <p className="text-xs text-red-500 mt-1">{editVehicleErrors.type}</p>}
-              </div>
-
-              {/* Color */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Color <span className="text-gray-400 font-normal">(optional)</span></label>
-                <select
-                  value={editVehicleForm.color}
-                  onChange={e => setEditVehicleForm(f => ({ ...f, color: e.target.value }))}
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none"
-                >
-                  <option value="">Select color...</option>
-                  {['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Other'].map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Transmission <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <select
+                    value={editVehicleForm.transmission}
+                    onChange={(e) => setEditVehicleForm(f => ({ ...f, transmission: e.target.value }))}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${editVehicleForm.transmission ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
+                  >
+                    <option value="">Select...</option>
+                    <option value="Automatic">Automatic</option>
+                    <option value="Manual">Manual</option>
+                    <option value="CVT">CVT</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Fuel Type <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <select
+                    value={editVehicleForm.fuelType}
+                    onChange={(e) => setEditVehicleForm(f => ({ ...f, fuelType: e.target.value }))}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${editVehicleForm.fuelType ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
+                  >
+                    <option value="">Select...</option>
+                    <option value="Gasoline">Gasoline</option>
+                    <option value="Diesel">Diesel</option>
+                    <option value="Electric">Electric</option>
+                    <option value="Hybrid">Hybrid</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="flex gap-2 px-5 pb-5">
+            <div className="flex gap-2 px-5 pb-5 pt-1">
               <button
-                onClick={() => setEditVehicleOpen(false)}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+                type="button"
+                onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); }}
+                className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={saveEditVehicle}
-                className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 transition-colors"
+                className="flex-1 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-700 rounded-lg transition-colors"
               >
                 Save Changes
               </button>

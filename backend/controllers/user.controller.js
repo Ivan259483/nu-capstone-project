@@ -20,6 +20,7 @@ import {
   getInvalidUserRoleMessage,
   isValidUserRole,
 } from '../constants/roles.js';
+import { parseOptionalPhilippineMobile } from '../utils/phone.utils.js';
 
 const getQueryByIdOrFirebaseUid = (id) => {
   // If it's a 24-character hex string, assume it's a valid ObjectId
@@ -123,7 +124,16 @@ export const updateUser = async (req, res, next) => {
     if (typeof email !== 'undefined') updatePayload.email = email;
     if (typeof role !== 'undefined') updatePayload.role = role;
     if (typeof avatar !== 'undefined') updatePayload.avatar = avatar;
-    if (typeof phone !== 'undefined') updatePayload.phone = phone;
+    if (typeof phone !== 'undefined') {
+      const p = parseOptionalPhilippineMobile(phone);
+      if (!p.ok) {
+        return res.status(400).json({
+          success: false,
+          message: p.message || 'Invalid phone number.',
+        });
+      }
+      updatePayload.phone = p.phone === undefined ? '' : p.phone;
+    }
     if (typeof address !== 'undefined') updatePayload.address = address;
     if (typeof status !== 'undefined') updatePayload.status = status;
     if (typeof isActive !== 'undefined') updatePayload.isActive = isActive;
@@ -293,6 +303,14 @@ export const updateUser = async (req, res, next) => {
     console.error("❌ Update User Error:", error);
     next(error);
   }
+};
+
+/**
+ * PATCH /api/users/profile — update own profile (same rules as PUT /users/:id for self)
+ */
+export const updateMyProfile = async (req, res, next) => {
+  req.params.id = String(req.user.id);
+  return updateUser(req, res, next);
 };
 
 /**

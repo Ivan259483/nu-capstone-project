@@ -25,7 +25,11 @@ const userSchema = new mongoose.Schema(
       enum: USER_ROLES,
       default: 'customer',
     },
-    phone: String,
+    phone: {
+      type: String,
+      required: false,
+      trim: true,
+    },
     address: String,
     isVerified: {
       type: Boolean,

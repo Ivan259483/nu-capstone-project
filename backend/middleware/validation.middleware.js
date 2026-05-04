@@ -2,6 +2,7 @@ import { body, validationResult } from 'express-validator';
 // ⚠️ Bug #5 fix: Import USER_ROLES so the role validator stays in sync
 // with the canonical role list rather than a hardcoded, stale subset.
 import { USER_ROLES } from '../constants/roles.js';
+import { parseRegisterPhone } from '../utils/phone.utils.js';
 
 /* ═══════════════════════════════════════════════════════
    VALIDATION MIDDLEWARE — express-validator chains
@@ -56,6 +57,16 @@ export const validateRegistration = [
     .matches(/[a-z]/).withMessage('Password must contain at least one lowercase letter')
     .matches(/[0-9]/).withMessage('Password must contain at least one number')
     .matches(/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/).withMessage('Password must contain at least one special character'),
+
+  body('phone')
+    .optional({ values: 'falsy' })
+    .trim()
+    .custom((value) => {
+      if (!value) return true;
+      const { ok, message } = parseRegisterPhone(value);
+      if (!ok) throw new Error(message || 'Invalid phone number.');
+      return true;
+    }),
 
   body('role')
     .optional()

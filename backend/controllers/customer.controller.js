@@ -1,5 +1,6 @@
 import Customer from '../models/customer.model.js';
 import Vehicle from '../models/vehicle.model.js';
+import { normalizePlateNumber, findVehicleByNormalizedPlate } from '../utils/plate.utils.js';
 
 import { isFullAdminRole, isUserManagementRole } from '../constants/roles.js';
 
@@ -213,9 +214,7 @@ export const addVehicle = async (req, res, next) => {
 
     const { year, make, model, color, plateNumber, vehicleType, transmission, fuelType } = req.body;
     const customerId = req.user.id; // From authenticate middleware
-    const normalizedPlate = typeof plateNumber === 'string'
-      ? plateNumber.toUpperCase().replace(/[^A-Z0-9]/g, '')
-      : '';
+    const normalizedPlate = normalizePlateNumber(typeof plateNumber === 'string' ? plateNumber : '');
     const platePattern = /^[A-Z0-9]{4,9}$/;
 
     if (!normalizedPlate || !platePattern.test(normalizedPlate)) {
@@ -230,8 +229,8 @@ export const addVehicle = async (req, res, next) => {
     const tx = txAllowed.includes(transmission) ? transmission : '';
     const fuel = fuelAllowed.includes(fuelType) ? fuelType : '';
 
-    // ── Plate uniqueness check (before insert to give a helpful response) ────
-    const existingVehicle = await Vehicle.findOne({ plateNumber: normalizedPlate });
+    // ── Plate uniqueness check (normalized + legacy spaced formats in DB) ───
+    const existingVehicle = await findVehicleByNormalizedPlate(normalizedPlate);
     if (existingVehicle) {
       if (existingVehicle.customer.toString() === customerId) {
         // Same customer — return the existing record instead of an error.
@@ -358,13 +357,19 @@ export const updateVehicle = async (req, res, next) => {
     if (color !== undefined) vehicle.color = color;
     if (vehicleType !== undefined) vehicle.vehicleType = vehicleType;
     if (plateNumber) {
-      const normalizedPlate = typeof plateNumber === 'string'
-        ? plateNumber.toUpperCase().replace(/[^A-Z0-9]/g, '')
-        : '';
+      const normalizedPlate = normalizePlateNumber(typeof plateNumber === 'string' ? plateNumber : '');
       if (!platePattern.test(normalizedPlate)) {
         return res.status(400).json({
           success: false,
           message: 'Plate number must be 4–9 alphanumeric characters (e.g., ABC1234)',
+        });
+      }
+      const conflict = await findVehicleByNormalizedPlate(normalizedPlate);
+      if (conflict && conflict._id.toString() !== vehicle._id.toString()) {
+        return res.status(400).json({
+          success: false,
+          message: 'This plate number is already registered to another account.',
+          code: 'PLATE_TAKEN',
         });
       }
       vehicle.plateNumber = normalizedPlate;

@@ -9,6 +9,7 @@ import mockOtpStore from '../utils/mockOtpStore.utils.js';
 import { getInvalidUserRoleMessage, isValidUserRole } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { admin } from '../config/firebaseAdmin.js';
+import { parseRegisterPhone } from '../utils/phone.utils.js';
 
 // Roles that require Email OTP 2FA after password verification.
 // 'customer' is intentionally excluded — direct JWT login.
@@ -26,6 +27,15 @@ const generateOTP = (length = 6) => {
   const max = Math.pow(10, length); // crypto.randomInt upper bound is exclusive
   return crypto.randomInt(min, max).toString();
 };
+
+/** Attach decrypted phone to API user payloads (registration/booking clients rely on it). */
+function attachPhoneForClient(userDoc, userPayload) {
+  if (!userDoc || !userPayload) return;
+  const raw = userDoc.phone;
+  if (raw == null || raw === '') return;
+  const s = typeof raw === 'string' ? raw.trim() : String(raw).trim();
+  if (s) userPayload.phone = s;
+}
 
 /**
  * Send OTP for signup/login
@@ -388,7 +398,7 @@ export const verifyOtp = async (req, res, next) => {
  */
 export const register = async (req, res, next) => {
   try {
-    const { name, email, password, referralCode } = req.body;
+    const { name, email, password, referralCode, phone: rawPhone } = req.body;
 
     // Validate required fields
     if (!name || !email || !password) {
@@ -396,6 +406,17 @@ export const register = async (req, res, next) => {
         success: false,
         message: 'Name, email, and password are required',
       });
+    }
+
+    let phoneParsed = { ok: true, phone: undefined };
+    if (rawPhone != null && String(rawPhone).trim() !== '') {
+      phoneParsed = parseRegisterPhone(rawPhone);
+      if (!phoneParsed.ok) {
+        return res.status(400).json({
+          success: false,
+          message: phoneParsed.message || 'Invalid phone number.',
+        });
+      }
     }
 
     // Server-side email format validation
@@ -515,6 +536,7 @@ export const register = async (req, res, next) => {
       isVerified: isPreVerified,
       isActive: true,
       status: isPreVerified ? 'active' : 'pending',
+      ...(phoneParsed.phone ? { phone: phoneParsed.phone } : {}),
       ...(linkedFirebaseUid ? { firebaseUid: linkedFirebaseUid } : {}),
     });
 
@@ -762,6 +784,7 @@ export const login = async (req, res, next) => {
         delete userObject.password;
         delete userObject._id;
         delete userObject.__v;
+        attachPhoneForClient(user, userObject);
 
         logActivity({
           userId: user._id, userName: user.name || email, userRole: user.role,
@@ -844,6 +867,7 @@ export const login = async (req, res, next) => {
     delete userObject.password;
     delete userObject._id;
     delete userObject.__v;
+    attachPhoneForClient(user, userObject);
 
     logActivity({
       userId: user._id, userName: user.name || email, userRole: user.role,
@@ -904,6 +928,7 @@ export const getCurrentUser = async (req, res, next) => {
     delete userObject.password;
     delete userObject._id;
     delete userObject.__v;
+    attachPhoneForClient(user, userObject);
 
     res.json({
       success: true,
@@ -1026,6 +1051,7 @@ export const socialLogin = async (req, res, next) => {
      // Keep _id so mobile clients can identify the MongoDB user ID.
      // The Mongoose virtual 'id' (string) is also present via virtuals: true.
      delete userObject.__v;
+     attachPhoneForClient(user, userObject);
 
     logActivity({
       userId: user._id, userName: user.name || email, userRole: user.role,
@@ -1299,6 +1325,7 @@ export const verifyLoginOtp = async (req, res) => {
     delete userObject.password;
     delete userObject._id;
     delete userObject.__v;
+    attachPhoneForClient(user, userObject);
 
     logActivity({
       userId: user._id, userName: user.name || user.email, userRole: user.role,

@@ -23,6 +23,13 @@ const requireUserDirectoryAccess = (req, res, next) => {
 router.get('/', requireUserDirectoryAccess, userController.getAllUsers);
 
 /**
+ * @route PATCH /api/users/profile
+ * @desc Update current authenticated user's profile (name, phone, avatar, email)
+ * @access Private
+ */
+router.patch('/profile', authenticate, userController.updateMyProfile);
+
+/**
  * @route GET /api/users/:id
  * @desc Get user by ID
  * @access Private

@@ -579,7 +579,7 @@ const cal = StyleSheet.create({
 
 export default function BookScreen() {
   const { colors, isDark } = useTheme();
-  const { profile } = useAuth();
+  const { profile, backendUser } = useAuth();
   const router = useRouter();
 
   // ── State ──
@@ -768,8 +768,11 @@ export default function BookScreen() {
   );
 
   useEffect(() => {
-    if (profile?.phone) setPhone(profile.phone);
-  }, [profile]);
+    const fromProfile = (profile?.phone || '').trim();
+    const fromBackend = (backendUser?.phone || '').trim();
+    const p = fromProfile || fromBackend;
+    if (p) setPhone(p);
+  }, [profile?.phone, backendUser?.phone]);
 
   // ── AI Scan Pre-fill ─────────────────────────────────────────────────
   // Optional deep-link query params let other screens (e.g. AI Scan flow)

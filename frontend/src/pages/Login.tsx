@@ -5,12 +5,16 @@ import { Eye, EyeOff, LogIn, Mail, Lock, Loader2, ArrowLeft, ShieldCheck, Refres
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { getBaseApiUrl } from "@/lib/api";
 import { getDashboardPathForRole } from "@/lib/roles";
+import { buildRegisterE164, validateRegisterNationalDigits } from "@/lib/phone";
+import { REGISTER_COUNTRY_DIALS } from "@/lib/countries-dial-data";
+import { RegisterPhoneField } from "@/components/auth/RegisterPhoneField";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
@@ -63,13 +67,22 @@ export default function Login() {
     const [tab, setTab] = useState<"login" | "register">("login");
 
     /* ── Register form ── */
-    const [registerForm, setRegisterForm] = useState({ firstName: "", middleName: "", lastName: "", email: "", password: "" });
+    const [registerForm, setRegisterForm] = useState({
+        firstName: "",
+        lastName: "",
+        email: "",
+        password: "",
+        confirmPassword: "",
+    });
+    const [registerPhoneCountryIso, setRegisterPhoneCountryIso] = useState("PH");
+    const [registerPhoneNational, setRegisterPhoneNational] = useState("");
+    const [registerPhoneError, setRegisterPhoneError] = useState("");
     const [registerLoading, setRegisterLoading] = useState(false);
     const [showRegisterPassword, setShowRegisterPassword] = useState(false);
 
-
-
-
+    useEffect(() => {
+        if (registerForm.password.length === 0) setShowRegisterPassword(false);
+    }, [registerForm.password.length]);
 
     /* ── Login OTP expiry countdown (5 min) ── */
     useEffect(() => {
@@ -234,24 +247,44 @@ export default function Login() {
 
     /* ── Register submit ── */
     const handleRegisterSubmit = async () => {
-        const { firstName, middleName, lastName, email, password } = registerForm;
-        if (!firstName || !lastName || !email || !password) {
+        const { firstName, lastName, email, password, confirmPassword } = registerForm;
+        const dial =
+            REGISTER_COUNTRY_DIALS.find((c) => c.iso === registerPhoneCountryIso)?.dial ?? "63";
+
+        if (!firstName || !lastName || !email || !password || !confirmPassword) {
             toast.error("Please fill in all required fields.");
             return;
         }
+        if (password !== confirmPassword) {
+            toast.error("Passwords do not match.");
+            return;
+        }
+        if (!registerPhoneNational.replace(/\D/g, "").length) {
+            setRegisterPhoneError("Phone number is required.");
+            toast.error("Please enter your phone number.");
+            return;
+        }
+        const phoneCheck = validateRegisterNationalDigits(dial, registerPhoneNational);
+        if (!phoneCheck.ok) {
+            setRegisterPhoneError(phoneCheck.message || "Invalid phone number.");
+            toast.error(phoneCheck.message || "Invalid phone number format.");
+            return;
+        }
+        setRegisterPhoneError("");
         if (password.length < 8) {
             toast.error("Password must be at least 8 characters.");
             return;
         }
-        
-        const fullName = [firstName, middleName, lastName].filter(Boolean).join(" ");
-        
+
+        const fullName = [firstName, lastName].filter(Boolean).join(" ");
+        const phoneE164 = buildRegisterE164(dial, registerPhoneNational);
+
         setRegisterLoading(true);
         try {
             const res = await fetch(`${getBaseApiUrl()}/auth/register`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: fullName, email, password }),
+                body: JSON.stringify({ name: fullName, email, password, phone: phoneE164 }),
             });
             const data = await res.json();
             if (!res.ok || !data.success) {
@@ -356,6 +389,7 @@ export default function Login() {
                     isActive: backendUser.isActive ?? true,
                     lastActive: backendUser.lastActive || new Date().toISOString(),
                     avatar: backendUser.avatar || undefined,
+                    phone: backendUser.phone || undefined,
                 });
             }
 
@@ -515,22 +549,7 @@ export default function Login() {
                                             type="text"
                                             value={registerForm.firstName}
                                             onChange={(e) => setRegisterForm((f) => ({ ...f, firstName: e.target.value }))}
-                                            placeholder="FIRST NAME"
-                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
-                                        />
-                                    </div>
-                                </div>
-                                {/* Middle Name */}
-                                <div>
-                                    <Label htmlFor="reg-middle-name" className="text-sm text-muted-foreground mb-1.5 block">Middle Name (Optional)</Label>
-                                    <div className="relative">
-                                        <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                        <Input
-                                            id="reg-middle-name"
-                                            type="text"
-                                            value={registerForm.middleName}
-                                            onChange={(e) => setRegisterForm((f) => ({ ...f, middleName: e.target.value }))}
-                                            placeholder="MIDDLE NAME"
+                                            placeholder="First name"
                                             className="pl-9 bg-muted/40 border-border focus:border-primary"
                                         />
                                     </div>
@@ -545,10 +564,33 @@ export default function Login() {
                                             type="text"
                                             value={registerForm.lastName}
                                             onChange={(e) => setRegisterForm((f) => ({ ...f, lastName: e.target.value }))}
-                                            placeholder="LAST NAME"
+                                            placeholder="Last name"
                                             className="pl-9 bg-muted/40 border-border focus:border-primary"
                                         />
                                     </div>
+                                </div>
+                                {/* Phone Number */}
+                                <div>
+                                    <Label htmlFor="reg-phone-national" className="text-sm text-muted-foreground mb-1.5 block">
+                                        Phone Number <span className="text-red-500">*</span>
+                                    </Label>
+                                    <RegisterPhoneField
+                                        countryIso={registerPhoneCountryIso}
+                                        onCountryIsoChange={(iso) => {
+                                            setRegisterPhoneCountryIso(iso);
+                                            if (registerPhoneError) setRegisterPhoneError("");
+                                        }}
+                                        nationalDigits={registerPhoneNational}
+                                        onNationalDigitsChange={(v) => {
+                                            setRegisterPhoneNational(v);
+                                            if (registerPhoneError) setRegisterPhoneError("");
+                                        }}
+                                        hasError={Boolean(registerPhoneError)}
+                                        nationalInputId="reg-phone-national"
+                                    />
+                                    {registerPhoneError ? (
+                                        <p className="mt-1 text-xs text-red-600">{registerPhoneError}</p>
+                                    ) : null}
                                 </div>
                                 {/* Email */}
                                 <div>
@@ -560,39 +602,90 @@ export default function Login() {
                                             type="email"
                                             value={registerForm.email}
                                             onChange={(e) => setRegisterForm((f) => ({ ...f, email: e.target.value }))}
-                                            placeholder="EMAIL ADDRESS"
+                                            placeholder="Email address"
                                             className="pl-9 bg-muted/40 border-border focus:border-primary"
                                         />
                                     </div>
                                 </div>
-                                {/* Password */}
+                                {/* Create password + confirm */}
                                 <div>
-                                    <Label htmlFor="reg-password" className="text-sm text-muted-foreground mb-1.5 block">Password</Label>
+                                    <Label htmlFor="reg-password" className="text-sm text-muted-foreground mb-1.5 block">
+                                        Create Password <span className="text-red-500">*</span>
+                                    </Label>
                                     <div className="relative">
                                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                         <Input
                                             id="reg-password"
+                                            autoComplete="new-password"
                                             type={showRegisterPassword ? "text" : "password"}
                                             value={registerForm.password}
                                             onChange={(e) => setRegisterForm((f) => ({ ...f, password: e.target.value }))}
-                                            placeholder="PASSWORD"
-                                            className="pl-9 pr-9 bg-muted/40 border-border focus:border-primary"
+                                            placeholder="Password"
+                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
                                             onKeyDown={(e) => e.key === "Enter" && handleRegisterSubmit()}
                                         />
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowRegisterPassword((v) => !v)}
-                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                                        >
-                                            {showRegisterPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                        </button>
                                     </div>
+                                </div>
+                                <div>
+                                    <Label htmlFor="reg-password-confirm" className="text-sm text-muted-foreground mb-1.5 block">
+                                        Confirm Password <span className="text-red-500">*</span>
+                                    </Label>
+                                    <div className="relative">
+                                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                        <Input
+                                            id="reg-password-confirm"
+                                            autoComplete="new-password"
+                                            type={showRegisterPassword ? "text" : "password"}
+                                            value={registerForm.confirmPassword}
+                                            onChange={(e) => setRegisterForm((f) => ({ ...f, confirmPassword: e.target.value }))}
+                                            placeholder="Confirm password"
+                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
+                                            onKeyDown={(e) => e.key === "Enter" && handleRegisterSubmit()}
+                                        />
+                                    </div>
+                                </div>
+                                <div
+                                    className={cn(
+                                        "flex items-center gap-2 overflow-hidden motion-safe:transition-opacity motion-safe:duration-200 motion-safe:ease-in-out",
+                                        registerForm.password.length > 0
+                                            ? "pointer-events-auto mt-[10px] max-h-14 opacity-100"
+                                            : "pointer-events-none mt-0 max-h-0 opacity-0"
+                                    )}
+                                    aria-hidden={registerForm.password.length === 0}
+                                >
+                                    <Checkbox
+                                        id="reg-show-passwords"
+                                        checked={showRegisterPassword}
+                                        onCheckedChange={(c) => setShowRegisterPassword(c === true)}
+                                        className={cn(
+                                            "h-4 w-4 shrink-0 rounded-[4px] border shadow-none ring-offset-0",
+                                            "border-[rgba(255,255,255,0.3)] bg-transparent",
+                                            "data-[state=checked]:border-[#F97316] data-[state=checked]:bg-[#F97316]",
+                                            "data-[state=checked]:text-white data-[state=unchecked]:bg-transparent",
+                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F97316]/40 focus-visible:ring-offset-0",
+                                            "[&_svg]:h-3 [&_svg]:w-3 [&_svg]:stroke-[3]"
+                                        )}
+                                    />
+                                    <Label
+                                        htmlFor="reg-show-passwords"
+                                        className="cursor-pointer text-[13px] font-normal leading-none text-[rgba(255,255,255,0.6)]"
+                                    >
+                                        Show passwords
+                                    </Label>
                                 </div>
                                 <Button
                                     id="register-submit"
                                     onClick={handleRegisterSubmit}
                                     className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold mt-2 group"
-                                    disabled={!registerForm.firstName || !registerForm.lastName || !registerForm.email || !registerForm.password || registerLoading}
+                                    disabled={
+                                        !registerForm.firstName ||
+                                        !registerForm.lastName ||
+                                        !registerPhoneNational.replace(/\D/g, "").length ||
+                                        !registerForm.email ||
+                                        !registerForm.password ||
+                                        !registerForm.confirmPassword ||
+                                        registerLoading
+                                    }
                                 >
                                     {registerLoading ? (
                                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />

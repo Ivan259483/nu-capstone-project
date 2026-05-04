@@ -31,6 +31,11 @@ export const UserService = {
         return response.data;
     },
 
+    async patchMyProfile(userData: { name?: string; email?: string; avatar?: string; phone?: string }) {
+        const response = await api.patch('/users/profile', userData, { timeout: 10000 });
+        return response.data;
+    },
+
     async deleteUser(id: string) {
         const response = await api.delete(`/users/${id}`);
         return response.data;
