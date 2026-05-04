@@ -247,6 +247,19 @@ function getLatestStaffNote(booking: Booking | null) {
 function getCurrentStepIndex(booking: Booking | null) {
   if (!booking) return 0;
 
+  const trackingStage = (booking as any)?.serviceTrackingStage;
+  if (trackingStage && typeof trackingStage === 'string') {
+    const stageMap: Record<string, number> = {
+      confirmed: 1,
+      received: 2,
+      in_progress: 3,
+      quality_check: 4,
+      ready_pickup: 5,
+      completed: 5,
+    };
+    if (stageMap[trackingStage] !== undefined) return stageMap[trackingStage];
+  }
+
   const status = String(booking.status || '').toLowerCase();
   const customerStatus = String(booking.customerStatus || '').toLowerCase();
 
@@ -413,15 +426,26 @@ export default function CustomerLiveTrackerPage() {
     // Reduced to 10s for demo reliability (was 30s)
     const refreshInterval = window.setInterval(fetchActiveBooking, 10_000);
 
-    // Shared socket: instant update on any orders db_change
+    let socketBumpTimer: ReturnType<typeof setTimeout> | null = null;
+    const bumpFromSocket = () => {
+      if (socketBumpTimer) clearTimeout(socketBumpTimer);
+      socketBumpTimer = setTimeout(() => {
+        socketBumpTimer = null;
+        fetchActiveBooking();
+      }, 350);
+    };
+
+    // Shared socket: same events as dashboard — silent HTTP refetch (no reload)
     const socket = getSharedSocket();
     const handleDbChange = (payload: any) => {
       if (payload.collection === 'orders') {
         console.log('[LiveTracker] db_change orders → refetch');
-        fetchActiveBooking();
+        bumpFromSocket();
       }
     };
     socket.on('db_change', handleDbChange);
+    socket.on('booking:status', bumpFromSocket);
+    socket.on('orderUpdated', bumpFromSocket);
 
     // Visibility / focus refresh
     let visTimer: ReturnType<typeof setTimeout> | null = null;
@@ -450,7 +474,10 @@ export default function CustomerLiveTrackerPage() {
     return () => {
       isMounted = false;
       window.clearInterval(refreshInterval);
+      if (socketBumpTimer) clearTimeout(socketBumpTimer);
       socket.off('db_change', handleDbChange);
+      socket.off('booking:status', bumpFromSocket);
+      socket.off('orderUpdated', bumpFromSocket);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleVisibility);
       if (visTimer) clearTimeout(visTimer);

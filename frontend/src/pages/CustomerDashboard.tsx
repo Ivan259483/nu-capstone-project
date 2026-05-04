@@ -239,13 +239,25 @@ export default function CustomerDashboard() {
   // Payment History lightbox
   const [paymentLightboxUrl, setPaymentLightboxUrl] = useState<string | null>(null);
 
+  /** Socket-driven silent refetch — avoids full page reload; see bookings `load()` effect. */
+  const loadBookingsRef = useRef<((opts?: { silent?: boolean }) => Promise<void>) | null>(null);
+  const silentBookingsRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleSilentBookingsRefetch = useCallback(() => {
+    if (silentBookingsRefetchTimerRef.current) clearTimeout(silentBookingsRefetchTimerRef.current);
+    silentBookingsRefetchTimerRef.current = setTimeout(() => {
+      silentBookingsRefetchTimerRef.current = null;
+      loadBookingsRef.current?.({ silent: true });
+    }, 400);
+  }, []);
+
   // ── Real-time tracker updates via useLiveJobs socket ─────────────────────────
   // When QC advances a stage, the backend emits booking:status to user:${id} room.
   // We ONLY patch serviceTrackingStage (and staff assignments) — never status.
   // Patching status from socket events caused the 'Booking Not Confirmed' bug:
   // ready_pickup was emitting status:'completed', hasActiveBooking → false,
   // the live tracker hid, and any old rejected order surfaced instead.
-  // The status field is authoritative only from the polling refetch (DB source).
+  // Status stays authoritative from HTTP refetch (poll + debounced silent load below).
   const handleBookingStatus = useCallback((event: BookingStatusEvent) => {
     const { bookingId, serviceTrackingStage, serviceStaffAssignments } = event;
     if (!bookingId) return;
@@ -262,12 +274,12 @@ export default function CustomerDashboard() {
         };
       })
     );
-    // Bust cache so the very next poll fetches fresh status from DB
     invalidate('/bookings');
-  }, []);
+    scheduleSilentBookingsRefetch();
+  }, [scheduleSilentBookingsRefetch]);
 
   // useLiveJobs manages the singleton socket, room joining, and the booking:status listener.
-  // We only need its onBookingStatus callback here — the polling handles myBookings separately.
+  // orderUpdated → same debounced silent bookings refetch (no reload).
   // onNotification fires when a notification:customer socket event arrives — prepend to bell list.
   const handleIncomingNotification = useCallback((notif: any) => {
     if (!notif || !notif.id) return;
@@ -277,7 +289,7 @@ export default function CustomerDashboard() {
       return [{ ...notif, isRead: false }, ...prev];
     });
   }, []);
-  useLiveJobs(user, handleBookingStatus, handleIncomingNotification);
+  useLiveJobs(user, handleBookingStatus, handleIncomingNotification, scheduleSilentBookingsRefetch);
 
   useEffect(() => {
     if (vehicles.length === 0) {
@@ -783,6 +795,10 @@ export default function CustomerDashboard() {
         vehiclePlate: normalizePlateNumber(bookingForm.vehiclePlate || ''),
         price: bookingForm.servicePrice, bookingDate: bookingForm.date,
         bookingTime: bookingForm.time, notes: bookingForm.notes,
+        // Catalog package IDs (spf80, …) are NOT Mongo product IDs — backend needs serviceType
+        // to use the custom-package path (items without Product refs). See order.controller createOrder.
+        serviceType: bookingForm.serviceName || '',
+        serviceName: bookingForm.serviceName || '',
         items: JSON.stringify([{ product: bookingForm.service, quantity: 1, price: bookingForm.servicePrice }]),
         // GCash proof — sent as base64 data URL so Sales can verify the payment screenshot
         downpaymentProof: bookingDownpaymentProof || undefined,
@@ -1086,19 +1102,18 @@ export default function CustomerDashboard() {
   }, [location.search]);
 
   // Fetch My Bookings whenever section opens — with socket-driven instant updates
-  const loadBookingsRef = useRef<(() => Promise<void>) | null>(null);
-
   useEffect(() => {
     if (!['dashboard', 'bookings', 'documents', 'rewards', 'tracker'].includes(activeSection) || !user) return;
 
-    const load = async () => {
+    const load = async (opts?: { silent?: boolean }) => {
+      const silent = !!opts?.silent;
       // ── Bust cache before every fetch so polling always gets fresh data ──
       // The cache TTL (5s) matches the poll interval, meaning the cache would
       // always be fresh and the poll would return stale data. Invalidating first
       // guarantees we hit the network on every poll tick.
       invalidate('/bookings');
 
-      setMyBookingsLoading(true);
+      if (!silent) setMyBookingsLoading(true);
       try {
         const { OrderService } = await import('../lib/order-service');
         const res = await OrderService.getAllOrders({ suppressErrorToast: true });
@@ -1143,18 +1158,24 @@ export default function CustomerDashboard() {
           setActivities(nextActivities);
         }
       } catch (e) { console.warn('[MyBookings]', e); }
-      setMyBookingsLoading(false);
+      if (!silent) setMyBookingsLoading(false);
     };
 
-    // Expose load so the socket listener can trigger it
+    // Expose load so socket handlers can trigger a silent refetch (no loading spinner).
     loadBookingsRef.current = load;
 
     load();
     // Poll every 5s — cache is busted at the top of load() so this always hits the network.
-    // Real-time updates arrive via useLiveJobs socket (booking:status), this is the fallback.
-    const interval = setInterval(load, 5000);
+    // Real-time updates arrive via useLiveJobs (booking:status, orderUpdated), this is the fallback.
+    const interval = setInterval(() => load(), 5000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (silentBookingsRefetchTimerRef.current) {
+        clearTimeout(silentBookingsRefetchTimerRef.current);
+        silentBookingsRefetchTimerRef.current = null;
+      }
+    };
   }, [activeSection, user]);
 
   useEffect(() => {
@@ -3110,8 +3131,34 @@ export default function CustomerDashboard() {
                   { id: 'completed', label: 'Quality Check', icon: 'solar:shield-check-bold' },
                   { id: 'paid', label: 'Ready for Pickup', icon: 'solar:car-bold' },
                 ];
-                const statusToStep: Record<string, number> = { confirmed: 0, received: 1, in_progress: 2, 'in-progress': 2, completed: 3, paid: 4 };
-                const currentStep = activeBooking ? (statusToStep[activeBooking.status] ?? 0) : -1;
+                // Match premium dashboard tracker: QC `serviceTrackingStage` drives substeps; status is fallback.
+                const trackingStage = (activeBooking as any)?.serviceTrackingStage;
+                const stageMap: Record<string, number> = {
+                  confirmed: 0,
+                  received: 1,
+                  in_progress: 2,
+                  quality_check: 3,
+                  ready_pickup: 4,
+                  completed: 4,
+                };
+                const status = activeBooking ? String(activeBooking.status || '').toLowerCase() : '';
+                const statusFallback: Record<string, number> = {
+                  approved: 0,
+                  confirmed: 0,
+                  assigned: 0,
+                  received: 1,
+                  in_progress: 2,
+                  'in-progress': 2,
+                  completed: 4,
+                  paid: 4,
+                  released: 4,
+                  done: 4,
+                };
+                const currentStep = activeBooking
+                  ? (trackingStage
+                    ? (stageMap[trackingStage] ?? 0)
+                    : (statusFallback[status] ?? 0))
+                  : -1;
 
                 return (
                   <div className="max-w-3xl mx-auto pb-12 space-y-6">

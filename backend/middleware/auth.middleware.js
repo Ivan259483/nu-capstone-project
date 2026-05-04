@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/environment.js';
 import { migrateLegacyUserRole } from '../constants/roles.js';
 import User from '../models/user.model.js';
+import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
 
 /**
  * Authentication middleware
@@ -39,7 +40,7 @@ export const authenticate = async (req, res, next) => {
       }
 
       // STRICT VERIFICATION: Ensure user actually still exists and has not been deleted/deactivated
-      const userDoc = await User.findById(decoded.id).select('isActive isDeleted lockUntil');
+      const userDoc = await User.findById(decoded.id).select('isActive isDeleted lockUntil email');
       if (!userDoc) {
         return res.status(401).json({ success: false, message: 'User account no longer exists.' });
       }
@@ -49,7 +50,11 @@ export const authenticate = async (req, res, next) => {
       if (!userDoc.isActive) {
         return res.status(403).json({ success: false, message: 'Your account has been deactivated.', code: 'ACCOUNT_INACTIVE' });
       }
-      if (userDoc.lockUntil && userDoc.lockUntil > new Date()) {
+      if (
+        userDoc.lockUntil &&
+        userDoc.lockUntil > new Date() &&
+        !isLoginLockoutExemptEmail(userDoc.email)
+      ) {
         return res.status(423).json({ success: false, message: 'Your account is temporarily locked.' });
       }
 

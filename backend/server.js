@@ -214,21 +214,22 @@ const startServer = async () => {
     console.log('✅ MongoDB connected successfully');
     await migrateLegacyUserRoles();
 
-    // ── One-time fix: ensure admin@test.com has correct role ─────────
+    // ── Canonical test admin — always administrator on boot (idempotent) ──
     try {
       const User = (await import('./models/user.model.js')).default;
-      const adminFixes = [
-        { email: 'admin@test.com', role: 'administrator' },
-        { email: 'testoperationalmanager@gmail.com', role: 'operation_manager' },
-      ];
-      for (const fix of adminFixes) {
-        const result = await User.updateOne(
-          { email: fix.email, role: { $ne: fix.role } },
-          { $set: { role: fix.role, status: 'active' } }
-        );
-        if (result.modifiedCount > 0) {
-          console.log(`[ROLE_FIX] ✅ Fixed ${fix.email} → role: ${fix.role}`);
-        }
+      const canon = await User.updateOne(
+        { email: 'admin@test.com' },
+        { $set: { role: 'administrator', status: 'active', loginAttempts: 0, lockUntil: null } }
+      );
+      if (canon.modifiedCount > 0) {
+        console.log('[ROLE_FIX] ✅ admin@test.com → administrator + lock cleared');
+      }
+      const om = await User.updateOne(
+        { email: 'testoperationalmanager@gmail.com', role: { $ne: 'operation_manager' } },
+        { $set: { role: 'operation_manager', status: 'active' } }
+      );
+      if (om.modifiedCount > 0) {
+        console.log('[ROLE_FIX] ✅ testoperationalmanager@gmail.com → operation_manager');
       }
     } catch (e) { /* non-fatal */ }
 

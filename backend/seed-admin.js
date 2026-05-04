@@ -1,4 +1,5 @@
-// Quick seed script to create the admin user
+// Quick seed script to create the admin user (admin@autospf.com).
+// For admin@test.com + Firebase, use: node seed-super-admin.js (role: administrator).
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -34,7 +35,7 @@ async function seed() {
     console.log('✅ Admin user created successfully!');
     console.log('   Email: admin@autospf.com');
     console.log('   Password: Admin@123');
-    console.log('   Role: admin');
+    console.log('   Role: administrator');
 
     await mongoose.disconnect();
 }

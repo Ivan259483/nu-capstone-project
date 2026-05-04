@@ -23,6 +23,8 @@ export function useLiveJobs(
     onBookingStatus?: (event: BookingStatusEvent) => void,
     /** Called when a notification:customer event arrives — prepend to notifications list */
     onNotification?: (notif: any) => void,
+    /** Called when orderUpdated fires — silent HTTP refresh (no page reload) */
+    onOrderRealtimeBump?: () => void,
 ) {
     const [jobs, setJobs] = useState<Booking[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -30,8 +32,10 @@ export function useLiveJobs(
     // Keep stable refs so socket listeners never capture stale closures
     const onBookingStatusRef = useRef(onBookingStatus);
     const onNotificationRef  = useRef(onNotification);
+    const onOrderRealtimeBumpRef = useRef(onOrderRealtimeBump);
     useEffect(() => { onBookingStatusRef.current = onBookingStatus; }, [onBookingStatus]);
     useEffect(() => { onNotificationRef.current  = onNotification;  }, [onNotification]);
+    useEffect(() => { onOrderRealtimeBumpRef.current = onOrderRealtimeBump; }, [onOrderRealtimeBump]);
 
     // ── Shared fetch function — used for initial load + backup poll ───────────
     const fetchJobs = useCallback(async (silent = false) => {
@@ -93,6 +97,11 @@ export function useLiveJobs(
             onBookingStatusRef.current?.(event);
         };
         socket.on('booking:status', handleBookingStatus);
+
+        const handleOrderUpdated = () => {
+            onOrderRealtimeBumpRef.current?.();
+        };
+        socket.on('orderUpdated', handleOrderUpdated);
 
         // ── notification:customer — real-time bell notifications ──────────────
         const handleCustomerNotification = (notif: any) => {
@@ -224,6 +233,7 @@ export function useLiveJobs(
             // Remove only OUR listeners — do NOT disconnect the shared socket
             socket.off('connect', joinRoom);
             socket.off('booking:status', handleBookingStatus);
+            socket.off('orderUpdated', handleOrderUpdated);
             socket.off('notification:customer', handleCustomerNotification);
             socket.off('db_change', handleDbChange);
             for (const event of jobEvents) {

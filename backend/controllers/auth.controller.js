@@ -10,6 +10,7 @@ import { getInvalidUserRoleMessage, isValidUserRole } from '../constants/roles.j
 import { logActivity } from '../utils/logActivity.utils.js';
 import { admin } from '../config/firebaseAdmin.js';
 import { parseRegisterPhone } from '../utils/phone.utils.js';
+import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
 
 // Roles that require Email OTP 2FA after password verification.
 // 'customer' is intentionally excluded — direct JWT login.
@@ -670,8 +671,8 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Check if account is locked
-    if (user.lockUntil && user.lockUntil > new Date() && email !== 'customer@test.com') {
+    // Check if account is locked (specific demo/admin emails are never locked — see loginLockout.exempt.js)
+    if (user.lockUntil && user.lockUntil > new Date() && !isLoginLockoutExemptEmail(email)) {
       const remainingMs = user.lockUntil.getTime() - Date.now();
       const remainingMinutes = Math.ceil(remainingMs / (60 * 1000));
       return res.status(423).json({
@@ -696,49 +697,65 @@ export const login = async (req, res, next) => {
 
     // Verify password using bcrypt
     const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) {
-      user.loginAttempts = (user.loginAttempts || 0) + 1;
+    const lockoutExempt = isLoginLockoutExemptEmail(email);
 
-      if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
-        user.lockUntil = new Date(Date.now() + LOCK_TIME_MS);
-        await user.save();
+    if (!isPasswordValid) {
+      if (!lockoutExempt) {
+        user.loginAttempts = (user.loginAttempts || 0) + 1;
+
+        if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+          user.lockUntil = new Date(Date.now() + LOCK_TIME_MS);
+          await user.save();
+
+          logActivity({
+            userId: user._id, userName: user.name || email, userRole: user.role,
+            type: 'account_lock', module: 'Auth', action: 'Account Locked',
+            description: `${user.name || email} locked after ${MAX_LOGIN_ATTEMPTS} failed attempts.`,
+            status: 'warning',
+          });
+
+          return res.status(423).json({
+            success: false,
+            message: 'Account locked for 15 minutes due to too many failed attempts.',
+            data: {
+              locked: true,
+              lockUntilMs: user.lockUntil.getTime(),
+              remainingMinutes: 15,
+            },
+          });
+        }
+
+        const remainingAttempts = MAX_LOGIN_ATTEMPTS - user.loginAttempts;
 
         logActivity({
           userId: user._id, userName: user.name || email, userRole: user.role,
-          type: 'account_lock', module: 'Auth', action: 'Account Locked',
-          description: `${user.name || email} locked after ${MAX_LOGIN_ATTEMPTS} failed attempts.`,
-          status: 'warning',
+          type: 'failed_login', module: 'Auth', action: 'Failed Login',
+          description: `Failed login attempt for ${email}. Attempts: ${user.loginAttempts}/${MAX_LOGIN_ATTEMPTS}. Remaining: ${remainingAttempts}.`,
+          status: 'error',
         });
 
-        return res.status(423).json({
+        await user.save();
+        return res.status(401).json({
           success: false,
-          message: 'Account locked for 15 minutes due to too many failed attempts.',
+          message: `Invalid credentials. ${remainingAttempts} attempt(s) remaining before your account is locked.`,
           data: {
-            locked: true,
-            lockUntilMs: user.lockUntil.getTime(),
-            remainingMinutes: 15,
+            loginAttempts: user.loginAttempts,
+            remainingAttempts,
+            maxAttempts: MAX_LOGIN_ATTEMPTS,
           },
         });
       }
 
-      const remainingAttempts = MAX_LOGIN_ATTEMPTS - user.loginAttempts;
-
       logActivity({
         userId: user._id, userName: user.name || email, userRole: user.role,
         type: 'failed_login', module: 'Auth', action: 'Failed Login',
-        description: `Failed login attempt for ${email}. Attempts: ${user.loginAttempts}/${MAX_LOGIN_ATTEMPTS}. Remaining: ${remainingAttempts}.`,
+        description: `Failed login attempt for ${email} (lockout-exempt account).`,
         status: 'error',
       });
 
-      await user.save();
       return res.status(401).json({
         success: false,
-        message: `Invalid credentials. ${remainingAttempts} attempt(s) remaining before your account is locked.`,
-        data: {
-          loginAttempts: user.loginAttempts,
-          remainingAttempts,
-          maxAttempts: MAX_LOGIN_ATTEMPTS,
-        },
+        message: 'Invalid credentials',
       });
     }
 
