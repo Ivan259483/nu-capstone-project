@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { NotificationService, SystemNotification } from '../lib/notification-service';
@@ -16,6 +16,9 @@ type ScanUpload = {
   size: number;
   preview: string;
 };
+
+/** When false, AI Inspection History shows a Soon badge, is not clickable, and ?section=scan is redirected away. */
+const AI_INSPECTION_HISTORY_ENABLED = false;
 
 // ---- STATIC DATA FOR BOOKING ----
 const ADD_VEHICLE_TYPE_LABELS = ['Hatchback', 'Sedan', 'Midsized', 'SUV', 'Pick UP', 'Large SUV / Van', 'Highend Sedan'] as const;
@@ -83,7 +86,7 @@ const RAW_SPF_PACKAGES = [
 
 const SCAN_FLOW_STEPS = [
   {
-    title: 'Scan Vehicle',
+    title: 'AI Inspection History',
     desc: 'Upload a clean exterior photo set or a quick walkaround capture.',
     icon: 'solar:camera-add-linear',
     tag: 'Input',
@@ -155,6 +158,63 @@ const formatFileSize = (size: number) => {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+/** Long hex / opaque IDs should not appear as “plates” or titles in customer UI. */
+function looksLikeOpaqueTechnicalId(value: unknown): boolean {
+  const s = String(value ?? '').trim();
+  if (s.length < 16) return false;
+  if (/^[a-f0-9]{16,}$/i.test(s)) return true;
+  if (/^[a-f0-9-]{20,}$/i.test(s)) return true;
+  return false;
+}
+
+function displayVehicleLabel(plate: unknown, fallback = 'Your vehicle'): string {
+  if (plate == null || String(plate).trim() === '') return fallback;
+  const s = String(plate).trim();
+  if (looksLikeOpaqueTechnicalId(s)) return fallback;
+  if (s.length > 14) return `${s.slice(0, 12)}…`;
+  return s;
+}
+
+function displayServiceTitle(raw: unknown, fallback = 'Service'): string {
+  const s = String(raw ?? '').trim();
+  if (!s || looksLikeOpaqueTechnicalId(s)) return fallback;
+  return s;
+}
+
+function formatBookingDayLabel(dateRaw: unknown): string {
+  if (!dateRaw) return 'Date to be confirmed';
+  const d = new Date(dateRaw as string);
+  if (Number.isNaN(d.getTime())) return 'Date to be confirmed';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function humanizeBookingStatus(statusRaw: unknown): string {
+  const raw = String(statusRaw || 'pending').toLowerCase().replace(/-/g, '_');
+  const map: Record<string, string> = {
+    pending: 'Pending',
+    pending_confirmation: 'Awaiting confirmation',
+    approved: 'Approved',
+    confirmed: 'Confirmed',
+    assigned: 'Detailer assigned',
+    received: 'Vehicle received',
+    in_progress: 'Service in progress',
+    completed: 'Quality check',
+    paid: 'Payment received',
+    ready_pickup: 'Ready for pickup',
+    released: 'Vehicle returned',
+    rejected: 'Not approved',
+    cancelled: 'Cancelled',
+  };
+  if (map[raw]) return map[raw];
+  return raw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatActivityWhen(booking: any): string {
+  const d = new Date(booking.updatedAt || booking.createdAt || Date.now());
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 /** Normalize API vehicle → garage / booking UI shape (single source of truth). */
 function mapCustomerVehicleApiRecord(v: any) {
   return {
@@ -182,7 +242,7 @@ export default function CustomerDashboard() {
       ? 'settings'
       : s === 'bookings'
         ? 'bookings'
-        : s === 'scan'
+        : s === 'scan' && AI_INSPECTION_HISTORY_ENABLED
           ? 'scan'
           : s === 'documents'
             ? 'documents'
@@ -207,6 +267,10 @@ export default function CustomerDashboard() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
+  const unreadNotificationCount = useMemo(
+    () => notifications.filter((n) => !n.isRead).length,
+    [notifications]
+  );
 
   // Bookings & Documents
   const [hasActiveBooking, setHasActiveBooking] = useState(false);
@@ -1016,6 +1080,7 @@ export default function CustomerDashboard() {
   const [passwords, setPasswords] = useState({ current: '', newPass: '', confirm: '' });
   const [passwordErrors, setPasswordErrors] = useState<Record<string, string>>({});
   const [passwordSaved, setPasswordSaved] = useState(false);
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
   const [showPass, setShowPass] = useState({ current: false, newPass: false, confirm: false });
 
   // Settings — Notifications
@@ -1065,23 +1130,70 @@ export default function CustomerDashboard() {
     if (!passwords.current) errs.current = 'Current password is required.';
     if (!passwords.newPass || passwords.newPass.length < 8) errs.newPass = 'Password must be at least 8 characters.';
     else if (!/[A-Z]/.test(passwords.newPass)) errs.newPass = 'Must contain at least one uppercase letter.';
+    else if (!/[a-z]/.test(passwords.newPass)) errs.newPass = 'Must contain at least one lowercase letter.';
     else if (!/[0-9]/.test(passwords.newPass)) errs.newPass = 'Must contain at least one number.';
+    else if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(passwords.newPass)) {
+      errs.newPass = 'Must contain at least one special character (e.g. ! @ # *).';
+    }
+    if (passwords.newPass && passwords.current && passwords.newPass === passwords.current) {
+      errs.newPass = 'New password must be different from your current password.';
+    }
     if (passwords.newPass !== passwords.confirm) errs.confirm = 'Passwords do not match.';
     setPasswordErrors(errs);
     return Object.keys(errs).length === 0;
   }
 
-  function handlePasswordSave(e: React.FormEvent) {
+  async function handlePasswordSave(e: React.FormEvent) {
     e.preventDefault();
+    setPasswordSaved(false);
     if (!validatePasswords()) return;
-    setPasswordSaved(true);
-    setPasswords({ current: '', newPass: '', confirm: '' });
-    setTimeout(() => setPasswordSaved(false), 3000);
+    if (!user) {
+      logout();
+      navigate('/login');
+      return;
+    }
+    setPasswordSubmitting(true);
+    try {
+      const { UserService } = await import('../lib/user-service');
+      const result = await UserService.changePassword(passwords.current, passwords.newPass, { suppressErrorToast: true });
+      if (result?.success) {
+        setPasswords({ current: '', newPass: '', confirm: '' });
+        setPasswordErrors({});
+        setPasswordSaved(true);
+        toast.success('Password updated', { description: 'You can use your new password next time you sign in.' });
+        setTimeout(() => setPasswordSaved(false), 4000);
+      } else {
+        const msg = (result as any)?.message || 'Could not update password.';
+        setPasswordErrors({ form: msg });
+        toast.error('Password update failed', { description: msg });
+      }
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        'Could not update password. Please try again.';
+      const lower = String(msg).toLowerCase();
+      if (lower.includes('incorrect') && lower.includes('password')) {
+        setPasswordErrors({ current: msg });
+      } else if (lower.includes('password must contain') || lower.includes('different from')) {
+        setPasswordErrors({ newPass: msg });
+      } else {
+        setPasswordErrors({ form: msg });
+      }
+      toast.error('Password update failed', { description: msg });
+    } finally {
+      setPasswordSubmitting(false);
+    }
   }
 
   useEffect(() => {
     const search = new URLSearchParams(location.search);
     const s = search.get('section');
+    if (s === 'scan' && !AI_INSPECTION_HISTORY_ENABLED) {
+      setActiveSection('dashboard');
+      navigate('/customer/dashboard', { replace: true });
+      return;
+    }
     setActiveSection(
       s === 'settings'
         ? 'settings'
@@ -1099,7 +1211,7 @@ export default function CustomerDashboard() {
                     ? 'tracker'
                     : 'dashboard'
     );
-  }, [location.search]);
+  }, [location.search, navigate]);
 
   // Fetch My Bookings whenever section opens — with socket-driven instant updates
   useEffect(() => {
@@ -1129,31 +1241,28 @@ export default function CustomerDashboard() {
           setMyBookings(mine);
 
           const nextDocuments = mine.slice(0, 8).map((booking: any, index: number) => {
-            const serviceName = booking.serviceName || booking.serviceType || 'Service';
+            const serviceName = displayServiceTitle(booking.serviceName || booking.serviceType);
             const status = (booking.status || '').toLowerCase();
             const docType = status === 'completed' || status === 'released' ? 'report' : 'waiver';
+            const plate = displayVehicleLabel(booking.vehiclePlate);
             return {
               id: booking._id || booking.id || `${serviceName}-${index}`,
               type: docType,
               icon: docType === 'report' ? 'solar:file-text-bold' : 'solar:document-add-bold',
-              title: docType === 'report' ? `${serviceName} Completion Report` : `${serviceName} Service Intake`,
-              desc: `${booking.vehiclePlate || 'Vehicle'} • ${booking.date || 'Scheduled service'}`,
-              date: booking.date ? new Date(booking.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : 'Pending date',
-              status: docType === 'waiver' ? 'Pending' : 'Signed',
+              title: docType === 'report' ? `${serviceName} · completion report` : `${serviceName} · service intake`,
+              desc: `${plate} · ${formatBookingDayLabel(booking.date)}`,
+              date: booking.date ? formatBookingDayLabel(booking.date) : 'Date to be confirmed',
+              status: docType === 'waiver' ? 'Pending signature' : 'Signed',
             };
           });
           setDocuments(nextDocuments);
 
           const nextActivities = mine.slice(0, 8).map((booking: any) => ({
             id: booking._id || booking.id,
-            title: booking.serviceName || booking.serviceType || 'Service update',
-            desc: `${(booking.status || 'pending').replace('-', ' ')} • ${booking.vehiclePlate || 'Vehicle profile pending'}`,
-            time: new Date(booking.updatedAt || booking.createdAt || Date.now()).toLocaleString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit',
-            }),
+            title: displayServiceTitle(booking.serviceName || booking.serviceType),
+            statusLabel: humanizeBookingStatus(booking.status),
+            plate: displayVehicleLabel(booking.vehiclePlate),
+            time: formatActivityWhen(booking),
           }));
           setActivities(nextActivities);
         }
@@ -1230,6 +1339,7 @@ export default function CustomerDashboard() {
   }, [bookingOpen, location.pathname, navigate]);
 
   const nav = (section: DashboardSection) => {
+    if (section === 'scan' && !AI_INSPECTION_HISTORY_ENABLED) return;
     setActiveSection(section);
     setIsSidebarOpen(false);
     const urlMap: Record<DashboardSection, string> = {
@@ -1246,6 +1356,7 @@ export default function CustomerDashboard() {
   };
 
   const openScanStudio = (vehicle?: any) => {
+    if (!AI_INSPECTION_HISTORY_ENABLED) return;
     const targetId = vehicle?._id || vehicle?.id;
     if (targetId) setScanVehicleId(targetId);
     nav('scan');
@@ -1478,10 +1589,23 @@ export default function CustomerDashboard() {
               <iconify-icon icon="solar:widget-linear" width="20"></iconify-icon>
               Dashboard
             </button>
-            <button onClick={() => nav('scan')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'scan' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
-              <iconify-icon icon="solar:scanner-linear" width="20"></iconify-icon>
-              Scan Vehicle
-              <span className="ml-auto text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">AI Lab</span>
+            <button
+              type="button"
+              disabled={!AI_INSPECTION_HISTORY_ENABLED}
+              onClick={() => nav('scan')}
+              title={AI_INSPECTION_HISTORY_ENABLED ? undefined : 'Coming soon'}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${AI_INSPECTION_HISTORY_ENABLED
+                ? activeSection === 'scan'
+                  ? 'bg-slate-100 text-slate-900'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                : 'text-slate-400 cursor-not-allowed opacity-80 hover:bg-transparent'
+                } disabled:pointer-events-none`}
+            >
+              <iconify-icon icon="solar:scanner-linear" width="20" className="shrink-0"></iconify-icon>
+              <span className="flex-1 min-w-0 text-left leading-snug">AI Inspection History</span>
+              <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${AI_INSPECTION_HISTORY_ENABLED ? 'uppercase tracking-wider bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>
+                {AI_INSPECTION_HISTORY_ENABLED ? 'AI Lab' : 'Soon'}
+              </span>
             </button>
             <button onClick={() => nav('bookings')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'bookings' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
               <iconify-icon icon="solar:calendar-linear" width="20"></iconify-icon>
@@ -1550,21 +1674,28 @@ export default function CustomerDashboard() {
 
               <div className="w-px h-6 bg-slate-200 hidden sm:block mx-1"></div>
 
-              <div className="relative">
+              <div className="relative shrink-0">
                 <button
+                  type="button"
                   onClick={() => setNotificationsOpen(!notificationsOpen)}
-                  className="text-slate-400 hover:text-slate-600 relative p-1.5 rounded-full hover:bg-slate-50 transition-colors"
+                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/35"
+                  aria-label={unreadNotificationCount > 0 ? `Notifications, ${unreadNotificationCount} unread` : 'Notifications'}
                 >
-                  <div className={`${notifications.filter(n => !n.isRead).length > 0 ? 'animate-[ring_2s_ease-in-out_infinite]' : ''}`}>
-                    <iconify-icon icon="solar:bell-linear" width="22"></iconify-icon>
-                  </div>
-                  {notifications.filter(n => !n.isRead).length > 0 && (
-                    <>
-                      <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-bold text-white z-10">
-                        {notifications.filter(n => !n.isRead).length > 9 ? '9+' : notifications.filter(n => !n.isRead).length}
-                      </span>
-                      <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 bg-red-400 rounded-full animate-ping opacity-75"></span>
-                    </>
+                  <span
+                    className={`flex size-[22px] items-center justify-center ${unreadNotificationCount > 0 ? 'origin-top [transform:translateZ(0)] animate-[ring_2s_ease-in-out_infinite]' : ''}`}
+                  >
+                    <iconify-icon icon="solar:bell-bold" width="22" height="22" className="shrink-0 text-current"></iconify-icon>
+                  </span>
+                  {unreadNotificationCount > 0 && (
+                    <span
+                      className={`absolute -right-0.5 -top-0.5 z-10 flex items-center justify-center rounded-full border-2 border-white bg-red-500 font-extrabold tabular-nums leading-none text-white antialiased shadow-md ${
+                        unreadNotificationCount > 9
+                          ? 'h-[18px] min-w-[22px] px-1 text-[9px]'
+                          : 'size-[18px] text-[10px]'
+                      }`}
+                    >
+                      {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                    </span>
                   )}
                 </button>
 
@@ -1580,7 +1711,10 @@ export default function CustomerDashboard() {
                           </button>
                         )}
                       </div>
-                      <div className="max-h-[400px] overflow-y-auto">
+                      <div
+                        className="max-h-[400px] overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}
+                      >
                         {notificationsLoading ? (
                           <div className="p-8 text-center flex flex-col items-center justify-center">
                             <iconify-icon icon="line-md:loading-twotone-loop" width="24" className="text-slate-300 mb-2"></iconify-icon>
@@ -2408,7 +2542,7 @@ export default function CustomerDashboard() {
                   <section className={`rounded-[30px] border p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] ${highendScanEnabled ? 'border-violet-500/30 bg-slate-950/70' : 'border-slate-200 bg-white'}`}>
                     <div className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: highendScanEnabled ? 'rgba(139,92,246,0.2)' : '#f1f5f9' }}>
                       <div>
-                        <p className={`text-[10px] font-bold uppercase tracking-[0.24em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>{highendScanEnabled ? 'Private Image Transfer' : 'Scan Vehicle (upload)'}</p>
+                        <p className={`text-[10px] font-bold uppercase tracking-[0.24em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>{highendScanEnabled ? 'Private Image Transfer' : 'AI Inspection (upload)'}</p>
                         <h3 className={`mt-2 text-[28px] font-semibold tracking-[-0.04em] ${highendScanEnabled ? 'text-white' : 'text-slate-950'}`}>{highendScanEnabled ? 'Secure Image Upload' : 'Upload your scan set'}</h3>
                         <p className={`mt-1 text-sm leading-6 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Encrypted transfer. Your privacy is paramount.' : 'Use clear front, rear, side, and angled shots. Upload up to 6 images for the best AI analysis.'}</p>
                       </div>
@@ -3368,9 +3502,15 @@ export default function CustomerDashboard() {
                   </div>
                   <form onSubmit={handlePasswordSave} className="p-6 space-y-5" noValidate>
                     {passwordSaved && <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md px-4 py-2 text-sm"><iconify-icon icon="solar:check-circle-linear" width="18"></iconify-icon> Password changed successfully!</div>}
+                    {passwordErrors.form && !passwordSaved && (
+                      <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-100 rounded-md px-4 py-2 text-sm">
+                        <iconify-icon icon="solar:danger-circle-linear" width="18"></iconify-icon>
+                        {passwordErrors.form}
+                      </div>
+                    )}
                     {(['current', 'newPass', 'confirm'] as const).map((key) => {
                       const labels = { current: 'Current Password', newPass: 'New Password', confirm: 'Confirm New Password' };
-                      const hints = { current: '', newPass: 'Min 8 chars, 1 uppercase, 1 number', confirm: '' };
+                      const hints = { current: '', newPass: 'Min 8 characters, upper & lowercase, one number, one special (!@#*…)', confirm: '' };
                       return (
                         <div key={key}>
                           <label className="block text-xs font-medium text-slate-700 mb-1.5">{labels[key]}</label>
@@ -3389,7 +3529,13 @@ export default function CustomerDashboard() {
                       );
                     })}
                     <div className="flex justify-end pt-1">
-                      <button type="submit" className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm">Update Password</button>
+                      <button
+                        type="submit"
+                        disabled={passwordSubmitting}
+                        className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:pointer-events-none text-white text-sm font-medium rounded-md transition-colors shadow-sm"
+                      >
+                        {passwordSubmitting ? 'Updating…' : 'Update Password'}
+                      </button>
                     </div>
                   </form>
                 </div>
@@ -4039,21 +4185,21 @@ export default function CustomerDashboard() {
                               </div>
 
                               {/* Actions */}
-                              <div className="mt-4 grid grid-cols-2 gap-1 border-t border-slate-100 pt-3">
+                              <div className="mt-4 grid grid-cols-2 gap-1.5 border-t border-slate-100 pt-3">
                                 <button
                                   onClick={() => openBookingModal(v)}
-                                  className="flex flex-col items-center justify-center gap-1 py-1.5 rounded-lg transition-all font-medium"
+                                  className="flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 px-1 rounded-xl transition-all font-medium"
                                   style={{ background: `linear-gradient(135deg, ${theme.from}22, ${theme.to}33)`, color: theme.to }}
                                 >
                                   <iconify-icon icon="solar:calendar-add-linear" width="17"></iconify-icon>
-                                  <span className="text-[11px] font-medium">Book</span>
+                                  <span className="text-[10px] font-semibold text-center leading-tight">Book Service</span>
                                 </button>
                                 <button
                                   onClick={() => openVehicleHistory(v)}
-                                  className="flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700 transition-colors py-1.5 rounded-lg hover:bg-slate-50"
+                                  className="flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 px-1 text-slate-400 hover:text-slate-700 transition-colors rounded-xl hover:bg-slate-50"
                                 >
                                   <iconify-icon icon="solar:history-linear" width="17"></iconify-icon>
-                                  <span className="text-[11px] font-medium">History</span>
+                                  <span className="text-[10px] font-semibold text-center leading-tight">View Vehicle History</span>
                                 </button>
                               </div>
                             </div>
@@ -4065,72 +4211,136 @@ export default function CustomerDashboard() {
                 </section>
 
                 {/* Bottom Grid: Documents & Activity */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-8">
+                <div className="grid grid-cols-1 gap-8 pb-8 lg:grid-cols-2">
 
                   {/* AI & Documents */}
-                  <section>
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-lg font-medium tracking-tight text-slate-900">AI &amp; Documents</h2>
-                      <button onClick={() => nav('documents')} className="text-sm text-slate-500 hover:text-slate-900">View all</button>
+                  <section className="min-w-0">
+                    <div className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <h2 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">AI &amp; documents</h2>
+                        <p className="mt-0.5 max-w-md text-[13px] leading-relaxed text-slate-500">
+                          Service reports and intake summaries from your bookings — written for people, not internal IDs.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => nav('documents')}
+                        className="shrink-0 text-[13px] font-semibold text-indigo-600 transition-colors hover:text-indigo-800"
+                      >
+                        View all
+                      </button>
                     </div>
 
-                    <div className="bg-white border border-slate-200 rounded-lg shadow-sm">
+                    <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_12px_40px_-28px_rgba(15,23,42,0.2)]">
                       {documents.length === 0 ? (
-                        <div className="p-8 text-center flex flex-col items-center justify-center">
-                          <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mb-3">
-                            <iconify-icon icon="solar:folder-with-files-linear" width="24" className="text-slate-300"></iconify-icon>
+                        <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+                          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 ring-1 ring-slate-100">
+                            <iconify-icon icon="solar:folder-with-files-linear" width="28" className="text-slate-300"></iconify-icon>
                           </div>
-                          <p className="text-[14px] font-medium text-slate-900">No documents yet</p>
-                          <p className="text-[12px] text-slate-500 mt-1 max-w-[200px] mx-auto">Service reports, AI damage scans, and waivers will appear here.</p>
+                          <p className="text-[15px] font-semibold text-slate-900">Nothing here yet</p>
+                          <p className="mt-1.5 max-w-[260px] text-[13px] leading-relaxed text-slate-500">
+                            After each visit, completion summaries and intake details will appear in this list.
+                          </p>
                         </div>
                       ) : (
-                        <div className="divide-y divide-slate-100">
+                        <ul className="divide-y divide-slate-100">
                           {documents.map((doc, i) => (
-                            <a key={i} href="#" className="flex items-start gap-4 p-4 hover:bg-slate-50 transition-colors group">
-                              <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${doc.type === 'report' ? 'bg-indigo-50 text-indigo-600' : doc.type === 'waiver' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600'}`}>
-                                <iconify-icon icon={doc.icon} width="20"></iconify-icon>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-slate-900 group-hover:text-indigo-600 transition-colors truncate">{doc.title}</p>
-                                <p className="text-xs text-slate-500 mt-0.5">{doc.desc}</p>
-                              </div>
-                              {doc.status === 'Signed' ? (
-                                <span className="text-xs text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 shrink-0">Signed</span>
-                              ) : (
-                                <span className="text-xs text-slate-400 shrink-0">{doc.date}</span>
-                              )}
-                            </a>
+                            <li key={doc.id ?? i}>
+                              <button
+                                type="button"
+                                onClick={() => nav('documents')}
+                                className="group flex w-full items-start gap-4 px-5 py-4 text-left transition-colors hover:bg-slate-50/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/25 sm:gap-5 sm:px-6 sm:py-5"
+                              >
+                                <div
+                                  className={`mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${
+                                    doc.type === 'report'
+                                      ? 'bg-indigo-50 text-indigo-600 ring-indigo-100/90'
+                                      : doc.type === 'waiver'
+                                        ? 'bg-emerald-50 text-emerald-600 ring-emerald-100/90'
+                                        : 'bg-slate-50 text-slate-600 ring-slate-100'
+                                  }`}
+                                >
+                                  <iconify-icon icon={doc.icon} width="22" height="22" className="shrink-0"></iconify-icon>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[15px] font-semibold leading-snug tracking-tight text-slate-900 transition-colors group-hover:text-indigo-700">
+                                    {doc.title}
+                                  </p>
+                                  <p className="mt-1 text-[13px] leading-relaxed text-slate-600">{doc.desc}</p>
+                                </div>
+                                <div className="shrink-0 pt-0.5">
+                                  {doc.type === 'report' ? (
+                                    <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                                      Signed
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-900/90">
+                                      Action needed
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                            </li>
                           ))}
-                        </div>
+                        </ul>
                       )}
                     </div>
                   </section>
 
                   {/* Recent Activity */}
-                  <section>
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-lg font-medium tracking-tight text-slate-900">Recent Activity</h2>
+                  <section className="min-w-0">
+                    <div className="mb-5">
+                      <h2 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">Recent activity</h2>
+                      <p className="mt-0.5 max-w-md text-[13px] leading-relaxed text-slate-500">
+                        A short timeline of each booking — newest first, with plain-language status labels.
+                      </p>
                     </div>
 
-                    <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm h-full">
+                    <div className="flex min-h-[280px] flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_12px_40px_-28px_rgba(15,23,42,0.2)]">
                       {activities.length === 0 ? (
-                        <div className="text-center flex flex-col items-center justify-center h-full min-h-[200px]">
-                          <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mb-3">
-                            <iconify-icon icon="solar:history-linear" width="24" className="text-slate-300"></iconify-icon>
+                        <div className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center">
+                          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 ring-1 ring-slate-100">
+                            <iconify-icon icon="solar:history-linear" width="28" className="text-slate-300"></iconify-icon>
                           </div>
-                          <p className="text-[14px] font-medium text-slate-900">No recent activity</p>
-                          <p className="text-[12px] text-slate-500 mt-1 max-w-[200px] mx-auto">Your service timeline and updates will appear here.</p>
+                          <p className="text-[15px] font-semibold text-slate-900">No updates yet</p>
+                          <p className="mt-1.5 max-w-[260px] text-[13px] leading-relaxed text-slate-500">
+                            When you book or your service status changes, a clean entry will appear here.
+                          </p>
                         </div>
                       ) : (
-                        <div className="relative border-l border-slate-200 ml-3 space-y-6">
-                          {activities.map((activity, i) => (
-                            <div key={i} className="relative pl-6">
-                              <div className={`absolute -left-1.5 top-1.5 w-3 h-3 border-2 rounded-full ${i === 0 ? 'bg-white border-indigo-600' : 'bg-slate-200 border-white'}`}></div>
-                              <p className="text-sm font-medium text-slate-900">{activity.title}</p>
-                              <p className="text-xs text-slate-500 mt-1">{activity.desc}</p>
-                              <p className="text-xs text-slate-400 mt-2">{activity.time}</p>
-                            </div>
-                          ))}
+                        <div className="flex-1 px-2 py-5 sm:px-5 sm:py-6">
+                          <ul className="relative">
+                            <div
+                              className="pointer-events-none absolute bottom-2 left-[15px] top-3 w-px bg-gradient-to-b from-indigo-200 via-slate-200 to-transparent sm:left-[17px]"
+                              aria-hidden
+                            />
+                            {activities.map((activity: any, i) => (
+                              <li key={activity.id ?? i} className="relative flex gap-4 pb-8 pl-1 last:pb-1 sm:gap-5">
+                                <div className="relative z-10 flex w-8 shrink-0 justify-center pt-1 sm:w-9">
+                                  <span
+                                    className={`mt-0.5 block size-2.5 rounded-full ring-[5px] ring-white sm:size-3 ${
+                                      i === 0 ? 'bg-indigo-500 shadow-[0_0_0_1px_rgba(129,140,248,0.55)]' : 'bg-slate-300'
+                                    }`}
+                                  />
+                                </div>
+                                <div className="-mt-0.5 min-w-0 flex-1 pb-1">
+                                  <p className="text-[15px] font-semibold leading-snug tracking-tight text-slate-900">{activity.title}</p>
+                                  {activity.statusLabel != null ? (
+                                    <p className="mt-1 text-[13px] text-slate-600">
+                                      <span className="font-medium text-slate-700">{activity.statusLabel}</span>
+                                      <span className="mx-1.5 text-slate-300">·</span>
+                                      <span>{activity.plate}</span>
+                                    </p>
+                                  ) : (
+                                    <p className="mt-1 text-[13px] leading-relaxed text-slate-600">{activity.desc}</p>
+                                  )}
+                                  {activity.time ? (
+                                    <p className="mt-2 text-[12px] font-medium tabular-nums text-slate-400">{activity.time}</p>
+                                  ) : null}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       )}
                     </div>
@@ -4530,12 +4740,22 @@ export default function CustomerDashboard() {
 
       {/* Book Service Modal */}
       {bookingOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,.45)', backdropFilter: 'blur(5px)' }} onClick={() => { if (!bookingSubmitting) { setBookingOpen(false); } }}>
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()} style={{ animation: 'modalIn .2s ease-out', maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px -12px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.04)' }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,.45)', backdropFilter: 'blur(8px)' }} onClick={() => { if (!bookingSubmitting) { setBookingOpen(false); } }}>
+          <div
+            className="bg-white w-full max-w-lg overflow-hidden border border-slate-200/70 rounded-[1.75rem]"
+            onClick={e => e.stopPropagation()}
+            style={{
+              animation: 'modalIn .2s ease-out',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 32px 80px -24px rgba(15,23,42,0.22), 0 0 0 1px rgba(255,255,255,0.85) inset, 0 1px 0 rgba(255,255,255,0.9) inset',
+            }}
+          >
 
             {/* Header — hidden when success screen is active (hero fills the top) */}
             {!bookingDone && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px 14px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px 14px', borderBottom: '1px solid rgba(148,163,184,0.22)', flexShrink: 0 }}>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' }}>Book a Service</div>
                   <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, fontWeight: 500 }}>
@@ -4551,7 +4771,7 @@ export default function CustomerDashboard() {
                 </div>
                 {!bookingSubmitting && (
                   <button onClick={() => { setBookingOpen(false); setBookingAgreed(false); setBookingDownpaymentProof(null); }}
-                    style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#94a3b8', flexShrink: 0 }}>
+                    style={{ width: 34, height: 34, borderRadius: 12, border: '1px solid rgba(148,163,184,0.35)', background: 'linear-gradient(180deg,#ffffff,#f8fafc)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', flexShrink: 0, boxShadow: '0 2px 8px -4px rgba(15,23,42,0.08)' }}>
                     <iconify-icon icon="solar:close-circle-linear" width="16"></iconify-icon>
                   </button>
                 )}
@@ -4560,8 +4780,8 @@ export default function CustomerDashboard() {
 
             {/* Progress bar */}
             {!bookingDone && (
-              <div style={{ width: '100%', height: 2, background: '#f1f5f9', flexShrink: 0 }}>
-                <div style={{ height: '100%', background: 'linear-gradient(90deg,#f59e0b,#d97706)', borderRadius: 999, transition: 'width 0.4s cubic-bezier(0.4,0,0.2,1)', width: bookingStep === 1 ? '17%' : bookingStep === 2 ? '33%' : bookingStep === 3 ? '50%' : bookingStep === 4 ? '67%' : bookingStep === 5 ? '83%' : '100%' }} />
+              <div style={{ width: '100%', height: 3, background: 'linear-gradient(90deg, rgba(241,245,249,0.9), rgba(226,232,240,0.95))', flexShrink: 0, borderRadius: '999px 999px 0 0' }}>
+                <div style={{ height: '100%', background: 'linear-gradient(90deg,#fbbf24,#f59e0b,#d97706)', borderRadius: 999, transition: 'width 0.4s cubic-bezier(0.4,0,0.2,1)', width: bookingStep === 1 ? '17%' : bookingStep === 2 ? '33%' : bookingStep === 3 ? '50%' : bookingStep === 4 ? '67%' : bookingStep === 5 ? '83%' : '100%' }} />
               </div>
             )}
 
@@ -4723,9 +4943,9 @@ export default function CustomerDashboard() {
                                   vehicleFuelType: v.fuelType || '',
                                 }));
                               }}
-                              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all duration-200 ${isActive
-                                ? 'bg-gray-900 text-white border-gray-900 shadow-sm'
-                                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                              className={`flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border text-xs font-semibold transition-all duration-300 ${isActive
+                                ? 'bg-slate-900 text-white border-slate-900 shadow-[0_8px_24px_-8px_rgba(15,23,42,0.45)] ring-2 ring-amber-400/25'
+                                : 'bg-white text-slate-600 border-slate-200/90 shadow-[0_2px_12px_-6px_rgba(15,23,42,0.06)] hover:border-slate-300 hover:shadow-[0_8px_24px_-10px_rgba(15,23,42,0.1)]'
                                 }`}
                             >
                               <iconify-icon icon="solar:car-bold" width="14"></iconify-icon>
@@ -4755,24 +4975,27 @@ export default function CustomerDashboard() {
                       return (
                         <button key={svc.id} type="button"
                           onClick={() => setBookingForm(f => ({ ...f, service: svc.id, serviceName: svc.name, servicePrice: currentPrice }))}
-                          className={`w-full flex flex-col px-4 py-3.5 rounded-xl border text-left transition-all duration-200 ${bookingForm.service === svc.id ? 'border-gray-900 bg-gray-50 ring-1 ring-gray-900 shadow-sm' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'}`}
+                          className={`w-full flex flex-col px-5 py-4 rounded-2xl border text-left transition-all duration-300 ease-out ${bookingForm.service === svc.id
+                            ? 'border-amber-400/55 bg-gradient-to-b from-amber-50/90 via-white to-white shadow-[0_12px_40px_-14px_rgba(245,158,11,0.35),0_0_0_1px_rgba(251,191,36,0.2)_inset] ring-[3px] ring-amber-400/20'
+                            : 'border-slate-200/90 bg-white shadow-[0_4px_20px_-8px_rgba(15,23,42,0.08)] hover:border-slate-300/95 hover:shadow-[0_12px_36px_-12px_rgba(15,23,42,0.12)]'
+                            }`}
                         >
                           <div className="flex items-center justify-between w-full">
                             <div>
-                              <p className="text-[15px] font-bold text-gray-900">{svc.name}</p>
-                              <p className="text-[13px] font-medium text-gray-500 mt-0.5">{svc.duration}</p>
+                              <p className="text-[15px] font-bold text-slate-900">{svc.name}</p>
+                              <p className="text-[13px] font-medium text-slate-500 mt-0.5">{svc.duration}</p>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-[15px] font-black text-gray-900">₱{currentPrice.toLocaleString()}</span>
-                              {bookingForm.service === svc.id && <iconify-icon icon="solar:check-circle-bold" width="20" style={{ color: '#111' }}></iconify-icon>}
+                              <span className="text-[15px] font-black text-slate-900">₱{currentPrice.toLocaleString()}</span>
+                              {bookingForm.service === svc.id && <iconify-icon icon="solar:check-circle-bold" width="20" style={{ color: '#d97706' }}></iconify-icon>}
                             </div>
                           </div>
                           {svc.features && (
-                            <div className="mt-3.5 pt-3.5 border-t border-gray-200/60 space-y-2 w-full">
+                            <div className="mt-3.5 pt-3.5 border-t border-slate-100 space-y-2 w-full">
                               {svc.features.map((f: string, i: number) => (
                                 <div key={i} className="flex items-start gap-2">
                                   <iconify-icon icon="solar:check-circle-bold" width="16" style={{ color: '#16a34a', marginTop: '2px', flexShrink: 0 }}></iconify-icon>
-                                  <span className="text-[12px] font-medium text-gray-600 leading-snug">{f}</span>
+                                  <span className="text-[12px] font-medium text-slate-600 leading-snug">{f}</span>
                                 </div>
                               ))}
                             </div>
@@ -4788,7 +5011,7 @@ export default function CustomerDashboard() {
                   {/* Locked Customer Name */}
                   <div>
                     <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Full Name</p>
-                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                    <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                       <iconify-icon icon="solar:user-bold" width="16" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                       <span className="text-sm font-semibold text-gray-700 flex-1">{user?.name || '—'}</span>
                       <iconify-icon icon="solar:lock-keyhole-bold" width="14" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -4807,7 +5030,7 @@ export default function CustomerDashboard() {
                         setBookingForm(f => ({ ...f, contactNo: e.target.value }));
                         if (step2Errors.contactNo) setStep2Errors(err => ({ ...err, contactNo: '' }));
                       }}
-                      className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 ${step2Errors.contactNo ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 ${step2Errors.contactNo ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                     />
                     {step2Errors.contactNo
                       ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.contactNo}</p>
@@ -4838,7 +5061,7 @@ export default function CustomerDashboard() {
                         {/* Brand */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Brand</p>
-                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:car-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleMake || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -4847,7 +5070,7 @@ export default function CustomerDashboard() {
                         {/* Model */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Model</p>
-                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:car-2-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleModel || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -4856,7 +5079,7 @@ export default function CustomerDashboard() {
                         {/* Color */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Color</p>
-                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:palette-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleColor || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -4865,7 +5088,7 @@ export default function CustomerDashboard() {
                         {/* Plate */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Plate No.</p>
-                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:tag-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 tracking-widest">{bookingForm.vehiclePlate ? normalizePlateNumber(bookingForm.vehiclePlate) : '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -4874,7 +5097,7 @@ export default function CustomerDashboard() {
                         {/* Year */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Year</p>
-                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:calendar-date-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleYear || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -4883,7 +5106,7 @@ export default function CustomerDashboard() {
                         {/* Type */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Type</p>
-                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:clipboard-list-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleCategory || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -4894,7 +5117,7 @@ export default function CustomerDashboard() {
                         {/* Transmission */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Transmission</p>
-                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:settings-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleTransmission || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -4903,7 +5126,7 @@ export default function CustomerDashboard() {
                         {/* Fuel */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Fuel Type</p>
-                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:gas-station-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleFuelType || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -4924,7 +5147,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehicleMake: e.target.value }));
                               if (step2Errors.vehicleMake) setStep2Errors(err => ({ ...err, vehicleMake: '' }));
                             }}
-                            className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none ${step2Errors.vehicleMake ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleMake ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           >
                             <option value="">Select brand</option>
                             {CAR_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
@@ -4941,7 +5164,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehicleModel: e.target.value }));
                               if (step2Errors.vehicleModel) setStep2Errors(err => ({ ...err, vehicleModel: '' }));
                             }}
-                            className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 ${step2Errors.vehicleModel ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 ${step2Errors.vehicleModel ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           />
                           {step2Errors.vehicleModel && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleModel}</p>}
                         </div>
@@ -4956,7 +5179,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehicleColor: e.target.value }));
                               if (step2Errors.vehicleColor) setStep2Errors(err => ({ ...err, vehicleColor: '' }));
                             }}
-                            className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none ${step2Errors.vehicleColor ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleColor ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           >
                             <option value="">Select color</option>
                             {['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Brown', 'Other'].map(c => <option key={c} value={c}>{c}</option>)}
@@ -4973,7 +5196,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehiclePlate: e.target.value.toUpperCase() }));
                               if (step2Errors.vehiclePlate) setStep2Errors(err => ({ ...err, vehiclePlate: '' }));
                             }}
-                            className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 ${step2Errors.vehiclePlate ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 ${step2Errors.vehiclePlate ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           />
                           {step2Errors.vehiclePlate
                             ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehiclePlate}</p>
@@ -4987,7 +5210,7 @@ export default function CustomerDashboard() {
                           <select
                             value={bookingForm.vehicleYear}
                             onChange={e => { setBookingForm(f => ({ ...f, vehicleYear: e.target.value })); }}
-                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none"
                           >
                             <option value="">Year</option>
                             {BOOKING_YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>)}
@@ -5009,7 +5232,7 @@ export default function CustomerDashboard() {
                               }));
                               if (step2Errors.vehicleCategory) setStep2Errors(err => ({ ...err, vehicleCategory: '' }));
                             }}
-                            className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none ${step2Errors.vehicleCategory ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleCategory ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           >
                             <option value="">Select type</option>
                             {ADD_VEHICLE_TYPE_LABELS.map(t => <option key={t} value={t}>{t}</option>)}
@@ -5024,7 +5247,7 @@ export default function CustomerDashboard() {
                           <select
                             value={bookingForm.vehicleTransmission}
                             onChange={e => setBookingForm(f => ({ ...f, vehicleTransmission: e.target.value }))}
-                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none"
                           >
                             <option value="">Select...</option>
                             <option value="Automatic">Automatic</option>
@@ -5037,7 +5260,7 @@ export default function CustomerDashboard() {
                           <select
                             value={bookingForm.vehicleFuelType}
                             onChange={e => setBookingForm(f => ({ ...f, vehicleFuelType: e.target.value }))}
-                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 outline-none focus:border-gray-400 appearance-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none"
                           >
                             <option value="">Select...</option>
                             <option value="Gasoline">Gasoline</option>
@@ -5059,7 +5282,7 @@ export default function CustomerDashboard() {
                         Edit Service
                       </button>
                     </div>
-                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-gray-50">
+                    <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                       <iconify-icon icon="solar:shield-check-bold" width="16" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                       <span className="text-sm font-semibold text-gray-700 flex-1">{bookingForm.serviceName || '—'}</span>
                       <span className="text-xs font-bold text-gray-500">₱{bookingForm.servicePrice.toLocaleString()}</span>
@@ -5428,60 +5651,93 @@ export default function CustomerDashboard() {
 
               ) : bookingStep === 5 ? (
                 /* ── Step 5: Terms & Conditions ── */
-                <div className="p-5">
-                  {/* T&C with scroll-to-agree */}
-                  <div className="mt-4">
-                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Paint Protection Film General Terms and Conditions</p>
-                    <div
-                      id="tc-scroll-box"
-                      onScroll={(e) => {
-                        const el = e.currentTarget;
-                        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 10) {
-                          const cb = document.getElementById('tc-checkbox') as HTMLInputElement | null;
-                          if (cb) cb.disabled = false;
-                        }
-                      }}
-                      style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 14px', fontSize: 11, color: '#6b7280', lineHeight: 1.7, background: '#fafbfc' }}
-                    >
-                      <p style={{ marginBottom: 8, color: '#374151' }}>Paint protection film is a complicated installation procedure. This document serves to set expectations on your installation, and can serve as a reference point in the future.</p>
-
-                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>About Paint Protection Film</p>
-                      <p style={{ marginBottom: 10 }}>Paint protection film is a film designed to protect your vehicle{"'s"} paint from future paint chip, scratches and swirl mark. It is applied to the exterior of your vehicle paint. The customer understands that PPF is a sacrificial layer of your vehicle, not a completely invisible or matte layer.</p>
-
-                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Drying Time</p>
-                      <p style={{ marginBottom: 10 }}>Your new paint protection film will take 3-4 weeks to fully cure depending on weather conditions. Do not wash the vehicle for the first 7 days. You may notice some telltale signs of water under the film. If you see some water spots under the film, avoid touching them. They will evaporate. Any air left behind we can easily remove once the film is fully dried.</p>
-
-                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Warranty</p>
-                      <p style={{ marginBottom: 10 }}>PPF installed on your vehicle carries a 5-year warranty against yellowing, cracking, and fading. All PPF will turn yellow eventually. It{"'s"} the rate at which it turns to yellow is what the warranty covers. Warranty does <strong>NOT</strong> cover abuse (such as getting too close with a pressure washer, too much sun exposure, improper maintenance, negligence and cutting/lifting the film), accidents, or from debris. The film is designed to sacrifice itself to save your paint.</p>
-
-                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Existing Rock Chips</p>
-                      <p style={{ marginBottom: 10 }}>Please note that existing paint chips will appear as PPF imperfections if we install PPF over them. This is especially true on dark or black vehicles, as the {"\"dots\""} show as a light gray/white spec. We have installed PPF on 5-7-year-old vehicles without issue, and we have installed it on cars with less than 1000 kms that have had a ton of rock chip imperfections.</p>
-
-                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Badge and Trim Removal</p>
-                      <p style={{ marginBottom: 10 }}>On certain installations we may have to remove badging or other parts of the car to provide the best experience for you. All attempts will be made to retain all OEM badges and lettering unless the customer wishes otherwise. We make every attempt to NOT remove badging unless absolutely necessary or requested.</p>
-
-                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Imperfections</p>
-                      <p style={{ marginBottom: 10 }}>We strive for perfection in our installations, but due to the nature of covering an entire vehicle in an adhesive film, it is likely that you will see some degree of dust, contamination, or other debris under the film after installing. We attempt to take every precaution possible to make a near-perfect install, with the understanding that no installation will actually be perfect.</p>
-
-                      <p style={{ marginBottom: 4, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>Booking Policy</p>
-                      <p>A non-refundable downpayment is required to secure your reservation slot. All bookings are subject to availability and approval by the sales team. Customers must arrive within 30 minutes of their scheduled time. By proceeding, you confirm that all information provided is accurate and complete.</p>
-                    </div>
-                    <p className="text-[10px] text-gray-400 mt-1 italic">↑ Scroll to the bottom to enable the checkbox</p>
+                <div className="px-5 pt-4 pb-6 space-y-4">
+                  <div className="rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50 via-white to-slate-50/80 p-4 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-amber-800/85 mb-1.5">Step 5 — Legal agreement</p>
+                    <h3 className="text-[16px] font-semibold text-slate-900 tracking-tight leading-snug">Paint Protection Film terms</h3>
+                    <p className="text-[12px] text-slate-600 mt-2 leading-relaxed">
+                      This English version applies to every booking, including international customers. By continuing you agree these terms govern your PPF service regardless of where you are located.
+                    </p>
                   </div>
 
-                  <label className="flex items-start gap-2.5 mt-3 cursor-pointer select-none">
+                  <ul className="rounded-xl border border-slate-200 bg-white px-3.5 py-3 space-y-2.5 text-[12px] text-slate-700 leading-snug">
+                    {[
+                      'PPF is a sacrificial film — not invisible armor; curing takes about 3–4 weeks.',
+                      '5-year warranty covers yellowing, cracking, and fading under normal use — not abuse or accidents.',
+                      'A non-refundable reservation secures your slot; balance is due at the shop on service day.',
+                      'Rock chips and contamination under the film are inherent limits of real-world installs.',
+                    ].map((line) => (
+                      <li key={line} className="flex gap-2.5">
+                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500 mb-2">Full terms (read before accepting)</p>
+                    <div
+                      id="tc-scroll-box"
+                      tabIndex={-1}
+                      className="max-h-[min(240px,42vh)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/90 bg-slate-50/90 px-4 py-3.5 text-[13px] text-slate-700 leading-[1.65] shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] scroll-smooth outline-none"
+                      style={{ WebkitOverflowScrolling: 'touch' }}
+                    >
+                      <p className="mb-3 text-slate-800">Paint protection film is a skilled installation. This document sets expectations and can be used as a reference later.</p>
+
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">About Paint Protection Film</p>
+                      <p className="mb-4 text-slate-600">Paint protection film is designed to protect your vehicle{"'s"} paint from chips, scratches, and swirl marks. It is applied to the exterior painted surfaces. The customer understands that PPF is a sacrificial layer — not a completely invisible or flawless finish.</p>
+
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Drying time</p>
+                      <p className="mb-4 text-slate-600">Your new film typically needs 3–4 weeks to fully cure depending on weather. Do not wash the vehicle for the first 7 days. Water or air pockets may appear; avoid picking at them — they usually dissipate as the film settles.</p>
+
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Warranty</p>
+                      <p className="mb-4 text-slate-600">Installed PPF carries a 5-year warranty against yellowing, cracking, and fading under normal conditions. The warranty does <strong className="text-slate-800">not</strong> cover misuse (e.g. pressure washer damage), excessive sun without care, negligence, cuts, lifting, accidents, or road debris. The film is meant to sacrifice itself to help protect your paint.</p>
+
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Existing rock chips</p>
+                      <p className="mb-4 text-slate-600">Installing over existing chips can make those areas more visible, especially on dark paint. We have applied PPF to vehicles of many ages; results vary with prior paint condition.</p>
+
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Badges and trim</p>
+                      <p className="mb-4 text-slate-600">Some installs require removing badges or trim for the cleanest result. We retain OEM badging unless removal is necessary or you request otherwise.</p>
+
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Imperfections</p>
+                      <p className="mb-4 text-slate-600">We aim for a near-perfect finish, but adhesive film on a full vehicle may show trace dust or contamination. We take strong precautions while acknowledging real-world limits.</p>
+
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Booking policy</p>
+                      <p className="text-slate-600">A non-refundable down payment secures your slot. Bookings are subject to availability and approval. Please arrive within 30 minutes of your scheduled time. You confirm that the information you provided is accurate.</p>
+                    </div>
+                  </div>
+
+                  <p className="flex items-start gap-2 rounded-lg bg-slate-100/80 px-3 py-2.5 text-[11px] text-slate-600 leading-relaxed">
+                    <iconify-icon icon="solar:document-text-bold" width="18" className="text-slate-400 shrink-0 mt-0.5" />
+                    <span>Review the full text above, then check the box to confirm — no forced scroll; please read carefully before you accept.</span>
+                  </p>
+
+                  <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3.5 shadow-sm transition-colors hover:border-slate-300 focus-within:ring-2 focus-within:ring-indigo-500/25">
                     <input
                       id="tc-checkbox"
                       type="checkbox"
-                      disabled
                       checked={bookingAgreed}
-                      onChange={e => setBookingAgreed(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 rounded accent-gray-900 cursor-pointer flex-shrink-0 disabled:opacity-40"
+                      onChange={(e) => setBookingAgreed(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/40"
                     />
-                    <span className="text-[12px] text-gray-500 leading-relaxed">
-                      I have read and agree to the <span className="text-gray-900 font-semibold">terms and conditions</span>.
-                    </span>
-                  </label>
+                    <div className="min-w-0 flex-1">
+                      <label htmlFor="tc-checkbox" className="text-[13px] text-slate-600 leading-relaxed cursor-pointer">
+                        I have read and agree to the <strong className="font-semibold text-slate-900">terms and conditions</strong> in the document above.
+                      </label>
+                      <button
+                        type="button"
+                        className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 underline decoration-indigo-500/35 underline-offset-[3px] hover:decoration-indigo-600"
+                        onClick={() => {
+                          const box = document.getElementById('tc-scroll-box');
+                          box?.scrollTo({ top: 0, behavior: 'smooth' });
+                          box?.focus();
+                        }}
+                      >
+                        <iconify-icon icon="solar:arrow-up-linear" width="14" className="shrink-0" />
+                        Jump to start of full terms
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 /* ── Step 6: GCash Downpayment ── */
@@ -5617,16 +5873,23 @@ export default function CustomerDashboard() {
                           !bookingForm.time ? 'Select an available time slot' :
                             selectedSlotStatus !== 'AVAILABLE' ? 'Selected slot is no longer available' : ''
                     ) :
-                      bookingStep === 5 ? (!step5Valid ? 'Agree to the terms to continue' : '') : '';
+                      bookingStep === 5 ? (!step5Valid ? 'Confirm below that you have read and accept the terms' : '') : '';
 
               return (
-                <div style={{ padding: '14px 20px', borderTop: '1px solid #f1f5f9', flexShrink: 0, background: '#fff' }}>
-                  <div style={{ display: 'flex', gap: 10, marginBottom: hintText ? 6 : 0 }}>
+                <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(148,163,184,0.22)', flexShrink: 0, background: 'linear-gradient(180deg,#ffffff,#fafbfc)' }}>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: bookingStep > 1 ? 'minmax(0,1fr) minmax(0,1fr)' : 'minmax(0,1fr)',
+                      gap: 10,
+                      marginBottom: hintText ? 8 : 0,
+                    }}
+                  >
                     {bookingStep > 1 && (
                       <button type="button"
                         onClick={() => { setSlotError(''); setStep2Errors({}); setBookingStep(s => s - 1); }}
                         disabled={bookingSubmitting}
-                        style={{ padding: '10px 18px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: 13, fontWeight: 600, color: '#64748b', cursor: bookingSubmitting ? 'not-allowed' : 'pointer', flexShrink: 0, transition: 'all 0.15s' }}>
+                        style={{ width: '100%', padding: '11px 16px', borderRadius: 14, border: '1px solid rgba(148,163,184,0.45)', background: 'linear-gradient(180deg,#ffffff,#f1f5f9)', fontSize: 13, fontWeight: 600, color: '#475569', cursor: bookingSubmitting ? 'not-allowed' : 'pointer', transition: 'all 0.2s ease', boxShadow: '0 2px 10px -4px rgba(15,23,42,0.08)' }}>
                         Back
                       </button>
                     )}
@@ -5669,12 +5932,13 @@ export default function CustomerDashboard() {
                           setBookingStep(nextStep);
                         }}
                         style={{
-                          flex: 1, padding: '11px 0', borderRadius: 10, border: 'none',
-                          fontSize: 13, fontWeight: 700, letterSpacing: '0.01em', transition: 'all 0.2s',
+                          width: '100%',
+                          padding: '12px 16px', borderRadius: 14, border: 'none',
+                          fontSize: 13, fontWeight: 700, letterSpacing: '0.01em', transition: 'all 0.25s ease',
                           cursor: isStepInvalid ? 'not-allowed' : 'pointer',
-                          background: isStepInvalid ? '#e2e8f0' : 'linear-gradient(135deg,#1e293b,#0f172a)',
+                          background: isStepInvalid ? '#e2e8f0' : 'linear-gradient(135deg,#1e293b 0%,#0f172a 55%,#1e293b 100%)',
                           color: isStepInvalid ? '#94a3b8' : '#fff',
-                          boxShadow: isStepInvalid ? 'none' : '0 4px 14px rgba(15,23,42,0.18)',
+                          boxShadow: isStepInvalid ? 'none' : '0 8px 28px -8px rgba(15,23,42,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset',
                           opacity: isStepInvalid ? 0.7 : 1,
                         }}>
                         Continue →
@@ -5682,12 +5946,13 @@ export default function CustomerDashboard() {
                     ) : (
                       <button type="button" onClick={submitBooking} disabled={!step6Valid}
                         style={{
-                          flex: 1, padding: '11px 0', borderRadius: 10, border: 'none',
-                          fontSize: 13, fontWeight: 700, letterSpacing: '0.01em', transition: 'all 0.2s',
+                          width: '100%',
+                          padding: '12px 16px', borderRadius: 14, border: 'none',
+                          fontSize: 13, fontWeight: 700, letterSpacing: '0.01em', transition: 'all 0.25s ease',
                           cursor: step6Valid ? 'pointer' : 'not-allowed',
-                          background: step6Valid ? 'linear-gradient(135deg,#1e293b,#0f172a)' : '#e2e8f0',
+                          background: step6Valid ? 'linear-gradient(135deg,#1e293b 0%,#0f172a 55%,#1e293b 100%)' : '#e2e8f0',
                           color: step6Valid ? '#fff' : '#94a3b8',
-                          boxShadow: step6Valid ? '0 4px 14px rgba(15,23,42,0.18)' : 'none',
+                          boxShadow: step6Valid ? '0 8px 28px -8px rgba(15,23,42,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset' : 'none',
                           opacity: step6Valid ? 1 : 0.7,
                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                         }}>

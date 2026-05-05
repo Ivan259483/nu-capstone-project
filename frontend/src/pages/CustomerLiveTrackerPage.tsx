@@ -27,6 +27,9 @@ const LUXURY_EASE = [0.22, 1, 0.36, 1] as const;
 const LIVE_STATUS_CUSTOMER_STATES = new Set(['washing', 'detailing', 'finishing', 'ready', 'in-progress']);
 const LIVE_STATUS_BOOKING_STATES = new Set(['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress', 'completed', 'paid']);
 
+/** Keep in sync with CustomerDashboard.tsx — when false, scan / AI Inspection entry is disabled (Soon). */
+const AI_INSPECTION_HISTORY_ENABLED = false;
+
 type TrackerStepId = 'awaiting_vehicle' | 'confirmed' | 'received' | 'in_progress' | 'completed' | 'paid';
 
 type TrackerStep = {
@@ -637,9 +640,21 @@ export default function CustomerLiveTrackerPage() {
               <iconify-icon icon="solar:widget-linear" width="20"></iconify-icon>
               Dashboard
             </button>
-            <button onClick={() => navigate('/customer/dashboard?section=scan')} className={navButtonClass()}>
-              <iconify-icon icon="solar:scanner-linear" width="20"></iconify-icon>
-              Scan Vehicle
+            <button
+              type="button"
+              disabled={!AI_INSPECTION_HISTORY_ENABLED}
+              onClick={() => navigate('/customer/dashboard?section=scan')}
+              title={AI_INSPECTION_HISTORY_ENABLED ? undefined : 'Coming soon'}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${AI_INSPECTION_HISTORY_ENABLED
+                ? navButtonClass()
+                : 'text-slate-400 cursor-not-allowed opacity-80 hover:bg-transparent hover:text-slate-400'
+                } disabled:pointer-events-none`}
+            >
+              <iconify-icon icon="solar:scanner-linear" width="20" className="shrink-0"></iconify-icon>
+              <span className="flex-1 min-w-0 text-left leading-snug">AI Inspection History</span>
+              <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${AI_INSPECTION_HISTORY_ENABLED ? 'uppercase tracking-wider bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>
+                {AI_INSPECTION_HISTORY_ENABLED ? 'AI Lab' : 'Soon'}
+              </span>
             </button>
             <button onClick={() => navigate('/customer/dashboard')} className={navButtonClass()}>
               <iconify-icon icon="solar:calendar-linear" width="20"></iconify-icon>
@@ -682,31 +697,51 @@ export default function CustomerLiveTrackerPage() {
               >
                 Book Service
               </button>
-              <button
-                onClick={() => navigate('/customer/dashboard?section=scan')}
-                className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium transition-colors shadow-sm"
-              >
-                <iconify-icon icon="solar:scanner-linear" width="18"></iconify-icon>
-                Scan Vehicle
-              </button>
+              {AI_INSPECTION_HISTORY_ENABLED ? (
+                <button
+                  type="button"
+                  onClick={() => navigate('/customer/dashboard?section=scan')}
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium transition-colors shadow-sm"
+                >
+                  <iconify-icon icon="solar:scanner-linear" width="18"></iconify-icon>
+                  AI Inspection History
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  title="Coming soon"
+                  className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 rounded-md font-medium bg-slate-200 text-slate-500 cursor-not-allowed shadow-sm"
+                >
+                  <iconify-icon icon="solar:scanner-linear" width="18" className="opacity-70"></iconify-icon>
+                  <span className="hidden sm:inline text-sm">AI Inspection History</span>
+                  <span className="sm:hidden text-sm">Inspection</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-300 text-slate-600">Soon</span>
+                </button>
+              )}
 
               <div className="w-px h-6 bg-slate-200 hidden sm:block mx-1"></div>
 
-              <div className="relative">
+              <div className="relative shrink-0">
                 <button
+                  type="button"
                   onClick={() => setNotificationsOpen((current) => !current)}
-                  className="text-slate-400 hover:text-slate-600 relative p-1.5 rounded-full hover:bg-slate-50 transition-colors"
+                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/35"
+                  aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
                 >
-                  <div className={unreadCount > 0 ? 'animate-[ring_2s_ease-in-out_infinite]' : ''}>
-                    <Bell size={22} />
-                  </div>
+                  <span
+                    className={`flex size-[22px] items-center justify-center ${unreadCount > 0 ? 'origin-top [transform:translateZ(0)] animate-[ring_2s_ease-in-out_infinite]' : ''}`}
+                  >
+                    <Bell size={22} strokeWidth={2} className="shrink-0 text-current" aria-hidden />
+                  </span>
                   {unreadCount > 0 && (
-                    <>
-                      <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-bold text-white z-10">
-                        {unreadCount > 9 ? '9+' : unreadCount}
-                      </span>
-                      <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 bg-red-400 rounded-full animate-ping opacity-75"></span>
-                    </>
+                    <span
+                      className={`absolute -right-0.5 -top-0.5 z-10 flex items-center justify-center rounded-full border-2 border-white bg-red-500 font-extrabold tabular-nums leading-none text-white antialiased shadow-md ${
+                        unreadCount > 9 ? 'h-[18px] min-w-[22px] px-1 text-[9px]' : 'size-[18px] text-[10px]'
+                      }`}
+                    >
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
                   )}
                 </button>
 
@@ -722,7 +757,10 @@ export default function CustomerLiveTrackerPage() {
                           </button>
                         )}
                       </div>
-                      <div className="max-h-[400px] overflow-y-auto">
+                      <div
+                        className="max-h-[400px] overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}
+                      >
                         {notificationsLoading ? (
                           <div className="p-8 text-center flex flex-col items-center justify-center">
                             <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-500 rounded-full animate-spin mb-2"></div>

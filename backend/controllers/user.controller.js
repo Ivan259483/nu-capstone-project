@@ -671,6 +671,28 @@ export const changePassword = async (req, res, next) => {
       });
     }
 
+    if (currentPassword === newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be different from your current password.',
+      });
+    }
+
+    const passwordErrors = [];
+    if (newPassword.length < 8) passwordErrors.push('at least 8 characters');
+    if (!/[A-Z]/.test(newPassword)) passwordErrors.push('one uppercase letter');
+    if (!/[a-z]/.test(newPassword)) passwordErrors.push('one lowercase letter');
+    if (!/[0-9]/.test(newPassword)) passwordErrors.push('one number');
+    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(newPassword)) {
+      passwordErrors.push('one special character');
+    }
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Password must contain: ${passwordErrors.join(', ')}`,
+      });
+    }
+
     const user = await User.findById(req.user.id);
     if (!user) {
       return res.status(404).json({

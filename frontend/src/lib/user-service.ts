@@ -51,10 +51,16 @@ export const UserService = {
         return response.data;
     },
 
-    async changePassword(userIdOrCurrent: string, currentOrNext: string, maybeNext?: string) {
-        const currentPassword = maybeNext ? currentOrNext : userIdOrCurrent;
-        const newPassword = maybeNext || currentOrNext;
-        const response = await api.patch('/users/change-password', { currentPassword, newPassword });
+    async changePassword(
+        currentPassword: string,
+        newPassword: string,
+        options?: { suppressErrorToast?: boolean }
+    ) {
+        const response = await api.patch(
+            '/users/change-password',
+            { currentPassword, newPassword },
+            { meta: options } as any
+        );
         return response.data;
     }
 };
