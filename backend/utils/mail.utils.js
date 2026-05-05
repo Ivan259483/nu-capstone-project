@@ -105,14 +105,14 @@ function baseWrapper(
   const footerLinks = showFooterLinks
     ? `<p style="margin:16px 0 0;font-size:11px;line-height:1.65;color:#94a3b8">
         <a href="${supportMailto}" style="color:#64748b;text-decoration:none;border-bottom:1px solid #cbd5e1;padding-bottom:1px">Customer care</a>
-        <span style="color:#cbd5e1;padding:0 10px;font-weight:300">&middot;</span>
+        <span style="color:#cbd5e1;padding:0 8px;font-weight:300">|</span>
         <a href="${appUrl}" style="color:#64748b;text-decoration:none;border-bottom:1px solid #cbd5e1;padding-bottom:1px">Official website</a>
       </p>`
     : '';
 
   const ribbon = confidentialityRibbon
-    ? `<p style="margin:12px 0 0;font-size:10px;line-height:1.6;color:#cbd5e1;letter-spacing:0.04em;text-transform:uppercase">
-        Confidential &middot; Confidentiel &middot; Confidencial
+    ? `<p style="margin:12px 0 0;font-size:10px;line-height:1.6;color:#cbd5e1;letter-spacing:0.12em">
+        CONFIDENTIAL&nbsp;&nbsp;|&nbsp;&nbsp;CONFIDENTIEL&nbsp;&nbsp;|&nbsp;&nbsp;CONFIDENCIAL
       </p>`
     : '';
 
@@ -128,9 +128,9 @@ function baseWrapper(
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
 </head>
-<body style="margin:0;padding:0;background-color:#ebecef;background-image:linear-gradient(180deg,#f4f4f5 0%,#ebecef 48%,#e4e4e7 100%);font-family:'Instrument Sans',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color:#0f172a">
-  ${pre ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ebecef;opacity:0">${pre}</div>` : ''}
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ebecef">
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:'Instrument Sans',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color:#0f172a">
+  ${pre ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f3f4f6;opacity:0">${pre}</div>` : ''}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f3f4f6">
     <tr>
       <td align="center" style="padding:48px 20px 56px">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:540px">
@@ -156,7 +156,7 @@ function baseWrapper(
           <tr>
             <td align="center" style="padding-top:32px;padding-left:16px;padding-right:16px">
               <p style="margin:0 0 6px;font-size:12px;line-height:1.6;color:#64748b;font-weight:500;letter-spacing:0.02em">&copy; ${new Date().getFullYear()} AutoSPF+</p>
-              <p style="margin:0;font-size:11px;line-height:1.65;color:#94a3b8">Premium automotive care &middot; Transactional notice &middot; Replies are not monitored</p>
+              <p style="margin:0;font-size:11px;line-height:1.65;color:#94a3b8">Premium automotive care - Transactional notice - Replies are not monitored</p>
               ${footerLinks}
               ${ribbon}
             </td>
@@ -179,7 +179,7 @@ function otpTemplate(otp) {
     <td style="padding:5px">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate">
         <tr>
-          <td style="min-width:42px;height:58px;background:#ffffff;border:1px solid #e7e5e4;border-top:3px solid #f59e0b;border-radius:14px;text-align:center;vertical-align:middle;font-size:26px;font-weight:600;color:#0c1222;font-family:ui-monospace,'Cascadia Mono','Segoe UI Mono',Consolas,monospace;letter-spacing:-0.02em;box-shadow:0 1px 2px rgba(15,23,42,0.06),0 8px 16px rgba(15,23,42,0.04)">${d}</td>
+          <td style="min-width:42px;height:58px;background:#ffffff;border:1px solid #e6c875;border-radius:14px;text-align:center;vertical-align:middle;font-size:26px;font-weight:600;color:#0c1222;font-family:ui-monospace,'Cascadia Mono','Segoe UI Mono',Consolas,monospace;letter-spacing:-0.02em;box-shadow:0 1px 3px rgba(15,23,42,0.05)">${d}</td>
         </tr>
       </table>
     </td>`
