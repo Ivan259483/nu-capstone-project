@@ -51,7 +51,7 @@ export default function Navbar() {
                         <img 
                             src="/images/autospf-logo.png" 
                             alt="AutoSPF+" 
-                            className="h-10 md:h-14 object-contain"
+                            className="h-12 w-auto sm:h-14 md:h-[4.5rem] object-contain"
                         />
                     </Link>
 

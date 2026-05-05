@@ -481,16 +481,16 @@ export default function Login() {
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-gradient-radial-gold opacity-30" />
             </div>
 
-            {/* ── Main Content ── */}
-            <div className="flex-1 flex items-center justify-center px-6 pt-24 pb-12 relative z-10">
+            {/* ── Main Content — equal top/bottom padding so logo + card sit visually centered under the fixed navbar ── */}
+            <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 pt-24 pb-24 sm:pt-28 sm:pb-28 md:pt-32 md:pb-32">
                 <div className="w-full max-w-md animate-scale-in">
                     {/* Logo */}
-                    <div className="text-center mb-8">
-                        <Link to="/" className="inline-flex items-center justify-center group mb-4">
+                    <div className="text-center mb-10">
+                        <Link to="/" className="inline-flex items-center justify-center group mb-5">
                             <img
                                 src="/images/autospf-logo.png"
                                 alt="AutoSPF+ Logo"
-                                className="h-20 w-auto object-contain group-hover:scale-105 transition-transform duration-200"
+                                className="h-28 w-auto max-w-[min(100%,280px)] object-contain sm:h-32 md:h-36 md:max-w-[min(100%,340px)] group-hover:scale-[1.03] transition-transform duration-200"
                             />
                         </Link>
                         <h1 className="text-2xl font-bold text-foreground mt-2">
