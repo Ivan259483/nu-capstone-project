@@ -29,6 +29,29 @@ function getEmailLogoUrl() {
   return `${getAppPublicUrl()}/autospf-logo.jpg`;
 }
 
+function getSupportEmail() {
+  return (process.env.SUPPORT_EMAIL || 'support@autospf.com').trim();
+}
+
+/** Email-safe accent strip at top of card (no CSS gradients on outer clients). */
+function accentTopRow(kind) {
+  if (!kind || kind === 'none') return '';
+  if (kind === 'slate') {
+    return `<tr><td style="height:3px;line-height:3px;font-size:0;mso-line-height-rule:exactly;background:#475569">&nbsp;</td></tr>`;
+  }
+  return `<tr>
+    <td style="padding:0;font-size:0;line-height:0;mso-line-height-rule:exactly">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td width="33.33%" style="height:4px;line-height:4px;font-size:0;background:#c2410c">&nbsp;</td>
+          <td width="33.34%" style="height:4px;line-height:4px;font-size:0;background:#f59e0b">&nbsp;</td>
+          <td width="33.33%" style="height:4px;line-height:4px;font-size:0;background:#fcd34d">&nbsp;</td>
+        </tr>
+      </table>
+    </td>
+  </tr>`;
+}
+
 function getClient() {
   if (!resend) {
     const apiKey = process.env.RESEND_API_KEY;
@@ -68,9 +91,30 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-function baseWrapper(content, { preheader = '' } = {}) {
+function baseWrapper(
+  content,
+  { preheader = '', accent = 'brand', showFooterLinks = true, confidentialityRibbon = false } = {}
+) {
   const logoSrc = escapeHtml(getEmailLogoUrl());
   const pre = preheader ? escapeHtml(preheader) : '';
+  const appUrl = escapeHtml(getAppPublicUrl());
+  const supportEmail = escapeHtml(getSupportEmail());
+  const supportMailto = escapeHtml(`mailto:${getSupportEmail()}`);
+  const bar = accentTopRow(accent);
+
+  const footerLinks = showFooterLinks
+    ? `<p style="margin:16px 0 0;font-size:11px;line-height:1.65;color:#94a3b8">
+        <a href="${supportMailto}" style="color:#64748b;text-decoration:none;border-bottom:1px solid #cbd5e1;padding-bottom:1px">Customer care</a>
+        <span style="color:#cbd5e1;padding:0 10px;font-weight:300">&middot;</span>
+        <a href="${appUrl}" style="color:#64748b;text-decoration:none;border-bottom:1px solid #cbd5e1;padding-bottom:1px">Official website</a>
+      </p>`
+    : '';
+
+  const ribbon = confidentialityRibbon
+    ? `<p style="margin:12px 0 0;font-size:10px;line-height:1.6;color:#cbd5e1;letter-spacing:0.04em;text-transform:uppercase">
+        Confidential &middot; Confidentiel &middot; Confidencial
+      </p>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml">
@@ -80,29 +124,41 @@ function baseWrapper(content, { preheader = '' } = {}) {
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><![endif]-->
   <title>AutoSPF+</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
 </head>
-<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:'Segoe UI',system-ui,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased;color:#0f172a">
-  ${pre ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f1f5f9;opacity:0">${pre}</div>` : ''}
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9">
+<body style="margin:0;padding:0;background-color:#ebecef;background-image:linear-gradient(180deg,#f4f4f5 0%,#ebecef 48%,#e4e4e7 100%);font-family:'Instrument Sans',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color:#0f172a">
+  ${pre ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ebecef;opacity:0">${pre}</div>` : ''}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ebecef">
     <tr>
-      <td align="center" style="padding:40px 16px 48px">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px">
+      <td align="center" style="padding:48px 20px 56px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:540px">
           <tr>
-            <td align="center" style="padding-bottom:28px">
-              <a href="${escapeHtml(getAppPublicUrl())}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">
-                <img src="${logoSrc}" width="200" alt="AutoSPF+" border="0" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;height:auto;max-height:52px;width:auto;max-width:200px" />
+            <td align="center" style="padding-bottom:36px">
+              <a href="${appUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">
+                <img src="${logoSrc}" width="200" alt="AutoSPF+" border="0" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;height:auto;max-height:54px;width:auto;max-width:220px" />
               </a>
             </td>
           </tr>
           <tr>
-            <td style="background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;box-shadow:0 12px 40px rgba(15,23,42,0.08);overflow:hidden">
-              ${content}
+            <td style="background:#ffffff;border-radius:20px;border:1px solid rgba(15,23,42,0.06);box-shadow:0 4px 6px -1px rgba(15,23,42,0.04),0 22px 44px -16px rgba(15,23,42,0.14);overflow:hidden;padding:0">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                ${bar}
+                <tr>
+                  <td style="padding:0">
+                    ${content}
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
           <tr>
-            <td align="center" style="padding-top:28px;padding-left:12px;padding-right:12px">
-              <p style="margin:0 0 8px;font-size:12px;line-height:1.55;color:#64748b">&copy; ${new Date().getFullYear()} AutoSPF+</p>
-              <p style="margin:0;font-size:11px;line-height:1.55;color:#94a3b8">Premium automotive care &middot; Automated message &middot; Please do not reply</p>
+            <td align="center" style="padding-top:32px;padding-left:16px;padding-right:16px">
+              <p style="margin:0 0 6px;font-size:12px;line-height:1.6;color:#64748b;font-weight:500;letter-spacing:0.02em">&copy; ${new Date().getFullYear()} AutoSPF+</p>
+              <p style="margin:0;font-size:11px;line-height:1.65;color:#94a3b8">Premium automotive care &middot; Transactional notice &middot; Replies are not monitored</p>
+              ${footerLinks}
+              ${ribbon}
             </td>
           </tr>
         </table>
@@ -120,10 +176,10 @@ function otpTemplate(otp) {
   const digitBoxes = digits
     .map(
       (d) => `
-    <td style="padding:4px">
+    <td style="padding:5px">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate">
         <tr>
-          <td style="min-width:38px;height:50px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;text-align:center;vertical-align:middle;font-size:22px;font-weight:700;color:#0f172a;font-family:Consolas,'Courier New',ui-monospace,monospace;letter-spacing:0">${d}</td>
+          <td style="min-width:42px;height:58px;background:#ffffff;border:1px solid #e7e5e4;border-top:3px solid #f59e0b;border-radius:14px;text-align:center;vertical-align:middle;font-size:26px;font-weight:600;color:#0c1222;font-family:ui-monospace,'Cascadia Mono','Segoe UI Mono',Consolas,monospace;letter-spacing:-0.02em;box-shadow:0 1px 2px rgba(15,23,42,0.06),0 8px 16px rgba(15,23,42,0.04)">${d}</td>
         </tr>
       </table>
     </td>`
@@ -133,24 +189,29 @@ function otpTemplate(otp) {
   const content = `
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr>
-        <td style="padding:36px 32px 28px;text-align:center;border-bottom:1px solid #f1f5f9">
-          <p style="margin:0 0 10px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.16em;color:#64748b">Security</p>
-          <h1 style="margin:0;font-size:24px;font-weight:700;letter-spacing:-0.02em;color:#0f172a;line-height:1.25">Your verification code</h1>
-          <p style="margin:14px 0 0;font-size:15px;line-height:1.6;color:#64748b;max-width:400px;margin-left:auto;margin-right:auto">Use this one-time code to confirm your email address and continue with AutoSPF+.</p>
+        <td style="padding:48px 40px 32px;text-align:center">
+          <p style="margin:0 0 12px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.22em;color:#94a3b8">Identity verification</p>
+          <h1 style="margin:0;font-size:28px;font-weight:600;letter-spacing:-0.035em;color:#0a0f1a;line-height:1.2">Your verification code</h1>
+          <p style="margin:18px auto 0;font-size:16px;line-height:1.65;color:#64748b;max-width:400px;font-weight:400">Enter this single-use code to confirm your email and continue. It was issued only for your account.</p>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:28px auto 0">
+            <tr>
+              <td style="width:40px;height:2px;line-height:2px;font-size:0;background:#f59e0b;border-radius:2px">&nbsp;</td>
+            </tr>
+          </table>
         </td>
       </tr>
       <tr>
-        <td style="padding:32px 24px 28px">
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 28px">
+        <td style="padding:8px 28px 40px">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 32px">
             <tr>
               ${digitBoxes}
             </tr>
           </table>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             <tr>
-              <td style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;padding:18px 20px;text-align:center">
-                <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:#0f172a">Valid for 10 minutes</p>
-                <p style="margin:0;font-size:12px;line-height:1.55;color:#64748b">Never share this code. If you did not request it, you can safely ignore this message.</p>
+              <td style="background:#fafaf9;border-radius:14px;border:1px solid #e7e5e4;border-left:4px solid #d97706;padding:22px 26px">
+                <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#1c1917;letter-spacing:0.01em">Valid for 10 minutes</p>
+                <p style="margin:0;font-size:13px;line-height:1.65;color:#78716c">For your security, never share this code. If you did not request verification, you may disregard this message—your account will remain unchanged.</p>
               </td>
             </tr>
           </table>
@@ -161,6 +222,8 @@ function otpTemplate(otp) {
 
   return baseWrapper(content, {
     preheader: `Your AutoSPF+ code: ${otp}. Valid 10 minutes.`,
+    accent: 'brand',
+    confidentialityRibbon: true,
   });
 }
 
@@ -173,6 +236,8 @@ function otpPlainText(otp) {
 function welcomeTemplate(name) {
   const safeName = escapeHtml(name);
   const appUrl = escapeHtml(getAppPublicUrl());
+  const supportAddr = escapeHtml(getSupportEmail());
+  const supportMailto = escapeHtml(`mailto:${getSupportEmail()}`);
   const features = [
     { title: 'PPF & paint protection', desc: 'Ceramic coating and film options for lasting finish.' },
     { title: 'Online booking', desc: 'Schedule services when it suits you, from any device.' },
@@ -221,7 +286,7 @@ function welcomeTemplate(name) {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:28px">
             <tr>
               <td style="border-top:1px solid #f1f5f9;padding-top:20px;text-align:center">
-                <p style="margin:0;font-size:12px;line-height:1.55;color:#64748b">Questions? <a href="mailto:support@autospf.com" style="color:#d97706;text-decoration:none;font-weight:600">support@autospf.com</a></p>
+                <p style="margin:0;font-size:12px;line-height:1.55;color:#64748b">Questions? <a href="${supportMailto}" style="color:#d97706;text-decoration:none;font-weight:600">${supportAddr}</a></p>
               </td>
             </tr>
           </table>
@@ -230,12 +295,14 @@ function welcomeTemplate(name) {
     </table>
   `;
 
-  return baseWrapper(content, { preheader: `Welcome to AutoSPF+, ${name}.` });
+  return baseWrapper(content, { preheader: `Welcome to AutoSPF+, ${name}.`, accent: 'brand' });
 }
 
 // ─── Password Reset Template ──────────────────────────────────────────────────
 
 function passwordResetTemplate(otp) {
+  const supportAddr = escapeHtml(getSupportEmail());
+  const supportMailto = escapeHtml(`mailto:${getSupportEmail()}`);
   const digits = String(otp).split('');
   const digitBoxes = digits
     .map(
@@ -285,7 +352,7 @@ function passwordResetTemplate(otp) {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:22px">
             <tr>
               <td style="border-top:1px solid #f1f5f9;padding-top:18px;text-align:center">
-                <p style="margin:0;font-size:12px;line-height:1.55;color:#64748b">Need help? <a href="mailto:support@autospf.com" style="color:#d97706;text-decoration:none;font-weight:600">support@autospf.com</a></p>
+                <p style="margin:0;font-size:12px;line-height:1.55;color:#64748b">Need help? <a href="${supportMailto}" style="color:#d97706;text-decoration:none;font-weight:600">${supportAddr}</a></p>
               </td>
             </tr>
           </table>
@@ -296,6 +363,7 @@ function passwordResetTemplate(otp) {
 
   return baseWrapper(content, {
     preheader: `AutoSPF+ password reset code: ${otp}. Valid 10 minutes.`,
+    accent: 'slate',
   });
 }
 
@@ -312,7 +380,7 @@ export const sendOtpEmail = async (email, otp) => {
   }
   return sendEmail({
     to: email,
-    subject: 'Your AutoSPF+ verification code',
+    subject: 'AutoSPF+ — Your verification code',
     html: otpTemplate(otp),
     text: otpPlainText(otp),
   });
