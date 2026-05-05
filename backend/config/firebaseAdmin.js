@@ -13,6 +13,24 @@
 
 import admin from 'firebase-admin';
 
+/** Normalize key text from .env (quotes, escaped newlines, BOM). */
+function normalizePrivateKey(raw) {
+    let k = String(raw).trim();
+    if (k.charCodeAt(0) === 0xfeff) k = k.slice(1);
+    if ((k.startsWith('"') && k.endsWith('"')) || (k.startsWith("'") && k.endsWith("'"))) {
+        k = k.slice(1, -1);
+    }
+    return k.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').trim();
+}
+
+/** Reject truncated keys and .env.example-style placeholders before OpenSSL runs. */
+function looksLikeCompleteServiceAccountKey(k) {
+    if (!k || k.length < 400) return false;
+    const hasBegin = k.includes('BEGIN PRIVATE KEY') || k.includes('BEGIN RSA PRIVATE KEY');
+    const hasEnd = k.includes('END PRIVATE KEY') || k.includes('END RSA PRIVATE KEY');
+    return hasBegin && hasEnd && !k.includes('...');
+}
+
 let firebaseAdmin;
 
 if (!admin.apps.length) {
@@ -29,21 +47,29 @@ if (!admin.apps.length) {
         );
         firebaseAdmin = null;
     } else {
-        try {
-            firebaseAdmin = admin.initializeApp({
-                credential: admin.credential.cert({
-                    projectId: FIREBASE_PROJECT_ID,
-                    clientEmail: FIREBASE_CLIENT_EMAIL,
-                    // Replace escaped newlines from env var
-                    privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-                }),
-            });
-        } catch (err) {
+        const privateKey = normalizePrivateKey(FIREBASE_PRIVATE_KEY);
+        if (!looksLikeCompleteServiceAccountKey(privateKey)) {
             console.warn(
-                '[FirebaseAdmin] ⚠️  Failed to initialize Firebase Admin SDK:', err.message,
-                '\n                    Firebase Admin features will be unavailable. Check your FIREBASE_* env vars.'
+                '[FirebaseAdmin] ⚠️  FIREBASE_PRIVATE_KEY looks incomplete (missing END marker, too short, or contains "...").\n' +
+                '                    Paste the full `private_key` value from your Firebase service account JSON (see firebaseAdmin.js).'
             );
             firebaseAdmin = null;
+        } else {
+            try {
+                firebaseAdmin = admin.initializeApp({
+                    credential: admin.credential.cert({
+                        projectId: FIREBASE_PROJECT_ID,
+                        clientEmail: FIREBASE_CLIENT_EMAIL,
+                        privateKey,
+                    }),
+                });
+            } catch (err) {
+                console.warn(
+                    '[FirebaseAdmin] ⚠️  Failed to initialize Firebase Admin SDK:', err.message,
+                    '\n                    Firebase Admin features will be unavailable. Check your FIREBASE_* env vars.'
+                );
+                firebaseAdmin = null;
+            }
         }
     }
 } else {
