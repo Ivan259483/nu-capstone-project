@@ -136,7 +136,7 @@ app.use((req, res, next) => {
   
   // Prevent aggressive browser caching of API responses (e.g., Safari GET caching).
   // Skip for /api/health so probes and optional edge caching can use short TTL.
-  if (req.path !== '/api/health') {
+  if (req.path !== '/api/health' && req.path !== '/health') {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -157,6 +157,8 @@ app.use((req, res, next) => {
   
   next();
 });
+
+app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // Health check endpoint (Railway healthcheck path; safe to cache briefly)
 app.get('/api/health', (req, res) => {
