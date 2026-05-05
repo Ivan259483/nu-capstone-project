@@ -298,7 +298,7 @@ function InventoryPanelInner() {
             {!collapsed && (
               <div style={{ minWidth: 0 }}>
                 <span style={{ fontWeight: 700, color: '#0f172a', fontSize: 15, display: 'block', whiteSpace: 'nowrap' }}>DetailStock</span>
-                <span style={{ fontSize: 10, color: '#2563eb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Inventory Pro</span>
+                <span style={{ fontSize: 10, color: '#2563eb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Inventory</span>
               </div>
             )}
           </div>

@@ -58,9 +58,10 @@ function EmptyStateCard({ icon: Icon, title, subtitle, accent = 'blue' }: { icon
 }
 
 export default function QCReportsView({ stats, statsLoading, technicianData = [], techLoading = false }: { stats: QCStats; statsLoading: boolean; technicianData?: { name: string; approved: number; returned: number; rate: number }[]; techLoading?: boolean }) {
-  const totalReviewed = (stats.approvedToday || 0) + (stats.returned || 0);
-  const approvalRate = totalReviewed > 0 ? Math.round((stats.approvedToday / totalReviewed) * 100) : 0;
-  const returnRate = totalReviewed > 0 ? Math.round((stats.returned / totalReviewed) * 100) : 0;
+  // Use server-side lifetime QC metrics (approvedToday is only “completed today”, not approval %).
+  const totalReviewed = stats.totalQCReviewed ?? 0;
+  const approvalRate = stats.qcApprovalRatePct ?? 0;
+  const returnRate = stats.qcReturnRatePct ?? 0;
 
   const dynamicKpis = [
     { label: 'Total Jobs Reviewed', value: statsLoading ? '—' : String(totalReviewed), trend: '—', up: true, icon: BarChart3, accent: 'blue' },
@@ -71,6 +72,7 @@ export default function QCReportsView({ stats, statsLoading, technicianData = []
 
   const trendData = stats.trendData || [];
   const pieData = stats.serviceDistribution || [];
+  const hasTrend = trendData.some((d) => (d.approved ?? 0) > 0 || (d.returned ?? 0) > 0);
 
   return (
     <div className="space-y-6">
@@ -106,14 +108,14 @@ export default function QCReportsView({ stats, statsLoading, technicianData = []
           <div className="flex items-center justify-between mb-5">
             <div>
               <h3 className="text-base font-semibold text-slate-800">Monthly Approval Trend</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Last 6 months — approval vs. return volume</p>
+              <p className="text-xs text-slate-400 mt-0.5">Last 14 days — QC approvals vs. returns by day</p>
             </div>
             <div className="flex items-center gap-4 text-xs text-slate-500">
               <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" />Approved</span>
               <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-400" />Returned</span>
             </div>
           </div>
-          {trendData.length > 0 ? (
+          {hasTrend ? (
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <defs>

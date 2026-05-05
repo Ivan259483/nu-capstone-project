@@ -161,19 +161,18 @@ export const getQCStats = async (req, res, next) => {
       ]),
     ]);
 
-    // Avg review time — use gap between createdAt and updatedAt as approximation
-    // for orders that are done (released/completed)
+    // Avg review time — QC-cleared jobs: qcCompletedAt − createdAt (meaningful duration)
     const avgTimeResult = await Order.aggregate([
       {
         $match: {
-          status: { $in: DONE_STATUSES },
           archived: { $ne: true },
+          qcCompletedAt: { $exists: true, $ne: null },
         },
       },
       {
         $project: {
           reviewTimeMs: {
-            $subtract: ['$updatedAt', '$createdAt'],
+            $subtract: ['$qcCompletedAt', '$createdAt'],
           },
         },
       },
@@ -185,65 +184,85 @@ export const getQCStats = async (req, res, next) => {
       },
     ]);
 
-    // Trend data: last 14 days — count orders by updatedAt date
-    const trendRaw = await Order.aggregate([
-      {
-        $match: {
-          archived: { $ne: true },
-          status: { $in: ACTIVE_STATUSES },
-          updatedAt: {
-            $gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000),
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const mmddKey = (d) => {
+      const x = new Date(d);
+      const m = String(x.getMonth() + 1).padStart(2, '0');
+      const day = String(x.getDate()).padStart(2, '0');
+      return `${m}/${day}`;
+    };
+
+    // Trend: approved = count of QC completions per day; returned = unique orders with a return note that day
+    const [trendApprovedRaw, trendReturnedRaw] = await Promise.all([
+      Order.aggregate([
+        {
+          $match: {
+            archived: { $ne: true },
+            qcCompletedAt: { $exists: true, $ne: null, $gte: fourteenDaysAgo },
           },
         },
-      },
-      {
-        $group: {
-          _id: {
-            date: {
-              $dateToString: { format: '%m/%d', date: '$updatedAt' },
-            },
-            returned: {
-              $cond: [
-                {
-                  $gt: [
-                    {
-                      $size: {
-                        $filter: {
-                          input: { $ifNull: ['$staffNotes', []] },
-                          as: 'n',
-                          cond: { $regexMatch: { input: { $ifNull: ['$$n.content', ''] }, regex: /^\[QC_RETURN\]/ } },
-                        },
-                      },
-                    },
-                    0,
-                  ],
-                },
-                true,
-                false,
-              ],
+        {
+          $group: {
+            _id: { $dateToString: { format: '%m/%d', date: '$qcCompletedAt' } },
+            c: { $sum: 1 },
+          },
+        },
+      ]),
+      Order.aggregate([
+        { $match: { archived: { $ne: true }, staffNotes: { $exists: true, $ne: [] } } },
+        { $unwind: '$staffNotes' },
+        {
+          $match: {
+            'staffNotes.createdAt': { $gte: fourteenDaysAgo },
+            'staffNotes.content': { $regex: /^\[QC_RETURN\]/, $options: 'i' },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              day: { $dateToString: { format: '%m/%d', date: '$staffNotes.createdAt' } },
+              oid: '$_id',
             },
           },
-          count: { $sum: 1 },
         },
-      },
-      { $sort: { '_id.date': 1 } },
+        { $group: { _id: '$_id.day', c: { $sum: 1 } } },
+      ]),
     ]);
 
-    // Shape trend data — fill all 14 days
     const trendMap = new Map();
     for (let i = 13; i >= 0; i--) {
       const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
-      const key = `${d.getMonth() + 1}/${String(d.getDate()).padStart(2, '0')}`;
+      const key = mmddKey(d);
       trendMap.set(key, { date: key, approved: 0, returned: 0 });
     }
-    trendRaw.forEach((item) => {
-      const entry = trendMap.get(item._id.date);
-      if (entry) {
-        if (item._id.returned) entry.returned += item.count;
-        else entry.approved += item.count;
-      }
+    trendApprovedRaw.forEach((row) => {
+      const entry = trendMap.get(row._id);
+      if (entry) entry.approved += row.c;
+    });
+    trendReturnedRaw.forEach((row) => {
+      const entry = trendMap.get(row._id);
+      if (entry) entry.returned += row.c;
     });
     const trendData = [...trendMap.values()];
+
+    // Reports KPIs — lifetime QC outcomes (do not use approvedToday for approval %)
+    const [qcApprovedLifetime, totalQCReviewed] = await Promise.all([
+      Order.countDocuments({
+        archived: { $ne: true },
+        qcCompletedAt: { $exists: true, $ne: null },
+      }),
+      Order.countDocuments({
+        archived: { $ne: true },
+        $or: [
+          { qcCompletedAt: { $exists: true, $ne: null } },
+          { staffNotes: { $elemMatch: { content: { $regex: /^\[QC_RETURN\]/, $options: 'i' } } } },
+        ],
+      }),
+    ]);
+    const qcApprovalRatePct =
+      totalQCReviewed > 0 ? Math.round((qcApprovedLifetime / totalQCReviewed) * 100) : 0;
+    const qcReturnRatePct =
+      totalQCReviewed > 0 ? Math.round((returnedCount / totalQCReviewed) * 100) : 0;
 
     // Avg review time in hours/minutes
     const avgMs = avgTimeResult?.[0]?.avgMs || 0;
@@ -272,6 +291,10 @@ export const getQCStats = async (req, res, next) => {
         awaiting: awaitingCount,
         approvedToday: approvedTodayCount,
         returned: returnedCount,
+        qcApprovedLifetime,
+        totalQCReviewed,
+        qcApprovalRatePct,
+        qcReturnRatePct,
         aiPending: aiPendingCount,
         avgReviewTime: avgDisplay,
         trendData,
@@ -713,19 +736,67 @@ export const getQCActivity = async (req, res, next) => {
  */
 export const getQCTechnicianReport = async (req, res, next) => {
   try {
+    const techNameAddFields = [
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'assignedDetailer',
+          foreignField: '_id',
+          as: 'detailerDoc',
+        },
+      },
+      {
+        $addFields: {
+          leadFromStaff: {
+            $let: {
+              vars: {
+                leads: {
+                  $filter: {
+                    input: { $ifNull: ['$serviceStaffAssignments', []] },
+                    as: 'a',
+                    cond: { $eq: ['$$a.slot', 'staff1'] },
+                  },
+                },
+              },
+              in: {
+                $let: {
+                  vars: { f: { $arrayElemAt: ['$$leads', 0] } },
+                  in: { $ifNull: ['$$f.name', ''] },
+                },
+              },
+            },
+          },
+          fromDetailer: { $ifNull: [{ $arrayElemAt: ['$detailerDoc.name', 0] }, ''] },
+        },
+      },
+      {
+        $addFields: {
+          techName: {
+            $cond: [
+              { $gt: [{ $strLenCP: { $trim: { input: '$fromDetailer' } } }, 0] },
+              '$fromDetailer',
+              {
+                $cond: [
+                  { $gt: [{ $strLenCP: { $trim: { input: '$leadFromStaff' } } }, 0] },
+                  '$leadFromStaff',
+                  'Unassigned',
+                ],
+              },
+            ],
+          },
+        },
+      },
+    ];
+
     const [approved, returned] = await Promise.all([
-      // Approved jobs grouped by technician
       Order.aggregate([
-        { $match: { status: 'completed', archived: { $ne: true }, qcCompletedAt: { $exists: true } } },
-        { $lookup: { from: 'users', localField: 'assignedDetailer', foreignField: '_id', as: 'detailerDoc' } },
-        { $addFields: { techName: { $ifNull: [{ $arrayElemAt: ['$detailerDoc.name', 0] }, '$assignedDetailerName', 'Unassigned'] } } },
+        { $match: { status: 'completed', archived: { $ne: true }, qcCompletedAt: { $exists: true, $ne: null } } },
+        ...techNameAddFields,
         { $group: { _id: '$techName', approved: { $sum: 1 } } },
       ]),
-      // Returned jobs grouped by the order's technician
       Order.aggregate([
         { $match: { archived: { $ne: true }, 'staffNotes.content': { $regex: /^\[QC_RETURN\]/, $options: 'i' } } },
-        { $lookup: { from: 'users', localField: 'assignedDetailer', foreignField: '_id', as: 'detailerDoc' } },
-        { $addFields: { techName: { $ifNull: [{ $arrayElemAt: ['$detailerDoc.name', 0] }, '$assignedDetailerName', 'Unassigned'] } } },
+        ...techNameAddFields,
         { $group: { _id: '$techName', returned: { $sum: 1 } } },
       ]),
     ]);

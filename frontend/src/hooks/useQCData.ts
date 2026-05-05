@@ -41,6 +41,12 @@ export interface QCStats {
   awaiting: number;
   approvedToday: number;
   returned: number;
+  /** Orders QC approved (qcCompletedAt set) — lifetime, for reports */
+  qcApprovedLifetime?: number;
+  /** Distinct orders with a QC outcome (approved and/or returned) */
+  totalQCReviewed?: number;
+  qcApprovalRatePct?: number;
+  qcReturnRatePct?: number;
   aiPending: number;
   avgReviewTime: string;
   trendData: { date: string; approved: number; returned: number }[];
@@ -66,7 +72,7 @@ export interface QCTechnicianStat {
   rate: number;
 }
 
-const POLL_INTERVAL_MS = 15_000; // 15 s — backup poll (socket is primary)
+const POLL_INTERVAL_MS = 5_000; // 5 s — backup poll (socket is primary; keeps autospf.shop feeling fresh)
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
@@ -77,6 +83,10 @@ export function useQCData() {
     awaiting: 0,
     approvedToday: 0,
     returned: 0,
+    qcApprovedLifetime: 0,
+    totalQCReviewed: 0,
+    qcApprovalRatePct: 0,
+    qcReturnRatePct: 0,
     aiPending: 0,
     avgReviewTime: '—',
     trendData: [],
