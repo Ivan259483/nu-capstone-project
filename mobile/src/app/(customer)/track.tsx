@@ -48,6 +48,7 @@ import type { BookingRecord } from '@/services/api/types';
 import { useQuery } from '@tanstack/react-query';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { TabBarHeight } from '@/constants/theme';
+import { isDefaultTrackBookingRow } from '@/utils/customerBookingLifecycle';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -682,7 +683,7 @@ export default function TrackScreen() {
       setAllBookings(defaultBookings);
       if (!routeBookingId) {
         const active = [...defaultBookings]
-          .filter((b: any) => !['cancelled', 'failed'].includes(b.status))
+          .filter((b: any) => isDefaultTrackBookingRow(b.status))
           .sort((a: any, b: any) =>
             new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
           );
@@ -767,7 +768,7 @@ export default function TrackScreen() {
   // forceStepIdx takes priority: used during the 1.5s Step 5 buffer before ServiceCompleteCard
   const stepIdx   = forceStepIdx !== null ? forceStepIdx : (booking ? resolveStep(booking) : -1);
   const pct       = getPct(stepIdx);
-  const hasActive = !!booking && !['cancelled', 'failed'].includes(booking?.status || '');
+  const hasActive = !!booking && isDefaultTrackBookingRow(booking?.status || '');
 
   const stepTimestamps = booking ? getStepTimestamps(booking) : ['', '', '', '', ''];
   const etaLabel       = booking ? getEtaLabel(booking) : '—';
@@ -794,7 +795,7 @@ export default function TrackScreen() {
 
   const pastBookings = allBookings.filter(
     (b) => (!booking || b.id !== booking.id) &&
-    ['completed', 'paid', 'released', 'cancelled'].includes(b.status)
+    ['completed', 'paid', 'released', 'cancelled', 'rejected'].includes(b.status)
   );
 
   const onRefresh = async () => {

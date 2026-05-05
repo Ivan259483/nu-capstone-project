@@ -46,6 +46,10 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   quality_check: { label: 'Quality Check', color: '#06B6D4', bg: 'rgba(6,182,212,0.12)', icon: 'shield-checkmark-outline' },
   ready: { label: 'Ready', color: '#10B981', bg: 'rgba(16,185,129,0.12)', icon: 'checkmark-done-outline' },
   completed: { label: 'Completed', color: '#10B981', bg: 'rgba(16,185,129,0.12)', icon: 'checkmark-circle' },
+  released: { label: 'Released', color: '#10B981', bg: 'rgba(16,185,129,0.12)', icon: 'car-sport-outline' },
+  paid: { label: 'Paid', color: '#10B981', bg: 'rgba(16,185,129,0.12)', icon: 'card-outline' },
+  rejected: { label: 'Rejected', color: '#EF4444', bg: 'rgba(239,68,68,0.12)', icon: 'close-circle-outline' },
+  pending_confirmation: { label: 'Pending confirmation', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)', icon: 'hourglass-outline' },
   cancelled: { label: 'Cancelled', color: '#EF4444', bg: 'rgba(239,68,68,0.12)', icon: 'close-circle-outline' },
   failed: { label: 'Failed', color: '#EF4444', bg: 'rgba(239,68,68,0.12)', icon: 'warning-outline' },
 };
@@ -237,8 +241,8 @@ export default function AppointmentsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  const ACTIVE_STATUSES = ['pending', 'confirmed', 'received', 'scanning', 'in_progress', 'quality_check', 'ready'];
-  const HISTORY_STATUSES = ['completed', 'cancelled', 'failed'];
+  const ACTIVE_STATUSES = ['pending', 'confirmed', 'received', 'scanning', 'in_progress', 'quality_check', 'ready', 'pending_confirmation'];
+  const HISTORY_STATUSES = ['completed', 'cancelled', 'failed', 'rejected', 'released', 'paid'];
   const {
     data: bookings = [],
     isLoading,

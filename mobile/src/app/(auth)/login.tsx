@@ -175,12 +175,11 @@ export default function LoginScreen() {
             {/* Form */}
             <Animated.View entering={FadeInDown.delay(160).duration(350)}>
 
-              {/* Email */}
-              <Text style={styles.label}>Email address</Text>
-              <View style={[styles.inputWrap, emailError ? styles.inputWrapError : null]}>
+              {/* Email — label text only as placeholder inside field */}
+              <View style={[styles.inputWrap, styles.inputWrapFirst, emailError ? styles.inputWrapError : null]}>
                 <TextInput
                   style={styles.input}
-                  placeholder="name@example.com"
+                  placeholder="Email address"
                   placeholderTextColor="rgba(255,255,255,0.28)"
                   value={email}
                   onChangeText={t => { setEmail(t); setEmailError(''); }}
@@ -191,9 +190,8 @@ export default function LoginScreen() {
               </View>
               {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
 
-              {/* Password */}
-              <View style={styles.labelRow}>
-                <Text style={styles.label}>Password</Text>
+              {/* Password — forgot link only; placeholder inside field */}
+              <View style={styles.forgotOnlyRow}>
                 <TouchableOpacity onPress={() => router.push('/(auth)/forgot-password')}>
                   <Text style={styles.forgotLink}>Forgot password?</Text>
                 </TouchableOpacity>
@@ -201,7 +199,7 @@ export default function LoginScreen() {
               <View style={[styles.inputWrap, passwordError ? styles.inputWrapError : null]}>
                 <TextInput
                   style={[styles.input, { flex: 1 }]}
-                  placeholder="••••••••"
+                  placeholder="Password"
                   placeholderTextColor="rgba(255,255,255,0.28)"
                   value={password}
                   onChangeText={t => { setPassword(t); setPasswordError(''); }}
@@ -366,21 +364,15 @@ const styles = StyleSheet.create({
   },
 
   // Form
-  labelRow: {
+  inputWrapFirst: {
+    marginTop: 4,
+  },
+  forgotOnlyRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
     marginTop: 18,
     marginBottom: 8,
-  },
-  label: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.40)',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-    marginTop: 16,
   },
   forgotLink: {
     fontSize: 13,

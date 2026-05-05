@@ -64,6 +64,7 @@ withDelay, Easing, interpolate, Extrapolation,
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
 import { bookingService } from '@/services/api/bookingService';
+import { isBookingCountedAsActiveOnHome } from '@/utils/customerBookingLifecycle';
 import { TabBarHeight } from '@/constants/theme';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1180,7 +1181,7 @@ export default function HomeScreen() {
   });
 
   const active = bookings
-    .filter((b: any) => !['completed','released','cancelled','failed'].includes(b.status))
+    .filter((b: any) => isBookingCountedAsActiveOnHome(b.status))
     .sort((a: any, b: any) => new Date(b.createdAt||0).getTime()-new Date(a.createdAt||0).getTime());
   const job = active[0] || null;
   const completed = bookings.filter((b: any) => ['completed','released','paid'].includes(b.status));

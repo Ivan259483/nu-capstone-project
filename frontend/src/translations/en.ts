@@ -154,6 +154,8 @@ export const en = {
         subtitle: "Access your appointments, vehicle status, and service history",
         email: "Email Address",
         password: "Password",
+        emailPlaceholder: "Email address",
+        passwordPlaceholder: "Password",
         forgotPassword: "Forgot Password?",
         signIn: "Sign In",
         noAccount: "Don't have an account?",

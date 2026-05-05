@@ -2611,17 +2611,26 @@ export const uploadPaymentProof = async (req, res, next) => {
     }
 
     // Must belong to the customer (authorization checked via middleware, but double check here)
-    if (order.customer.toString() !== req.user._id.toString() && !isFullAdminRole(req.user.role)) {
+    const customerId = order.customer?.toString?.();
+    const userId = (req.user.id || req.user._id)?.toString?.();
+    if (customerId !== userId && !isFullAdminRole(req.user.role)) {
       return res.status(403).json({ success: false, message: 'Not authorized to upload proof for this booking' });
     }
 
-    if (order.status !== 'pending_confirmation') {
-      return res.status(400).json({ success: false, message: 'Booking is not in pending_confirmation status' });
+    const allowedProofStatuses = ['pending_confirmation', 'rejected'];
+    if (!allowedProofStatuses.includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot upload payment proof while booking is '${order.status}'. Use this only when waiting for confirmation or after a rejected payment.`,
+      });
     }
 
-    // Save proof and ensure status is pending_confirmation
+    // Save proof and return to sales queue (clear rejection metadata on resubmit)
     order.paymentProofUrl = paymentProofUrl;
     order.status = 'pending_confirmation';
+    order.rejectionReason = null;
+    order.rejectedAt = null;
+    order.rejectedBy = null;
     await order.save();
 
     const io = getIO();

@@ -153,6 +153,8 @@ export const fil = {
         subtitle: "Mag-sign in para pamahalaan ang iyong mga booking",
         email: "Email Address",
         password: "Password",
+        emailPlaceholder: "Email address",
+        passwordPlaceholder: "Password",
         forgotPassword: "Nakalimutang Password?",
         signIn: "Mag-sign In",
         noAccount: "Wala pang account?",

@@ -707,7 +707,6 @@ export default function Login() {
                             <div className="space-y-4">
                                 {/* Email */}
                                 <div>
-                                    <Label htmlFor="login-email" className="text-sm text-muted-foreground mb-1.5 block">{t("login.email")}</Label>
                                     <div className="relative">
                                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                         <Input
@@ -717,7 +716,7 @@ export default function Login() {
                                             autoComplete="email"
                                             value={loginForm.email}
                                             onChange={(e) => setLoginForm((f) => ({ ...f, email: e.target.value }))}
-                                            placeholder="EMAIL ADDRESS"
+                                            placeholder={t("login.emailPlaceholder")}
                                             className="pl-9 bg-muted/40 border-border focus:border-primary"
                                         />
                                     </div>
@@ -725,9 +724,9 @@ export default function Login() {
 
                                 {/* Password */}
                                 <div>
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <Label htmlFor="login-password" className="text-sm text-muted-foreground">{t("login.password")}</Label>
+                                    <div className="flex items-center justify-end mb-1.5">
                                         <button
+                                            type="button"
                                             onClick={() => setShowForgotModal(true)}
                                             className="text-xs text-primary hover:text-accent transition-colors"
                                         >
@@ -743,7 +742,7 @@ export default function Login() {
                                             autoComplete="current-password"
                                             value={loginForm.password}
                                             onChange={(e) => setLoginForm((f) => ({ ...f, password: e.target.value }))}
-                                            placeholder="PASSWORD"
+                                            placeholder={t("login.passwordPlaceholder")}
                                             className="pl-9 pr-9 bg-muted/40 border-border focus:border-primary"
                                             onKeyDown={(e) => e.key === "Enter" && handleLoginSubmit()}
                                         />

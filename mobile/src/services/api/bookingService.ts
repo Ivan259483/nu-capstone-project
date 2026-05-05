@@ -1,5 +1,6 @@
 import { apiClient, cachedGet, TTL } from '@/services/api/client';
 import type { ApiEnvelope, BookingRecord, ServiceOption } from '@/services/api/types';
+import { isBookingCountedAsActiveOnHome } from '@/utils/customerBookingLifecycle';
 
 const normalizeBooking = (raw: any): BookingRecord => {
   const id = raw?.id || raw?._id || '';
@@ -22,7 +23,7 @@ const normalizeBooking = (raw: any): BookingRecord => {
 };
 
 const isActiveBookingStatus = (status: string): boolean => {
-  return !['cancelled', 'failed'].includes(status);
+  return isBookingCountedAsActiveOnHome(status);
 };
 
 export const bookingService = {
