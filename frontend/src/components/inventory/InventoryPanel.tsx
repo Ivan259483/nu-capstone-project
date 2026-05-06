@@ -27,12 +27,22 @@ import SupplierManagementContent from './suppliers/SupplierManagementContent';
 // Navigation Config
 // ═══════════════════════════════════════════════════════════════════════
 
-const NAV_ITEMS = [
+type NavItem = {
+  id: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  section: string;
+  disabled?: boolean;
+  /** Right pill like customer sidebar (e.g. AI Inspection History → Soon) */
+  soon?: boolean;
+};
+
+const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard, section: 'Main Menu' },
   { id: 'items', label: 'Inventory Items', icon: Package, section: 'Main Menu' },
   { id: 'suppliers', label: 'Supplier Management', icon: Truck, section: 'Main Menu' },
   { id: 'stock-monitor', label: 'Stock Monitor', icon: Activity, section: 'Operations' },
-  { id: 'voice-log', label: 'Voice Log', icon: Mic, section: 'Operations' },
+  { id: 'voice-log', label: 'Voice Log', icon: Mic, section: 'Operations', disabled: true, soon: true },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -134,51 +144,6 @@ function StockMonitorPage() {
   );
 }
 
-function VoiceLogPage() {
-  const { activities } = useInventory();
-  const voiceLogs = activities.filter(a => a.type === 'voice-log');
-
-  return (
-    <div className="page-enter space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Voice Log</h1>
-        <p className="text-sm text-gray-500 mt-1">Voice-assisted inventory entries</p>
-      </div>
-      {voiceLogs.length > 0 ? (
-        <div className="space-y-3">
-          {voiceLogs.map((log, idx) => (
-            <div key={log.id} className="glass-card glass-card-hover rounded-xl p-4 card-enter" style={{ animationDelay: `${idx * 40}ms` }}>
-              <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-xl bg-purple-50 border border-purple-100 flex items-center justify-center flex-shrink-0">
-                  <Mic size={16} className="text-purple-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800">{log.itemName}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{log.note || 'Voice-logged inventory update'}</p>
-                  <div className="flex items-center gap-3 mt-2">
-                    <span className="text-[10px] font-medium text-gray-400">by {log.performedBy}</span>
-                    <span className="text-[10px] text-gray-300">•</span>
-                    <span className="text-[10px] font-medium text-gray-400">{new Date(log.timestamp).toLocaleString()}</span>
-                  </div>
-                </div>
-                <span className="text-xs font-bold text-purple-600 font-tabular flex-shrink-0">
-                  {log.previousQty} → {log.newQty}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="glass-card rounded-2xl p-12 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-purple-50 flex items-center justify-center mx-auto mb-4"><Mic size={24} className="text-purple-400" /></div>
-          <p className="text-base font-bold text-gray-600">No Voice Logs Yet</p>
-          <p className="text-sm text-gray-400 mt-1">Voice-assisted inventory entries will appear here.</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function NotificationsPage() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -273,6 +238,11 @@ function InventoryPanelInner() {
       .catch(() => {});
   }, []); // intentionally run once — bell count refreshes when user visits Notifications page
 
+  // Voice Log is disabled (Soon) — avoid staying on that page if state was restored
+  useEffect(() => {
+    setActivePage(p => (p === 'voice-log' ? 'dashboard' : p));
+  }, []);
+
   const handleLogout = () => { logout(); navigate('/'); };
   const sidebarW = collapsed ? 64 : 256;
   const initials = user?.name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() || 'IP';
@@ -311,17 +281,29 @@ function InventoryPanelInner() {
               {!collapsed && <p style={{ padding: '12px 12px 8px', fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>{sectionName}</p>}
               {sectionItems.map(item => {
                 const Icon = item.icon;
-                const isActive = activePage === item.id;
+                const disabled = Boolean(item.disabled);
+                const isActive = activePage === item.id && !disabled;
                 return (
                   <button
                     key={item.id}
-                    className={`inv-nav-item ${isActive ? 'active' : ''}`}
-                    onClick={() => setActivePage(item.id)}
-                    title={collapsed ? item.label : undefined}
+                    type="button"
+                    className={`inv-nav-item ${isActive ? 'active' : ''} ${disabled ? 'inv-nav-item--disabled' : ''}`}
+                    disabled={disabled}
+                    onClick={() => { if (!disabled) setActivePage(item.id); }}
+                    title={disabled ? `${item.label} · Coming soon` : collapsed ? item.label : undefined}
                     style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : undefined}
                   >
-                    <Icon size={18} style={{ flexShrink: 0 }} />
-                    {!collapsed && <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>}
+                    <Icon size={18} className={`shrink-0 ${disabled ? 'opacity-70' : ''}`} />
+                    {!collapsed && (
+                      <>
+                        <span className="flex-1 min-w-0 text-left leading-snug overflow-hidden text-ellipsis whitespace-nowrap">{item.label}</span>
+                        {item.soon && (
+                          <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-600">
+                            Soon
+                          </span>
+                        )}
+                      </>
+                    )}
                   </button>
                 );
               })}
@@ -383,7 +365,6 @@ function InventoryPanelInner() {
           {activePage === 'items' && <InventoryItemsContent />}
           {activePage === 'suppliers' && <SupplierManagementContent />}
           {activePage === 'stock-monitor' && <StockMonitorPage />}
-          {activePage === 'voice-log' && <VoiceLogPage />}
           {activePage === 'notifications' && <NotificationsPage />}
         </div>
       </main>

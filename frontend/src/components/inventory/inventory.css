@@ -63,6 +63,28 @@
   transform: none;
 }
 
+.inv-nav-item.inv-nav-item--disabled,
+.inv-nav-item:disabled {
+  opacity: 0.85;
+  color: #94a3b8;
+  cursor: not-allowed;
+  transform: none;
+  pointer-events: none;
+}
+.inv-nav-item.inv-nav-item--disabled:hover,
+.inv-nav-item:disabled:hover {
+  background: transparent;
+  color: #94a3b8;
+  transform: none;
+}
+.inv-nav-item.inv-nav-item--disabled.active,
+.inv-nav-item:disabled.active {
+  background: transparent;
+  color: #94a3b8;
+  box-shadow: none;
+  font-weight: 500;
+}
+
 /* ── Glass Cards ────────────────────────────────────────────────── */
 .inv-root .glass-card {
   background: rgba(255, 255, 255, 0.92);
