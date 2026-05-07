@@ -27,13 +27,15 @@ import type { ServiceStage } from './QCServiceControlPanel';
 import { SERVICE_STAFF_ROSTER } from './QCServiceControlPanel';
 import { toast } from 'sonner';
 
-/** Five enterprise display steps (Option A: labels map to existing backend stages). */
-const ENTERPRISE_STEPS = [
-  'Vehicle Received',
-  'Inspection',
-  'Repair In Progress',
-  'Quality Review',
-  'Ready for Pickup',
+/**
+ * Service progress stepper — four defense milestones (photos required per stage in Milestone vehicle photos).
+ * Maps 1:1 to backend `serviceTrackingStage` after intake.
+ */
+const SERVICE_PROGRESS_MILESTONES = [
+  { pct: 25, label: 'Vehicle Arrive' },
+  { pct: 50, label: 'Service In Progress' },
+  { pct: 75, label: 'Quality Check' },
+  { pct: 100, label: 'Ready for Pickup' },
 ] as const;
 
 const BACKEND_FLOW: ServiceStage[] = ['received', 'in_progress', 'quality_check', 'ready_pickup'];
@@ -50,8 +52,8 @@ const STAGES: {
 }[] = [
   {
     id: 'received',
-    label: 'Vehicle Received',
-    sub: 'Received at workshop',
+    label: 'Vehicle Arrive',
+    sub: 'Vehicle at shop / intake',
     Icon: Car,
     color: '#0f172a',
     bg: '#f8fafc',
@@ -60,8 +62,8 @@ const STAGES: {
   },
   {
     id: 'in_progress',
-    label: 'Repair In Progress',
-    sub: 'Work in progress',
+    label: 'Service In Progress',
+    sub: 'Active work on vehicle',
     Icon: Wrench,
     color: '#0f172a',
     bg: '#f8fafc',
@@ -70,8 +72,8 @@ const STAGES: {
   },
   {
     id: 'quality_check',
-    label: 'Quality Review',
-    sub: 'QC inspection',
+    label: 'Quality Check',
+    sub: 'Final inspection',
     Icon: ShieldCheck,
     color: '#0f172a',
     bg: '#f8fafc',
@@ -81,7 +83,7 @@ const STAGES: {
   {
     id: 'ready_pickup',
     label: 'Ready for Pickup',
-    sub: 'Customer notified',
+    sub: 'Ready for customer pickup',
     Icon: PackageCheck,
     color: '#0f172a',
     bg: '#f0fdf4',
@@ -94,7 +96,7 @@ function stageIdx(s?: ServiceStage | null) {
   return s ? STAGE_ORDER.indexOf(s) : -1;
 }
 
-/** Stepper: which indices are done vs current (5 UI steps). */
+/** Stepper: four milestones; doneMax/current index into SERVICE_PROGRESS_MILESTONES. */
 function enterpriseStepState(stage: ServiceStage | null | undefined): {
   doneMax: number;
   current: number;
@@ -103,21 +105,21 @@ function enterpriseStepState(stage: ServiceStage | null | undefined): {
 } {
   const st = stage ?? null;
   if (!st || st === 'confirmed') {
-    return { doneMax: -1, current: 0, progressPct: 8, statusLine: 'Awaiting vehicle intake' };
+    return { doneMax: -1, current: 0, progressPct: 0, statusLine: 'Awaiting vehicle arrive' };
   }
   if (st === 'received') {
-    return { doneMax: -1, current: 0, progressPct: 22, statusLine: 'Vehicle received' };
+    return { doneMax: -1, current: 0, progressPct: 25, statusLine: '25% · Vehicle Arrive' };
   }
   if (st === 'in_progress') {
-    return { doneMax: 1, current: 2, progressPct: 58, statusLine: 'Repair in progress' };
+    return { doneMax: 0, current: 1, progressPct: 50, statusLine: '50% · Service In Progress' };
   }
   if (st === 'quality_check') {
-    return { doneMax: 2, current: 3, progressPct: 78, statusLine: 'Quality review' };
+    return { doneMax: 1, current: 2, progressPct: 75, statusLine: '75% · Quality Check' };
   }
   if (st === 'ready_pickup') {
-    return { doneMax: 3, current: 4, progressPct: 100, statusLine: 'Ready for pickup' };
+    return { doneMax: 2, current: 3, progressPct: 100, statusLine: '100% · Ready for Pickup' };
   }
-  return { doneMax: -1, current: 0, progressPct: 5, statusLine: 'Scheduled' };
+  return { doneMax: -1, current: 0, progressPct: 0, statusLine: 'Scheduled' };
 }
 
 const STAGE_PHOTO_UPLOAD_ROWS: { stage: ServiceStage; label: string; hint: string; Icon: LucideIcon }[] = [
@@ -179,10 +181,10 @@ const VEHICLE_MILESTONE_PHOTOS: {
   sub: string;
   Icon: LucideIcon;
 }[] = [
-  { stage: 'received', pct: 25, defenseLabel: 'Vehicle arrive', sub: 'Photo of vehicle at intake', Icon: Car },
-  { stage: 'in_progress', pct: 50, defenseLabel: 'Service in progress', sub: 'Photo during active work', Icon: Wrench },
-  { stage: 'quality_check', pct: 75, defenseLabel: 'Quality check', sub: 'Photo at QC / inspection', Icon: ShieldCheck },
-  { stage: 'ready_pickup', pct: 100, defenseLabel: 'Ready for pickup', sub: 'Photo before handoff', Icon: PackageCheck },
+  { stage: 'received', pct: 25, defenseLabel: 'Vehicle Arrive', sub: 'Photo of vehicle at intake', Icon: Car },
+  { stage: 'in_progress', pct: 50, defenseLabel: 'Service In Progress', sub: 'Photo during active work', Icon: Wrench },
+  { stage: 'quality_check', pct: 75, defenseLabel: 'Quality Check', sub: 'Photo at QC / inspection', Icon: ShieldCheck },
+  { stage: 'ready_pickup', pct: 100, defenseLabel: 'Ready for Pickup', sub: 'Photo before handoff', Icon: PackageCheck },
 ];
 
 function hasStagePhoto(
@@ -550,21 +552,32 @@ function JobTrackerCard({
       {/* Middle — Service progress */}
       <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-6">
         <h3 className="text-sm font-semibold text-slate-900">Service progress</h3>
-        <div className="mt-6 overflow-x-auto pb-2">
-          <div className="flex min-w-[640px] items-start justify-between gap-0 px-1">
-            {ENTERPRISE_STEPS.map((label, idx) => (
-              <React.Fragment key={label}>
-                <div className="flex max-w-[120px] flex-1 flex-col items-center gap-2">
+        <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-500">
+          Live Tracker — include <strong className="font-medium text-slate-700">photos of the actual vehicle status</strong> at each
+          milestone (upload in <strong className="font-medium text-slate-700">Milestone vehicle photos</strong> below).
+        </p>
+        <div className="mt-5 overflow-x-auto pb-2">
+          <div className="flex min-w-[520px] items-start justify-between gap-0 px-1">
+            {SERVICE_PROGRESS_MILESTONES.map((m, idx) => (
+              <React.Fragment key={m.label}>
+                <div className="flex max-w-[130px] flex-1 flex-col items-center gap-1.5">
                   {getStepCircle(idx)}
                   <p
-                    className={`text-center text-[10px] font-medium leading-tight sm:text-[11px] ${
+                    className={`text-center text-[11px] font-bold tabular-nums leading-none sm:text-xs ${
                       idx <= stepState.doneMax || idx === stepState.current ? 'text-slate-900' : 'text-slate-400'
                     }`}
                   >
-                    {label}
+                    {m.pct}%
+                  </p>
+                  <p
+                    className={`text-center text-[10px] font-medium leading-snug sm:text-[11px] ${
+                      idx <= stepState.doneMax || idx === stepState.current ? 'text-slate-800' : 'text-slate-400'
+                    }`}
+                  >
+                    {m.label}
                   </p>
                 </div>
-                {idx < ENTERPRISE_STEPS.length - 1 && (
+                {idx < SERVICE_PROGRESS_MILESTONES.length - 1 && (
                   <div
                     className={`mx-1 mt-[18px] h-0.5 min-w-[8px] flex-1 rounded-full sm:mt-[20px] ${
                       idx <= stepState.doneMax ? 'bg-slate-900' : 'bg-slate-200'
@@ -584,10 +597,10 @@ function JobTrackerCard({
           <div>
             <h3 className="text-sm font-semibold text-slate-900">Milestone vehicle photos</h3>
             <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-500">
-              Upload here for each progress point — <strong className="font-medium text-slate-700">25% vehicle arrive</strong>,{' '}
-              <strong className="font-medium text-slate-700">50% service in progress</strong>,{' '}
-              <strong className="font-medium text-slate-700">75% quality check</strong>,{' '}
-              <strong className="font-medium text-slate-700">100% ready for pickup</strong>. A photo is required before you can
+              Upload here for each progress point — <strong className="font-medium text-slate-700">25% Vehicle Arrive</strong>,{' '}
+              <strong className="font-medium text-slate-700">50% Service In Progress</strong>,{' '}
+              <strong className="font-medium text-slate-700">75% Quality Check</strong>,{' '}
+              <strong className="font-medium text-slate-700">100% Ready for Pickup</strong>. A photo is required before you can
               advance past that stage (and before final release).
             </p>
           </div>

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSharedSocket } from './useRealtimeSync';
 import api from '@/lib/api';
 import { toast } from 'sonner';
+import { compressImageForTrackerUpload } from '@/lib/compress-image-for-upload';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -285,20 +286,37 @@ export function useQCData() {
       orderId: string,
       payload: { stage: string; description?: string; file?: File | null }
     ): Promise<boolean> => {
+      let loadingId: string | number | undefined;
       try {
         if (payload.file) {
+          loadingId = toast.loading('Preparing photo…', { duration: 120_000 });
+          let file = payload.file;
+          try {
+            const compressed = await compressImageForTrackerUpload(file);
+            const shrunk = compressed !== file && compressed.size < file.size;
+            toast.loading(shrunk ? 'Uploading optimized photo…' : 'Uploading…', {
+              id: loadingId,
+              duration: 120_000,
+            });
+            file = compressed;
+          } catch {
+            toast.loading('Uploading…', { id: loadingId, duration: 120_000 });
+          }
+
           const form = new FormData();
           form.append('stage', payload.stage);
           if (payload.description?.trim()) form.append('description', payload.description.trim());
-          form.append('photo', payload.file);
+          form.append('photo', file);
 
           await api.post(`/bookings/${orderId}/stage-photo`, form, {
+            timeout: 120_000,
             transformRequest: [(data, hdr) => {
               delete (hdr as Record<string, unknown>)['Content-Type'];
               return data as typeof form;
             }],
           });
         } else if (payload.stage === 'confirmed' && payload.description?.trim()) {
+          loadingId = toast.loading('Saving note…');
           await api.patch(`/bookings/${orderId}/stage-photo`, {
             stage: 'confirmed',
             description: payload.description.trim(),
@@ -311,16 +329,20 @@ export function useQCData() {
           );
           return false;
         }
-        toast.success('Stage photo saved', { description: 'Customers will see this on their live tracker.' });
-        await refetchAll(true);
+        toast.success('Stage photo saved', {
+          id: loadingId,
+          description: 'Shown on the customer live tracker.',
+        });
+        // Photo-only change: refresh job list only (faster than full QC dashboard refetch).
+        await fetchJobs(true);
         return true;
       } catch (err: any) {
         const msg = err?.response?.data?.message || 'Upload failed';
-        toast.error('Stage photo upload failed', { description: msg });
+        toast.error('Stage photo upload failed', { id: loadingId, description: msg });
         return false;
       }
     },
-    [refetchAll]
+    [fetchJobs]
   );
 
   const addStaffNote = useCallback(async (orderId: string, content: string): Promise<boolean> => {
