@@ -122,7 +122,7 @@ export default function SalesReportsView() {
       case '90d': cutoff = new Date(now.getTime() - 90 * 86400000); break;
       default: cutoff = new Date(0);
     }
-    return transactions.filter(t => new Date(t.dateTime) >= cutoff);
+    return transactions.filter((t) => new Date(t.analyticsDateTime || t.dateTime) >= cutoff);
   }, [transactions, dateRange]);
 
   // Previous period for comparison
@@ -137,8 +137,8 @@ export default function SalesReportsView() {
     }
     const start = new Date(now.getTime() - 2 * periodMs);
     const end = new Date(now.getTime() - periodMs);
-    return transactions.filter(t => {
-      const d = new Date(t.dateTime);
+    return transactions.filter((t) => {
+      const d = new Date(t.analyticsDateTime || t.dateTime);
       return d >= start && d < end;
     });
   }, [transactions, dateRange]);

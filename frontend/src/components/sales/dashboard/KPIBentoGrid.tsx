@@ -8,6 +8,7 @@ const pctChange = (current: number, prev: number) =>
 
 export default function KPIBentoGrid() {
   const { kpis: KPI_DATA } = useSalesContext();
+  const roll = KPI_DATA.usingLast24hFallback === true;
 
   const targetSales = 60000;
   const targetAchievedPct = Math.min(100, Math.round((KPI_DATA.totalSalesToday / targetSales) * 100));
@@ -31,14 +32,21 @@ export default function KPIBentoGrid() {
               <div className="p-2 rounded-lg bg-white/20">
                 <TrendingUp size={18} className="text-white" />
               </div>
-              <span className="text-sm font-semibold text-blue-100 uppercase tracking-wide">Total Sales Today</span>
+              <span className="text-sm font-semibold text-blue-100 uppercase tracking-wide">
+                {roll ? 'Sales (last 24 hours)' : 'Total Sales Today'}
+              </span>
             </div>
             <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${salesChange >= 0 ? 'bg-emerald-400/20 text-emerald-200' : 'bg-red-400/20 text-red-200'}`}>
               {salesChange >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-              {Math.abs(salesChange)}% vs yesterday
+              {Math.abs(salesChange)}% {roll ? 'vs prior 24h' : 'vs yesterday'}
             </div>
           </div>
           <div className="text-4xl font-bold text-white mb-1">{formatPeso(KPI_DATA.totalSalesToday)}</div>
+          {roll && (
+            <p className="text-[11px] text-blue-200/90 mb-1">
+              No Manila‑dated orders today — showing rolling 24h activity.
+            </p>
+          )}
           <p className="text-sm text-blue-200">
             Target: ₱{targetSales.toLocaleString()} — <span className="font-semibold text-white">{targetAchievedPct}% achieved</span>
           </p>
@@ -65,7 +73,11 @@ export default function KPIBentoGrid() {
         </div>
         <div className="text-3xl font-bold text-slate-900 mb-1">{KPI_DATA.transactionCount}</div>
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Transactions</p>
-        <p className="text-xs text-slate-400 mt-2">{KPI_DATA.transactionCountYesterday} yesterday</p>
+        <p className="text-xs text-slate-400 mt-2">
+          {roll
+            ? `${KPI_DATA.transactionCountYesterday} orders in prior 24h`
+            : `${KPI_DATA.transactionCountYesterday} yesterday`}
+        </p>
       </div>
 
       {/* Avg Transaction Value */}
@@ -78,7 +90,9 @@ export default function KPIBentoGrid() {
         </div>
         <div className="text-3xl font-bold text-slate-900 mb-1">{formatPeso(KPI_DATA.avgTransactionValue)}</div>
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Avg. Transaction Value</p>
-        <p className="text-xs text-slate-400 mt-2">Based on today's transactions</p>
+        <p className="text-xs text-slate-400 mt-2">
+          {roll ? 'Based on last 24h window' : "Based on today's transactions"}
+        </p>
       </div>
 
       {/* Pending Payments */}

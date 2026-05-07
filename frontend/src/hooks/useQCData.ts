@@ -23,6 +23,13 @@ export interface QCJob {
   aiFlag: boolean;
   priority: string;
   photos?: { before: string[]; after: string[] };
+  trackerStageMedia?: {
+    stage: string;
+    photoUrl?: string;
+    description?: string;
+    uploadedAt?: string;
+    uploadedBy?: string;
+  }[];
   staffNotes?: { content: string; detailerName: string; createdAt: string }[];
   qcChecklist?: { item: string; passed: boolean; note?: string }[];
   damageAnnotations?: unknown[];
@@ -273,6 +280,49 @@ export function useQCData() {
     }
   }, [refetchAll]);
 
+  const uploadTrackerStagePhoto = useCallback(
+    async (
+      orderId: string,
+      payload: { stage: string; description?: string; file?: File | null }
+    ): Promise<boolean> => {
+      try {
+        if (payload.file) {
+          const form = new FormData();
+          form.append('stage', payload.stage);
+          if (payload.description?.trim()) form.append('description', payload.description.trim());
+          form.append('photo', payload.file);
+
+          await api.post(`/bookings/${orderId}/stage-photo`, form, {
+            transformRequest: [(data, hdr) => {
+              delete (hdr as Record<string, unknown>)['Content-Type'];
+              return data as typeof form;
+            }],
+          });
+        } else if (payload.stage === 'confirmed' && payload.description?.trim()) {
+          await api.patch(`/bookings/${orderId}/stage-photo`, {
+            stage: 'confirmed',
+            description: payload.description.trim(),
+          });
+        } else {
+          toast.error(
+            payload.stage === 'confirmed'
+              ? 'Add a customer note or choose a photo'
+              : 'Please choose an image file'
+          );
+          return false;
+        }
+        toast.success('Stage photo saved', { description: 'Customers will see this on their live tracker.' });
+        await refetchAll(true);
+        return true;
+      } catch (err: any) {
+        const msg = err?.response?.data?.message || 'Upload failed';
+        toast.error('Stage photo upload failed', { description: msg });
+        return false;
+      }
+    },
+    [refetchAll]
+  );
+
   const assignServiceStaff = useCallback(async (
     id: string,
     assignments: { slot: string; name: string; role: string }[]
@@ -305,6 +355,7 @@ export function useQCData() {
     returnJob,
     updateChecklist,
     updateServiceStatus,
+    uploadTrackerStagePhoto,
     assignServiceStaff,
   };
 }

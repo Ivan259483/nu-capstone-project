@@ -405,7 +405,7 @@ export default function VehiclesScreen() {
                 placeholder="e.g. ABC 1234"
                 value={plateNumber}
                 onChangeText={(t) => {
-                  setPlateNumber(t);
+                  setPlateNumber(t.toUpperCase());
                   setFormError('');
                 }}
                 autoCapitalize="characters"

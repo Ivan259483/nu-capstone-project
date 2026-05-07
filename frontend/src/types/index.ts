@@ -179,11 +179,19 @@ export interface Booking {
         content: string;
         timestamp: string;
     }[];
-    photos?: {
-        before: string[];
-        after: string[];
-    };
-    // ═══ Workflow Pipeline ═══
+  photos?: {
+    before: string[];
+    after: string[];
+  };
+  /** Live tracker stage photos / notes (QC uploads) — see `customer-tracker-stage-media.ts`. */
+  trackerStageMedia?: {
+    stage: string;
+    photoUrl?: string;
+    description?: string;
+    uploadedAt?: string;
+    uploadedBy?: string;
+  }[];
+  // ═══ Workflow Pipeline ═══
     workflowStep?: number;
     workflowCompletedSteps?: number[];
     jobOrder?: {

@@ -17,6 +17,7 @@ export interface BackendService {
   _id: string;
   name: string;
   category: string;
+  billingGroup?: 'ceramic_spf' | 'ppf' | 'other' | 'uncategorized';
   duration?: string;
   basePrice?: number;
   prices: ServicePrices;

@@ -86,6 +86,7 @@ const emitCustomerStatusUpdate = (order) => {
       // Live tracking fields (QC-controlled)
       serviceTrackingStage: order.serviceTrackingStage || null,
       serviceStaffAssignments: order.serviceStaffAssignments || [],
+      trackerStageMedia: order.trackerStageMedia || [],
       updatedAt: order.customerStatusUpdatedAt || new Date().toISOString(),
     });
   } catch (error) {
@@ -224,6 +225,7 @@ const formatBookingDto = (orderDoc) => {
     serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || null,
     serviceTrackingUpdatedBy: order.serviceTrackingUpdatedBy || null,
     serviceStaffAssignments: order.serviceStaffAssignments || [],
+    trackerStageMedia: Array.isArray(order.trackerStageMedia) ? order.trackerStageMedia : [],
     // Also decrypt legal compliance fields if present
     ...(order.legalCompliance ? {
       legalCompliance: {

@@ -1,6 +1,22 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, LogIn, Mail, Lock, Loader2, ArrowLeft, ShieldCheck, RefreshCw, AlertTriangle, LockKeyhole, Clock, UserPlus } from "lucide-react";
+import {
+    Eye,
+    EyeOff,
+    LogIn,
+    Mail,
+    Lock,
+    Loader2,
+    ArrowLeft,
+    ShieldCheck,
+    RefreshCw,
+    AlertTriangle,
+    LockKeyhole,
+    Clock,
+    UserPlus,
+    CheckCircle2,
+    XCircle,
+} from "lucide-react";
 
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -18,8 +34,41 @@ import { RegisterPhoneField } from "@/components/auth/RegisterPhoneField";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
+/* Must match backend register password policy (validation.middleware.js, auth.controller.js). */
+const REGISTER_PASSWORD_SPECIAL_RE = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/;
 
+function registerPasswordRules(password: string) {
+    return {
+        length: password.length >= 8,
+        upper: /[A-Z]/.test(password),
+        lower: /[a-z]/.test(password),
+        number: /[0-9]/.test(password),
+        special: REGISTER_PASSWORD_SPECIAL_RE.test(password),
+    };
+}
 
+function registerPasswordPolicyError(password: string): string | null {
+    if (password.length < 8) return "Password must be at least 8 characters.";
+    if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter.";
+    if (!/[a-z]/.test(password)) return "Password must contain at least one lowercase letter.";
+    if (!/[0-9]/.test(password)) return "Password must contain at least one number.";
+    if (!REGISTER_PASSWORD_SPECIAL_RE.test(password))
+        return "Password must contain at least one special character (!@#$%^&* etc.).";
+    return null;
+}
+
+function registerPasswordStrength(
+    password: string,
+    rules: ReturnType<typeof registerPasswordRules>
+): { text: string; barClass: string; textClass: string } | null {
+    if (!password.length) return null;
+    const met = [rules.length, rules.upper, rules.lower, rules.number, rules.special].filter(Boolean).length;
+    if (met < 3) return { text: "Weak", barClass: "bg-gradient-to-r from-slate-600 to-slate-500", textClass: "text-slate-400" };
+    if (met < 5) return { text: "Medium", barClass: "bg-gradient-to-r from-orange-800 to-orange-600", textClass: "text-orange-300" };
+    if (password.length >= 12)
+        return { text: "Very strong", barClass: "bg-gradient-to-r from-orange-400 to-amber-300", textClass: "text-orange-200" };
+    return { text: "Strong", barClass: "bg-gradient-to-r from-orange-600 to-orange-400", textClass: "text-orange-200" };
+}
 
 /* ═══════════════════════════════════════════════════════
    MAIN COMPONENT
@@ -79,6 +128,21 @@ export default function Login() {
     const [registerPhoneError, setRegisterPhoneError] = useState("");
     const [registerLoading, setRegisterLoading] = useState(false);
     const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+
+    const registerPwRules = useMemo(() => registerPasswordRules(registerForm.password), [registerForm.password]);
+    const registerPwAllValid = useMemo(
+        () =>
+            registerPwRules.length &&
+            registerPwRules.upper &&
+            registerPwRules.lower &&
+            registerPwRules.number &&
+            registerPwRules.special,
+        [registerPwRules]
+    );
+    const registerPwStrength = useMemo(
+        () => registerPasswordStrength(registerForm.password, registerPwRules),
+        [registerForm.password, registerPwRules]
+    );
 
     useEffect(() => {
         if (registerForm.password.length === 0) setShowRegisterPassword(false);
@@ -271,8 +335,9 @@ export default function Login() {
             return;
         }
         setRegisterPhoneError("");
-        if (password.length < 8) {
-            toast.error("Password must be at least 8 characters.");
+        const pwErr = registerPasswordPolicyError(password);
+        if (pwErr) {
+            toast.error(pwErr);
             return;
         }
 
@@ -473,12 +538,12 @@ export default function Login() {
             {/* ── Ambient Background ── */}
             <div className="absolute inset-0 bg-hero-pattern pointer-events-none" />
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute top-1/4 -left-32 w-80 h-80 rounded-full border border-gold/5 animate-spin-slow" />
+                <div className="absolute top-1/4 -left-32 w-80 h-80 rounded-full border border-orange-500/10 animate-spin-slow" />
                 <div
-                    className="absolute bottom-1/4 -right-32 w-96 h-96 rounded-full border border-gold/5"
+                    className="absolute bottom-1/4 -right-32 w-96 h-96 rounded-full border border-orange-500/10"
                     style={{ animation: "spin-slow 20s linear infinite reverse" }}
                 />
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-gradient-radial-gold opacity-30" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(249,115,22,0.12)_0%,transparent_70%)] opacity-40" />
             </div>
 
             {/* ── Main Content — equal top/bottom padding so logo + card sit visually centered under the fixed navbar ── */}
@@ -502,7 +567,7 @@ export default function Login() {
                     </div>
 
                     {/* ── Glass Card ── */}
-                    <div className="glass rounded-3xl p-8 border border-gold/15">
+                    <div className="glass rounded-3xl p-8 border border-orange-500/15">
 
                         {/* ── Tab switcher ── */}
                         {loginOtpStep === "form" && (
@@ -513,7 +578,7 @@ export default function Login() {
                                     className={cn(
                                         "flex-1 py-2 text-sm font-semibold rounded-xl transition-all",
                                         tab === "login"
-                                            ? "bg-gradient-gold text-primary-foreground shadow"
+                                            ? "bg-orange-600 text-white shadow-md shadow-orange-600/25"
                                             : "text-muted-foreground hover:text-foreground"
                                     )}
                                 >
@@ -525,7 +590,7 @@ export default function Login() {
                                     className={cn(
                                         "flex-1 py-2 text-sm font-semibold rounded-xl transition-all",
                                         tab === "register"
-                                            ? "bg-gradient-gold text-primary-foreground shadow"
+                                            ? "bg-orange-600 text-white shadow-md shadow-orange-600/25"
                                             : "text-muted-foreground hover:text-foreground"
                                     )}
                                 >
@@ -625,6 +690,91 @@ export default function Login() {
                                             onKeyDown={(e) => e.key === "Enter" && handleRegisterSubmit()}
                                         />
                                     </div>
+                                    {registerForm.password.length > 0 ? (
+                                        <div className="relative mt-3 overflow-hidden rounded-2xl border border-orange-500/30 bg-gradient-to-br from-slate-950/[0.96] via-slate-900/95 to-slate-950/[0.94] px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_16px_48px_-20px_rgba(0,0,0,0.55)] backdrop-blur-md">
+                                            <div
+                                                className="pointer-events-none absolute -right-8 -top-12 h-36 w-36 rounded-full opacity-25 blur-2xl"
+                                                style={{ background: "radial-gradient(circle at center, rgba(249,115,22,0.45), transparent 65%)" }}
+                                            />
+                                            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-orange-500/40 to-transparent" />
+                                            <div className="relative space-y-3">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-orange-500/35 bg-orange-500/15">
+                                                        <ShieldCheck className="h-3.5 w-3.5 text-orange-400" aria-hidden />
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-200/85">
+                                                            Secure password
+                                                        </p>
+                                                        {registerPwStrength ? (
+                                                            <div className="mt-1 flex items-center justify-between gap-2">
+                                                                <span className="text-[11px] font-medium text-white/50">Strength</span>
+                                                                <span
+                                                                    className={cn(
+                                                                        "text-[11px] font-semibold tracking-tight",
+                                                                        registerPwStrength.textClass
+                                                                    )}
+                                                                >
+                                                                    {registerPwStrength.text}
+                                                                </span>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                                {registerPwStrength ? (
+                                                    <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08] ring-1 ring-orange-500/15">
+                                                        <div
+                                                            className={cn(
+                                                                "h-full rounded-full motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-out",
+                                                                registerPwStrength.barClass,
+                                                                registerPwStrength.text === "Weak" && "w-[22%]",
+                                                                registerPwStrength.text === "Medium" && "w-[58%]",
+                                                                registerPwStrength.text === "Strong" && "w-[88%]",
+                                                                registerPwStrength.text === "Very strong" && "w-full"
+                                                            )}
+                                                            style={{
+                                                                boxShadow:
+                                                                    registerPwStrength.text === "Weak"
+                                                                        ? "0 0 10px rgba(148,163,184,0.25)"
+                                                                        : "0 0 14px rgba(249,115,22,0.35)",
+                                                            }}
+                                                        />
+                                                    </div>
+                                                ) : null}
+                                                <ul className="space-y-1.5 border-t border-white/[0.08] pt-2.5" aria-label="Password requirements">
+                                                    {(
+                                                        [
+                                                            [registerPwRules.length, "8+ characters"] as const,
+                                                            [registerPwRules.upper, "Uppercase letter (A–Z)"] as const,
+                                                            [registerPwRules.lower, "Lowercase letter (a–z)"] as const,
+                                                            [registerPwRules.number, "Number (0–9)"] as const,
+                                                            [
+                                                                registerPwRules.special,
+                                                                "Special character (!@#$…)",
+                                                            ] as const,
+                                                        ] as const
+                                                    ).map(([met, label]) => (
+                                                        <li
+                                                            key={label}
+                                                            className={cn(
+                                                                "flex items-center gap-2.5 rounded-lg px-2 py-1 text-[11px] font-medium leading-snug transition-colors",
+                                                                met
+                                                                    ? "bg-orange-500/15 text-orange-100/95 ring-1 ring-orange-500/20"
+                                                                    : "text-white/45"
+                                                            )}
+                                                        >
+                                                            {met ? (
+                                                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-orange-400" aria-hidden />
+                                                            ) : (
+                                                                <XCircle className="h-3.5 w-3.5 shrink-0 text-orange-300/50" aria-hidden />
+                                                            )}
+                                                            <span>{label}</span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    ) : null}
                                 </div>
                                 <div>
                                     <Label htmlFor="reg-password-confirm" className="text-sm text-muted-foreground mb-1.5 block">
@@ -676,7 +826,7 @@ export default function Login() {
                                 <Button
                                     id="register-submit"
                                     onClick={handleRegisterSubmit}
-                                    className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold mt-2 group"
+                                    className="w-full bg-orange-600 text-white hover:bg-orange-700 shadow-md shadow-orange-600/20 font-semibold mt-2 group"
                                     disabled={
                                         !registerForm.firstName ||
                                         !registerForm.lastName ||
@@ -684,6 +834,7 @@ export default function Login() {
                                         !registerForm.email ||
                                         !registerForm.password ||
                                         !registerForm.confirmPassword ||
+                                        !registerPwAllValid ||
                                         registerLoading
                                     }
                                 >
@@ -791,10 +942,10 @@ export default function Login() {
                                         onClick={() => setRememberMe(!rememberMe)}
                                         className={cn(
                                             "w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all",
-                                            rememberMe ? "bg-gradient-gold border-gold" : "border-border group-hover:border-gold/40"
+                                            rememberMe ? "bg-orange-600 border-orange-600" : "border-border group-hover:border-orange-400/50"
                                         )}
                                     >
-                                        {rememberMe && <span className="text-primary-foreground text-[10px] font-bold leading-none">✓</span>}
+                                        {rememberMe && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
                                     </div>
                                     <span className="text-xs text-muted-foreground">Remember me</span>
                                 </label>
@@ -802,7 +953,7 @@ export default function Login() {
                                 {/* Submit */}
                                 <Button
                                     onClick={handleLoginSubmit}
-                                    className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold mt-2 group"
+                                    className="w-full bg-orange-600 text-white hover:bg-orange-700 shadow-md shadow-orange-600/20 font-semibold mt-2 group"
                                     disabled={!loginForm.email || !loginForm.password || isLoading || isLocked}
                                 >
                                     {isLoading ? (
@@ -820,8 +971,8 @@ export default function Login() {
                             <div className="space-y-5 animate-slide-up">
                                 {/* Header */}
                                 <div className="text-center space-y-2">
-                                    <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-gold/20 to-gold/5 border border-gold/20 mb-1">
-                                        <ShieldCheck className="w-7 h-7 text-gold" />
+                                    <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-500/20 to-orange-600/5 border border-orange-500/20 mb-1">
+                                        <ShieldCheck className="w-7 h-7 text-orange-500" />
                                     </div>
                                     <h2 className="text-lg font-bold text-foreground">Two-Factor Verification</h2>
                                     <p className="text-sm text-muted-foreground">
@@ -876,8 +1027,8 @@ export default function Login() {
                                             className={cn(
                                                 "w-11 h-14 text-center text-xl font-bold rounded-xl border-2 bg-muted/40 text-foreground",
                                                 "focus:outline-none focus:ring-0 transition-all duration-200",
-                                                digit ? "border-gold/60 bg-gold/5" : "border-border",
-                                                "focus:border-gold shadow-inner"
+                                                digit ? "border-orange-500/50 bg-orange-500/5" : "border-border",
+                                                "focus:border-orange-500 shadow-inner"
                                             )}
                                         />
                                     ))}
@@ -894,7 +1045,7 @@ export default function Login() {
                                 {/* Verify button */}
                                 <Button
                                     onClick={handleVerifyLoginOtp}
-                                    className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold group"
+                                    className="w-full bg-orange-600 text-white hover:bg-orange-700 shadow-md shadow-orange-600/20 font-semibold group"
                                     disabled={loginOtpDigits.some((d) => !d) || loginOtpVerifying}
                                 >
                                     {loginOtpVerifying ? (
@@ -954,7 +1105,7 @@ export default function Login() {
 
             {/* ═══════════════ Forgot Password Modal ═══════════════ */}
             <Dialog open={showForgotModal} onOpenChange={setShowForgotModal}>
-                <DialogContent className="glass border-gold/15 sm:max-w-md">
+                <DialogContent className="glass border-orange-500/15 sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle className="text-foreground">Reset Password</DialogTitle>
                         <DialogDescription className="text-muted-foreground">
@@ -975,7 +1126,7 @@ export default function Login() {
                         </div>
                         <Button
                             onClick={handleForgotPassword}
-                            className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold"
+                            className="w-full bg-orange-600 text-white hover:bg-orange-700 shadow-md shadow-orange-600/20 font-semibold"
                             disabled={!forgotEmail || forgotLoading}
                         >
                             {forgotLoading ? (

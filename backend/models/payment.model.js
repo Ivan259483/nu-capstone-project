@@ -55,6 +55,16 @@ const paymentSchema = new mongoose.Schema(
     },
     subtotal: { type: Number, default: null },
     discountAmount: { type: Number, default: 0 },
+
+    /** Extended billing breakdown (POS / billing checkout) */
+    taxVatAmount: { type: Number, default: 0 },
+    additionalFees: { type: Number, default: 0 },
+    downpayment: { type: Number, default: 0 },
+    grandTotal: { type: Number, default: null },
+    amountPaid: { type: Number, default: null },
+    balanceRemaining: { type: Number, default: null },
+    billingVersion: { type: Number, default: null },
+    invoiceRecord: { type: mongoose.Schema.Types.ObjectId, ref: 'InvoiceRecord', default: null },
   },
   { timestamps: true }
 );

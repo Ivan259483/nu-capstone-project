@@ -324,6 +324,19 @@ const orderSchema = new mongoose.Schema(
       assignedAt: { type: Date, default: Date.now },
       assignedBy: String,
     }],
+
+    /** Per live-tracker stage: staff photo + optional note (customer-facing). */
+    trackerStageMedia: [{
+      stage: {
+        type: String,
+        enum: ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'],
+        required: true,
+      },
+      photoUrl: { type: String, default: '' },
+      description: { type: String, default: '' },
+      uploadedAt: { type: Date, default: Date.now },
+      uploadedBy: String,
+    }],
   },
   { timestamps: true }
 );

@@ -1,237 +1,323 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '@/lib/api';
 import { getSharedSocket } from './useRealtimeSync';
+import type { Transaction, TransactionStatus, PaymentMethod } from '@/lib/salesData';
+import { isEncryptedPlateToken } from '@/lib/salesData';
+import {
+  DASHBOARD_TIMEZONE,
+  addCalendarDaysYmd,
+  formatYmdInTz,
+  getHourInTz,
+  getPrimaryKpiDayTransactions,
+} from '@/lib/dashboard-time';
 
-export type TransactionStatus = 'completed' | 'pending' | 'processing' | 'voided';
-export type PaymentMethod = 'cash' | 'card' | 'gcash' | 'maya' | 'bank_transfer';
+export type { Transaction, TransactionStatus, PaymentMethod };
 
-export interface Transaction {
-  id: string;
-  customerId: string;
-  customerName: string;
-  customerPhone: string;
-  vehiclePlate: string;
-  vehicleInfo: string;
-  services: { name: string; price: number; qty: number }[];
-  subtotal: number;
-  discount: number;
-  tax: number;
-  total: number;
-  paymentMethod: PaymentMethod;
-  status: TransactionStatus;
-  dateTime: string;
-  staffName: string;
-  notes: string;
+/** Map Mongo order.status → four sales-dashboard states (filters, KPIs, dot colors). */
+function mapOrderStatusToCanonical(raw: string | undefined): TransactionStatus {
+  const x = (raw || '').toLowerCase();
+  if (['released', 'paid', 'completed'].includes(x)) return 'completed';
+  if (['rejected', 'cancelled'].includes(x)) return 'voided';
+  if (['pending_confirmation', 'pending'].includes(x)) return 'pending';
+  return 'processing';
+}
+
+function normalizePaymentMethod(raw: string | undefined): PaymentMethod {
+  const x = String(raw || 'cash').toLowerCase().replace(/\s+/g, '_');
+  if (x === 'cash' || x === 'card' || x === 'gcash' || x === 'maya' || x === 'bank_transfer') {
+    return x as PaymentMethod;
+  }
+  return 'cash';
+}
+
+/**
+ * Order line items reference `Product`, but many bookings store a Service `_id` there,
+ * so populate often yields null. Fall back to order-level serviceName / serviceType.
+ */
+function resolveLineItemName(item: any, order: any): string {
+  const p = item?.product;
+  if (p && typeof p === 'object') {
+    const n = String((p as { name?: string; title?: string }).name || (p as { title?: string }).title || '').trim();
+    if (n) return n;
+  }
+  if (typeof item?.name === 'string' && item.name.trim()) return item.name.trim();
+  const fb = String(order.serviceName || order.serviceType || '').trim();
+  if (fb) return fb;
+  return 'Service';
+}
+
+function pickOrderDateTime(o: any): string {
+  const ca = o.createdAt;
+  if (ca instanceof Date) return ca.toISOString();
+  if (typeof ca === 'string' && ca.trim()) return ca.trim();
+  if (ca && typeof ca === 'object' && typeof ca.$date === 'string') return ca.$date;
+  if (typeof ca === 'object' && ca !== null && typeof ca.$date === 'number') {
+    return new Date(ca.$date).toISOString();
+  }
+  if (typeof o.date === 'string' && o.date.trim()) return o.date.trim();
+  return new Date().toISOString();
+}
+
+function coerceOrderInstant(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (typeof value === 'object' && value !== null && '$date' in (value as object)) {
+    const v = (value as { $date: string | number }).$date;
+    if (typeof v === 'number') return new Date(v).toISOString();
+    if (typeof v === 'string') return v;
+  }
+  return null;
+}
+
+/** Prefer paid time for settled orders; else last server update if newer than created (POS activity). */
+function pickAnalyticsInstant(o: any): string {
+  const created = pickOrderDateTime(o);
+  const paid = coerceOrderInstant(o.paidAt);
+  const statusRaw = String(o.status || '').toLowerCase();
+  const ps = String(o.paymentStatus || '').toLowerCase();
+  const settled = ['paid', 'released', 'completed'].includes(statusRaw) || ps === 'paid';
+  if (settled && paid) return paid;
+
+  const updated = coerceOrderInstant(o.updatedAt);
+  const cMs = new Date(created).getTime();
+  const uMs = updated ? new Date(updated).getTime() : NaN;
+  if (Number.isFinite(uMs) && uMs > cMs) return updated;
+
+  return created;
+}
+
+function buildTransactionServices(o: any): Transaction['services'] {
+  const items = Array.isArray(o.items) ? o.items : [];
+  const fb = String(o.serviceName || o.serviceType || '').trim();
+
+  if (items.length === 0) {
+    if (!fb) return [];
+    return [{ name: fb, price: Number(o.totalPrice ?? o.totalAmount) || 0, qty: 1 }];
+  }
+
+  const lines = items.map((i: any) => ({
+    name: resolveLineItemName(i, o),
+    price: Number(i.price) || 0,
+    qty: Number(i.quantity) || 1,
+  }));
+
+  const allGeneric = lines.every((l) => l.name === 'Service');
+  if (allGeneric && fb) {
+    if (lines.length === 1) return [{ ...lines[0], name: fb }];
+    return lines.map((l, idx) => ({ ...l, name: `${fb} (${idx + 1})` }));
+  }
+
+  return lines;
 }
 
 export function useSalesAnalytics() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchOrders = async () => {
-      try {
-        const { data } = await api.get('/orders?limit=500', { meta: { suppressErrorToast: true } });
-        if (data.success && Array.isArray(data.data)) {
-          const mapped: Transaction[] = data.data.map((o: any) => ({
+  const fetchOrders = useCallback(async () => {
+    try {
+      const { data } = await api.get('/orders?limit=500', { meta: { suppressErrorToast: true } });
+      if (data.success && Array.isArray(data.data)) {
+        const mapped: Transaction[] = data.data.map((o: any) => {
+          const rawStatus = typeof o.status === 'string' ? o.status : '';
+          const plateRaw = String(o.vehiclePlate || 'N/A').trim() || 'N/A';
+          const vehiclePlate = isEncryptedPlateToken(plateRaw) ? '—' : plateRaw.toUpperCase();
+
+          const created = pickOrderDateTime(o);
+          const analyticsDateTime = pickAnalyticsInstant(o);
+
+          return {
             id: o.bookingReference || o.id,
             customerId: o.customer?._id || o.customerId || 'unknown',
             customerName: o.customerName || 'Walk-in Customer',
             customerPhone: o.customerPhone || '',
-            vehiclePlate: o.vehiclePlate || 'N/A',
+            vehiclePlate,
             vehicleInfo: o.vehicleInfo || '',
-            services: o.items ? o.items.map((i: any) => ({
-              name: i.product?.name || i.name || 'Service',
-              price: i.price || 0,
-              qty: i.quantity || 1
-            })) : [],
+            services: buildTransactionServices(o),
             subtotal: o.totalAmount || 0,
             discount: 0,
             tax: 0,
             total: o.totalPrice || o.totalAmount || 0,
-            paymentMethod: o.paymentMethod || 'cash',
-            status: (o.status === 'confirmed' || o.status === 'in_progress' ? 'processing' : o.status === 'cancelled' ? 'voided' : o.status) as TransactionStatus,
-            dateTime: o.createdAt || o.date || new Date().toISOString(),
+            paymentMethod: normalizePaymentMethod(o.paymentMethod),
+            status: mapOrderStatusToCanonical(rawStatus),
+            statusRaw: rawStatus || undefined,
+            dateTime: created,
+            analyticsDateTime,
             staffName: o.assignedDetailer?.name || 'Unassigned',
-            notes: o.notes || ''
-          }));
-          // Sort descending so recentTransactions gets the latest
-          mapped.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
+            notes: o.notes || '',
+          };
+        });
+        mapped.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
 
-          setTransactions(mapped);
-        }
-      } catch (error) {
-        console.error('Failed to fetch sales transactions:', error);
-      } finally {
-        setIsLoading(false);
+        setTransactions(mapped);
       }
-    };
-    fetchOrders();
+    } catch (error) {
+      console.error('Failed to fetch sales transactions:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-    // ── 15s backup poll (fires even if socket is silent) ────────────────
-    const interval = setInterval(fetchOrders, 15_000);
+  useEffect(() => {
+    void fetchOrders();
 
-    // ── Shared socket: instant refresh on any orders change ──────────────
-    // getSharedSocket() returns the singleton — no new io() connection.
+    // Backup poll — short interval so the dashboard feels "live" even without socket events
+    const interval = setInterval(() => void fetchOrders(), 5_000);
+
     const socket = getSharedSocket();
     const handleDbChange = (payload: any) => {
       if (payload.collection === 'orders') {
-        console.log('[useSalesAnalytics] db_change orders → refetch');
-        fetchOrders();
+        void fetchOrders();
       }
     };
     socket.on('db_change', handleDbChange);
 
-    // ── Tab visibility / focus refresh ───────────────────────────────────
     let visTimer: ReturnType<typeof setTimeout> | null = null;
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         if (visTimer) clearTimeout(visTimer);
         visTimer = setTimeout(() => {
-          console.log('[useSalesAnalytics] Tab visible → refetch');
-          fetchOrders();
-        }, 500);
+          void fetchOrders();
+        }, 150);
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('focus', handleVisibility);
 
     return () => {
-      mounted = false;
       clearInterval(interval);
       socket.off('db_change', handleDbChange);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleVisibility);
       if (visTimer) clearTimeout(visTimer);
     };
-  }, []);
+  }, [fetchOrders]);
 
-  // --- Compute KPIs ---
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const { kpis, hourlySales, serviceMix, sevenDaySales, recentTransactions } = useMemo(() => {
+    const tz = DASHBOARD_TIMEZONE;
+    const primary = getPrimaryKpiDayTransactions(transactions);
+    const {
+      useLast24hFallback,
+      kpiDayTxns,
+      comparePrevTxns,
+      todayYmd,
+    } = primary;
 
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+    const bucketYmd = (t: Transaction) => formatYmdInTz(t.analyticsDateTime || t.dateTime, tz);
 
-  const todayTxns = transactions.filter(t => new Date(t.dateTime) >= today);
-  const yesterdayTxns = transactions.filter(t => {
-    const d = new Date(t.dateTime);
-    return d >= yesterday && d < today;
-  });
+    const totalSalesToday = kpiDayTxns.reduce((sum, t) => sum + (t.status !== 'voided' ? t.total : 0), 0);
+    const totalSalesYesterday = comparePrevTxns.reduce((sum, t) => sum + (t.status !== 'voided' ? t.total : 0), 0);
 
-  const totalSalesToday = todayTxns.reduce((sum, t) => sum + (t.status !== 'voided' ? t.total : 0), 0);
-  const totalSalesYesterday = yesterdayTxns.reduce((sum, t) => sum + (t.status !== 'voided' ? t.total : 0), 0);
+    const pendingPayments = kpiDayTxns.filter((t) => t.status === 'pending').reduce((sum, t) => sum + t.total, 0);
+    const pendingCount = kpiDayTxns.filter((t) => t.status === 'pending').length;
 
-  const pendingPayments = todayTxns.filter(t => t.status === 'pending').reduce((sum, t) => sum + t.total, 0);
-  const pendingCount = todayTxns.filter(t => t.status === 'pending').length;
+    const completedPayments = kpiDayTxns.filter((t) => t.status === 'completed').reduce((sum, t) => sum + t.total, 0);
+    const completedCount = kpiDayTxns.filter((t) => t.status === 'completed').length;
 
-  const completedPayments = todayTxns.filter(t => t.status === 'completed').reduce((sum, t) => sum + t.total, 0);
-  const completedCount = todayTxns.filter(t => t.status === 'completed').length;
-
-  // Service Mix Today
-  const serviceRevenue: Record<string, number> = {};
-  todayTxns.forEach(t => {
-    if (t.status !== 'voided') {
-      t.services.forEach(s => {
-        serviceRevenue[s.name] = (serviceRevenue[s.name] || 0) + (s.price * s.qty);
-      });
-    }
-  });
-
-  const sortedServices = Object.entries(serviceRevenue).sort((a, b) => b[1] - a[1]);
-  const topServiceToday = sortedServices.length > 0 ? sortedServices[0][0] : '—';
-  const topServiceRevenue = sortedServices.length > 0 ? sortedServices[0][1] : 0;
-
-  const avgTransactionValue = todayTxns.length > 0 ? totalSalesToday / todayTxns.length : 0;
-
-  const kpis = {
-    totalSalesToday,
-    totalSalesYesterday,
-    transactionCount: todayTxns.length,
-    transactionCountYesterday: yesterdayTxns.length,
-    pendingPayments,
-    pendingCount,
-    completedPayments,
-    completedCount,
-    topServiceToday,
-    topServiceRevenue,
-    avgTransactionValue,
-  };
-
-  // --- Compute Hourly Sales (Today) ---
-  const hourlyMap: Record<string, { revenue: number; transactions: number; hourNum: number }> = {};
-
-  // Initialize standard business hours
-  for (let i = 8; i <= 18; i++) {
-    const hourLabel = i === 12 ? '12PM' : i > 12 ? `${i - 12}PM` : `${i}AM`;
-    hourlyMap[hourLabel] = { revenue: 0, transactions: 0, hourNum: i };
-  }
-
-  todayTxns.forEach(t => {
-    if (t.status !== 'voided') {
-      const h = new Date(t.dateTime).getHours();
-      const hourLabel = h === 12 ? '12PM' : h === 0 ? '12AM' : h > 12 ? `${h - 12}PM` : `${h}AM`;
-
-      // If hour is outside standard hours, initialize it dynamically
-      if (!hourlyMap[hourLabel]) {
-        hourlyMap[hourLabel] = { revenue: 0, transactions: 0, hourNum: h };
+    const serviceRevenue: Record<string, number> = {};
+    kpiDayTxns.forEach((t) => {
+      if (t.status !== 'voided') {
+        t.services.forEach((s) => {
+          serviceRevenue[s.name] = (serviceRevenue[s.name] || 0) + s.price * s.qty;
+        });
       }
-
-      hourlyMap[hourLabel].revenue += Number(t.total) || 0;
-      hourlyMap[hourLabel].transactions += 1;
-    }
-  });
-
-  // Sort by hour visually
-  const hourlySales = Object.values(hourlyMap)
-    .sort((a, b) => a.hourNum - b.hourNum)
-    .map(({ hourNum, ...data }) => {
-      const hourLabel = hourNum === 12 ? '12PM' : hourNum === 0 ? '12AM' : hourNum > 12 ? `${hourNum - 12}PM` : `${hourNum}AM`;
-      return {
-        hour: hourLabel,
-        revenue: data.revenue,
-        transactions: data.transactions
-      };
     });
 
-  // --- Compute Service Mix (Today) ---
-  const totalRevenueForMix = Object.values(serviceRevenue).reduce((a, b) => a + b, 0);
-  const colors = ['#0F52BA', '#8B5CF6', '#10B981', '#F59E0B', '#64748B'];
-  const serviceMix = sortedServices.slice(0, 5).map(([name, value], i) => ({
-    name,
-    value,
-    pct: totalRevenueForMix > 0 ? Math.round((value / totalRevenueForMix) * 100) : 0,
-    fill: colors[i % colors.length]
-  }));
+    const sortedServices = Object.entries(serviceRevenue).sort((a, b) => b[1] - a[1]);
+    const topServiceToday = sortedServices.length > 0 ? sortedServices[0][0] : '—';
+    const topServiceRevenue = sortedServices.length > 0 ? sortedServices[0][1] : 0;
 
-  // --- Compute 7-Day Trend ---
-  const sevenDaySales = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const avgTransactionValue = kpiDayTxns.length > 0 ? totalSalesToday / kpiDayTxns.length : 0;
 
-    const dayEnd = new Date(d);
-    dayEnd.setDate(dayEnd.getDate() + 1);
+    const kpisOut = {
+      totalSalesToday,
+      totalSalesYesterday,
+      transactionCount: kpiDayTxns.length,
+      transactionCountYesterday: comparePrevTxns.length,
+      pendingPayments,
+      pendingCount,
+      completedPayments,
+      completedCount,
+      topServiceToday,
+      topServiceRevenue,
+      avgTransactionValue,
+      usingLast24hFallback: useLast24hFallback,
+    };
 
-    const dayRevenue = transactions
-      .filter(t => t.status !== 'voided')
-      .filter(t => {
-        const td = new Date(t.dateTime);
-        return td >= d && td < dayEnd;
-      })
-      .reduce((sum, t) => sum + t.total, 0);
+    const hourlyMap: Record<string, { revenue: number; transactions: number; hourNum: number }> = {};
 
-    sevenDaySales.push({ date: dateStr, revenue: dayRevenue });
-  }
+    for (let i = 8; i <= 18; i++) {
+      const hourLabel = i === 12 ? '12PM' : i > 12 ? `${i - 12}PM` : `${i}AM`;
+      hourlyMap[hourLabel] = { revenue: 0, transactions: 0, hourNum: i };
+    }
+
+    kpiDayTxns.forEach((t) => {
+      if (t.status !== 'voided') {
+        const h = getHourInTz(t.analyticsDateTime || t.dateTime, tz);
+        const hourLabel = h === 12 ? '12PM' : h === 0 ? '12AM' : h > 12 ? `${h - 12}PM` : `${h}AM`;
+
+        if (!hourlyMap[hourLabel]) {
+          hourlyMap[hourLabel] = { revenue: 0, transactions: 0, hourNum: h };
+        }
+
+        hourlyMap[hourLabel].revenue += Number(t.total) || 0;
+        hourlyMap[hourLabel].transactions += 1;
+      }
+    });
+
+    const hourlySalesOut = Object.values(hourlyMap)
+      .sort((a, b) => a.hourNum - b.hourNum)
+      .map(({ hourNum, ...data }) => {
+        const hourLabel =
+          hourNum === 12 ? '12PM' : hourNum === 0 ? '12AM' : hourNum > 12 ? `${hourNum - 12}PM` : `${hourNum}AM`;
+        return {
+          hour: hourLabel,
+          revenue: data.revenue,
+          transactions: data.transactions,
+        };
+      });
+
+    const totalRevenueForMix = Object.values(serviceRevenue).reduce((a, b) => a + b, 0);
+    const colors = ['#0F52BA', '#8B5CF6', '#10B981', '#F59E0B', '#64748B'];
+    const serviceMixOut = sortedServices.slice(0, 5).map(([name, value], i) => ({
+      name,
+      value,
+      pct: totalRevenueForMix > 0 ? Math.round((value / totalRevenueForMix) * 100) : 0,
+      fill: colors[i % colors.length],
+    }));
+
+    const sevenDaySalesOut: { date: string; revenue: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const dayYmd = addCalendarDaysYmd(todayYmd, -i);
+      const [yy, mm, dd] = dayYmd.split('-').map(Number);
+      const dateStr = new Date(yy, mm - 1, dd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+      const dayRevenue = transactions
+        .filter((t) => t.status !== 'voided')
+        .filter((t) => bucketYmd(t) === dayYmd)
+        .reduce((sum, t) => sum + t.total, 0);
+
+      sevenDaySalesOut.push({ date: dateStr, revenue: dayRevenue });
+    }
+
+    return {
+      kpis: kpisOut,
+      hourlySales: hourlySalesOut,
+      serviceMix: serviceMixOut,
+      sevenDaySales: sevenDaySalesOut,
+      recentTransactions: transactions.slice(0, 6),
+    };
+  }, [transactions]);
 
   return {
     transactions,
     isLoading,
+    refetch: fetchOrders,
     kpis,
     hourlySales,
     serviceMix,
     sevenDaySales,
-    recentTransactions: transactions.slice(0, 6)
+    recentTransactions,
   };
 }

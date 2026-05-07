@@ -58,6 +58,11 @@ import PremiumInput from '@/components/ui/PremiumInput';
 import { Toast } from '@/components/ui/PremiumToast';
 import AddVehicleModal from '@/components/booking/AddVehicleModal';
 import { Validation } from '@/utils/validation';
+import {
+  BOOKING_TERMS_DOCUMENT_TITLE,
+  BOOKING_TERMS_INTRO,
+  BOOKING_TERMS_SECTIONS,
+} from '@/constants/bookingTerms';
 
 // ─── Kinetic Gallery Design Tokens ───────────────────────────────────────────
 
@@ -100,6 +105,8 @@ interface SPFPackage {
   badge: string;
   badgeColor: string;   // accent hex
   tier: string;
+  /** Longer marketing copy — aligned with web RAW_SPF_PACKAGES.description */
+  description: string;
   prices: Record<VehicleTypeKey, number | null>;
   tintPrices: Record<VehicleTypeKey, number | null>;
   features: string[];
@@ -115,6 +122,8 @@ const SPF_PACKAGES: SPFPackage[] = [
     badge: 'SPECIAL OFFER',
     badgeColor: '#F97316',
     tier: 'Essential',
+    description:
+      'Give your car the protection it deserves with our essential ceramic coating package. We apply a high-quality protective layer that helps shield your paint from scratches, UV rays, dirt, and water so your vehicle stays glossier and easier to wash between visits.',
     prices:     { hatchback: 7499, sedan: 7999, midsized: 7999, suv: 8999, pickup: 8499, largesuv: 12999, highend: null },
     tintPrices: { hatchback: 13499, sedan: 13499, midsized: 14499, suv: 15999, pickup: 14499, largesuv: 20999, highend: null },
     features: [
@@ -132,6 +141,8 @@ const SPF_PACKAGES: SPFPackage[] = [
     badge: 'RECOMMENDED',
     badgeColor: '#10B981',
     tier: 'Advanced',
+    description:
+      'Step up to a deeper, longer-lasting ceramic stack built for daily drivers. Multiple graphene-rich layers add stronger UV and chemical resistance while keeping water beading tight—so your paint looks richer and stays protected through sun, rain, and road grime.',
     prices:     { hatchback: 8999, sedan: 9999, midsized: 10999, suv: 11999, pickup: 10999, largesuv: 14999, highend: 17999 },
     tintPrices: { hatchback: 14999, sedan: 15999, midsized: 17499, suv: 18999, pickup: 17499, largesuv: 22999, highend: 23999 },
     features: [
@@ -149,6 +160,8 @@ const SPF_PACKAGES: SPFPackage[] = [
     badge: '50% OFF PROMO',
     badgeColor: '#A855F7',
     tier: 'Premium',
+    description:
+      'Our premium coating program uses professional-grade SONAX Profiline layers for exceptional gloss and durability. Ideal if you want showroom depth, easier maintenance, and a documented maintenance path—including scheduled reboost visits to keep the film chemistry performing year after year.',
     prices:     { hatchback: 13999, sedan: 13999, midsized: 15999, suv: 16999, pickup: 15999, largesuv: 19999, highend: 22999 },
     tintPrices: { hatchback: 19999, sedan: 19999, midsized: 22499, suv: 23999, pickup: 22499, largesuv: 27999, highend: 28999 },
     features: [
@@ -166,6 +179,8 @@ const SPF_PACKAGES: SPFPackage[] = [
     badge: 'ALL-IN PACKAGE',
     badgeColor: '#F59E0B',
     tier: 'Flagship',
+    description:
+      'The ultimate AutoSPF+ experience: strategic PPF coverage for high-impact areas, flagship ceramic coating, full nano-ceramic tint, and bundled maintenance so your vehicle leaves protected from bumper to glass. Built for owners who want maximum resale appeal and peace of mind in one appointment.',
     prices:     { hatchback: 39999, sedan: 39999, midsized: 46999, suv: 46999, pickup: 46999, largesuv: 49999, highend: 49999 },
     tintPrices: { hatchback: null, sedan: null, midsized: null, suv: null, pickup: null, largesuv: null, highend: null },
     features: [
@@ -640,9 +655,20 @@ export default function BookScreen() {
   // Step 2 — Payment proof
   const [downpaymentProof, setDownpaymentProof] = useState<string | null>(null);
 
-  // Step 3 — Terms & Conditions
+  // Step 4 (UI: step 5 of 6) — Terms & Conditions
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [tcScrolledToBottom, setTcScrolledToBottom] = useState(false);
+  const tcViewportHRef = useRef(0);
+  const prevStepForTermsRef = useRef(step);
+
+  useEffect(() => {
+    const prev = prevStepForTermsRef.current;
+    prevStepForTermsRef.current = step;
+    if (step === 4 && prev !== 4) {
+      setTcScrolledToBottom(false);
+      setAgreedToTerms(false);
+    }
+  }, [step]);
 
   // General
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -956,8 +982,8 @@ export default function BookScreen() {
   const canProceedStep1 = phone.replace(/\D/g, '').length >= 10;                  // Details: valid contact no.
   const canProceedStep2 = !!selectedDate && !!selectedTime;                        // Schedule: date + time
   const canProceedStep3 = true;                                                    // Review: always ok
-  const canProceedStep4 = agreedToTerms;                                           // Terms: agreed
-  const canConfirmBooking = agreedToTerms;
+  const canProceedStep4 = agreedToTerms && tcScrolledToBottom;                     // Terms: scrolled + agreed
+  const canConfirmBooking = canProceedStep4;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Success screen
@@ -1343,6 +1369,8 @@ export default function BookScreen() {
 
                               {/* Tagline */}
                               <Text style={pkgCard.tagline}>{PKG_DURATIONS[pkg.key]}</Text>
+
+                              <Text style={pkgCard.description}>{pkg.description}</Text>
 
                               {/* Social proof — SPF 89 only */}
                               {isHero && (
@@ -1905,49 +1933,55 @@ export default function BookScreen() {
               </View>
 
               <View>
-                <Text style={tc.heading}>Paint Protection Film General Terms and Conditions</Text>
+                <Text style={tc.docTitle}>{BOOKING_TERMS_DOCUMENT_TITLE}</Text>
+                <Text style={tc.intro}>{BOOKING_TERMS_INTRO}</Text>
+                <Text style={tc.heading}>Full text (scroll to the end)</Text>
                 <ScrollView
                   style={tc.scrollBox}
                   showsVerticalScrollIndicator
                   nestedScrollEnabled
+                  onLayout={(e) => {
+                    tcViewportHRef.current = e.nativeEvent.layout.height;
+                  }}
+                  onContentSizeChange={(_, contentHeight) => {
+                    if (contentHeight <= tcViewportHRef.current + 12) setTcScrolledToBottom(true);
+                  }}
                   onScroll={({ nativeEvent }) => {
                     const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
-                    if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 16) setTcScrolledToBottom(true);
+                    if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 20) setTcScrolledToBottom(true);
                   }}
                   scrollEventThrottle={32}
                 >
-                  <Text style={tc.body}>Paint protection film is a complicated installation procedure. This document serves to set expectations on your installation, and can serve as a reference point in the future.</Text>
-                  <Text style={tc.sectionTitle}>ABOUT PAINT PROTECTION FILM</Text>
-                  <Text style={tc.body}>PPF is a sacrificial layer designed to protect your vehicle's paint from chips, scratches, and swirl marks. The customer understands that PPF is not a completely invisible or matte layer.</Text>
-                  <Text style={tc.sectionTitle}>DRYING TIME</Text>
-                  <Text style={tc.body}>Your PPF will take 3–4 weeks to fully cure. Do not wash the vehicle for the first 7 days. Water spots under the film will evaporate on their own.</Text>
-                  <Text style={tc.sectionTitle}>WARRANTY</Text>
-                  <Text style={tc.body}>5-year warranty against yellowing, cracking, and fading. Warranty does NOT cover abuse, accidents, improper maintenance, or debris damage.</Text>
-                  <Text style={tc.sectionTitle}>EXISTING ROCK CHIPS</Text>
-                  <Text style={tc.body}>Existing paint chips will appear as PPF imperfections. This is especially noticeable on dark vehicles.</Text>
-                  <Text style={tc.sectionTitle}>IMPERFECTIONS</Text>
-                  <Text style={tc.body}>We strive for perfection but due to the nature of film installation, minor dust or debris under the film is possible. No installation is actually perfect.</Text>
-                  <Text style={tc.sectionTitle}>BOOKING POLICY</Text>
-                  <Text style={tc.body}>A non-refundable downpayment is required to secure your slot. All bookings are subject to availability and approval. Customers must arrive within 30 minutes of their scheduled time. By proceeding, you confirm that all information provided is accurate.</Text>
+                  {BOOKING_TERMS_SECTIONS.map((sec) => (
+                    <View key={sec.id} style={{ marginBottom: 14 }}>
+                      <Text style={tc.sectionHeading}>{sec.title}</Text>
+                      <Text style={tc.body}>{sec.body}</Text>
+                    </View>
+                  ))}
                   <View style={{ height: 8 }} />
                 </ScrollView>
                 {!tcScrolledToBottom && (
-                  <Text style={tc.scrollHint}>↓ Scroll to the bottom to enable the checkbox</Text>
+                  <Text style={tc.scrollHint}>Scroll to the bottom to enable the agreement checkbox.</Text>
                 )}
               </View>
 
               <TouchableOpacity
                 activeOpacity={0.85}
                 disabled={!tcScrolledToBottom}
-                onPress={() => { setAgreedToTerms(!agreedToTerms); Haptics.selectionAsync(); }}
-                style={[tc.checkRow, !tcScrolledToBottom && { opacity: 0.4 }, agreedToTerms && tc.checkRowActive]}
+                onPress={() => {
+                  if (!tcScrolledToBottom) return;
+                  setAgreedToTerms(!agreedToTerms);
+                  Haptics.selectionAsync();
+                }}
+                style={[tc.checkRow, !tcScrolledToBottom && { opacity: 0.45 }, agreedToTerms && tc.checkRowActive]}
               >
                 <View style={[tc.checkbox, agreedToTerms && tc.checkboxActive]}>
                   {agreedToTerms && <Ionicons name="checkmark" size={14} color={ON_PRIMARY} />}
                 </View>
                 <Text style={[tc.checkText, agreedToTerms && { color: '#fff' }]}>
                   I have read and agree to the{' '}
-                  <Text style={{ color: PRIMARY, fontWeight: '600' }}>terms and conditions</Text>.
+                  <Text style={{ color: PRIMARY, fontWeight: '600' }}>Terms and Conditions</Text>
+                  <Text style={{ color: '#ef4444', fontWeight: '700' }}> *</Text>
                 </Text>
               </TouchableOpacity>
 
@@ -2629,11 +2663,14 @@ const s2 = StyleSheet.create({
 /** Step 2 — Review & Payment Kinetic Gallery styles */
 /** Terms & Conditions step */
 const tc = StyleSheet.create({
+  docTitle: { fontSize: 17, fontWeight: '700', color: SECONDARY, marginBottom: 8, letterSpacing: -0.2 },
+  intro: { fontSize: 13, color: DIM_TEXT, lineHeight: 20, marginBottom: 12 },
   heading: { fontSize: 10, fontWeight: '700', color: DIM_TEXT, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
-  scrollBox: { maxHeight: 200, borderWidth: 1, borderColor: GHOST, borderRadius: 10, padding: 14, backgroundColor: SURFACE_HIGH },
-  body:        { fontSize: 12, color: SECONDARY, lineHeight: 20, marginBottom: 10 },
+  scrollBox: { maxHeight: 240, borderWidth: 1, borderColor: GHOST, borderRadius: 10, padding: 14, backgroundColor: SURFACE_HIGH },
+  body:        { fontSize: 12, color: SECONDARY, lineHeight: 20, marginBottom: 0 },
+  sectionHeading: { fontSize: 12, fontWeight: '700', color: SECONDARY, marginBottom: 6 },
   sectionTitle: { fontSize: 10, fontWeight: '700', color: PRIMARY, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4, marginBottom: 4 },
-  scrollHint: { fontSize: 10, color: MUTED, fontStyle: 'italic', marginTop: 4, textAlign: 'center' },
+  scrollHint: { fontSize: 11, fontWeight: '600', color: '#ea580c', marginTop: 6, textAlign: 'center' },
   checkRow: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 12,
     backgroundColor: SURFACE_MID, borderRadius: 14, padding: 14,
@@ -3999,6 +4036,13 @@ const pkgCard = StyleSheet.create({
     fontStyle: 'italic',
     color: 'rgba(255,255,255,0.4)',
     lineHeight: 17,
+  },
+  description: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: 'rgba(255,255,255,0.55)',
+    lineHeight: 18,
+    marginTop: 6,
   },
   socialProof: {
     fontSize: 11,

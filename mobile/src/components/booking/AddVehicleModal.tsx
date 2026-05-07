@@ -436,7 +436,7 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
                 label="Plate Number" required
                 placeholder="e.g. ABC-1234"
                 value={plate}
-                autoCapitalize="none"
+                autoCapitalize="characters"
                 onChangeText={(t) => { setPlate(t.toUpperCase()); setErrPlate(''); }}
                 error={errPlate}
                 hint={!errPlate ? plateHint : undefined}

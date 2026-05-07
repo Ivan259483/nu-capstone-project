@@ -487,7 +487,7 @@ export default function BookingPage() {
                                                 <input
                                                     className="bk-input"
                                                     value={form.vehiclePlate}
-                                                    onChange={e => update('vehiclePlate', e.target.value)}
+                                                    onChange={e => update('vehiclePlate', e.target.value.toUpperCase())}
                                                     placeholder="e.g. ABC 1234"
                                                 />
                                             </div>

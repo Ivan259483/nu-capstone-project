@@ -14,6 +14,7 @@ export interface BookingStatusEvent {
     status?: string;
     serviceTrackingStage?: string | null;
     serviceStaffAssignments?: any[];
+    trackerStageMedia?: any[];
     updatedAt?: string;
 }
 

@@ -52,8 +52,14 @@ export interface Transaction {
   tax: number;
   total: number;
   paymentMethod: PaymentMethod;
+  /** Normalized for filters, KPIs, and badge colors */
   status: TransactionStatus;
+  /** Original `order.status` from API (e.g. released, rejected) for display labels */
+  statusRaw?: string;
+  /** Booking / record creation time (for tables & receipts) */
   dateTime: string;
+  /** Payment or last-write time — used for dashboard KPI day buckets (Manila) */
+  analyticsDateTime?: string;
   staffName: string;
   notes: string;
 }
@@ -122,3 +128,34 @@ export const getStatusColor = (status: TransactionStatus): string => {
   };
   return map[status];
 };
+
+/** Looks like legacy encrypted plate that failed server decrypt — hide from UI */
+export const isEncryptedPlateToken = (value: string): boolean =>
+  typeof value === 'string' && /^[0-9a-f]{32}:[0-9a-f]+$/i.test(value.trim());
+
+/**
+ * Human-readable order status for the sales table (uses API `statusRaw` when present).
+ */
+export function formatTransactionStatusLabel(
+  canonical: TransactionStatus,
+  statusRaw?: string
+): string {
+  const r = (statusRaw || '').toLowerCase();
+  const map: Record<string, string> = {
+    released: 'Released',
+    rejected: 'Rejected',
+    pending_confirmation: 'Pending review',
+    in_progress: 'In progress',
+    pending: 'Pending',
+    approved: 'Approved',
+    confirmed: 'Confirmed',
+    assigned: 'Assigned',
+    received: 'Received',
+    queued: 'Queued',
+    paid: 'Paid',
+    completed: 'Completed',
+    cancelled: 'Cancelled',
+  };
+  if (r && map[r]) return map[r];
+  return canonical.charAt(0).toUpperCase() + canonical.slice(1);
+}

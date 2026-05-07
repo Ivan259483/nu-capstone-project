@@ -18,7 +18,8 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?:
 };
 
 export default function HourlySalesChart() {
-  const { hourlySales: HOURLY_SALES } = useSalesContext();
+  const { hourlySales: HOURLY_SALES, kpis } = useSalesContext();
+  const roll = kpis.usingLast24hFallback === true;
   const maxHour = HOURLY_SALES.reduce((a, b) => (a.revenue > b.revenue ? a : b), HOURLY_SALES[0] || { hour: '—', revenue: 0 });
   const isEmpty = HOURLY_SALES.length === 0 || maxHour.revenue === 0;
 
@@ -27,7 +28,9 @@ export default function HourlySalesChart() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Hourly Revenue</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Today's sales by hour</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {roll ? 'Revenue by hour (Manila) — last 24h activity' : "Today's sales by hour"}
+          </p>
         </div>
         {!isEmpty && (
           <div className="flex items-center gap-2 text-xs">

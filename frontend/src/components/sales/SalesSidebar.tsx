@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard, ShoppingCart, Receipt, Users, BarChart3,
-  Settings, ChevronLeft, ChevronRight, LogOut, Zap, CheckSquare, CalendarDays,
+  Settings, ChevronLeft, ChevronRight, LogOut, CheckSquare, CalendarDays,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -60,20 +60,8 @@ export default function SalesSidebar({ activeView, onNavigate, collapsed, onTogg
         boxShadow: '2px 0 16px -4px rgba(0,0,0,0.04)',
       }}
     >
-      {/* Logo */}
-      <div className={`flex items-center h-16 px-4 ${collapsed ? 'justify-center' : 'gap-2.5'}`} style={{ borderBottom: '1px solid rgba(226,232,240,0.4)' }}>
-        <div className="w-8 h-8 rounded-lg bg-blue-700 flex items-center justify-center flex-shrink-0">
-          <span className="text-white font-bold text-xs">A+</span>
-        </div>
-        {!collapsed && (
-          <span className="font-bold text-slate-900 text-base tracking-tight">
-            AutoSPF<span className="text-blue-700">+</span>
-          </span>
-        )}
-      </div>
-
-      {/* Nav */}
-      <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto">
+      {/* Nav — no brand strip (logo / wordmark removed per product request) */}
+      <nav className="flex-1 px-2 pt-3 pb-4 space-y-0.5 overflow-y-auto">
         {!collapsed && (
           <p className="px-3 pb-2 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
             Main Menu
@@ -147,7 +135,7 @@ export default function SalesSidebar({ activeView, onNavigate, collapsed, onTogg
       {/* Collapse toggle */}
       <button
         onClick={onToggle}
-        className="absolute -right-3 top-20 z-10 flex items-center justify-center w-6 h-6 rounded-full bg-white hover:bg-slate-50 transition-colors duration-150"
+        className="absolute -right-3 top-4 z-10 flex items-center justify-center w-6 h-6 rounded-full bg-white hover:bg-slate-50 transition-colors duration-150"
         style={{ border: '1px solid #eef0f6', boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}
         aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >

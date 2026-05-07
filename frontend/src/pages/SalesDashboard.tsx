@@ -14,7 +14,7 @@ import SettingsView from '@/components/sales/settings/SettingsView';
 import ToastProvider from '@/components/sales/ui/ToastProvider';
 import SalesSmartCalendar from '@/components/sales/calendar/SalesSmartCalendar';
 import BookingApprovalsPage from '@/components/sales/booking/BookingApprovalsPage';
-import { SalesAnalyticsProvider } from '@/contexts/SalesAnalyticsContext';
+import { SalesAnalyticsProvider, useSalesContext } from '@/contexts/SalesAnalyticsContext';
 
 type SalesView = 'dashboard' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
 
@@ -34,7 +34,12 @@ function TransactionsView() {
 
 // ── Dashboard View ────────────────────────────────────────────────────────────
 function DashboardView({ onNavigate }: { onNavigate: (v: SalesView) => void }) {
+  const { kpis } = useSalesContext();
   const today = new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const showNoTodayHint =
+    !kpis.usingLast24hFallback &&
+    kpis.transactionCount === 0 &&
+    kpis.transactionCountYesterday > 0;
 
   return (
     <div className="space-y-6">
@@ -42,6 +47,12 @@ function DashboardView({ onNavigate }: { onNavigate: (v: SalesView) => void }) {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Sales Dashboard</h1>
           <p className="text-sm text-slate-500 mt-0.5">{today} — Shift: 8:00 AM – 6:00 PM</p>
+          {showNoTodayHint && (
+            <p className="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-200/80 rounded-lg px-3 py-2 max-w-2xl leading-relaxed">
+              No activity dated today (Manila) in the loaded orders yet. Dashboard totals use payment time when paid, otherwise last update vs. booking time. Yesterday had{' '}
+              <span className="font-semibold">{kpis.transactionCountYesterday}</span> orders.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200">

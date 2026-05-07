@@ -11,6 +11,13 @@ const serviceSchema = new mongoose.Schema(
       enum: ['Exterior', 'Interior', 'Complete', 'Engine', 'Premium'],
       default: 'Exterior',
     },
+    /** Sales billing catalog grouping (SPF / PPF / other add-ons) */
+    billingGroup: {
+      type: String,
+      enum: ['ceramic_spf', 'ppf', 'other', 'uncategorized'],
+      default: 'uncategorized',
+    },
+    displayOrder: { type: Number, default: 0 },
     duration: String,
     basePrice: {
       type: Number,
@@ -70,5 +77,7 @@ const serviceSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+serviceSchema.index({ billingGroup: 1, isPublished: 1, displayOrder: 1 });
 
 export default mongoose.model('Service', serviceSchema);

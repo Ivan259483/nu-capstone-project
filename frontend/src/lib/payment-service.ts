@@ -77,6 +77,9 @@ export const PaymentService = {
         staffId?: string | null;
         discount?: { discountType: 'fixed' | 'percent'; value: number; reason?: string } | null;
         cashReceived?: number | null;
+        taxVatAmount?: number;
+        additionalFees?: number;
+        downpayment?: number;
     }) => {
         try {
             const response = await api.post('/payments/pos', payload);

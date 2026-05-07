@@ -15,12 +15,19 @@ import {
   Settings,
   Sparkles,
   Wrench,
+  Camera,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
 import { OrderService } from '@/lib/order-service';
 import { UserService } from '@/lib/user-service';
 import type { Booking, User } from '@/types';
+import {
+  LIVE_TRACKER_STEP_MEDIA_STAGE,
+  findTrackerStageMedia,
+  resolveTrackerStageDescription,
+  type LiveTrackerStepId,
+} from '@/lib/customer-tracker-stage-media';
 
 const BRAND_ORANGE = '#E8650A';
 const LUXURY_EASE = [0.22, 1, 0.36, 1] as const;
@@ -41,6 +48,8 @@ type ResolvedTrackerStep = TrackerStep & {
   state: 'completed' | 'active' | 'pending';
   timestamp?: string;
   helperText?: string;
+  customerDescription?: string;
+  stagePhotoUrl?: string;
 };
 
 const TRACKER_STEPS: TrackerStep[] = [
@@ -309,11 +318,24 @@ function getResolvedSteps(booking: Booking | null, estimatedCompletion?: string 
   const bookingBaseDate = booking?.bookingDate || booking?.date;
 
   return TRACKER_STEPS.map((step, index) => {
+    const apiStage = LIVE_TRACKER_STEP_MEDIA_STAGE[step.id as LiveTrackerStepId];
+    const media = findTrackerStageMedia(booking as any, apiStage);
+    const stagePhotoUrl = (media?.photoUrl || '').trim();
+    let customerDescription = '';
+    if (step.id === 'awaiting_vehicle') {
+      customerDescription =
+        'Your booking is approved. Please arrive on time with your vehicle for your scheduled appointment.';
+    } else {
+      customerDescription = resolveTrackerStageDescription(booking as any, apiStage);
+    }
+
     if (index < currentIndex) {
       return {
         ...step,
         state: 'completed' as const,
         timestamp: formatStepTimestamp(timestamps[step.id as keyof typeof timestamps], bookingBaseDate),
+        customerDescription,
+        stagePhotoUrl,
       };
     }
 
@@ -332,12 +354,16 @@ function getResolvedSteps(booking: Booking | null, estimatedCompletion?: string 
         state: 'active' as const,
         timestamp: formatStepTimestamp(timestamps[step.id as keyof typeof timestamps], bookingBaseDate),
         helperText,
+        customerDescription,
+        stagePhotoUrl,
       };
     }
 
     return {
       ...step,
       state: 'pending' as const,
+      customerDescription,
+      stagePhotoUrl: '',
     };
   });
 }
@@ -1470,7 +1496,29 @@ export default function CustomerLiveTrackerPage() {
                                   </div>
 
                                   {(isCompleted || isActive) && (
-                                    <p className="text-xs text-slate-500 mt-2">{step.timestamp}</p>
+                                    <>
+                                      <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                                        {step.customerDescription}
+                                      </p>
+                                      {step.stagePhotoUrl ? (
+                                        <div className="mt-3 flex items-start gap-2 rounded-xl border border-slate-200/90 bg-slate-50/80 p-2">
+                                          <Camera size={14} className="text-slate-400 shrink-0 mt-0.5" aria-hidden />
+                                          <a
+                                            href={step.stagePhotoUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="block min-w-0 flex-1"
+                                          >
+                                            <img
+                                              src={step.stagePhotoUrl}
+                                              alt={`${step.title} update`}
+                                              className="w-full max-h-48 rounded-lg object-cover border border-slate-200/80"
+                                            />
+                                          </a>
+                                        </div>
+                                      ) : null}
+                                      <p className="text-[11px] text-slate-400 mt-2">{step.timestamp}</p>
+                                    </>
                                   )}
 
                                   {isActive && (

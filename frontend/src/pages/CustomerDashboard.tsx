@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { NotificationService, SystemNotification } from '../lib/notification-service';
@@ -7,6 +7,18 @@ import { invalidate } from '../lib/queryCache';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
 import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking } from '../lib/phone';
 import { normalizePlateNumber } from '../lib/plate';
+import { RAW_SPF_PACKAGES } from '../lib/customer-booking-catalog';
+import {
+  BOOKING_TERMS_DOCUMENT_TITLE,
+  BOOKING_TERMS_INTRO,
+  BOOKING_TERMS_SECTIONS,
+} from '../lib/booking-terms';
+import {
+  DASHBOARD_TRACKER_STEP_MEDIA_STAGE,
+  findTrackerStageMedia,
+  resolveTrackerStageDescription,
+} from '../lib/customer-tracker-stage-media';
+import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
 
 type DashboardSection = 'dashboard' | 'scan' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker' | 'payments';
 
@@ -36,52 +48,6 @@ const VEHICLE_OPTIONS = [
   { type: "pickup", label: "Pick Up", icon: "lucide:truck" },
   { type: "largesuv", label: "Large SUV / Van", icon: "lucide:truck" },
   { type: "highend", label: "Highend Sedan", icon: "lucide:crown" },
-];
-
-const RAW_SPF_PACKAGES = [
-  {
-    id: "spf80", name: "SPF 80 — Essential",
-    duration: "Perfect entry-level protection",
-    prices: { hatchback: 7499, sedan: 7999, midsized: 7999, suv: 8999, pickup: 8499, largesuv: 12999, highend: 14999 },
-    features: [
-      "3 Layers Graphene Ceramic Coating (Canada)",
-      "Graphene Sealant",
-      "FREE 1 visit Signature AUTOSPF Carwash",
-    ]
-  },
-  {
-    id: "spf89", name: "SPF 89 — Advanced",
-    duration: "Our most chosen package",
-    prices: { hatchback: 8999, sedan: 9999, midsized: 10999, suv: 11999, pickup: 10999, largesuv: 14999, highend: 17999 },
-    features: [
-      "4 Layers Graphene Ceramic Coating (Canada)",
-      "Graphene Sealant",
-      "FREE 1 visit Reboost/Maintenance (save ₱1,500)",
-    ]
-  },
-  {
-    id: "spf99", name: "SPF 99 — Premium",
-    duration: "Maximum protection, best price-to-value",
-    prices: { hatchback: 13999, sedan: 13999, midsized: 15999, suv: 16999, pickup: 15999, largesuv: 19999, highend: 22999 },
-    features: [
-      "4 Layers SONAX Profiline CC EVO (Germany)",
-      "FREE Full Recoat After 5 Years",
-      "FREE 2 visits Reboost/Maintenance (save ₱3,000)",
-    ]
-  },
-  {
-    id: "spf101", name: "SPF 101 — Flagship ALL-IN",
-    duration: "The complete transformation experience",
-    prices: { hatchback: 39999, sedan: 39999, midsized: 46999, suv: 46999, pickup: 46999, largesuv: 49999, highend: 49999 },
-    features: [
-      "PPF Coverage (Hood, Bumper, Mirrors, Stepsils, Door Bowls, Lights)",
-      "4 Layers SONAX Profiline CC EVO (Germany)",
-      "FREE 5 visits Reboost/Maintenance (save ₱7,500)",
-      "FREE Full Recoat After 5 Years",
-      "Nano Ceramic Window Tint (Full Wrap — Any Shade)",
-      "FREE Undercoating (Rust Proofing)",
-    ]
-  }
 ];
 
 const SCAN_FLOW_STEPS = [
@@ -323,7 +289,7 @@ export default function CustomerDashboard() {
   // the live tracker hid, and any old rejected order surfaced instead.
   // Status stays authoritative from HTTP refetch (poll + debounced silent load below).
   const handleBookingStatus = useCallback((event: BookingStatusEvent) => {
-    const { bookingId, serviceTrackingStage, serviceStaffAssignments } = event;
+    const { bookingId, serviceTrackingStage, serviceStaffAssignments, trackerStageMedia } = event;
     if (!bookingId) return;
     console.log('[TRACKER] booking:status → patching stage:', { bookingId, serviceTrackingStage });
     setMyBookings((prev: any[]) =>
@@ -335,6 +301,7 @@ export default function CustomerDashboard() {
           // Only update the fine-grained tracking stage — let polling handle status
           ...(serviceTrackingStage !== undefined ? { serviceTrackingStage } : {}),
           ...(serviceStaffAssignments?.length ? { serviceStaffAssignments } : {}),
+          ...(trackerStageMedia !== undefined ? { trackerStageMedia } : {}),
         };
       })
     );
@@ -511,6 +478,7 @@ export default function CustomerDashboard() {
   const [bookingVehicleType, setBookingVehicleType] = useState<string>('hatchback');
   const [bookingSelectedVehicleIdx, setBookingSelectedVehicleIdx] = useState<number>(-1);
   const [bookingAgreed, setBookingAgreed] = useState(false);
+  const [bookingTermsReachedEnd, setBookingTermsReachedEnd] = useState(false);
   const [bookingDownpaymentProof, setBookingDownpaymentProof] = useState<string | null>(null);
   // True when booking was opened from a garage vehicle card (pre-filled, read-only vehicle fields)
   const [bookingFromVehicle, setBookingFromVehicle] = useState(false);
@@ -680,9 +648,9 @@ export default function CustomerDashboard() {
   const [monthAvailability, setMonthAvailability] = useState<Record<string, 'available' | 'full' | 'closed'>>({});
   const [monthAvailLoading, setMonthAvailLoading] = useState(false);
 
-  const openBookingModal = async (preSelectedVehicle?: any) => {
+  const openBookingModal = async (preSelectedVehicle?: any, options?: { presetPackageId?: string }) => {
     setBookingOpen(true); setBookingStep(1); setBookingDone(false);
-    setBookingAgreed(false); setBookingDownpaymentProof(null);
+    setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null);
     setSlotStatuses([]); setBookedSlots([]); setSlotError(''); setMonthAvailability({});
     const targetVehicle = preSelectedVehicle || vehicles[0];
     const detectedKey = targetVehicle ? getVehiclePriceKey(targetVehicle.type) : 'hatchback';
@@ -695,8 +663,17 @@ export default function CustomerDashboard() {
     setBookingSelectedVehicleIdx(targetIdx);
     // Track whether booking was opened FROM a vehicle card (pre-fills & locks vehicle fields)
     setBookingFromVehicle(!!preSelectedVehicle);
+    const presetPkg = options?.presetPackageId
+      ? RAW_SPF_PACKAGES.find((p) => p.id === options.presetPackageId)
+      : undefined;
+    const presetPrice =
+      presetPkg && detectedKey in presetPkg.prices
+        ? presetPkg.prices[detectedKey as keyof typeof presetPkg.prices]
+        : 0;
     setBookingForm({
-      service: '', serviceName: '', servicePrice: 0,
+      service: presetPkg?.id || '',
+      serviceName: presetPkg?.name || '',
+      servicePrice: presetPrice,
       // Populate individual vehicle fields from the garage record
       vehicleMake: targetVehicle ? (targetVehicle.make || '') : '',
       vehicleModel: targetVehicle ? (targetVehicle.model || '') : '',
@@ -710,6 +687,38 @@ export default function CustomerDashboard() {
       date: '', time: '', notes: '',
     });
   };
+
+  const bookingPrevStepRef = useRef(bookingStep);
+  const bookingTcScrollRef = useRef<HTMLDivElement | null>(null);
+
+  /** Step 5 T&C: reset agreement when (re)entering; if content fits without scrolling, treat as “read”. */
+  useLayoutEffect(() => {
+    const prev = bookingPrevStepRef.current;
+    bookingPrevStepRef.current = bookingStep;
+    if (bookingStep !== 5) return;
+
+    const el = bookingTcScrollRef.current;
+    if (prev !== 5) {
+      setBookingTermsReachedEnd(false);
+      setBookingAgreed(false);
+    }
+
+    const measureBottom = () => {
+      if (!el) return;
+      if (el.scrollHeight - el.scrollTop - el.clientHeight <= 28) setBookingTermsReachedEnd(true);
+    };
+
+    const id = requestAnimationFrame(measureBottom);
+    let ro: ResizeObserver | undefined;
+    if (el && typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(measureBottom);
+      ro.observe(el);
+    }
+    return () => {
+      cancelAnimationFrame(id);
+      ro?.disconnect();
+    };
+  }, [bookingStep]);
 
   const fetchSlotsForDate = async (dateIso: string, currentSelectedTime?: string) => {
     if (!dateIso) return;
@@ -3366,8 +3375,24 @@ export default function CustomerDashboard() {
                                       )}
                                     </div>
                                     {/* Text */}
-                                    <div className="pt-1 pb-4">
+                                    <div className="pt-1 pb-4 min-w-0 flex-1">
                                       <p className={`text-sm font-semibold ${isDone ? 'text-emerald-700' : isActive ? 'text-slate-900' : 'text-slate-400'}`}>{step.label}</p>
+                                      {(() => {
+                                        const apiStage = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[step.id];
+                                        const media = findTrackerStageMedia(activeBooking as any, apiStage);
+                                        const desc = resolveTrackerStageDescription(activeBooking as any, apiStage);
+                                        const photo = (media?.photoUrl || '').trim();
+                                        return (
+                                          <>
+                                            <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">{desc}</p>
+                                            {photo && (isDone || isActive) ? (
+                                              <a href={photo} target="_blank" rel="noopener noreferrer" className="mt-2 block rounded-lg border border-slate-200 overflow-hidden max-w-xs">
+                                                <img src={photo} alt="" className="w-full h-28 object-cover" />
+                                              </a>
+                                            ) : null}
+                                          </>
+                                        );
+                                      })()}
                                       {isActive && <p className="text-xs text-amber-600 mt-0.5 font-medium">● Current stage</p>}
                                       {isDone && <p className="text-xs text-slate-400 mt-0.5">Completed</p>}
                                     </div>
@@ -3602,7 +3627,6 @@ export default function CustomerDashboard() {
                   </div>
                 </div>
 
-
                 {/* ── PENDING CONFIRMATION card ── */}
                 {pendingConfirmationBooking && !hasActiveBooking && (() => {
                   const ref = pendingConfirmationBooking.bookingReference || pendingConfirmationBooking.orderNumber || '—';
@@ -3704,7 +3728,7 @@ export default function CustomerDashboard() {
                           <p style={{ fontSize: 12, color: 'rgba(255,255,255,.4)', margin: '0 0 12px', fontWeight: 500 }}>
                             {rejectedBooking.rejectionReason || 'Your payment proof could not be verified.'}
                           </p>
-                          <button onClick={() => { setBookingOpen(true); setBookingStep(1); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.3)', borderRadius: 10, padding: '8px 16px', color: '#a5b4fc', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                          <button onClick={() => { setBookingOpen(true); setBookingStep(1); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.3)', borderRadius: 10, padding: '8px 16px', color: '#a5b4fc', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                             <iconify-icon icon="solar:restart-bold" width="13"></iconify-icon>
                             Book Again
                           </button>
@@ -4210,6 +4234,15 @@ export default function CustomerDashboard() {
                   )}
                 </section>
 
+                {/* Service catalog — after garage: browse / plan without blocking status or booking alerts */}
+                <CustomerDashboardServicesShowcase
+                  vehicles={vehicles}
+                  getVehiclePriceKey={getVehiclePriceKey}
+                  onOpenBooking={(opts) => {
+                    void openBookingModal(undefined, opts?.presetPackageId ? { presetPackageId: opts.presetPackageId } : undefined);
+                  }}
+                />
+
                 {/* Bottom Grid: Documents & Activity */}
                 <div className="grid grid-cols-1 gap-8 pb-8 lg:grid-cols-2">
 
@@ -4500,8 +4533,8 @@ export default function CustomerDashboard() {
                     type="text"
                     placeholder="e.g. ABC-1234"
                     value={newVehicle.plate}
-                    onChange={(e) => { setNewVehicle({ ...newVehicle, plate: e.target.value }); setVehicleErrors(er => ({ ...er, plate: '' })); }}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${vehicleErrors.plate ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
+                    onChange={(e) => { setNewVehicle({ ...newVehicle, plate: e.target.value.toUpperCase() }); setVehicleErrors(er => ({ ...er, plate: '' })); }}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors uppercase tracking-widest font-mono ${vehicleErrors.plate ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
                   />
                   {vehicleErrors.plate ? (
                     <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.plate}</p>
@@ -4740,7 +4773,7 @@ export default function CustomerDashboard() {
 
       {/* Book Service Modal */}
       {bookingOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,.45)', backdropFilter: 'blur(8px)' }} onClick={() => { if (!bookingSubmitting) { setBookingOpen(false); } }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,.45)', backdropFilter: 'blur(8px)' }} onClick={() => { if (!bookingSubmitting) { setBookingOpen(false); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); } }}>
           <div
             className="bg-white w-full max-w-lg overflow-hidden border border-slate-200/70 rounded-[1.75rem]"
             onClick={e => e.stopPropagation()}
@@ -4770,7 +4803,7 @@ export default function CustomerDashboard() {
                   </div>
                 </div>
                 {!bookingSubmitting && (
-                  <button onClick={() => { setBookingOpen(false); setBookingAgreed(false); setBookingDownpaymentProof(null); }}
+                  <button onClick={() => { setBookingOpen(false); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); }}
                     style={{ width: 34, height: 34, borderRadius: 12, border: '1px solid rgba(148,163,184,0.35)', background: 'linear-gradient(180deg,#ffffff,#f8fafc)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', flexShrink: 0, boxShadow: '0 2px 8px -4px rgba(15,23,42,0.08)' }}>
                     <iconify-icon icon="solar:close-circle-linear" width="16"></iconify-icon>
                   </button>
@@ -4900,7 +4933,7 @@ export default function CustomerDashboard() {
                   {/* CTA Footer */}
                   <div style={{ padding: '14px 20px', borderTop: '1px solid #f1f5f9', background: '#fff', flexShrink: 0 }}>
                     <button
-                      onClick={() => { setBookingOpen(false); setBookingAgreed(false); setBookingDownpaymentProof(null); }}
+                      onClick={() => { setBookingOpen(false); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); }}
                       style={{ width: '100%', padding: '13px 0', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg,#1e293b,#0f172a)', color: '#fff', fontSize: 14, fontWeight: 700, letterSpacing: '0.01em', cursor: 'pointer', boxShadow: '0 4px 16px rgba(15,23,42,0.2)', transition: 'all 0.2s' }}>
                       Done — Back to Dashboard
                     </button>
@@ -4984,6 +5017,7 @@ export default function CustomerDashboard() {
                             <div>
                               <p className="text-[15px] font-bold text-slate-900">{svc.name}</p>
                               <p className="text-[13px] font-medium text-slate-500 mt-0.5">{svc.duration}</p>
+                              <p className="text-[12px] text-slate-600 leading-relaxed mt-2">{svc.description}</p>
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="text-[15px] font-black text-slate-900">₱{currentPrice.toLocaleString()}</span>
@@ -5196,7 +5230,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehiclePlate: e.target.value.toUpperCase() }));
                               if (step2Errors.vehiclePlate) setStep2Errors(err => ({ ...err, vehiclePlate: '' }));
                             }}
-                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 ${step2Errors.vehiclePlate ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 uppercase tracking-widest font-mono ${step2Errors.vehiclePlate ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           />
                           {step2Errors.vehiclePlate
                             ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehiclePlate}</p>
@@ -5652,90 +5686,83 @@ export default function CustomerDashboard() {
               ) : bookingStep === 5 ? (
                 /* ── Step 5: Terms & Conditions ── */
                 <div className="px-5 pt-4 pb-6 space-y-4">
-                  <div className="rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50 via-white to-slate-50/80 p-4 shadow-sm">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-amber-800/85 mb-1.5">Step 5 — Legal agreement</p>
-                    <h3 className="text-[16px] font-semibold text-slate-900 tracking-tight leading-snug">Paint Protection Film terms</h3>
-                    <p className="text-[12px] text-slate-600 mt-2 leading-relaxed">
-                      This English version applies to every booking, including international customers. By continuing you agree these terms govern your PPF service regardless of where you are located.
-                    </p>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500 mb-1.5">Step 5 of 6</p>
+                    <h3 className="text-[17px] font-semibold text-slate-900 tracking-tight leading-snug">{BOOKING_TERMS_DOCUMENT_TITLE}</h3>
+                    <p className="text-[13px] text-slate-600 mt-2 leading-relaxed">{BOOKING_TERMS_INTRO}</p>
                   </div>
-
-                  <ul className="rounded-xl border border-slate-200 bg-white px-3.5 py-3 space-y-2.5 text-[12px] text-slate-700 leading-snug">
-                    {[
-                      'PPF is a sacrificial film — not invisible armor; curing takes about 3–4 weeks.',
-                      '5-year warranty covers yellowing, cracking, and fading under normal use — not abuse or accidents.',
-                      'A non-refundable reservation secures your slot; balance is due at the shop on service day.',
-                      'Rock chips and contamination under the film are inherent limits of real-world installs.',
-                    ].map((line) => (
-                      <li key={line} className="flex gap-2.5">
-                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
-                        <span>{line}</span>
-                      </li>
-                    ))}
-                  </ul>
 
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500 mb-2">Full terms (read before accepting)</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500 mb-2">Full text (scroll to the end)</p>
                     <div
+                      ref={bookingTcScrollRef}
                       id="tc-scroll-box"
-                      tabIndex={-1}
-                      className="max-h-[min(240px,42vh)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/90 bg-slate-50/90 px-4 py-3.5 text-[13px] text-slate-700 leading-[1.65] shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] scroll-smooth outline-none"
+                      role="region"
+                      aria-label="Terms and conditions full text"
+                      tabIndex={0}
+                      onScroll={(e) => {
+                        const el = e.currentTarget;
+                        if (el.scrollHeight - el.scrollTop - el.clientHeight <= 28) setBookingTermsReachedEnd(true);
+                      }}
+                      className="max-h-[min(280px,48vh)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/90 bg-slate-50/90 px-4 py-3.5 text-[13px] text-slate-700 leading-[1.65] shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] scroll-smooth outline-none"
                       style={{ WebkitOverflowScrolling: 'touch' }}
                     >
-                      <p className="mb-3 text-slate-800">Paint protection film is a skilled installation. This document sets expectations and can be used as a reference later.</p>
-
-                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">About Paint Protection Film</p>
-                      <p className="mb-4 text-slate-600">Paint protection film is designed to protect your vehicle{"'s"} paint from chips, scratches, and swirl marks. It is applied to the exterior painted surfaces. The customer understands that PPF is a sacrificial layer — not a completely invisible or flawless finish.</p>
-
-                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Drying time</p>
-                      <p className="mb-4 text-slate-600">Your new film typically needs 3–4 weeks to fully cure depending on weather. Do not wash the vehicle for the first 7 days. Water or air pockets may appear; avoid picking at them — they usually dissipate as the film settles.</p>
-
-                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Warranty</p>
-                      <p className="mb-4 text-slate-600">Installed PPF carries a 5-year warranty against yellowing, cracking, and fading under normal conditions. The warranty does <strong className="text-slate-800">not</strong> cover misuse (e.g. pressure washer damage), excessive sun without care, negligence, cuts, lifting, accidents, or road debris. The film is meant to sacrifice itself to help protect your paint.</p>
-
-                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Existing rock chips</p>
-                      <p className="mb-4 text-slate-600">Installing over existing chips can make those areas more visible, especially on dark paint. We have applied PPF to vehicles of many ages; results vary with prior paint condition.</p>
-
-                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Badges and trim</p>
-                      <p className="mb-4 text-slate-600">Some installs require removing badges or trim for the cleanest result. We retain OEM badging unless removal is necessary or you request otherwise.</p>
-
-                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Imperfections</p>
-                      <p className="mb-4 text-slate-600">We aim for a near-perfect finish, but adhesive film on a full vehicle may show trace dust or contamination. We take strong precautions while acknowledging real-world limits.</p>
-
-                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/90">Booking policy</p>
-                      <p className="text-slate-600">A non-refundable down payment secures your slot. Bookings are subject to availability and approval. Please arrive within 30 minutes of your scheduled time. You confirm that the information you provided is accurate.</p>
+                      {BOOKING_TERMS_SECTIONS.map((sec) => (
+                        <section key={sec.id} className="mb-4 last:mb-1">
+                          <h4 className="text-[12px] font-bold text-slate-900 tracking-tight mb-1.5">{sec.title}</h4>
+                          <p className="text-slate-600">{sec.body}</p>
+                        </section>
+                      ))}
                     </div>
+                    {!bookingTermsReachedEnd ? (
+                      <p className="mt-2 text-center text-[11px] font-medium text-orange-700" aria-live="polite">
+                        Scroll to the bottom to enable the agreement checkbox.
+                      </p>
+                    ) : null}
                   </div>
 
-                  <p className="flex items-start gap-2 rounded-lg bg-slate-100/80 px-3 py-2.5 text-[11px] text-slate-600 leading-relaxed">
-                    <iconify-icon icon="solar:document-text-bold" width="18" className="text-slate-400 shrink-0 mt-0.5" />
-                    <span>Review the full text above, then check the box to confirm — no forced scroll; please read carefully before you accept.</span>
-                  </p>
-
-                  <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3.5 shadow-sm transition-colors hover:border-slate-300 focus-within:ring-2 focus-within:ring-indigo-500/25">
+                  <div
+                    className={`flex items-start gap-3 rounded-xl border px-3.5 py-3.5 shadow-sm ${
+                      bookingTermsReachedEnd
+                        ? 'border-slate-200 bg-white hover:border-slate-300 focus-within:ring-2 focus-within:ring-indigo-500/25'
+                        : 'border-slate-200 bg-slate-50 opacity-75'
+                    }`}
+                  >
                     <input
                       id="tc-checkbox"
                       type="checkbox"
+                      disabled={!bookingTermsReachedEnd}
                       checked={bookingAgreed}
-                      onChange={(e) => setBookingAgreed(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/40"
+                      onChange={(e) => {
+                        if (!bookingTermsReachedEnd) return;
+                        setBookingAgreed(e.target.checked);
+                      }}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50"
                     />
                     <div className="min-w-0 flex-1">
-                      <label htmlFor="tc-checkbox" className="text-[13px] text-slate-600 leading-relaxed cursor-pointer">
-                        I have read and agree to the <strong className="font-semibold text-slate-900">terms and conditions</strong> in the document above.
-                      </label>
-                      <button
-                        type="button"
-                        className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 underline decoration-indigo-500/35 underline-offset-[3px] hover:decoration-indigo-600"
-                        onClick={() => {
-                          const box = document.getElementById('tc-scroll-box');
-                          box?.scrollTo({ top: 0, behavior: 'smooth' });
-                          box?.focus();
-                        }}
+                      <label
+                        htmlFor="tc-checkbox"
+                        className={`text-[13px] leading-relaxed ${bookingTermsReachedEnd ? 'text-slate-600 cursor-pointer' : 'text-slate-400 cursor-not-allowed'}`}
                       >
-                        <iconify-icon icon="solar:arrow-up-linear" width="14" className="shrink-0" />
-                        Jump to start of full terms
-                      </button>
+                        I have read and agree to the <strong className="font-semibold text-slate-900">Terms and Conditions</strong>{' '}
+                        <span className="text-red-600">*</span>
+                      </label>
+                      {bookingTermsReachedEnd ? (
+                        <button
+                          type="button"
+                          className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 underline decoration-indigo-500/35 underline-offset-[3px] hover:decoration-indigo-600"
+                          onClick={() => {
+                            setBookingTermsReachedEnd(false);
+                            setBookingAgreed(false);
+                            const box = document.getElementById('tc-scroll-box');
+                            box?.scrollTo({ top: 0, behavior: 'smooth' });
+                            box?.focus();
+                          }}
+                        >
+                          <iconify-icon icon="solar:arrow-up-linear" width="14" className="shrink-0" />
+                          Jump to start of terms
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -5854,7 +5881,7 @@ export default function CustomerDashboard() {
                 selectedSlotStatus === 'AVAILABLE' &&
                 !slotError;
               const step4Valid = true; // Summary step — always passable, just review
-              const step5Valid = bookingAgreed;
+              const step5Valid = bookingAgreed && bookingTermsReachedEnd;
               const step6Valid = !!bookingDownpaymentProof && !bookingSubmitting;
 
               const isStepInvalid =
@@ -5873,7 +5900,13 @@ export default function CustomerDashboard() {
                           !bookingForm.time ? 'Select an available time slot' :
                             selectedSlotStatus !== 'AVAILABLE' ? 'Selected slot is no longer available' : ''
                     ) :
-                      bookingStep === 5 ? (!step5Valid ? 'Confirm below that you have read and accept the terms' : '') : '';
+                      bookingStep === 5
+                        ? !bookingTermsReachedEnd
+                          ? 'Scroll to the bottom of the terms to enable the checkbox.'
+                          : !bookingAgreed
+                            ? 'Check the box to agree to the Terms and Conditions.'
+                            : ''
+                        : '';
 
               return (
                 <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(148,163,184,0.22)', flexShrink: 0, background: 'linear-gradient(180deg,#ffffff,#fafbfc)' }}>
@@ -6230,8 +6263,8 @@ export default function CustomerDashboard() {
                     type="text"
                     placeholder="e.g. ABC-1234"
                     value={editVehicleForm.plate}
-                    onChange={(e) => { setEditVehicleForm(f => ({ ...f, plate: e.target.value })); setEditVehicleErrors(er => ({ ...er, plate: '' })); }}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${editVehicleErrors.plate ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
+                    onChange={(e) => { setEditVehicleForm(f => ({ ...f, plate: e.target.value.toUpperCase() })); setEditVehicleErrors(er => ({ ...er, plate: '' })); }}
+                    className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors uppercase tracking-widest font-mono ${editVehicleErrors.plate ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
                   />
                   {editVehicleErrors.plate ? (
                     <p className="mt-1 text-[11px] text-red-500">{editVehicleErrors.plate}</p>

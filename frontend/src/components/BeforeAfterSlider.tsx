@@ -67,7 +67,7 @@ export default function BeforeAfterSlider({
         <div
             ref={containerRef}
             className={cn(
-                "relative w-full max-w-4xl mx-auto aspect-video rounded-2xl overflow-hidden cursor-ew-resize select-none border border-gold/20 shadow-2xl shadow-black/50 group",
+                "relative w-full max-w-4xl mx-auto aspect-video rounded-2xl overflow-hidden cursor-ew-resize select-none border border-white/10 shadow-2xl shadow-black/50 group",
                 className
             )}
             onMouseDown={handleMouseDown}
@@ -117,11 +117,11 @@ export default function BeforeAfterSlider({
 
             {/* Slider Handle */}
             <div
-                className="absolute top-0 bottom-0 w-0.5 bg-gold shadow-[0_0_10px_rgba(201,162,39,0.5)] cursor-ew-resize flex items-center justify-center z-10"
+                className="absolute top-0 bottom-0 z-10 flex w-0.5 cursor-ew-resize items-center justify-center bg-orange-500 shadow-[0_0_14px_rgba(249,115,22,0.55)]"
                 style={{ left: `${sliderPos}%` }}
             >
-                <div className="w-8 h-8 -ml-4 rounded-full bg-black/80 border-2 border-gold flex items-center justify-center shadow-lg shadow-black/50 backdrop-blur-sm group-hover:scale-110 transition-transform">
-                    <MoveHorizontal className="w-4 h-4 text-gold" />
+                <div className="-ml-4 flex h-8 w-8 items-center justify-center rounded-full border-2 border-orange-500 bg-black/85 shadow-lg shadow-black/50 backdrop-blur-sm transition-transform group-hover:scale-110">
+                    <MoveHorizontal className="h-4 w-4 text-orange-500" />
                 </div>
             </div>
             

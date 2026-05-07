@@ -140,7 +140,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                             id="plateNumber"
                             placeholder="e.g. ABC 1234"
                             value={plateNumber}
-                            onChange={(e) => setPlateNumber(e.target.value)}
+                            onChange={(e) => setPlateNumber(e.target.value.toUpperCase())}
                             className="glass border-white/5 focus:border-[var(--gold-primary)]/50 focus:ring-1 focus:ring-[var(--gold-primary)] text-white placeholder-white/30 uppercase"
                             required
                         />

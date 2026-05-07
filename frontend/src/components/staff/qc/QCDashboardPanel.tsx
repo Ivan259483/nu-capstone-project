@@ -538,6 +538,7 @@ export default function QCDashboardPanel() {
     returnJob,
     updateChecklist,
     updateServiceStatus,
+    uploadTrackerStagePhoto,
     assignServiceStaff,
     refetchAll,
   } = useQCData();
@@ -618,6 +619,7 @@ export default function QCDashboardPanel() {
             loading={jobsLoading}
             onAdvance={updateServiceStatus}
             onSaveStaff={assignServiceStaff}
+            onUploadStagePhoto={uploadTrackerStagePhoto}
           />
         );
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Search, User, Car, Phone, Mail, History } from 'lucide-react';
 import { Customer, Vehicle } from '@/lib/salesData';
+import { vehicleHeadline } from '@/lib/vehicle-display';
 
 interface Props {
   customers: Customer[];
@@ -27,7 +28,10 @@ export default function CustomerVehiclePanel({
     ? customers.filter((c) =>
         c.name.toLowerCase().includes(query.toLowerCase()) ||
         c.phone.includes(query) ||
-        c.vehicles.some((v) => v.plate.toLowerCase().includes(query.toLowerCase()))
+        c.vehicles.some((v) =>
+          vehicleHeadline(v).toLowerCase().includes(query.toLowerCase()) ||
+          v.plate.toLowerCase().includes(query.toLowerCase())
+        )
       )
     : customers;
 
@@ -71,7 +75,7 @@ export default function CustomerVehiclePanel({
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-slate-900">{c.name}</p>
                       <p className="text-[11px] text-slate-500">{c.phone}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">{c.vehicles.map((v) => v.plate).join(', ')}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{c.vehicles.map((v) => vehicleHeadline(v)).join(', ')}</p>
                     </div>
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border capitalize ${TIER_COLORS[c.tier]}`}>
                       {c.tier}
@@ -161,7 +165,7 @@ export default function CustomerVehiclePanel({
                     <Car size={14} className={selectedVehicle?.id === v.id ? 'text-blue-700' : 'text-slate-500'} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-slate-900">{v.plate}</p>
+                    <p className="text-xs font-bold text-slate-900 truncate">{vehicleHeadline(v)}</p>
                     <p className="text-[11px] text-slate-500 truncate">{v.year} {v.make} {v.model}</p>
                     <p className="text-[10px] text-slate-400">{v.color} · {v.type}</p>
                   </div>

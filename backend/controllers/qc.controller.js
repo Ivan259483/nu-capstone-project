@@ -76,6 +76,7 @@ export const getQCJobs = async (req, res, next) => {
         serviceTrackingUpdatedAt: o.serviceTrackingUpdatedAt || null,
         serviceTrackingUpdatedBy: o.serviceTrackingUpdatedBy || null,
         serviceStaffAssignments: o.serviceStaffAssignments || [],        // assigned named staff
+        trackerStageMedia: o.trackerStageMedia || [],
         aiFlag,
         priority: elapsedMinutes > 120 ? 'high' : elapsedMinutes > 60 ? 'medium' : 'normal',
         // Raw order data for detail view
@@ -363,7 +364,11 @@ export const approveJob = async (req, res, next) => {
     try {
       const io = getIO();
       // Broad event for staff dashboards
-      io.emit('orderUpdated', { orderId: order._id, status: order.status });
+      io.emit('orderUpdated', {
+        orderId: order._id,
+        status: order.status,
+        trackerStageMedia: order.trackerStageMedia || [],
+      });
       // Targeted event for the customer's live tracker
       const customerId = typeof order.customer === 'object'
         ? order.customer?._id?.toString?.()
@@ -374,6 +379,7 @@ export const approveJob = async (req, res, next) => {
           status: 'completed',
           serviceTrackingStage: 'ready_pickup',
           serviceStaffAssignments: order.serviceStaffAssignments || [],
+          trackerStageMedia: order.trackerStageMedia || [],
           updatedAt: new Date().toISOString(),
         });
       }
@@ -550,6 +556,7 @@ export const updateServiceStatus = async (req, res, next) => {
         orderId: order._id,
         status: order.status,
         serviceTrackingStage: stage,
+        trackerStageMedia: order.trackerStageMedia || [],
       });
       // Targeted event for the customer's live tracker
       const customerId = typeof order.customer === 'object'
@@ -561,6 +568,7 @@ export const updateServiceStatus = async (req, res, next) => {
           status: order.status,
           serviceTrackingStage: stage,
           serviceStaffAssignments: order.serviceStaffAssignments || [],
+          trackerStageMedia: order.trackerStageMedia || [],
           updatedAt: new Date().toISOString(),
         });
       }
@@ -659,6 +667,7 @@ export const assignServiceStaff = async (req, res, next) => {
           status: order.status,
           serviceTrackingStage: order.serviceTrackingStage || null,
           serviceStaffAssignments: order.serviceStaffAssignments || [],
+          trackerStageMedia: order.trackerStageMedia || [],
           updatedAt: new Date().toISOString(),
         });
       }

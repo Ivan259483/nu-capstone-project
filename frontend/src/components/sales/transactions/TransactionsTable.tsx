@@ -5,10 +5,11 @@ import {
 } from 'lucide-react';
 import {
   Transaction, TransactionStatus, PaymentMethod,
-  formatPeso, getPaymentMethodLabel, getStatusColor,
+  formatPeso, getPaymentMethodLabel, formatTransactionStatusLabel,
 } from '@/lib/salesData';
 import TransactionReceiptModal from './TransactionReceiptModal';
 import { useSalesContext } from '@/contexts/SalesAnalyticsContext';
+import { getPrimaryKpiDayTransactions } from '@/lib/dashboard-time';
 
 type SortKey = keyof Transaction | '';
 type SortDir = 'asc' | 'desc';
@@ -31,11 +32,11 @@ const PM_OPTIONS: { key: string; value: PaymentMethod | 'all'; label: string }[]
 ];
 
 const PM_BADGE_COLORS: Record<string, string> = {
-  cash:          'border border-emerald-300 text-emerald-700 bg-white',
-  card:          'border border-indigo-300 text-indigo-700 bg-white',
-  gcash:         'border border-teal-300 text-teal-700 bg-white',
-  maya:          'border border-violet-300 text-violet-700 bg-white',
-  bank_transfer: 'border border-slate-400 text-slate-700 bg-slate-50',
+  cash:          'text-emerald-900 bg-gradient-to-b from-emerald-50/95 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_0_0_1px_rgba(167,243,208,0.75),0_1px_2px_rgba(5,95,70,0.05)]',
+  card:          'text-indigo-900 bg-gradient-to-b from-indigo-50/95 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_0_0_1px_rgba(199,210,254,0.8),0_1px_2px_rgba(49,46,129,0.06)]',
+  gcash:         'text-teal-900 bg-gradient-to-b from-teal-50/95 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_0_0_1px_rgba(153,246,228,0.75),0_1px_2px_rgba(15,118,110,0.05)]',
+  maya:          'text-violet-900 bg-gradient-to-b from-violet-50/95 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_0_0_1px_rgba(221,214,254,0.8),0_1px_2px_rgba(76,29,149,0.05)]',
+  bank_transfer: 'text-slate-800 bg-gradient-to-b from-slate-50 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(226,232,240,0.95),0_1px_2px_rgba(15,23,42,0.04)]',
 };
 
 // Color-coded avatar per customer (consistent by name hash)
@@ -70,6 +71,9 @@ export default function TransactionsTable() {
   const [receiptTxn, setReceiptTxn] = useState<Transaction | null>(null);
 
   const { transactions: TRANSACTIONS, isLoading } = useSalesContext();
+
+  const kpiPrimary = useMemo(() => getPrimaryKpiDayTransactions(TRANSACTIONS), [TRANSACTIONS]);
+  const { kpiDayTxns, useLast24hFallback } = kpiPrimary;
 
   const filtered = useMemo(() => {
     let data = [...TRANSACTIONS];
@@ -124,7 +128,7 @@ export default function TransactionsTable() {
     const rows = txns.map(t => [
       `"${t.id}"`, `"${t.customerName}"`, `"${t.vehiclePlate}"`,
       `"${t.services.map(s => s.name).join('; ')}"`,
-      t.total.toFixed(2), t.paymentMethod, t.status,
+      t.total.toFixed(2), t.paymentMethod, formatTransactionStatusLabel(t.status, t.statusRaw),
       new Date(t.dateTime).toLocaleString('en-PH'), `"${t.staffName}"`
     ].join(','));
     const csv = [headers.join(','), ...rows].join('\n');
@@ -156,25 +160,29 @@ export default function TransactionsTable() {
 
   const hasActiveFilters = search || statusFilter !== 'all' || pmFilter !== 'all';
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayTxns = TRANSACTIONS.filter((t) => new Date(t.dateTime) >= today);
-  const todayTotal = todayTxns.reduce((s, t) => s + t.total, 0);
+  const todayTotal = kpiDayTxns.reduce((s, t) => s + t.total, 0);
   const pendingTotal = TRANSACTIONS.filter((t) => t.status === 'pending').reduce((s, t) => s + t.total, 0);
 
   return (
     <>
       {/* Summary Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         {[
-          { key: 'ts-today',    label: "Today's Revenue",  value: formatPeso(todayTotal),   sub: `${todayTxns.length} transactions`,                                                         color: 'text-blue-700',  accent: '#1d4ed8' },
+          {
+            key: 'ts-today',
+            label: useLast24hFallback ? 'Revenue (last 24h)' : "Today's Revenue",
+            value: formatPeso(todayTotal),
+            sub: `${kpiDayTxns.length} transaction${kpiDayTxns.length !== 1 ? 's' : ''}${useLast24hFallback ? ' · rolling' : ''}`,
+            color: 'text-blue-700',
+            accent: '#1d4ed8',
+          },
           { key: 'ts-pending',  label: 'Pending Amount',    value: formatPeso(pendingTotal),  sub: `${TRANSACTIONS.filter((t) => t.status === 'pending').length} awaiting payment`,            color: 'text-amber-600', accent: '#d97706' },
           { key: 'ts-total',    label: 'Total Records',     value: String(TRANSACTIONS.length), sub: 'All time',                                                                              color: 'text-slate-900', accent: '#94a3b8' },
           { key: 'ts-filtered', label: 'Filtered Results',  value: String(filtered.length),   sub: 'Current view',                                                                            color: 'text-slate-900', accent: '#94a3b8' },
         ].map((s) => (
           <div
             key={s.key}
-            className="card-base stat-card-animate px-4 py-3 relative overflow-hidden"
+            className="stat-card-animate rounded-2xl border border-slate-200/50 bg-white px-4 py-3.5 relative overflow-hidden shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-8px_rgba(15,23,42,0.06)] transition-[box-shadow,border-color] duration-200 hover:shadow-[0_2px_8px_-2px_rgba(15,23,42,0.06),0_12px_32px_-10px_rgba(15,23,42,0.08)] hover:border-slate-200/70"
             style={{ borderLeft: `3px solid ${s.accent}` }}
           >
             <p className="metric-label mb-1">{s.label}</p>
@@ -184,10 +192,10 @@ export default function TransactionsTable() {
         ))}
       </div>
 
-      {/* Main Table Card */}
-      <div className="card-base overflow-hidden">
+      {/* Main table — large radius + soft rim + depth (smooth bordering) */}
+      <div className="rounded-3xl border border-slate-200/45 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.85),0_12px_40px_-12px_rgba(15,23,42,0.1),0_4px_16px_-4px_rgba(15,23,42,0.06)] ring-1 ring-slate-900/[0.03] overflow-hidden isolate">
         {/* Toolbar */}
-        <div className="px-5 py-4 flex flex-wrap items-center gap-3" style={{ borderBottom: '1px solid rgba(226,232,240,0.4)' }}>
+        <div className="px-5 sm:px-6 py-4 flex flex-wrap items-center gap-3 border-b border-slate-100/90 bg-gradient-to-b from-slate-50/90 via-slate-50/40 to-white">
           {/* Search */}
           <div className="relative flex-1 min-w-52">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -196,7 +204,7 @@ export default function TransactionsTable() {
               placeholder="Search by ID, customer, plate, service…"
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="input-base pl-8 py-2 text-sm"
+              className="input-base pl-8 py-2 text-sm rounded-xl border-slate-200/70 shadow-sm shadow-slate-200/20 focus:border-blue-300/80"
             />
           </div>
 
@@ -205,7 +213,7 @@ export default function TransactionsTable() {
             <select
               value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value as TransactionStatus | 'all'); setPage(1); }}
-              className="input-base py-2 pr-8 text-sm appearance-none cursor-pointer min-w-36"
+              className="input-base py-2 pr-8 text-sm appearance-none cursor-pointer min-w-36 rounded-xl border-slate-200/70 shadow-sm shadow-slate-200/20"
             >
               {STATUS_OPTIONS.map((opt) => (
                 <option key={opt.key} value={opt.value}>{opt.label}</option>
@@ -219,7 +227,7 @@ export default function TransactionsTable() {
             <select
               value={pmFilter}
               onChange={(e) => { setPmFilter(e.target.value as PaymentMethod | 'all'); setPage(1); }}
-              className="input-base py-2 pr-8 text-sm appearance-none cursor-pointer min-w-40"
+              className="input-base py-2 pr-8 text-sm appearance-none cursor-pointer min-w-40 rounded-xl border-slate-200/70 shadow-sm shadow-slate-200/20"
             >
               {PM_OPTIONS.map((opt) => (
                 <option key={opt.key} value={opt.value}>{opt.label}</option>
@@ -229,7 +237,7 @@ export default function TransactionsTable() {
           </div>
 
           {/* Date Range (UI only) */}
-          <button className="flex items-center gap-2 btn-secondary py-2">
+          <button className="flex items-center gap-2 btn-secondary py-2 rounded-xl border-slate-200/70 shadow-sm shadow-slate-200/15">
             <Calendar size={14} />
             <span>{new Date(new Date().getFullYear(), new Date().getMonth(), 1).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })} – {new Date().toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}</span>
           </button>
@@ -247,7 +255,7 @@ export default function TransactionsTable() {
           <div className="ml-auto flex items-center gap-2">
             <button
               onClick={() => exportTransactionsCSV(filtered)}
-              className="flex items-center gap-2 btn-secondary py-2"
+              className="flex items-center gap-2 btn-secondary py-2 rounded-xl border-slate-200/70 shadow-sm shadow-slate-200/15"
             >
               <Download size={14} />
               Export CSV
@@ -257,20 +265,20 @@ export default function TransactionsTable() {
 
         {/* Bulk Action Bar */}
         {selectedRows.size > 0 && (
-          <div className="px-5 py-3 bg-blue-50 border-b border-blue-200 flex items-center gap-3 animate-slide-up">
+          <div className="px-5 sm:px-6 py-3 bg-gradient-to-r from-blue-50/95 via-blue-50/50 to-slate-50/40 border-b border-blue-100/50 flex items-center gap-3 animate-slide-up">
             <span className="text-sm font-semibold text-blue-700">
               {selectedRows.size} row{selectedRows.size !== 1 ? 's' : ''} selected
             </span>
             <button
               onClick={handleBulkExport}
-              className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900 bg-white border border-blue-300 px-3 py-1.5 rounded-lg transition-colors duration-150"
+              className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900 bg-white/90 border border-blue-200/60 px-3 py-1.5 rounded-lg shadow-sm shadow-blue-900/[0.04] transition-colors duration-150"
             >
               <Download size={12} />
               Export Selected
             </button>
             <button
               onClick={() => console.warn('Bulk void requires manager approval.')}
-              className="flex items-center gap-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-3 py-1.5 rounded-lg transition-colors duration-150"
+              className="flex items-center gap-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-white/90 border border-red-200/60 px-3 py-1.5 rounded-lg shadow-sm transition-colors duration-150"
             >
               <X size={12} />
               Void Selected
@@ -286,16 +294,15 @@ export default function TransactionsTable() {
 
         {/* Table */}
         <div className="overflow-x-auto scrollbar-thin">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm border-collapse">
             <thead>
-              <tr className="" style={{ background: 'rgba(248,250,252,0.8)', borderBottom: '1px solid rgba(226,232,240,0.5)' }}>
-                <th className="px-4 py-3 text-left w-10">
+              <tr className="bg-gradient-to-b from-slate-50/95 to-slate-50/60 border-b border-slate-200/50">
+                <th className="pl-5 sm:pl-6 pr-2 py-3.5 text-left w-10">
                   <input
                     type="checkbox"
                     checked={selectedRows.size === paginated.length && paginated.length > 0}
                     onChange={toggleAll}
-                    className="w-4 h-4"
-                    style={{ borderRadius: '50%' }}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30"
                   />
                 </th>
                 {[
@@ -313,7 +320,7 @@ export default function TransactionsTable() {
                   <th
                     key={col.key}
                     onClick={() => col.sortKey && handleSort(col.sortKey)}
-                    className={`px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide whitespace-nowrap ${col.sortKey ? 'cursor-pointer hover:text-slate-900 select-none' : ''}`}
+                    className={`px-3 sm:px-4 py-3.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap first:pl-2 last:pr-5 sm:last:pr-6 ${col.sortKey ? 'cursor-pointer hover:text-slate-800 select-none transition-colors' : ''}`}
                   >
                     {col.label}
                     {col.sortKey && <SortIcon col={col.sortKey} />}
@@ -324,7 +331,7 @@ export default function TransactionsTable() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-16 text-center">
+                  <td colSpan={11} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-blue-600 animate-spin mx-auto" />
                       <p className="text-sm font-semibold text-slate-700">Loading transactions...</p>
@@ -333,7 +340,7 @@ export default function TransactionsTable() {
                 </tr>
               ) : paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-16 text-center">
+                  <td colSpan={11} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
                         <Receipt size={22} className="text-slate-400" />
@@ -356,63 +363,76 @@ export default function TransactionsTable() {
                 paginated.map((txn, rowIdx) => (
                   <tr
                     key={`txn-row-${txn.id}`}
-                    className={`txn-row group ${
-                      selectedRows.has(txn.id) ? 'bg-blue-50/40' : 'bg-white'
+                    className={`txn-row group border-b border-slate-100/70 last:border-b-0 transition-colors duration-200 ${
+                      selectedRows.has(txn.id)
+                        ? 'bg-blue-50/55 ring-1 ring-inset ring-blue-100/50'
+                        : 'bg-white'
                     }`}
-                    style={{ borderBottom: '1px solid rgba(226,232,240,0.18)' }}
                   >
                     {/* Checkbox */}
-                    <td className="px-4 py-3.5">
+                    <td className="pl-5 sm:pl-6 pr-2 py-3.5 align-middle">
                       <input
                         type="checkbox"
                         checked={selectedRows.has(txn.id)}
                         onChange={() => toggleRow(txn.id)}
-                        className="w-4 h-4"
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30"
                       />
                     </td>
 
-                    {/* Transaction ID */}
-                    <td className="px-4 py-3.5 whitespace-nowrap">
-                      <span className="font-mono text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-100">
+                    {/* Transaction ID — hairline via shadow (smoother than 1px border on curves) */}
+                    <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
+                      <span className="inline-flex items-center font-mono text-[11px] font-semibold text-blue-900 tracking-tight antialiased bg-gradient-to-b from-sky-50 to-blue-50/90 px-3 py-1.5 rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.95),inset_0_-1px_0_rgba(37,99,235,0.04),0_0_0_1px_rgba(186,230,253,0.85),0_1px_3px_rgba(30,58,138,0.07)]">
                         {txn.id}
                       </span>
                     </td>
 
                     {/* Customer */}
-                    <td className="px-4 py-3.5 whitespace-nowrap">
+                    <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
                       <div className="flex items-center gap-2.5">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${getAvatarColor(txn.customerName)}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ring-2 ring-white shadow-sm ${getAvatarColor(txn.customerName)}`}>
                           {txn.customerName.split(' ').map((n) => n[0]).slice(0, 2).join('')}
                         </div>
                         <div>
-                          <p className="text-xs font-semibold text-slate-900">{txn.customerName}</p>
-                          <p className="text-[10px] text-slate-400">{txn.customerPhone}</p>
+                          <p className="text-xs font-semibold text-slate-900 leading-tight">{txn.customerName}</p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">{txn.customerPhone}</p>
                         </div>
                       </div>
                     </td>
 
                     {/* Vehicle */}
-                    <td className="px-4 py-3.5 whitespace-nowrap">
-                      <p className="text-xs font-bold text-slate-900 font-mono">{txn.vehiclePlate}</p>
-                      <p className="text-[10px] text-slate-500 max-w-[120px] truncate">{txn.vehicleInfo}</p>
+                    <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
+                      <p className="text-xs font-bold text-slate-900 font-mono tracking-wide">{txn.vehiclePlate}</p>
+                      <p className="text-[10px] text-slate-500 max-w-[140px] truncate mt-0.5">{txn.vehicleInfo}</p>
                     </td>
 
                     {/* Services */}
-                    <td className="px-4 py-3.5 max-w-[180px]">
-                      <div className="space-y-0.5">
-                        {txn.services.slice(0, 2).map((s, si) => (
-                          <p key={`svc-cell-${txn.id}-${si}`} className="text-[11px] text-slate-700 truncate">
-                            {s.name}
-                          </p>
-                        ))}
-                        {txn.services.length > 2 && (
-                          <p className="text-[10px] text-slate-400">+{txn.services.length - 2} more</p>
+                    <td className="px-3 sm:px-4 py-3.5 max-w-[200px] align-middle">
+                      <div className="flex flex-col gap-1">
+                        {txn.services.length === 0 ? (
+                          <span className="inline-flex w-fit text-[10px] font-medium text-slate-500 bg-slate-50/95 px-2 py-0.5 rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(226,232,240,0.9)]">
+                            —
+                          </span>
+                        ) : (
+                          <>
+                            {txn.services.slice(0, 3).map((s, si) => (
+                              <span
+                                key={`svc-cell-${txn.id}-${si}`}
+                                className="inline-flex max-w-full truncate rounded-full bg-slate-50/95 text-slate-700 px-2.5 py-1 text-[10px] font-medium leading-snug antialiased shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_0_0_1px_rgba(226,232,240,0.85),0_1px_2px_rgba(15,23,42,0.04)]"
+                                title={s.name}
+                              >
+                                {s.name}
+                              </span>
+                            ))}
+                            {txn.services.length > 3 && (
+                              <span className="text-[10px] font-medium text-slate-400 pl-0.5">+{txn.services.length - 3} more</span>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>
 
                     {/* Amount */}
-                    <td className="px-4 py-3.5 whitespace-nowrap">
+                    <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
                       <p className={`text-sm font-bold font-tabular ${
                         txn.status === 'voided' ? 'text-slate-400 line-through' :
                         txn.status === 'pending' ? 'text-amber-600' : 'text-slate-900'
@@ -425,30 +445,48 @@ export default function TransactionsTable() {
                     </td>
 
                     {/* Payment Method */}
-                    <td className="px-4 py-3.5 whitespace-nowrap">
-                      <span className={`pm-badge px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${PM_BADGE_COLORS[txn.paymentMethod]}`}>
+                    <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
+                      <span className={`pm-badge px-2.5 py-1 rounded-full text-[11px] font-medium ${PM_BADGE_COLORS[txn.paymentMethod]}`}>
                         {getPaymentMethodLabel(txn.paymentMethod)}
                       </span>
                     </td>
 
-                    {/* Status — dot + text, no badge background */}
-                    <td className="px-4 py-3.5 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          txn.status === 'completed'  ? 'bg-emerald-500' :
-                          txn.status === 'pending'    ? 'bg-amber-500'   :
-                          txn.status === 'processing' ? 'bg-blue-500'    : 'bg-slate-400'
-                        }`} />
-                        <span className={`text-xs font-medium ${
-                          txn.status === 'voided' ? 'text-slate-400' : 'text-slate-700'
-                        }`}>
-                          {txn.status.charAt(0).toUpperCase() + txn.status.slice(1)}
+                    {/* Status — soft edge (no hard border stroke) */}
+                    <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
+                      <div
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 antialiased ${
+                          txn.status === 'completed'
+                            ? 'bg-emerald-50/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(167,243,208,0.8),0_1px_2px_rgba(5,150,105,0.06)]'
+                            : txn.status === 'pending'
+                              ? 'bg-amber-50/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(253,230,138,0.85),0_1px_2px_rgba(180,83,9,0.06)]'
+                              : txn.status === 'processing'
+                                ? 'bg-blue-50/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(191,219,254,0.85),0_1px_2px_rgba(37,99,235,0.07)]'
+                                : 'bg-slate-50/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(226,232,240,0.95),0_1px_2px_rgba(15,23,42,0.04)]'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 ring-2 ring-white ${
+                            txn.status === 'completed'
+                              ? 'bg-emerald-500'
+                              : txn.status === 'pending'
+                                ? 'bg-amber-500'
+                                : txn.status === 'processing'
+                                  ? 'bg-blue-500'
+                                  : 'bg-slate-400'
+                          }`}
+                        />
+                        <span
+                          className={`text-[11px] font-semibold tracking-tight ${
+                            txn.status === 'voided' ? 'text-slate-500' : 'text-slate-700'
+                          }`}
+                        >
+                          {formatTransactionStatusLabel(txn.status, txn.statusRaw)}
                         </span>
                       </div>
                     </td>
 
                     {/* Date & Time */}
-                    <td className="px-4 py-3.5 whitespace-nowrap">
+                    <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
                       <p className="text-xs text-slate-700">
                         {new Date(txn.dateTime).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </p>
@@ -458,26 +496,28 @@ export default function TransactionsTable() {
                     </td>
 
                     {/* Staff */}
-                    <td className="px-4 py-3.5 whitespace-nowrap">
+                    <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
                       <p className="text-xs text-slate-600">{txn.staffName}</p>
                     </td>
 
                     {/* Actions */}
-                    <td className="px-4 py-3.5 whitespace-nowrap">
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                    <td className="pl-2 pr-5 sm:pr-6 py-3.5 whitespace-nowrap align-middle">
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                         <button
+                          type="button"
                           onClick={() => setReceiptTxn(txn)}
-                          className="action-btn p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-700 relative group/btn"
+                          className="txn-row-icon-btn rounded-full p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-500/[0.09] active:bg-blue-500/[0.14]"
                           title="View Receipt"
                         >
-                          <Eye size={14} />
+                          <Eye size={14} strokeWidth={1.75} />
                         </button>
                         <button
+                          type="button"
                           onClick={() => console.info(`Printing receipt for ${txn.id}`)}
-                          className="action-btn p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 relative group/btn"
+                          className="txn-row-icon-btn rounded-full p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-500/[0.08] active:bg-slate-500/[0.12]"
                           title="Print Receipt"
                         >
-                          <Printer size={14} />
+                          <Printer size={14} strokeWidth={1.75} />
                         </button>
                       </div>
                     </td>
@@ -489,29 +529,14 @@ export default function TransactionsTable() {
         </div>
 
         {/* ── Pagination Footer ── */}
-        <div
-          className="px-5 py-3 flex items-center justify-between gap-4"
-          style={{ borderTop: '1px solid rgba(226,232,240,0.4)', minHeight: '52px' }}
-        >
+        <div className="px-5 sm:px-6 py-3.5 flex items-center justify-between gap-4 border-t border-slate-100/90 bg-gradient-to-b from-slate-50/50 to-slate-50/20 min-h-[52px]">
           {/* Left: rows-per-page + count */}
           <div className="flex items-center gap-2.5 text-xs text-slate-500 shrink-0">
             <span className="whitespace-nowrap">Rows per page:</span>
             <select
               value={perPage}
               onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
-              style={{
-                width: '64px',
-                padding: '4px 6px',
-                fontSize: '12px',
-                border: '1px solid rgba(203,213,225,0.9)',
-                borderRadius: '8px',
-                background: '#fff',
-                color: '#334155',
-                outline: 'none',
-                cursor: 'pointer',
-                transition: 'border-color 0.15s',
-                appearance: 'auto',          /* keep native chevron — no conflicts */
-              }}
+              className="w-16 py-1.5 px-2 text-xs rounded-lg border border-slate-200/90 bg-white text-slate-700 outline-none cursor-pointer transition-[border-color,box-shadow] focus:border-blue-300 focus:ring-2 focus:ring-blue-500/15"
             >
               {ITEMS_PER_PAGE_OPTIONS.map((n) => (
                 <option key={`ipp-${n}`} value={n}>{n}</option>
@@ -530,15 +555,13 @@ export default function TransactionsTable() {
             <button
               onClick={() => setPage(1)}
               disabled={page === 1}
-              className="px-2 py-1.5 text-xs rounded-lg hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 text-slate-500"
-              style={{ border: '1px solid rgba(226,232,240,0.7)' }}
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-200/80 bg-white hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 text-slate-500 shadow-sm"
             >«</button>
 
             <button
               onClick={() => setPage(page - 1)}
               disabled={page === 1}
-              className="px-3 py-1.5 text-xs rounded-lg hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 text-slate-600"
-              style={{ border: '1px solid rgba(226,232,240,0.7)' }}
+              className="px-3 py-1.5 text-xs rounded-lg border border-slate-200/80 bg-white hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 text-slate-600 shadow-sm"
             >‹ Prev</button>
 
             {Array.from({ length: totalPages }, (_, i) => i + 1)
@@ -557,12 +580,11 @@ export default function TransactionsTable() {
                   <button
                     key={`page-${p}`}
                     onClick={() => setPage(p as number)}
-                    className={`px-3 py-1.5 text-xs rounded-lg transition-all duration-150 ${
+                    className={`px-3 py-1.5 text-xs rounded-lg transition-all duration-150 border shadow-sm ${
                       page === p
-                        ? 'bg-blue-700 text-white font-semibold shadow-sm'
-                        : 'hover:bg-slate-50 text-slate-600'
+                        ? 'bg-blue-700 text-white font-semibold border-blue-700'
+                        : 'border-slate-200/80 bg-white hover:bg-slate-50 text-slate-600'
                     }`}
-                    style={page === p ? {} : { border: '1px solid rgba(226,232,240,0.7)' }}
                   >{p}</button>
                 )
               )}
@@ -570,15 +592,13 @@ export default function TransactionsTable() {
             <button
               onClick={() => setPage(page + 1)}
               disabled={page === totalPages}
-              className="px-3 py-1.5 text-xs rounded-lg hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 text-slate-600"
-              style={{ border: '1px solid rgba(226,232,240,0.7)' }}
+              className="px-3 py-1.5 text-xs rounded-lg border border-slate-200/80 bg-white hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 text-slate-600 shadow-sm"
             >Next ›</button>
 
             <button
               onClick={() => setPage(totalPages)}
               disabled={page === totalPages}
-              className="px-2 py-1.5 text-xs rounded-lg hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 text-slate-500"
-              style={{ border: '1px solid rgba(226,232,240,0.7)' }}
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-200/80 bg-white hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 text-slate-500 shadow-sm"
             >»</button>
           </div>
         </div>

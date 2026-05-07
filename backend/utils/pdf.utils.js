@@ -241,3 +241,109 @@ export const generateWarrantyPDF = async (order) => {
     return null;
   }
 };
+
+/**
+ * A4 sales invoice from InvoiceRecord.snapshot (see billing.controller buildInvoiceSnapshot).
+ * @returns {Buffer}
+ */
+export const buildInvoicePdfBuffer = (snapshot) => {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageW = 210;
+  let y = 14;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.text('AutoSPF+', 14, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  y += 6;
+  doc.text('Sales invoice (A4)', 14, y);
+  y += 8;
+
+  doc.setFontSize(10);
+  doc.text(`Invoice #: ${snapshot.invoiceNumber || ''}`, 14, y);
+  doc.text(`Date: ${snapshot.issuedAt ? new Date(snapshot.issuedAt).toLocaleString() : ''}`, pageW - 14, y, { align: 'right' });
+  y += 7;
+  doc.text(`Order: ${snapshot.orderNumber || ''}`, 14, y);
+  if (snapshot.bookingReference) {
+    doc.text(`Booking ref: ${snapshot.bookingReference}`, pageW - 14, y, { align: 'right' });
+  }
+  y += 8;
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('Bill to', 14, y);
+  y += 5;
+  doc.setFont('helvetica', 'normal');
+  doc.text(String(snapshot.customerName || ''), 14, y);
+  y += 5;
+  if (snapshot.customerPhone) doc.text(String(snapshot.customerPhone), 14, y);
+  y += 8;
+
+  const v = snapshot.vehicle || {};
+  doc.setFont('helvetica', 'bold');
+  doc.text('Vehicle', 14, y);
+  y += 5;
+  doc.setFont('helvetica', 'normal');
+  doc.text(`${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() || '—', 14, y);
+  y += 5;
+  if (v.plate) doc.text(`Plate: ${v.plate}`, 14, y);
+  y += 10;
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('Description', 14, y);
+  doc.text('Qty', 120, y);
+  doc.text('Unit', 140, y);
+  doc.text('Line', pageW - 14, y, { align: 'right' });
+  y += 2;
+  doc.line(14, y, pageW - 14, y);
+  y += 5;
+  doc.setFont('helvetica', 'normal');
+
+  const lines = snapshot.lineItems || [];
+  for (const li of lines) {
+    if (y > 250) {
+      doc.addPage();
+      y = 14;
+    }
+    const name = String(li.name || '');
+    const split = doc.splitTextToSize(name, 100);
+    doc.text(split, 14, y);
+    doc.text(String(li.quantity ?? 1), 120, y);
+    doc.text(`₱${Number(li.unitPrice || 0).toLocaleString()}`, 140, y);
+    const lineTotal = li.lineTotal ?? Number(li.unitPrice || 0) * Number(li.quantity || 1);
+    doc.text(`₱${Number(lineTotal).toLocaleString()}`, pageW - 14, y, {
+      align: 'right',
+    });
+    y += Math.max(6, split.length * 5);
+  }
+
+  y += 6;
+  doc.line(14, y, pageW - 14, y);
+  y += 8;
+
+  const c = snapshot.computed || {};
+  const row = (label, val) => {
+    doc.text(label, pageW - 70, y);
+    doc.text(`₱${Number(val || 0).toLocaleString()}`, pageW - 14, y, { align: 'right' });
+    y += 6;
+  };
+  row('Subtotal', c.subtotal);
+  row('Discount', c.discountTotal);
+  row('VAT / tax', c.taxVatTotal);
+  row('Additional fees', c.additionalFeesTotal);
+  row('Grand total', c.grandTotal);
+  row('Downpayment', snapshot.downpayment);
+  row('Balance due (this payment)', c.balanceDue);
+
+  y += 10;
+  doc.setFont('helvetica', 'bold');
+  doc.text('Signatures', 14, y);
+  y += 8;
+  doc.setFont('helvetica', 'normal');
+  doc.rect(14, y, 80, 22);
+  doc.rect(pageW - 94, y, 80, 22);
+  doc.text('Client', 16, y + 6);
+  doc.text('Sales', pageW - 92, y + 6);
+
+  return Buffer.from(doc.output('arraybuffer'));
+};

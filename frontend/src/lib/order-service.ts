@@ -111,6 +111,7 @@ export const normalizeBooking = (raw: any): Booking => {
         serviceTrackingStage: raw?.serviceTrackingStage ?? null,
         serviceTrackingUpdatedAt: raw?.serviceTrackingUpdatedAt ?? null,
         serviceStaffAssignments: raw?.serviceStaffAssignments ?? [],
+        trackerStageMedia: Array.isArray(raw?.trackerStageMedia) ? raw.trackerStageMedia : [],
     } as Booking;
 };
 

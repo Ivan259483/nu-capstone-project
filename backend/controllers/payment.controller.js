@@ -13,6 +13,7 @@ import { isCustomerRole } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import emailService from '../utils/emailService.utils.js';
+import { normalizeMoney, computeDiscountAmount, computeBillingTotals } from '../utils/billingTotals.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
@@ -861,6 +862,292 @@ export const getAllPayments = async (req, res, next) => {
 
 // ─── POS TRANSACTION (Atomic: Payment + Inventory + Status + Logging) ────────
 
+/**
+ * Shared finalize path for POS and billing checkout.
+ * `amountCollected` is `balanceDue` from billing totals (what the customer pays now).
+ */
+export const runPosCheckoutCore = async ({
+  req,
+  order,
+  allItems,
+  subtotal: subtotalIn,
+  discountAmount: discountAmountIn,
+  discount,
+  taxVatAmount = 0,
+  additionalFees = 0,
+  downpayment = 0,
+  grandTotal: grandTotalIn,
+  balanceDue: balanceDueIn,
+  paymentMethod,
+  staffId,
+  cashReceived,
+  splitPayments = [],
+  invoiceRecordId = null,
+  billingVersion = null,
+  metadataExtra = {},
+}) => {
+  const subtotal = normalizeMoney(subtotalIn);
+  const discountAmount = normalizeMoney(discountAmountIn);
+  const taxVat = normalizeMoney(taxVatAmount);
+  const fees = normalizeMoney(additionalFees);
+  const dp = normalizeMoney(downpayment);
+  const grandTotal = normalizeMoney(grandTotalIn);
+  const amountCollected = normalizeMoney(balanceDueIn);
+
+  if (grandTotal < 0 || amountCollected < 0) {
+    const err = new Error('Invalid billing totals');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  let changeGiven = null;
+  if (amountCollected > 0) {
+    if (paymentMethod === 'cash') {
+      const received = Number(cashReceived);
+      if (!Number.isFinite(received) || received < amountCollected) {
+        const err = new Error(
+          `Insufficient cash. Received: ₱${received || 0}, Required: ₱${amountCollected}`
+        );
+        err.statusCode = 400;
+        throw err;
+      }
+      changeGiven = normalizeMoney(received - amountCollected);
+    } else if (paymentMethod === 'split') {
+      const totalSplit = splitPayments.reduce((sum, sp) => sum + Number(sp.amount || 0), 0);
+      if (totalSplit < amountCollected) {
+        const err = new Error(
+          `Insufficient split total. Total: ₱${totalSplit || 0}, Required: ₱${amountCollected}`
+        );
+        err.statusCode = 400;
+        throw err;
+      }
+      const cashSplit = splitPayments.find((sp) => sp.method === 'cash');
+      if (cashSplit && Number(cashReceived) > cashSplit.amount) {
+        changeGiven = normalizeMoney(Number(cashReceived) - cashSplit.amount);
+      } else if (totalSplit > amountCollected) {
+        changeGiven = normalizeMoney(totalSplit - amountCollected);
+      }
+    }
+  }
+
+  const inventoryWarnings = [];
+  for (const item of allItems) {
+    const service = await Service.findOne({ name: new RegExp(`^${escapeRegex(item.name)}$`, 'i') });
+    if (service?.recipe?.length) {
+      for (const entry of service.recipe) {
+        let product = null;
+        if (entry.product) product = await Product.findById(entry.product);
+        if (!product && entry.productName) product = await findProductByName(entry.productName);
+        if (product && product.inventory < (entry.quantity || 0)) {
+          inventoryWarnings.push({
+            product: product.name,
+            required: entry.quantity,
+            available: product.inventory,
+            service: item.name,
+          });
+        }
+      }
+    }
+  }
+
+  let staffUser = null;
+  if (staffId) {
+    staffUser = await User.findById(staffId).select('name email');
+  }
+
+  const invoiceId = order.invoiceId || generateInvoiceId();
+  const balanceRemaining = normalizeMoney(Math.max(0, grandTotal - dp - amountCollected));
+
+  const payment = await Payment.create({
+    invoiceId,
+    order: order._id,
+    customer: order.customer?._id || order.customer,
+    amount: amountCollected,
+    subtotal,
+    discountAmount,
+    taxVatAmount: taxVat,
+    additionalFees: fees,
+    downpayment: dp,
+    grandTotal,
+    amountPaid: amountCollected,
+    balanceRemaining,
+    billingVersion,
+    invoiceRecord: invoiceRecordId || null,
+    currency: 'PHP',
+    status: 'succeeded',
+    method: paymentMethod,
+    provider: paymentMethod === 'card' ? 'stripe' : 'pos',
+    providerReference: `POS-${invoiceId}`,
+    staffAssigned: staffId || null,
+    discount: discount && discount.value > 0 ? discount : null,
+    splitPayments: paymentMethod === 'split' ? splitPayments : [],
+    cashReceived: ['cash', 'split'].includes(paymentMethod) ? Number(cashReceived) : null,
+    changeGiven,
+    items: allItems,
+    metadata: { orderNumber: order.orderNumber, posTransaction: true, ...metadataExtra },
+  });
+
+  order.invoiceId = invoiceId;
+  order.paymentStatus = 'paid';
+  order.paymentMethod = paymentMethod;
+  order.paymentProvider = paymentMethod === 'card' ? 'stripe' : 'pos';
+  order.paidAt = new Date();
+  order.totalPrice = grandTotal;
+  order.totalAmount = grandTotal;
+  const prevPosStatus = order.status;
+  if (['pending', 'confirmed', 'assigned', 'processing', 'in-progress'].includes(order.status)) {
+    order.status = 'completed';
+  }
+  order.customerStatus = 'ready';
+  order.customerStatusUpdatedAt = new Date();
+  await order.save();
+
+  await applyInventoryDeductions(order);
+
+  if (prevPosStatus !== order.status) {
+    onOrderStatusChange(order, prevPosStatus, req.user).catch((err) =>
+      console.error('[WORKFLOW] Orchestrator error in runPosCheckoutCore:', err.message)
+    );
+  }
+
+  logActivity({
+    req,
+    type: 'pos_transaction',
+    module: 'POS',
+    action: 'POS Transaction Completed',
+    description: `POS payment ${invoiceId} — ₱${amountCollected.toLocaleString()} collected (grand ₱${grandTotal.toLocaleString()}) via ${paymentMethod.toUpperCase()} for ${order.customerName || 'Customer'}.`,
+    status: 'success',
+    referenceId: invoiceId,
+    metadata: {
+      paymentId: payment._id,
+      orderId: order._id,
+      invoiceId,
+      amount: amountCollected,
+      grandTotal,
+      method: paymentMethod,
+      staffName: staffUser?.name,
+    },
+  });
+
+  if (discount && discountAmount > 0) {
+    logActivity({
+      req,
+      type: 'price_override',
+      module: 'POS',
+      action: 'Discount Applied',
+      description: `${discount.discountType === 'percent' ? discount.value + '%' : '₱' + discount.value} discount applied to ${invoiceId}${discount.reason ? ' — ' + discount.reason : ''}.`,
+      status: 'info',
+      referenceId: invoiceId,
+      metadata: {
+        invoiceId,
+        discountType: discount.discountType,
+        discountValue: discount.value,
+        discountAmount,
+        reason: discount.reason,
+      },
+    });
+  }
+
+  try {
+    const io = getIO();
+    io.to('admin:chat').emit('admin:notification', {
+      id: payment._id,
+      title: 'POS Payment Completed',
+      message: `₱${amountCollected.toLocaleString()} — ${order.customerName || 'Walk-in'} via ${paymentMethod.toUpperCase()}`,
+      type: 'success',
+      isRead: false,
+      createdAt: new Date().toISOString(),
+      link: '/admin/dashboard?tab=pos',
+    });
+
+    const customerId = order.customer?._id || order.customer;
+    if (customerId) {
+      io.to(`user:${customerId.toString()}`).emit('booking:status', {
+        bookingId: order._id.toString(),
+        status: order.status,
+        customerStatus: order.customerStatus,
+        paymentStatus: 'paid',
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    io.emit('pos:transaction_completed', {
+      paymentId: payment._id,
+      amount: amountCollected,
+      method: paymentMethod,
+    });
+  } catch (socketError) {
+    console.warn('Socket not initialized for POS notification:', socketError.message);
+  }
+
+  const receiptData = {
+    transactionId: invoiceId,
+    paymentId: payment._id,
+    customerName: order.customer?.name || order.customerName || 'Walk-in Customer',
+    customerEmail: order.customer?.email || '',
+    customerPhone: order.customer?.phone || '',
+    vehicle: {
+      year: order.vehicleYear || '',
+      make: order.vehicleMake || '',
+      model: order.vehicleModel || '',
+      color: order.vehicleColor || '',
+      plate: order.vehiclePlate || '',
+    },
+    items: allItems,
+    subtotal,
+    discount:
+      discount && discountAmount > 0
+        ? { type: discount.discountType, value: discount.value, amount: discountAmount, reason: discount.reason }
+        : null,
+    taxVatAmount: taxVat,
+    additionalFees: fees,
+    downpayment: dp,
+    grandTotal,
+    amountCollected,
+    balanceRemaining,
+    total: amountCollected,
+    paymentMethod,
+    splitPayments: paymentMethod === 'split' ? splitPayments : [],
+    cashReceived: ['cash', 'split'].includes(paymentMethod) ? Number(cashReceived) : null,
+    changeGiven,
+    staff: staffUser ? { id: staffUser._id, name: staffUser.name } : null,
+    bookingRef: order.orderNumber,
+    date: new Date().toISOString(),
+    inventoryWarnings,
+  };
+
+  try {
+    await Notification.create({
+      title: 'POS Payment Completed',
+      message: `Payment ${invoiceId} received — ₱${amountCollected.toLocaleString()} via ${paymentMethod.toUpperCase()}`,
+      type: 'success',
+      recipientRole: 'admin_family',
+      link: '/admin/dashboard?tab=pos',
+      metadata: { paymentId: payment._id, orderId: order._id, invoiceId, amount: amountCollected },
+    });
+  } catch (ne) {
+    console.error('Failed to create POS notification:', ne.message);
+  }
+
+  const customerEmail = order.customer?.email;
+  if (customerEmail) {
+    emailService
+      .sendDigitalReceiptEmail(customerEmail, {
+        bookingReference: order.bookingReference || order.orderNumber,
+        orderNumber: order.orderNumber,
+        customerName: order.customer?.name || order.customerName || 'Valued Customer',
+        serviceName: order.serviceType || allItems?.[0]?.name || 'Premium Detailing',
+        vehicleInfo: `${order.vehicleYear || ''} ${order.vehicleMake || ''} ${order.vehicleModel || ''}`.trim() || 'N/A',
+        plateNumber: order.vehiclePlate || 'N/A',
+        totalAmount: amountCollected,
+        paymentMethod,
+      })
+      .catch((err) => console.error('[POS] Receipt email failed:', err.message));
+  }
+
+  return { payment, receiptData, inventoryWarnings, invoiceId };
+};
+
 export const createPOSTransaction = async (req, res, next) => {
   try {
     const {
@@ -872,6 +1159,9 @@ export const createPOSTransaction = async (req, res, next) => {
       cashReceived,
       addons = [],
       splitPayments = [],
+      taxVatAmount: bodyTax = 0,
+      additionalFees: bodyFees = 0,
+      downpayment: bodyDp = 0,
     } = req.body || {};
 
     if (!orderId) {
@@ -892,7 +1182,6 @@ export const createPOSTransaction = async (req, res, next) => {
       }
     }
 
-    // 1. Load Order with related data
     const order = await Order.findById(orderId).populate('customer', 'name email phone');
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
@@ -901,243 +1190,53 @@ export const createPOSTransaction = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Order is already paid' });
     }
 
-    // 2. Build line items
     const allItems = [
       ...items.map((i) => ({ name: i.name, price: Number(i.price), quantity: i.quantity || 1, isAddon: false })),
       ...addons.map((a) => ({ name: a.name, price: Number(a.price), quantity: a.quantity || 1, isAddon: true })),
     ];
 
-    const subtotal = allItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    const lineItemsForTotals = allItems.map((i) => ({
+      unitPrice: normalizeMoney(i.price),
+      quantity: i.quantity || 1,
+    }));
+    const subtotalRaw = lineItemsForTotals.reduce((sum, li) => sum + li.unitPrice * li.quantity, 0);
+    const subtotal = normalizeMoney(subtotalRaw);
+    const discountForCalc =
+      discount && Number(discount.value) > 0 ? discount : { discountType: 'fixed', value: 0 };
+    const discountAmount = normalizeMoney(computeDiscountAmount(subtotal, discountForCalc));
+    const taxVat = normalizeMoney(bodyTax);
+    const fees = normalizeMoney(bodyFees);
+    const dp = normalizeMoney(bodyDp);
+    const computed = computeBillingTotals({
+      lineItems: lineItemsForTotals,
+      discount: discountForCalc,
+      taxVatAmount: taxVat,
+      additionalFees: fees,
+      downpayment: dp,
+    });
 
-    // 3. Calculate discount
-    let discountAmount = 0;
-    if (discount && discount.value > 0) {
-      if (discount.discountType === 'percent') {
-        discountAmount = Math.round((subtotal * discount.value) / 100);
-      } else {
-        discountAmount = Math.min(discount.value, subtotal);
-      }
-    }
+    const discountObj = discount && Number(discount.value) > 0 ? discount : null;
 
-    const totalAmount = Math.max(subtotal - discountAmount, 0);
-
-    // 4. Validation for cash or split
-    let changeGiven = null;
-    if (paymentMethod === 'cash') {
-      const received = Number(cashReceived);
-      if (!Number.isFinite(received) || received < totalAmount) {
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient cash. Received: ₱${received || 0}, Required: ₱${totalAmount}`,
-        });
-      }
-      changeGiven = received - totalAmount;
-    } else if (paymentMethod === 'split') {
-      const totalSplit = splitPayments.reduce((sum, sp) => sum + Number(sp.amount || 0), 0);
-      if (totalSplit < totalAmount) {
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient split total. Total: ₱${totalSplit || 0}, Required: ₱${totalAmount}`,
-        });
-      }
-      
-      // Compute change if there's cash in the split
-      const cashSplit = splitPayments.find(sp => sp.method === 'cash');
-      if (cashSplit && Number(cashReceived) > cashSplit.amount) {
-        changeGiven = Number(cashReceived) - cashSplit.amount;
-      } else if (totalSplit > totalAmount) {
-        changeGiven = totalSplit - totalAmount;
-      }
-    }
-
-    // 5. Inventory pre-check (warn mode — collect warnings but don't block)
-    const inventoryWarnings = [];
-    for (const item of allItems) {
-      const service = await Service.findOne({ name: new RegExp(`^${escapeRegex(item.name)}$`, 'i') });
-      if (service?.recipe?.length) {
-        for (const entry of service.recipe) {
-          let product = null;
-          if (entry.product) product = await Product.findById(entry.product);
-          if (!product && entry.productName) product = await findProductByName(entry.productName);
-          if (product && product.inventory < (entry.quantity || 0)) {
-            inventoryWarnings.push({
-              product: product.name,
-              required: entry.quantity,
-              available: product.inventory,
-              service: item.name,
-            });
-          }
-        }
-      }
-    }
-
-    // 6. Load staff info
-    let staffUser = null;
-    if (staffId) {
-      staffUser = await User.findById(staffId).select('name email');
-    }
-
-    // 7. Create Payment record
-    const invoiceId = order.invoiceId || generateInvoiceId();
-    const payment = await Payment.create({
-      invoiceId,
-      order: order._id,
-      customer: order.customer?._id || order.customer,
-      amount: totalAmount,
+    const { payment, receiptData, inventoryWarnings, invoiceId } = await runPosCheckoutCore({
+      req,
+      order,
+      allItems,
       subtotal,
       discountAmount,
-      currency: 'PHP',
-      status: 'succeeded',
-      method: paymentMethod,
-      provider: paymentMethod === 'card' ? 'stripe' : 'pos',
-      providerReference: `POS-${invoiceId}`,
-      staffAssigned: staffId || null,
-      discount: discount && discount.value > 0 ? discount : null,
-      splitPayments: paymentMethod === 'split' ? splitPayments : [],
-      cashReceived: ['cash', 'split'].includes(paymentMethod) ? Number(cashReceived) : null,
-      changeGiven,
-      items: allItems,
-      metadata: { orderNumber: order.orderNumber, posTransaction: true },
-    });
-
-    // 8. Update order status
-    order.invoiceId = invoiceId;
-    order.paymentStatus = 'paid';
-    order.paymentMethod = paymentMethod;
-    order.paymentProvider = paymentMethod === 'card' ? 'stripe' : 'pos';
-    order.paidAt = new Date();
-    order.totalPrice = totalAmount;
-    order.totalAmount = totalAmount;
-    const prevPosStatus = order.status;
-    if (['pending', 'confirmed', 'assigned', 'processing', 'in-progress'].includes(order.status)) {
-      order.status = 'completed';
-    }
-    order.customerStatus = 'ready';
-    order.customerStatusUpdatedAt = new Date();
-    await order.save();
-
-    // 9. Apply inventory deductions
-    await applyInventoryDeductions(order);
-
-    // 9b. Trigger workflow orchestrator for status transition
-    if (prevPosStatus !== order.status) {
-      onOrderStatusChange(order, prevPosStatus, req.user).catch(err =>
-        console.error('[WORKFLOW] Orchestrator error in createPOSTransaction:', err.message)
-      );
-    }
-
-    // 10. Activity logs (fire-and-forget)
-    logActivity({
-      req, type: 'pos_transaction', module: 'POS', action: 'POS Transaction Completed',
-      description: `POS payment ${invoiceId} — ₱${totalAmount.toLocaleString()} via ${paymentMethod.toUpperCase()} for ${order.customerName || 'Customer'}.`,
-      status: 'success', referenceId: invoiceId,
-      metadata: { paymentId: payment._id, orderId: order._id, invoiceId, amount: totalAmount, method: paymentMethod, staffName: staffUser?.name },
-    });
-
-    if (discount && discountAmount > 0) {
-      logActivity({
-        req, type: 'price_override', module: 'POS', action: 'Discount Applied',
-        description: `${discount.discountType === 'percent' ? discount.value + '%' : '₱' + discount.value} discount applied to ${invoiceId}${discount.reason ? ' — ' + discount.reason : ''}.`,
-        status: 'info', referenceId: invoiceId,
-        metadata: { invoiceId, discountType: discount.discountType, discountValue: discount.value, discountAmount, reason: discount.reason },
-      });
-    }
-
-    // 11. Socket notifications
-    try {
-      const io = getIO();
-
-      // Notify admin dashboard
-      io.to('admin:chat').emit('admin:notification', {
-        id: payment._id,
-        title: 'POS Payment Completed',
-        message: `₱${totalAmount.toLocaleString()} — ${order.customerName || 'Walk-in'} via ${paymentMethod.toUpperCase()}`,
-        type: 'success',
-        isRead: false,
-        createdAt: new Date().toISOString(),
-        link: '/admin/dashboard?tab=pos',
-      });
-
-      // Notify customer
-      const customerId = order.customer?._id || order.customer;
-      if (customerId) {
-        io.to(`user:${customerId.toString()}`).emit('booking:status', {
-          bookingId: order._id.toString(),
-          status: order.status,
-          customerStatus: order.customerStatus,
-          paymentStatus: 'paid',
-          updatedAt: new Date().toISOString(),
-        });
-      }
-
-      // Dashboard metric refresh
-      io.emit('pos:transaction_completed', {
-        paymentId: payment._id,
-        amount: totalAmount,
-        method: paymentMethod,
-      });
-    } catch (socketError) {
-      console.warn('Socket not initialized for POS notification:', socketError.message);
-    }
-
-    // 12. Build receipt data
-    const receiptData = {
-      transactionId: invoiceId,
-      paymentId: payment._id,
-      customerName: order.customer?.name || order.customerName || 'Walk-in Customer',
-      customerEmail: order.customer?.email || '',
-      customerPhone: order.customer?.phone || '',
-      vehicle: {
-        year: order.vehicleYear || '',
-        make: order.vehicleMake || '',
-        model: order.vehicleModel || '',
-        color: order.vehicleColor || '',
-        plate: order.vehiclePlate || '',
-      },
-      items: allItems,
-      subtotal,
-      discount: discount && discountAmount > 0
-        ? { type: discount.discountType, value: discount.value, amount: discountAmount, reason: discount.reason }
-        : null,
-      total: totalAmount,
+      discount: discountObj,
+      taxVatAmount: taxVat,
+      additionalFees: fees,
+      downpayment: dp,
+      grandTotal: computed.grandTotal,
+      balanceDue: computed.balanceDue,
       paymentMethod,
-      splitPayments: paymentMethod === 'split' ? splitPayments : [],
-      cashReceived: ['cash', 'split'].includes(paymentMethod) ? Number(cashReceived) : null,
-      changeGiven,
-      staff: staffUser ? { id: staffUser._id, name: staffUser.name } : null,
-      bookingRef: order.orderNumber,
-      date: new Date().toISOString(),
-      inventoryWarnings,
-    };
-
-    // 13. Notification persistence
-    try {
-      await Notification.create({
-        title: 'POS Payment Completed',
-        message: `Payment ${invoiceId} received — ₱${totalAmount.toLocaleString()} via ${paymentMethod.toUpperCase()}`,
-        type: 'success',
-        recipientRole: 'admin_family',
-        link: '/admin/dashboard?tab=pos',
-        metadata: { paymentId: payment._id, orderId: order._id, invoiceId, amount: totalAmount },
-      });
-    } catch (ne) {
-      console.error('Failed to create POS notification:', ne.message);
-    }
-
-    // 13b. Auto-send digital receipt email to customer
-    const customerEmail = order.customer?.email;
-    if (customerEmail) {
-      emailService.sendDigitalReceiptEmail(customerEmail, {
-        bookingReference: order.bookingReference || order.orderNumber,
-        orderNumber: order.orderNumber,
-        customerName: order.customer?.name || order.customerName || 'Valued Customer',
-        serviceName: order.serviceType || allItems?.[0]?.name || 'Premium Detailing',
-        vehicleInfo: `${order.vehicleYear || ''} ${order.vehicleMake || ''} ${order.vehicleModel || ''}`.trim() || 'N/A',
-        plateNumber: order.vehiclePlate || 'N/A',
-        totalAmount,
-        paymentMethod,
-      }).catch(err => console.error('[POS] Receipt email failed:', err.message));
-    }
+      staffId,
+      cashReceived,
+      splitPayments,
+      invoiceRecordId: null,
+      billingVersion: null,
+      metadataExtra: {},
+    });
 
     res.json({
       success: true,
@@ -1153,9 +1252,13 @@ export const createPOSTransaction = async (req, res, next) => {
         },
         receipt: receiptData,
         inventoryWarnings,
+        invoiceId,
       },
     });
   } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
     next(error);
   }
 };

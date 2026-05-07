@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Car,
@@ -17,6 +17,8 @@ import {
   Radio,
   PlayCircle,
   Flag,
+  CalendarCheck,
+  Camera,
 } from 'lucide-react';
 import type { QCJob } from '@/hooks/useQCData';
 import type { ServiceStage } from './QCServiceControlPanel';
@@ -76,6 +78,17 @@ const STAGES: {
 ];
 const STAGE_ORDER: ServiceStage[] = STAGES.map(s => s.id);
 function stageIdx(s?: ServiceStage | null) { return s ? STAGE_ORDER.indexOf(s) : -1; }
+
+/** Rows for staff uploads — maps to `trackerStageMedia` / PATCH stage-photo. */
+const STAGE_PHOTO_UPLOAD_ROWS: { stage: ServiceStage; label: string; hint: string; Icon: LucideIcon }[] = [
+  { stage: 'confirmed', label: 'Appointment confirmed', hint: 'Optional note for the customer (photo not required).', Icon: CalendarCheck },
+  ...STAGES.map((s) => ({
+    stage: s.id,
+    label: `${s.label} — customer photo`,
+    hint: `Upload the image customers see at this milestone (${s.sub}).`,
+    Icon: s.Icon,
+  })),
+];
 
 // ── Stage pill (restrained palette — editorial / global product) ───────────────
 function StagePill({ stage }: { stage: ServiceStage | null }) {
@@ -176,15 +189,21 @@ const SLOTS = [
   { slot: 'staff4', label: 'Staff 4 — Specialist' },
 ];
 
-function JobTrackerCard({ job, onAdvance, onSaveStaff }: {
+function JobTrackerCard({ job, onAdvance, onSaveStaff, onUploadStagePhoto }: {
   job: QCJob;
   onAdvance: (id: string, stage: ServiceStage) => Promise<boolean>;
   onSaveStaff: (id: string, assignments: { slot: string; name: string; role: string }[]) => Promise<boolean>;
+  onUploadStagePhoto: (
+    orderId: string,
+    payload: { stage: string; description?: string; file?: File | null }
+  ) => Promise<boolean>;
 }) {
   const currentStage = (job as any).serviceTrackingStage as ServiceStage | null;
   const curIdx = stageIdx(currentStage);
   const nextStage = STAGE_ORDER[curIdx + 1] as ServiceStage | undefined;
   const nextCfg = nextStage ? STAGES.find(s => s.id === nextStage) : null;
+
+  const mediaList = ((job as any).trackerStageMedia || []) as { stage: string; photoUrl?: string; description?: string }[];
 
   const [staffSlots, setStaffSlots] = useState(() =>
     SLOTS.map(s => {
@@ -195,6 +214,10 @@ function JobTrackerCard({ job, onAdvance, onSaveStaff }: {
   const [advancingTo, setAdvancingTo] = useState<ServiceStage | null>(null);
   const [savingStaff, setSavingStaff] = useState(false);
   const [staffOpen, setStaffOpen] = useState(false);
+  const [stageNotes, setStageNotes] = useState<Record<string, string>>({});
+  const [uploadingStage, setUploadingStage] = useState<string | null>(null);
+  const [uploadTargetStage, setUploadTargetStage] = useState<string | null>(null);
+  const hiddenPhotoInputRef = useRef<HTMLInputElement>(null);
 
   const handleAdvance = async (stage: ServiceStage) => {
     setAdvancingTo(stage);
@@ -206,6 +229,26 @@ function JobTrackerCard({ job, onAdvance, onSaveStaff }: {
     setSavingStaff(true);
     await onSaveStaff(job.id, staffSlots.map(({ slot, name, role }) => ({ slot, name, role })));
     setSavingStaff(false);
+  };
+
+  const triggerPhotoPick = (stage: string) => {
+    setUploadTargetStage(stage);
+    hiddenPhotoInputRef.current?.click();
+  };
+
+  const onHiddenPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const stage = uploadTargetStage;
+    setUploadTargetStage(null);
+    if (!stage) return;
+    setUploadingStage(stage);
+    await onUploadStagePhoto(job.id, {
+      stage,
+      description: stageNotes[stage],
+      file: file || null,
+    });
+    setUploadingStage(null);
   };
 
   const assignedCount = staffSlots.filter(s => s.name).length;
@@ -326,6 +369,87 @@ function JobTrackerCard({ job, onAdvance, onSaveStaff }: {
                   />
                 )}
               </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Customer-visible stage photos (Cloudinary → trackerStageMedia) ───── */}
+      <div className="border-t border-slate-100 bg-slate-50/40 px-5 py-4 sm:px-6 space-y-3">
+        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Customer tracker — photos</p>
+        <input
+          ref={hiddenPhotoInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={onHiddenPhotoChange}
+        />
+        <div className="grid gap-2 sm:grid-cols-2">
+          {STAGE_PHOTO_UPLOAD_ROWS.map((row) => {
+            const existing = mediaList.find((m) => m.stage === row.stage);
+            return (
+              <div
+                key={row.stage}
+                className="rounded-xl border border-slate-200/90 bg-white p-3 shadow-[0_1px_0_rgba(15,23,42,0.03)] flex flex-col gap-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2 min-w-0">
+                    <row.Icon size={16} className="text-slate-600 shrink-0 mt-0.5" strokeWidth={1.85} aria-hidden />
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-semibold text-slate-900 leading-snug">{row.label}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">{row.hint}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {row.stage === 'confirmed' && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setUploadingStage(row.stage);
+                          await onUploadStagePhoto(job.id, {
+                            stage: row.stage,
+                            description: stageNotes[row.stage],
+                            file: null,
+                          });
+                          setUploadingStage(null);
+                        }}
+                        disabled={!!uploadingStage || !stageNotes[row.stage]?.trim()}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                      >
+                        Save note
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => triggerPhotoPick(row.stage)}
+                      disabled={!!uploadingStage}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-100 disabled:opacity-50"
+                    >
+                      {uploadingStage === row.stage ? (
+                        <Loader2 size={14} className="animate-spin" aria-hidden />
+                      ) : (
+                        <Camera size={14} aria-hidden />
+                      )}
+                      Upload photo
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  value={stageNotes[row.stage] ?? ''}
+                  onChange={(e) => setStageNotes((prev) => ({ ...prev, [row.stage]: e.target.value }))}
+                  placeholder="Optional caption (shown to customer)"
+                  rows={2}
+                  className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 py-1.5 text-[11px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                />
+                {existing?.photoUrl ? (
+                  <img
+                    src={existing.photoUrl}
+                    alt=""
+                    className="w-full max-h-24 rounded-lg object-cover border border-slate-100"
+                  />
+                ) : null}
+              </div>
             );
           })}
         </div>
@@ -475,11 +599,15 @@ function JobTrackerCard({ job, onAdvance, onSaveStaff }: {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const ORDER_STATUSES_ACTIVE = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed'];
 
-export default function QCLiveTrackerView({ jobs, loading, onAdvance, onSaveStaff }: {
+export default function QCLiveTrackerView({ jobs, loading, onAdvance, onSaveStaff, onUploadStagePhoto }: {
   jobs: QCJob[];
   loading: boolean;
   onAdvance: (id: string, stage: ServiceStage) => Promise<boolean>;
   onSaveStaff: (id: string, assignments: { slot: string; name: string; role: string }[]) => Promise<boolean>;
+  onUploadStagePhoto: (
+    orderId: string,
+    payload: { stage: string; description?: string; file?: File | null }
+  ) => Promise<boolean>;
 }) {
   const activeJobs    = jobs.filter(j => ORDER_STATUSES_ACTIVE.includes((j as any).orderStatus || ''));
   const releasedJobs  = jobs.filter(j => (j as any).orderStatus === 'released');
@@ -540,7 +668,7 @@ export default function QCLiveTrackerView({ jobs, loading, onAdvance, onSaveStaf
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {activeJobs.map(job => (
-            <JobTrackerCard key={job.id} job={job} onAdvance={onAdvance} onSaveStaff={onSaveStaff} />
+            <JobTrackerCard key={job.id} job={job} onAdvance={onAdvance} onSaveStaff={onSaveStaff} onUploadStagePhoto={onUploadStagePhoto} />
           ))}
         </div>
       )}

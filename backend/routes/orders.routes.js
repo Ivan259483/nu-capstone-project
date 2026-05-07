@@ -1,6 +1,8 @@
 import express from 'express';
+import multer from 'multer';
 import * as orderController from '../controllers/order.controller.js';
 import * as supplierController from '../controllers/supplier.controller.js';
+import * as trackerController from '../controllers/tracker.controller.js';
 import { authenticate, authorize } from '../middleware/auth.middleware.js';
 import {
   BOOKING_MANAGER_ROLES,
@@ -11,8 +13,14 @@ import {
   SUPPLIER_MANAGER_ROLES,
   POS_MANAGER_ROLES,
 } from '../constants/roles.js';
+import { getBilling, putBilling, checkoutBilling } from '../controllers/billing.controller.js';
 
 const router = express.Router();
+
+const trackerStagePhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 },
+});
 
 router.use(authenticate);
 
@@ -29,6 +37,24 @@ router.get('/', orderController.getAllOrders);
  * @access Private
  */
 router.get('/available-slots', orderController.getAvailableSlots);
+
+/**
+ * @route GET /api/orders/:orderId/billing
+ * @desc Load or create draft billing for an order
+ */
+router.get('/:orderId/billing', authorize(...POS_MANAGER_ROLES), getBilling);
+
+/**
+ * @route PUT /api/orders/:orderId/billing
+ * @desc Replace billing line items and charges
+ */
+router.put('/:orderId/billing', authorize(...POS_MANAGER_ROLES), putBilling);
+
+/**
+ * @route POST /api/orders/:orderId/billing/checkout
+ * @desc Checkout: invoice snapshot + POS payment + sync order items
+ */
+router.post('/:orderId/billing/checkout', authorize(...POS_MANAGER_ROLES), checkoutBilling);
 
 /**
  * @route GET /api/orders/queue/staff
@@ -222,6 +248,27 @@ router.patch('/:id/notes', authorize(...SERVICE_OPERATION_ROLES), orderControlle
  * @access Private - Detailer/Admin
  */
 router.patch('/:id/photos', authorize(...SERVICE_OPERATION_ROLES), orderController.addOrderPhoto);
+
+/**
+ * @route PATCH /api/orders/:id/stage-photo
+ * @desc Save live-tracker stage photo URL + description (QC / service staff)
+ */
+router.patch(
+  '/:id/stage-photo',
+  authorize(...trackerController.TRACKER_STAGE_MEDIA_ROLES),
+  trackerController.patchTrackerStagePhoto
+);
+
+/**
+ * @route POST /api/orders/:id/stage-photo
+ * @desc Upload stage photo (multipart) → Cloudinary → same record as PATCH
+ */
+router.post(
+  '/:id/stage-photo',
+  authorize(...trackerController.TRACKER_STAGE_MEDIA_ROLES),
+  trackerStagePhotoUpload.single('photo'),
+  trackerController.postTrackerStagePhotoUpload
+);
 
 /**
  * @route PUT /api/orders/:id/status

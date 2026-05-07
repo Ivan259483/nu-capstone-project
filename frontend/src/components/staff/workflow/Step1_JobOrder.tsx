@@ -57,6 +57,9 @@ export default function Step1_JobOrder({ order, onComplete, isCompleted }: Step1
   }, [order, isCompleted]);
 
   const handleChange = (field: string, value: any) => {
+    if (field === 'vehiclePlate' && typeof value === 'string') {
+      value = value.toUpperCase();
+    }
     setForm(prev => ({ ...prev, [field]: value }));
   };
 

@@ -3,9 +3,13 @@ import CustomerVehiclePanel from './CustomerVehiclePanel';
 import ServiceCartPanel from './ServiceCartPanel';
 import PaymentSummaryPanel from './PaymentSummaryPanel';
 import ReceiptModal from './ReceiptModal';
+import BillingWorkspace from '@/components/sales/billing/BillingWorkspace';
+import InvoiceA4, { type InvoiceA4Snapshot } from '@/components/sales/billing/InvoiceA4';
 import { CUSTOMERS, Customer, Vehicle, CartItem } from '@/lib/salesData';
 import { useServices, VehicleType, getEffectivePrice } from '@/hooks/useServices';
+import { BillingService } from '@/lib/billing-service';
 import { toast } from 'sonner';
+import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
 
 // Map vehicle.type string → VehicleType key
 const VEHICLE_TYPE_MAP: Record<string, VehicleType> = {
@@ -250,8 +254,218 @@ export default function POSWorkspace() {
   const [showReceipt, setShowReceipt] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [completedTxnId, setCompletedTxnId] = useState<string>('');
+  /** When set, Pay uses billing checkout for this existing order (queue / booking). */
+  const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
+  /** Manually selected unpaid order (dropdown); queue selection uses `linkedOrderId`. */
+  const [posBillingOrderId, setPosBillingOrderId] = useState<string | null>(null);
+  const [unpaidOrders, setUnpaidOrders] = useState<any[]>([]);
+  const [unpaidOrdersLoading, setUnpaidOrdersLoading] = useState(false);
+  const [billingSyncNonce, setBillingSyncNonce] = useState(0);
+  const [invoiceSnap, setInvoiceSnap] = useState<InvoiceA4Snapshot | null>(null);
+
+  const effectiveOrderId = linkedOrderId ?? posBillingOrderId;
+
+  const loadUnpaidOrders = useCallback(async () => {
+    setUnpaidOrdersLoading(true);
+    try {
+      const { OrderService } = await import('@/lib/order-service');
+      const res = await OrderService.getAllOrders({ suppressErrorToast: true });
+      if (res.success && Array.isArray(res.data)) {
+        setUnpaidOrders(res.data.filter((o: any) => o.paymentStatus !== 'paid'));
+      }
+    } catch {
+      /* silent */
+    }
+    setUnpaidOrdersLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadUnpaidOrders();
+  }, [loadUnpaidOrders]);
+
+  const buildLineItemsFromCart = useCallback(() => {
+    return cartItems.map((c) => {
+      const baseId = String(c.id).split('-')[0];
+      const svc = services.find((s) => s._id === baseId || s._id === c.id);
+      const isTintBundle = String(c.id).includes('-tint');
+      return {
+        serviceId: isTintBundle ? null : baseId,
+        name: c.name,
+        billingGroup: (svc as { billingGroup?: string } | undefined)?.billingGroup || 'uncategorized',
+        unitPrice: c.price,
+        quantity: c.quantity,
+      };
+    });
+  }, [cartItems, services]);
+
+  /** Load server billing lines (or order.items) into POS cart + payment summary. */
+  const hydrateCartFromOrder = useCallback(async (orderId: string) => {
+    try {
+      const billRes = await BillingService.getBilling(orderId);
+      if (billRes.success && billRes.data && Array.isArray(billRes.data.lineItems) && billRes.data.lineItems.length > 0) {
+        const items: CartItem[] = billRes.data.lineItems.map((li: any, i: number) => {
+          const sid = li.serviceId ? String(li.serviceId) : `billing-line-${orderId}-${i}`;
+          const svc = li.serviceId ? services.find((s) => s._id === String(li.serviceId)) : undefined;
+          return {
+            id: sid,
+            name: li.name || 'Service',
+            category: (svc as { category?: string } | undefined)?.category || 'Service',
+            price: Number(li.unitPrice) || 0,
+            duration: (svc as { duration?: string } | undefined)?.duration || '',
+            description: '',
+            quantity: Math.max(1, Math.floor(Number(li.quantity)) || 1),
+          };
+        });
+        setCartItems(items);
+        const d = billRes.data.discount;
+        if (d?.discountType === 'fixed' && Number(d.value) > 0) {
+          setDiscount(Number(d.value));
+        } else {
+          setDiscount(0);
+        }
+        setBillingSyncNonce((n) => n + 1);
+        return;
+      }
+
+      const { OrderService } = await import('@/lib/order-service');
+      const ordRes = await OrderService.getOrderById(orderId);
+      if (!ordRes.success || !ordRes.data) {
+        setCartItems([]);
+        setDiscount(0);
+        setBillingSyncNonce((n) => n + 1);
+        return;
+      }
+      const order = ordRes.data as any;
+      const rawItems = order.items || [];
+      if (rawItems.length > 0) {
+        const mapped: CartItem[] = rawItems.map((it: any, i: number) => {
+          const prod = it.product;
+          const name =
+            typeof prod === 'object' && prod?.name ? prod.name : order.serviceType || 'Service';
+          const id =
+            typeof prod === 'object' && prod?._id ? String(prod._id) : `order-line-${orderId}-${i}`;
+          const cat =
+            typeof prod === 'object' && prod?.category ? String(prod.category) : 'Service';
+          return {
+            id,
+            name,
+            category: cat,
+            price: Number(it.price) || 0,
+            duration: '',
+            description: '',
+            quantity: Math.max(1, Math.floor(Number(it.quantity)) || 1),
+          };
+        });
+        setCartItems(mapped);
+        setDiscount(0);
+        setBillingSyncNonce((n) => n + 1);
+        return;
+      }
+
+      const total = Number(order.totalPrice ?? order.totalAmount ?? 0);
+      const svcName = order.serviceType || 'Booked service';
+      if (total > 0) {
+        setCartItems([
+          {
+            id: `order-${orderId}-total`,
+            name: svcName,
+            category: 'Service',
+            price: total,
+            duration: '',
+            description: '',
+            quantity: 1,
+          },
+        ]);
+      } else {
+        setCartItems([]);
+      }
+      setDiscount(0);
+      setBillingSyncNonce((n) => n + 1);
+    } catch {
+      toast.error('Could not load order line items');
+      setCartItems([]);
+    }
+  }, [services]);
+
+  useEffect(() => {
+    if (!effectiveOrderId || cartItems.length === 0) return undefined;
+    const t = window.setTimeout(() => {
+      void (async () => {
+        const put = await BillingService.putBilling(effectiveOrderId, {
+          lineItems: buildLineItemsFromCart(),
+          discount: discount > 0 ? { discountType: 'fixed' as const, value: discount } : undefined,
+          taxVatAmount: 0,
+          additionalFees: 0,
+          downpayment: 0,
+        });
+        if (put.success) setBillingSyncNonce((n) => n + 1);
+      })();
+    }, 450);
+    return () => window.clearTimeout(t);
+  }, [effectiveOrderId, cartItems, discount, buildLineItemsFromCart]);
+
+  const onBillingCheckoutSuccess = useCallback(
+    async ({ invoiceNumber }: { invoiceNumber: string; pdfUrl: string }) => {
+      const inv = await BillingService.getInvoice(invoiceNumber);
+      if (inv.success && inv.data && typeof inv.data === 'object' && 'snapshot' in inv.data) {
+        setInvoiceSnap((inv.data as { snapshot: InvoiceA4Snapshot }).snapshot);
+      }
+      setCartItems([]);
+      setDiscount(0);
+      setLinkedOrderId(null);
+      setPosBillingOrderId(null);
+      loadUnpaidOrders();
+    },
+    [loadUnpaidOrders]
+  );
+
+  const handleUnpaidOrderSelect = useCallback(
+    (orderId: string) => {
+      if (!orderId) {
+        setPosBillingOrderId(null);
+        return;
+      }
+      setLinkedOrderId(null);
+      setPosBillingOrderId(orderId);
+      const o = unpaidOrders.find((x: any) => String(x._id) === orderId);
+      if (!o) return;
+      const cleanPlate = sanitizeVehiclePlate(o.vehiclePlate || '');
+      const syntheticCustomer: Customer = {
+        id: o.customer || o._id,
+        name: o.customerName || 'Customer',
+        phone: o.customerPhone || '',
+        email: o.customerEmail || '',
+        tier: 'bronze',
+        visitCount: 0,
+        totalSpent: 0,
+        lastVisit: new Date().toISOString(),
+        memberSince: new Date().toISOString(),
+        notes: '',
+        vehicles: [
+          {
+            id: cleanPlate
+              ? `plate-${String(cleanPlate).replace(/\W/g, '-')}`
+              : `order-${orderId}-veh`,
+            plate: cleanPlate,
+            make: o.vehicleMake || '',
+            model: o.vehicleModel || '',
+            year: o.vehicleYear || '',
+            color: o.vehicleColor || '',
+            type: o.vehicleType || 'sedan',
+          },
+        ],
+      };
+      setSelectedCustomer(syntheticCustomer);
+      setSelectedVehicle(syntheticCustomer.vehicles[0]);
+      setManualVehicleType(null);
+      toast.success(`Loaded order ${o.orderNumber || orderId}`);
+      void hydrateCartFromOrder(orderId);
+    },
+    [unpaidOrders, hydrateCartFromOrder]
+  );
 
   const handleSelectBooking = (b: any) => {
+    const cleanPlate = sanitizeVehiclePlate(b.vehiclePlate || '');
     const syntheticCustomer: Customer = {
       id: b.customer || b._id,
       name: b.customerName || 'Customer',
@@ -264,8 +478,10 @@ export default function POSWorkspace() {
       memberSince: new Date().toISOString(),
       notes: '',
       vehicles: [{
-        id: b._id,
-        plate: b.vehiclePlate || '',
+        id: cleanPlate
+          ? `plate-${String(cleanPlate).replace(/\W/g, '-')}`
+          : `booking-${String(b._id || b.id)}-veh`,
+        plate: cleanPlate,
         make: b.vehicleMake || '',
         model: b.vehicleModel || '',
         year: b.vehicleYear || '',
@@ -276,7 +492,10 @@ export default function POSWorkspace() {
     setSelectedCustomer(syntheticCustomer);
     setSelectedVehicle(syntheticCustomer.vehicles[0]);
     setManualVehicleType(null);
+    setLinkedOrderId(String(b._id || b.id));
+    setPosBillingOrderId(null);
     toast.success(`Loaded booking: ${b.customerName}`);
+    void hydrateCartFromOrder(String(b._id || b.id));
   };
 
   const addToCart = (svcId: string, withTint = false) => {
@@ -340,6 +559,51 @@ export default function POSWorkspace() {
     if (cartItems.length === 0) { toast.error('Add at least one service to proceed.'); return; }
     setProcessing(true);
     try {
+      if (effectiveOrderId) {
+        const lineItems = buildLineItemsFromCart();
+        const put = await BillingService.putBilling(effectiveOrderId, {
+          lineItems,
+          discount: discount > 0 ? { discountType: 'fixed' as const, value: discount } : undefined,
+          taxVatAmount: 0,
+          additionalFees: 0,
+          downpayment: 0,
+        });
+        if (!put.success || !('data' in put) || !put.data) {
+          toast.error((put as { message?: string }).message || 'Could not update billing');
+          setProcessing(false);
+          return;
+        }
+        const balanceDue = put.data.computed?.balanceDue ?? 0;
+        const mapPm = (pm: string): 'cash' | 'gcash' | 'maya' | 'card' => {
+          if (pm === 'gcash' || pm === 'maya' || pm === 'card') return pm;
+          if (pm === 'bank_transfer') return 'card';
+          return 'cash';
+        };
+        const pm = mapPm(paymentMethod);
+        const chk = await BillingService.checkout(effectiveOrderId, {
+          paymentMethod: pm,
+          cashReceived: pm === 'cash' ? balanceDue : undefined,
+        });
+        if (chk.success && chk.data) {
+          setCompletedTxnId(chk.data.invoiceNumber || chk.data.posInvoiceId || `TXN-${Date.now()}`);
+          setShowReceipt(true);
+          toast.success(`Payment recorded — ${chk.data.invoiceNumber || ''}`);
+          const inv = await BillingService.getInvoice(chk.data.invoiceNumber);
+          if (inv.success && inv.data && typeof inv.data === 'object' && 'snapshot' in inv.data) {
+            setInvoiceSnap((inv.data as { snapshot: InvoiceA4Snapshot }).snapshot);
+          }
+          setCartItems([]);
+          setDiscount(0);
+          setLinkedOrderId(null);
+          setPosBillingOrderId(null);
+          loadUnpaidOrders();
+        } else {
+          toast.error(chk.message || 'Checkout failed');
+        }
+        setProcessing(false);
+        return;
+      }
+
       const { OrderService } = await import('@/lib/order-service');
       const orderPayload = {
         customerName: selectedCustomer.name,
@@ -392,6 +656,9 @@ export default function POSWorkspace() {
     setPaymentMethod('cash');
     setShowReceipt(false);
     setCompletedTxnId('');
+    setLinkedOrderId(null);
+    setPosBillingOrderId(null);
+    setInvoiceSnap(null);
   };
 
   return (
@@ -404,6 +671,43 @@ export default function POSWorkspace() {
         {/* Check-In Queue — compact collapsible strip */}
         <CheckInQueuePanel onSelectBooking={handleSelectBooking} />
 
+        <div
+          className="shrink-0 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+          style={{ boxShadow: '0 1px 6px rgba(0,0,0,.05)' }}
+        >
+          <label className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
+            <span>Unpaid order</span>
+            <select
+              className="min-w-[200px] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm font-medium text-slate-800"
+              value={
+                effectiveOrderId && unpaidOrders.some((o: any) => String(o._id) === effectiveOrderId)
+                  ? effectiveOrderId
+                  : ''
+              }
+              onChange={(e) => handleUnpaidOrderSelect(e.target.value)}
+            >
+              <option value="">— Walk-in / none —</option>
+              {unpaidOrdersLoading ? (
+                <option disabled>Loading…</option>
+              ) : (
+                unpaidOrders.map((o: any) => (
+                  <option key={o._id} value={o._id}>
+                    {o.orderNumber || o._id} · {o.customerName || 'Customer'} · ₱
+                    {Number(o.totalPrice || o.totalAmount || 0).toLocaleString()}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => loadUnpaidOrders()}
+            className="ml-auto text-xs font-bold text-blue-700 hover:underline"
+          >
+            Refresh list
+          </button>
+        </div>
+
         {/* POS 3-column area — fills remaining space */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch flex-1 min-h-0">
           <div className="lg:col-span-3 flex flex-col overflow-hidden">
@@ -411,7 +715,7 @@ export default function POSWorkspace() {
               customers={CUSTOMERS}
               selectedCustomer={selectedCustomer}
               selectedVehicle={selectedVehicle}
-              onSelectCustomer={(c) => { setSelectedCustomer(c); setSelectedVehicle(null); setManualVehicleType(null); }}
+              onSelectCustomer={(c) => { setSelectedCustomer(c); setSelectedVehicle(null); setManualVehicleType(null); setLinkedOrderId(null); setPosBillingOrderId(null); setInvoiceSnap(null); }}
               onSelectVehicle={(v) => { setSelectedVehicle(v); setManualVehicleType(null); }}
             />
           </div>
@@ -430,18 +734,40 @@ export default function POSWorkspace() {
             />
           </div>
 
-          <div className="lg:col-span-4 flex flex-col overflow-hidden">
-            <PaymentSummaryPanel
-              cartItems={cartItems}
-              subtotal={subtotal}
-              discount={discount}
-              total={total}
-              paymentMethod={paymentMethod}
-              processing={processing}
-              onDiscountChange={setDiscount}
-              onPaymentMethodChange={setPaymentMethod}
-              onProcessPayment={handleProcessPayment}
-            />
+          <div className="lg:col-span-4 flex flex-col min-h-0 overflow-hidden gap-2">
+            <div className="shrink-0 min-h-0">
+              <PaymentSummaryPanel
+                cartItems={cartItems}
+                subtotal={subtotal}
+                discount={discount}
+                total={total}
+                paymentMethod={paymentMethod}
+                processing={processing}
+                onDiscountChange={setDiscount}
+                onPaymentMethodChange={setPaymentMethod}
+                onProcessPayment={handleProcessPayment}
+              />
+            </div>
+            {effectiveOrderId && (
+              <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pr-0.5">
+                <BillingWorkspace
+                  orderId={effectiveOrderId}
+                  syncNonce={billingSyncNonce}
+                  onCheckoutSuccess={onBillingCheckoutSuccess}
+                  compact
+                />
+                {invoiceSnap && (
+                  <details className="rounded-xl border border-slate-200 bg-white overflow-hidden shrink-0" open>
+                    <summary className="cursor-pointer px-3 py-2 text-xs font-bold text-slate-800 bg-slate-50 border-b border-slate-100">
+                      Invoice preview (A4)
+                    </summary>
+                    <div className="p-2 max-h-[480px] overflow-y-auto">
+                      <InvoiceA4 snapshot={invoiceSnap} />
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
