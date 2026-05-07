@@ -31,7 +31,7 @@ import {
 interface AIEstimatorProps {
     /** When true: no full-page wrapper; safe to embed in dashboard tabs. */
     embedded?: boolean;
-    /** Called in embedded mode instead of navigating to /booking */
+    /** Called in embedded mode instead of navigating to login */
     onBookingRequest?: () => void;
 }
 
@@ -202,7 +202,7 @@ function AIEstimatorCore({ embedded = false, onBookingRequest }: AIEstimatorProp
         if (embedded && onBookingRequest) {
             onBookingRequest();
         } else {
-            navigate('/booking');
+            navigate("/login");
         }
     };
 

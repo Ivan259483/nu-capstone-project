@@ -41,7 +41,7 @@ export default function BookingCTA() {
                 </p>
 
                 <div className="flex flex-wrap justify-center gap-4">
-                    <Link to="/booking">
+                    <Link to="/login">
                         <Button
                             size="lg"
                             className="bg-gradient-gold text-primary-foreground glow-gold font-semibold px-10 hover:opacity-90 hover:scale-105 transition-all duration-300 group"

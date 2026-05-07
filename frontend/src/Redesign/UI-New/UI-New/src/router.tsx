@@ -1,17 +1,17 @@
 import Home from "./pages/Home";
 import Services from "./pages/Services";
 import Gallery from "./pages/Gallery";
-import Booking from "./pages/Booking";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
+import { Navigate } from "react-router-dom";
 
 export const routers = [
     { path: "/", name: "home", element: <Home /> },
     { path: "/services", name: "services", element: <Services /> },
     { path: "/gallery", name: "gallery", element: <Gallery /> },
-    { path: "/booking", name: "booking", element: <Booking /> },
+    { path: "/booking", name: "booking", element: <Navigate to="/login" replace /> },
     { path: "/about", name: "about", element: <About /> },
     { path: "/contact", name: "contact", element: <Contact /> },
     { path: "/login", name: "login", element: <Login /> },

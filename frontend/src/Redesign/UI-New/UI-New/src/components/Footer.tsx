@@ -9,7 +9,7 @@ export default function Footer() {
         { label: t("nav.home"), to: "/" },
         { label: t("nav.services"), to: "/services" },
         { label: t("nav.gallery"), to: "/gallery" },
-        { label: t("nav.booking"), to: "/booking" },
+        { label: t("nav.booking"), to: "/login" },
         { label: t("nav.about"), to: "/about" },
         { label: t("nav.contact"), to: "/contact" },
     ];

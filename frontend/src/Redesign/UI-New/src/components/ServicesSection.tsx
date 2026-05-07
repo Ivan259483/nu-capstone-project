@@ -48,7 +48,7 @@ function ServiceCard({ icon: Icon, name, desc, price, isPopular, delay, isVisibl
                     <span className="text-xs text-muted-foreground">{t("services.startingAt")}</span>
                     <div className="text-lg font-bold gradient-text">{price}</div>
                 </div>
-                <Link to="/booking">
+                <Link to="/login">
                     <Button size="sm" variant="outline" className="border-gold/25 text-primary hover:bg-gold/10 hover:border-gold/50 text-xs">
                         {t("services.bookNow")}
                     </Button>

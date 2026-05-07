@@ -466,7 +466,7 @@ export default function Gallery() {
                         Book your premium detailing session today and join our portfolio of satisfied clients.
                     </motion.p>
                     <motion.div variants={fadeUp} className="flex items-center justify-center gap-4 flex-wrap">
-                        <a href="/booking">
+                        <a href="/login">
                             <motion.button
                                 whileHover={{ scale: 1.04 }}
                                 whileTap={{ scale: 0.97 }}

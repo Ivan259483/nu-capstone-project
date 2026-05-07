@@ -24,7 +24,6 @@ import {
 
 const Gallery = lazy(() => import("./pages/Gallery"));
 const Services = lazy(() => import("./pages/Services"));
-const BookingPage = lazy(() => import("./pages/BookingPage"));
 const CustomerDashboard = lazy(() => import("./pages/CustomerDashboard"));
 const CustomerLiveTrackerPage = lazy(() => import("./pages/CustomerLiveTrackerPage"));
 const DetailerDashboard = lazy(() => import("./pages/DetailerDashboard"));
@@ -146,7 +145,7 @@ function AppRoutes() {
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/gallery" element={<Gallery />} />
                     <Route path="/services" element={<Services />} />
-                    <Route path="/booking" element={<BookingPage />} />
+                    <Route path="/booking" element={<Navigate to="/login" replace />} />
                     <Route path="/ar-estimator" element={<AIEstimatorPage />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/verify-otp" element={<VerifyOtpPage />} />

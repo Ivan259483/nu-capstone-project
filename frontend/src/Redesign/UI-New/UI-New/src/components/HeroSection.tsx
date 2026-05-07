@@ -154,7 +154,7 @@ export default function HeroSection() {
                         className="flex flex-wrap gap-4 mb-14 animate-slide-up"
                         style={{ animationDelay: "0.45s" }}
                     >
-                        <Link to="/booking">
+                        <Link to="/login">
                             <Button
                                 size="lg"
                                 className="bg-gradient-gold text-primary-foreground glow-gold font-semibold px-8 hover:opacity-90 hover:scale-105 transition-all duration-300"

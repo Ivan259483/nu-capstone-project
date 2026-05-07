@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
     Eye,
     EyeOff,
@@ -76,6 +76,7 @@ function registerPasswordStrength(
 export default function Login() {
     const { t } = useLanguage();
     const navigate = useNavigate();
+    const location = useLocation();
     const { login, resetPassword, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser } = useAuth();
 
     /* ── Form state ── */
@@ -147,6 +148,21 @@ export default function Login() {
     useEffect(() => {
         if (registerForm.password.length === 0) setShowRegisterPassword(false);
     }, [registerForm.password.length]);
+
+    /* ── ?redirect= or ?next= — safe same-origin path only (e.g. return to a protected route after sign-in) ── */
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const raw = params.get("redirect") ?? params.get("next");
+        if (!raw) return;
+        let path: string;
+        try {
+            path = decodeURIComponent(raw.trim());
+        } catch {
+            return;
+        }
+        if (!path.startsWith("/") || path.startsWith("//")) return;
+        sessionStorage.setItem("redirect_after_login", path);
+    }, [location.search]);
 
     /* ── Login OTP expiry countdown (5 min) ── */
     useEffect(() => {

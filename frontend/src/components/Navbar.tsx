@@ -97,7 +97,7 @@ export default function Navbar() {
                             </Button>
                         </Link>
 
-                        <Link to="/booking">
+                        <Link to="/login">
                             <Button size="sm" className="bg-gradient-gold text-primary-foreground hover:opacity-90 glow-gold-sm font-semibold transition-all duration-300">
                                 {t("nav.booking")}
                             </Button>
@@ -170,7 +170,7 @@ export default function Navbar() {
                                 {t("nav.login")}
                             </Button>
                         </Link>
-                        <Link to="/booking" className="w-full">
+                        <Link to="/login" className="w-full">
                             <Button className="w-full min-h-[44px] bg-gradient-gold text-primary-foreground glow-gold-sm">
                                 {t("nav.booking")}
                             </Button>

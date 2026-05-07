@@ -177,7 +177,7 @@ export default function HeroSection() {
 
                     {/* CTA Buttons */}
                     <div className="flex flex-wrap items-center gap-5 mb-14 animate-slide-up font-sans" style={{ animationDelay: "0.6s" }}>
-                        <Link to={`/booking?service=${encodeURIComponent(activeService)}`}>
+                        <Link to="/login">
                             <button
                                 className="group relative px-10 py-[17px] font-semibold text-sm tracking-wide uppercase overflow-hidden rounded-none flex items-center gap-3 transition-all duration-500"
                                 style={{

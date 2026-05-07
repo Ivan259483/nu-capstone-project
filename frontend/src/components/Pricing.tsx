@@ -219,7 +219,7 @@ export default function Pricing({ packages: initialPackages }: PricingProps) {
                                     </ul>
 
                                     {/* CTA */}
-                                    <Link to={`/booking?pkg=${pkg.id}`}>
+                                    <Link to="/login">
                                         <motion.button
                                             whileHover={{ scale: 1.025 }}
                                             whileTap={{ scale: 0.975 }}

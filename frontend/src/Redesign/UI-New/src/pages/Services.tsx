@@ -121,7 +121,7 @@ function ServiceCard({
                     ))}
                 </ul>
 
-                <Link to="/booking">
+                <Link to="/login">
                     <Button className="w-full bg-gradient-gold text-primary-foreground hover:opacity-90 font-semibold group/btn">
                         {t("services.bookNow")}
                         <ArrowRight className="w-4 h-4 ml-2 group-hover/btn:translate-x-1 transition-transform" />
