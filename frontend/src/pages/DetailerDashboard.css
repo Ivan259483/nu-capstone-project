@@ -55,6 +55,45 @@
 
 /* Light mode is the default — no overrides needed */
 
+/* QC review queue: local soft-border treatment for the full-takeover panel. */
+.detailer-root:not(.dark) .qc-review-header,
+.detailer-root:not(.dark) .qc-review-table-shell {
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  box-shadow:
+    0 18px 44px rgba(15, 23, 42, 0.055),
+    0 1px 0 rgba(255, 255, 255, 0.88) inset !important;
+}
+
+.detailer-root:not(.dark) .qc-review-header {
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%) !important;
+}
+
+.detailer-root:not(.dark) .qc-review-toolbar,
+.detailer-root:not(.dark) .qc-review-footer {
+  border-color: rgba(226, 232, 240, 0.58) !important;
+}
+
+.detailer-root:not(.dark) .qc-review-table {
+  border-collapse: separate !important;
+  border-spacing: 0 6px !important;
+}
+
+.detailer-root:not(.dark) .qc-review-table thead th {
+  background: #f8fafc !important;
+  border-bottom-color: rgba(226, 232, 240, 0.68) !important;
+}
+
+.detailer-root:not(.dark) .qc-review-table tbody td {
+  border-bottom-color: transparent !important;
+  box-shadow: inset 0 -1px 0 rgba(226, 232, 240, 0.42);
+}
+
+.detailer-root:not(.dark) .qc-review-table tbody tr:hover td {
+  box-shadow:
+    inset 0 -1px 0 rgba(191, 219, 254, 0.52),
+    0 8px 18px rgba(15, 23, 42, 0.035);
+}
+
 /* ══════════════════════════════════════════
    🌑 DARK MODE OVERRIDES — AutoSPF+ Obsidian Theme
    Activated by: .detailer-root.dark

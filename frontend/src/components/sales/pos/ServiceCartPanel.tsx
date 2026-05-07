@@ -128,19 +128,21 @@ export default function ServiceCartPanel({
   const activeVehicleLabel = VEHICLE_TABS.find((t) => t.key === selectedVehicleType)?.label ?? '';
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 overflow-hidden">
+    <div className="pos-service-cart-panel flex flex-1 flex-col overflow-hidden rounded-[22px] border bg-white ring-1 ring-white/80">
 
       {/* ══ HEADER ══════════════════════════════════════════════════════════ */}
-      <div className="px-4 pt-4 pb-0 border-b border-slate-100">
+      <div className="pos-service-cart-header border-b px-4 pb-3 pt-4">
 
         {/* Title row */}
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <ShoppingCart size={15} className="text-blue-700" />
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-700 ring-1 ring-blue-100">
+              <ShoppingCart size={15} />
+            </span>
             Service Cart
           </h3>
           {cartItems.length > 0 && (
-            <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-100">
+            <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 shadow-sm shadow-blue-100/50">
               {cartItems.length} item{cartItems.length !== 1 ? 's' : ''}
             </span>
           )}
@@ -154,7 +156,7 @@ export default function ServiceCartPanel({
             placeholder="Search services…"
             value={svcQuery}
             onChange={(e) => setSvcQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all duration-150"
+            className="h-10 w-full rounded-xl border border-slate-200/70 bg-white pl-8 pr-3 text-xs text-slate-900 shadow-sm shadow-slate-200/35 transition-all duration-150 placeholder-slate-400 focus:border-blue-300 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
           />
         </div>
 
@@ -168,17 +170,17 @@ export default function ServiceCartPanel({
             </p>
           </div>
         )}
-        <div className="flex items-center justify-start gap-1.5 overflow-x-auto pb-3" style={{ scrollbarWidth: 'none' }}>
+        <div className="flex items-center justify-start gap-1.5 overflow-x-auto rounded-2xl bg-slate-50/80 p-1.5 ring-1 ring-slate-100" style={{ scrollbarWidth: 'none' }}>
           {VEHICLE_TABS.map((tab) => {
             const active = selectedVehicleType === tab.key;
             return (
               <button
                 key={tab.key}
                 onClick={() => onVehicleTypeChange(tab.key)}
-                className={`shrink-0 flex items-center justify-center text-[11px] font-bold px-3.5 py-1.5 rounded-lg border transition-all duration-300 ${
+                className={`flex shrink-0 items-center justify-center rounded-xl border px-3.5 py-2 text-[11px] font-bold transition-all duration-200 ${
                   active
-                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white border-transparent shadow-[0_4px_12px_rgba(245,158,11,0.3)]'
-                    : 'bg-white text-slate-500 border-slate-200 hover:text-slate-700 hover:bg-slate-50'
+                    ? 'border-transparent bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-[0_8px_18px_rgba(245,158,11,0.24)]'
+                    : 'border-transparent bg-transparent text-slate-500 hover:bg-white hover:text-slate-700 hover:shadow-sm'
                 }`}
               >
                 {tab.label}
@@ -193,17 +195,17 @@ export default function ServiceCartPanel({
 
         {/* ── Cart Items (in-transaction) ──────────────────────────────────── */}
         {cartItems.length > 0 && (
-          <div className="border-b border-slate-100 bg-slate-50/60">
+          <div className="pos-service-cart-added border-b bg-slate-50/70">
             <div className="px-4 pt-2.5 pb-1">
               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
                 Added to Transaction
               </p>
             </div>
-            <div className="divide-y divide-slate-100 max-h-44 overflow-y-auto">
+            <div className="max-h-44 space-y-2 overflow-y-auto px-3 pb-3">
               {cartItems.map((item) => (
                 <div
                   key={`cart-item-${item.id}`}
-                  className="grid items-center gap-2 px-4 py-2.5"
+                  className="grid items-center gap-2 rounded-2xl border border-slate-200/60 bg-white px-3 py-2.5 shadow-sm shadow-slate-200/35"
                   style={{ gridTemplateColumns: '1fr auto auto auto' }}
                 >
                   <div className="min-w-0">
@@ -222,32 +224,32 @@ export default function ServiceCartPanel({
                     </div>
                   </div>
                   {/* Qty controls */}
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => onUpdateQty(item.id, item.quantity - 1)}
-                      className="w-6 h-6 rounded-md bg-slate-200 hover:bg-slate-300 flex items-center justify-center text-slate-600 transition-colors duration-100"
-                    >
-                      <Minus size={11} />
-                    </button>
-                    <span className="text-xs font-bold text-slate-900 w-5 text-center">{item.quantity}</span>
-                    <button
-                      onClick={() => onUpdateQty(item.id, item.quantity + 1)}
-                      className="w-6 h-6 rounded-md bg-slate-200 hover:bg-slate-300 flex items-center justify-center text-slate-600 transition-colors duration-100"
-                    >
-                      <Plus size={11} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => onUpdateQty(item.id, item.quantity - 1)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-colors duration-100 hover:bg-slate-200"
+                      >
+                        <Minus size={11} />
+                      </button>
+                      <span className="w-5 text-center text-xs font-bold text-slate-900">{item.quantity}</span>
+                      <button
+                        onClick={() => onUpdateQty(item.id, item.quantity + 1)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition-colors duration-100 hover:bg-slate-200"
+                      >
+                        <Plus size={11} />
+                      </button>
                   </div>
                   {/* Line total */}
                   <p className="text-xs font-bold text-slate-900 text-right w-20">
                     {formatPeso(item.price * item.quantity)}
                   </p>
                   {/* Remove */}
-                  <button
-                    onClick={() => onRemoveFromCart(item.id)}
-                    className="p-1 rounded-md hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all duration-150"
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                    <button
+                      onClick={() => onRemoveFromCart(item.id)}
+                      className="rounded-lg p-1.5 text-slate-300 transition-all duration-150 hover:bg-red-50 hover:text-red-500"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                 </div>
               ))}
             </div>
@@ -257,19 +259,19 @@ export default function ServiceCartPanel({
         {/* ── Service Catalog List ─────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto">
           {/* Catalog meta row */}
-          <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-slate-100 px-4 py-2 flex items-center justify-between">
+          <div className="pos-service-catalog-meta sticky top-0 z-10 flex items-center justify-between border-b bg-white/90 px-4 py-2.5 backdrop-blur-sm">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
               {servicesLoading ? 'Loading…' : `${filteredServices.length} service${filteredServices.length !== 1 ? 's' : ''}`}
             </p>
             {/* Active context badge */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               {svcQuery && (
-                <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full truncate max-w-[100px]">
+                <span className="max-w-[100px] truncate rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
                   "{svcQuery}"
                 </span>
               )}
               <span
-                className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                className="rounded-full px-2.5 py-1 text-[10px] font-semibold shadow-sm"
                 style={{ backgroundColor: '#fff3ed', color: '#e07040', border: '1px solid #fdd5b8' }}
               >
                 {activeVehicleLabel}
@@ -292,7 +294,7 @@ export default function ServiceCartPanel({
             </div>
 
           ) : (
-            <div className="divide-y divide-slate-50">
+            <div className="pos-service-list space-y-2 bg-slate-50/55 p-3">
               {filteredServices.map((svc) => {
                 const added = inCart(svc._id);
                 const price = getEffectivePrice(svc, selectedVehicleType);
@@ -303,31 +305,31 @@ export default function ServiceCartPanel({
                 const isExpanded = expandedId === svc._id;
 
                 return (
-                  <div
-                    key={`catalog-${svc._id}`}
-                    className={`px-4 py-3 transition-colors duration-100 ${
-                      added ? 'bg-blue-50/50' : 'hover:bg-slate-50'
-                    }`}
-                  >
+                    <div
+                      key={`catalog-${svc._id}`}
+                      className={`pos-service-row rounded-2xl border px-4 py-3.5 transition-all duration-150 ${
+                        added ? 'border-blue-200/70 bg-blue-50/80 shadow-[0_10px_24px_rgba(37,99,235,0.08)]' : 'border-slate-200/60 bg-white shadow-sm shadow-slate-200/35 hover:border-blue-100 hover:bg-white hover:shadow-[0_12px_26px_rgba(15,23,42,0.06)]'
+                      }`}
+                    >
                     {/* Main row */}
                     <div className="flex items-start gap-3">
                       <div className="flex-1 min-w-0">
                         {/* Name + "In cart" badge */}
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-[12.5px] font-semibold text-slate-900 truncate">{svc.name}</p>
-                          {added && (
-                            <span className="text-[9.5px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full shrink-0">
-                              In cart
-                            </span>
+                            <p className="truncate text-[13px] font-bold text-slate-900">{svc.name}</p>
+                            {added && (
+                              <span className="shrink-0 rounded-full bg-blue-100 px-1.5 py-0.5 text-[9.5px] font-bold text-blue-600">
+                                In cart
+                              </span>
                           )}
                         </div>
 
                         {/* Package badge + warranty */}
                         {spfMeta && (
                           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            <span className={`text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded-full border ${spfMeta.badgeColor}`}>
-                              {spfMeta.badge}
-                            </span>
+                              <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-black uppercase ${spfMeta.badgeColor}`}>
+                                {spfMeta.badge}
+                              </span>
                             <span className="flex items-center gap-0.5 text-[9px] font-semibold text-slate-500">
                               <Shield size={8} className="text-slate-400" />
                               {spfMeta.warranty}
@@ -337,9 +339,9 @@ export default function ServiceCartPanel({
 
                         {/* Category + duration + base price notice */}
                         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${CATEGORY_COLORS[svc.category] || 'bg-slate-100 text-slate-600'}`}>
-                            {svc.category}
-                          </span>
+                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${CATEGORY_COLORS[svc.category] || 'bg-slate-100 text-slate-600'}`}>
+                              {svc.category}
+                            </span>
                           {svc.duration && (
                             <span className="flex items-center gap-0.5 text-[10px] text-slate-400">
                               <Clock size={9} />
@@ -347,9 +349,9 @@ export default function ServiceCartPanel({
                             </span>
                           )}
                           {!hasVehiclePrice && price > 0 && (
-                            <span className="text-[9px] font-semibold text-amber-500 bg-amber-50 border border-amber-100 px-1 py-0.5 rounded">
-                              base price
-                            </span>
+                              <span className="rounded-md border border-amber-100 bg-amber-50 px-1 py-0.5 text-[9px] font-semibold text-amber-500">
+                                base price
+                              </span>
                           )}
                         </div>
 
@@ -360,31 +362,31 @@ export default function ServiceCartPanel({
                       </div>
 
                       {/* Price + Add button */}
-                      <div className="flex flex-col items-end shrink-0 w-[96px]">
-                        <p className={`text-[13px] font-bold tabular-nums ${hasVehiclePrice ? 'text-slate-900' : 'text-slate-400'}`}>
-                          {price > 0 ? formatPeso(price) : <span className="text-slate-300">—</span>}
-                        </p>
-                        <button
-                          onClick={() => onAddToCart(svc._id)}
-                          disabled={price === 0}
-                          className={`mt-1.5 w-full flex items-center justify-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg transition-all duration-150 ${
-                            price === 0
-                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                              : added
-                              ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                              : 'bg-blue-700 text-white hover:bg-blue-800 active:scale-95'
-                          }`}
-                        >
+                        <div className="flex w-[104px] shrink-0 flex-col items-end">
+                          <p className={`text-[13px] font-extrabold tabular-nums ${hasVehiclePrice ? 'text-slate-900' : 'text-slate-400'}`}>
+                            {price > 0 ? formatPeso(price) : <span className="text-slate-300">—</span>}
+                          </p>
+                          <button
+                            onClick={() => onAddToCart(svc._id)}
+                            disabled={price === 0}
+                            className={`mt-1.5 flex w-full items-center justify-center gap-1 rounded-xl px-2 py-1.5 text-[11px] font-bold transition-all duration-150 ${
+                              price === 0
+                                ? 'cursor-not-allowed bg-slate-100 text-slate-400'
+                                : added
+                                ? 'bg-blue-100 text-blue-700 shadow-sm shadow-blue-100/60 hover:bg-blue-200'
+                                : 'bg-gradient-to-r from-blue-700 to-blue-600 text-white shadow-[0_8px_18px_rgba(37,99,235,0.22)] hover:from-blue-800 hover:to-blue-700 active:scale-95'
+                            }`}
+                          >
                           <Plus size={10} />
                           {price === 0 ? 'No price' : added ? 'Add again' : 'Add'}
                         </button>
 
                         {/* Tint add-on toggle */}
-                        {spfMeta && tintPrice && (
-                          <button
-                            onClick={() => setExpandedId(isExpanded ? null : svc._id)}
-                            className="mt-1 text-[9.5px] text-teal-600 font-semibold flex items-center gap-0.5 hover:text-teal-700 transition-colors"
-                          >
+                            {spfMeta && tintPrice && (
+                            <button
+                              onClick={() => setExpandedId(isExpanded ? null : svc._id)}
+                              className="mt-1 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold text-teal-600 transition-colors hover:bg-teal-50 hover:text-teal-700"
+                            >
                             + Tint
                             {isExpanded ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
                           </button>
@@ -394,7 +396,7 @@ export default function ServiceCartPanel({
 
                     {/* Tint add-on expanded panel */}
                     {isExpanded && spfMeta && tintPrice && (
-                      <div className="mt-2 ml-0 p-2.5 rounded-lg bg-teal-50 border border-teal-200 flex items-center justify-between">
+                        <div className="mt-3 flex items-center justify-between rounded-2xl border border-teal-100 bg-teal-50/90 p-3 shadow-sm shadow-teal-100/50">
                         <div>
                           <p className="text-[10px] font-bold text-teal-800">+ Nano Ceramic Window Tint</p>
                           <p className="text-[9px] text-teal-600 mt-0.5">Bundle with {svc.name} · {activeVehicleLabel}</p>

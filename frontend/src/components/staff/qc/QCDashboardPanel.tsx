@@ -560,20 +560,28 @@ export default function QCDashboardPanel() {
 
       case 'jobs':
         return (
-          <div className="space-y-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Jobs for Review</h1>
-                <p className="text-sm text-slate-500 mt-1">Complete review queue — {pendingCount} job{pendingCount !== 1 ? 's' : ''} awaiting your validation</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="flex items-center gap-2 text-sm text-slate-600 font-medium">
-                  <span className={`w-2 h-2 rounded-full ${pendingCount > 0 ? 'bg-orange-400' : 'bg-slate-300'}`} />
-                  {pendingCount} Pending Review
+          <div className="space-y-5">
+            <div className="qc-review-header flex flex-col gap-4 rounded-[22px] border bg-white px-5 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0">
+                <span className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                  Quality Control
                 </span>
-                <span className="flex items-center gap-2 text-sm text-slate-600 font-medium">
-                  <span className={`w-2 h-2 rounded-full ${aiPendingCount > 0 ? 'bg-orange-400' : 'bg-slate-300'}`} />
-                  {aiPendingCount} AI Flagged
+                <h1 className="mt-3 text-2xl font-bold text-slate-950">Jobs for Review</h1>
+                <p className="mt-1 text-sm text-slate-500">
+                  Complete review queue - {pendingCount} job{pendingCount !== 1 ? 's' : ''} awaiting validation
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="inline-flex h-10 items-center gap-2 rounded-xl border border-orange-100 bg-orange-50 px-3 text-sm font-semibold text-orange-700">
+                  <span className={`h-2 w-2 rounded-full ${pendingCount > 0 ? 'bg-orange-400' : 'bg-slate-300'}`} />
+                  <span className="tabular-nums">{pendingCount}</span> Pending Review
+                </span>
+                <span className="inline-flex h-10 items-center gap-2 rounded-xl border border-rose-100 bg-rose-50 px-3 text-sm font-semibold text-rose-700">
+                  <AlertTriangle size={14} />
+                  <span className="tabular-nums">{aiPendingCount}</span> AI Flagged
+                </span>
+                <span className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-600">
+                  <span className="tabular-nums">{jobs.length}</span>&nbsp;Total Jobs
                 </span>
               </div>
             </div>
@@ -581,8 +589,6 @@ export default function QCDashboardPanel() {
               jobs={jobs}
               loading={jobsLoading}
               onSelectJob={handleSelectJob}
-              onApproveJob={approveJob}
-              onReturnJob={(id) => returnJob(id, 'Returned for correction')}
             />
           </div>
         );
@@ -617,7 +623,8 @@ export default function QCDashboardPanel() {
         return (
           <QCLiveTrackerView
             jobs={jobs}
-            loading={jobsLoading}
+            // Only block the whole view before the first /qc/jobs payload — refetches stay silent (no pulse skeleton).
+            loading={jobsLoading && jobs.length === 0}
             onAdvance={updateServiceStatus}
             onSaveStaff={assignServiceStaff}
             onUploadStagePhoto={uploadTrackerStagePhoto}

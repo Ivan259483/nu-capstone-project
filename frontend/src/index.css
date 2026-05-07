@@ -532,6 +532,363 @@ html.dark * {
     border: 1px solid rgba(212, 175, 55, 0.08);
 }
 
+/* Customer dashboard overview cards */
+.customer-sidebar {
+    width: 16rem;
+    overflow: visible;
+    will-change: width, transform;
+}
+
+.customer-sidebar.is-transition-ready {
+    transition:
+        width 250ms ease-in-out,
+        transform 200ms ease-in-out;
+}
+
+.customer-sidebar.is-collapsed {
+    width: 64px;
+}
+
+.customer-sidebar-brand {
+    padding-left: 1.25rem;
+    padding-right: 1rem;
+    overflow: hidden;
+}
+
+.customer-sidebar-brand-mark {
+    transition:
+        width 250ms ease-in-out,
+        height 250ms ease-in-out,
+        border-radius 250ms ease-in-out;
+}
+
+.customer-sidebar.is-collapsed .customer-sidebar-brand {
+    justify-content: center;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+}
+
+.customer-sidebar.is-collapsed .customer-sidebar-brand-mark {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.875rem;
+}
+
+.customer-sidebar-nav {
+    padding: 1.5rem 0.75rem;
+    transition: padding 250ms ease-in-out;
+}
+
+.customer-sidebar.is-collapsed .customer-sidebar-nav {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+}
+
+.customer-sidebar-item {
+    min-height: 2.5rem;
+    padding: 0.5rem 0.75rem;
+    overflow: hidden;
+    white-space: nowrap;
+    transition:
+        background-color 150ms ease,
+        color 150ms ease,
+        padding 250ms ease-in-out,
+        gap 250ms ease-in-out;
+}
+
+.customer-sidebar.is-collapsed .customer-sidebar-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    width: 100%;
+    padding-left: 0;
+    padding-right: 0;
+    margin-left: 0;
+    margin-right: 0;
+    text-indent: 0;
+}
+
+.customer-sidebar-label,
+.customer-sidebar-extra {
+    opacity: 1;
+    white-space: nowrap;
+    transition: opacity 150ms ease;
+}
+
+.customer-sidebar.is-labels-hidden .customer-sidebar-label,
+.customer-sidebar.is-labels-hidden .customer-sidebar-extra {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.customer-sidebar.is-collapsed .customer-sidebar-label,
+.customer-sidebar.is-collapsed .customer-sidebar-extra {
+    width: 0;
+    max-width: 0;
+    min-width: 0;
+    flex: 0 0 0;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    overflow: hidden;
+}
+
+.customer-sidebar-toggle {
+    position: absolute;
+    top: 1rem;
+    right: -0.75rem;
+    z-index: 2;
+    width: 1.5rem;
+    height: 1.5rem;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(203, 213, 225, 0.86);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.96);
+    color: #64748b;
+    box-shadow:
+        0 8px 22px rgba(15, 23, 42, 0.1),
+        0 1px 0 rgba(255, 255, 255, 0.95) inset;
+    transition:
+        border-color 150ms ease,
+        color 150ms ease,
+        box-shadow 150ms ease,
+        transform 150ms ease;
+}
+
+.customer-sidebar-toggle:hover {
+    border-color: rgba(148, 163, 184, 0.92);
+    color: #0f172a;
+    box-shadow:
+        0 10px 26px rgba(15, 23, 42, 0.14),
+        0 1px 0 rgba(255, 255, 255, 0.95) inset;
+}
+
+.customer-sidebar-toggle-chevron {
+    transition: transform 250ms ease-in-out;
+}
+
+.customer-sidebar.is-collapsed .customer-sidebar-toggle-chevron {
+    transform: rotate(180deg);
+}
+
+.customer-main-shell {
+    margin-left: 0;
+}
+
+@media (min-width: 768px) {
+    .customer-main-shell {
+        margin-left: 16rem;
+    }
+
+    .customer-main-shell.is-sidebar-collapsed {
+        margin-left: 64px;
+    }
+
+    .customer-main-shell.is-transition-ready {
+        transition: margin-left 250ms ease-in-out;
+    }
+}
+
+.customer-overview-card {
+    border-color: rgba(203, 213, 225, 0.48) !important;
+    box-shadow:
+        0 14px 32px rgba(15, 23, 42, 0.045),
+        0 1px 0 rgba(255, 255, 255, 0.9) inset !important;
+    transition:
+        border-color 0.18s ease,
+        box-shadow 0.18s ease,
+        transform 0.18s ease;
+}
+
+.customer-overview-card:hover {
+    border-color: rgba(147, 197, 253, 0.52) !important;
+    box-shadow:
+        0 18px 38px rgba(15, 23, 42, 0.065),
+        0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
+    transform: translateY(-1px);
+}
+
+.customer-overview-icon {
+    display: inline-flex;
+    width: 2.25rem;
+    height: 2.25rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.875rem;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+}
+
+/* Customer booking modal */
+.customer-booking-modal {
+    border-color: rgba(203, 213, 225, 0.42) !important;
+    box-shadow:
+        0 36px 88px rgba(15, 23, 42, 0.26),
+        0 0 0 1px rgba(255, 255, 255, 0.82) inset,
+        0 1px 0 rgba(255, 255, 255, 0.94) inset !important;
+}
+
+.customer-booking-header {
+    border-color: rgba(226, 232, 240, 0.78) !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.84)) !important;
+}
+
+.booking-service-panel,
+.booking-service-package-card,
+.booking-service-price-box,
+.booking-service-feature {
+    border-color: rgba(203, 213, 225, 0.48) !important;
+    box-shadow:
+        0 12px 26px rgba(15, 23, 42, 0.035),
+        0 1px 0 rgba(255, 255, 255, 0.88) inset !important;
+}
+
+.booking-service-panel {
+    background:
+        linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.96)) !important;
+}
+
+.booking-service-vehicle-card {
+    border-color: rgba(203, 213, 225, 0.6) !important;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04) !important;
+}
+
+.booking-service-vehicle-card:hover {
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06) !important;
+}
+
+.booking-service-vehicle-card.is-active {
+    border-color: rgba(15, 23, 42, 0.92) !important;
+    box-shadow:
+        0 14px 34px rgba(15, 23, 42, 0.22),
+        0 0 0 3px rgba(249, 115, 22, 0.16) !important;
+}
+
+.booking-service-package-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.booking-service-package-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: transparent;
+    transition: background-color 0.2s ease;
+}
+
+.booking-service-package-card:hover {
+    transform: translateY(-1px);
+    border-color: rgba(148, 163, 184, 0.68) !important;
+    box-shadow:
+        0 18px 40px rgba(15, 23, 42, 0.07),
+        0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
+}
+
+.booking-service-package-card.is-selected {
+    border-color: rgba(249, 115, 22, 0.42) !important;
+    box-shadow:
+        0 20px 46px rgba(249, 115, 22, 0.14),
+        0 0 0 3px rgba(249, 115, 22, 0.14),
+        0 1px 0 rgba(255, 255, 255, 0.94) inset !important;
+}
+
+.booking-service-package-card.is-selected::before {
+    background: linear-gradient(180deg, #fb923c, #f97316);
+}
+
+.booking-service-price-box {
+    border-color: rgba(226, 232, 240, 0.82) !important;
+}
+
+.booking-service-feature {
+    border-color: rgba(209, 213, 219, 0.62) !important;
+}
+
+.booking-service-feature:hover {
+    border-color: rgba(16, 185, 129, 0.3) !important;
+    box-shadow:
+        0 12px 28px rgba(15, 23, 42, 0.045),
+        0 1px 0 rgba(255, 255, 255, 0.94) inset !important;
+}
+
+.booking-service-footer {
+    border-color: rgba(226, 232, 240, 0.78) !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.94)) !important;
+    box-shadow: 0 -12px 32px rgba(15, 23, 42, 0.045) !important;
+}
+
+.booking-service-footer-summary {
+    border-color: rgba(203, 213, 225, 0.48) !important;
+    box-shadow:
+        0 12px 28px rgba(15, 23, 42, 0.045),
+        0 1px 0 rgba(255, 255, 255, 0.94) inset !important;
+}
+
+/* Customer add vehicle modal */
+.customer-vehicle-modal {
+    border-color: rgba(203, 213, 225, 0.42) !important;
+    box-shadow:
+        0 36px 88px rgba(15, 23, 42, 0.26),
+        0 0 0 1px rgba(255, 255, 255, 0.84) inset,
+        0 1px 0 rgba(255, 255, 255, 0.94) inset !important;
+}
+
+.customer-vehicle-header {
+    border-color: rgba(226, 232, 240, 0.78) !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.84)) !important;
+}
+
+.customer-vehicle-form {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.58)) !important;
+}
+
+.customer-vehicle-form input,
+.customer-vehicle-form select {
+    border-color: rgba(203, 213, 225, 0.64) !important;
+    box-shadow:
+        0 1px 2px rgba(15, 23, 42, 0.035),
+        0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
+}
+
+.customer-vehicle-form input:focus,
+.customer-vehicle-form select:focus {
+    border-color: rgba(100, 116, 139, 0.52) !important;
+    box-shadow:
+        0 0 0 3px rgba(148, 163, 184, 0.16),
+        0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
+}
+
+.customer-vehicle-preview {
+    border-color: rgba(203, 213, 225, 0.42) !important;
+    box-shadow:
+        0 18px 42px rgba(15, 23, 42, 0.075),
+        0 1px 0 rgba(255, 255, 255, 0.9) inset !important;
+}
+
+.customer-vehicle-pricing-panel {
+    box-shadow:
+        0 16px 38px rgba(15, 23, 42, 0.18),
+        0 1px 0 rgba(255, 255, 255, 0.08) inset,
+        0 0 0 1px rgba(15, 23, 42, 0.16) !important;
+}
+
+.customer-vehicle-price-tile {
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset !important;
+}
+
+.customer-vehicle-actions {
+    border-color: rgba(226, 232, 240, 0.8) !important;
+}
+
 /* ── Gold glow ── */
 .glow-gold {
     box-shadow: 0 0 24px var(--gold-glow), 0 0 48px var(--gold-glow-soft);
@@ -872,6 +1229,66 @@ html.dark * {
 }
 .sales-layout .divide-slate-50 > * + * {
     border-top-color: rgba(248, 250, 252, 0.8) !important;
+}
+
+/* POS Service Cart — premium local border treatment */
+.sales-layout .pos-service-cart-panel {
+    border-color: rgba(148, 163, 184, 0.18) !important;
+    box-shadow:
+        0 18px 42px rgba(15, 23, 42, 0.055),
+        0 1px 0 rgba(255, 255, 255, 0.9) inset !important;
+}
+.sales-layout .pos-service-cart-header,
+.sales-layout .pos-service-cart-added,
+.sales-layout .pos-service-catalog-meta {
+    border-color: rgba(226, 232, 240, 0.56) !important;
+}
+.sales-layout .pos-service-row {
+    border-color: rgba(203, 213, 225, 0.48) !important;
+}
+.sales-layout .pos-service-row:hover {
+    border-color: rgba(147, 197, 253, 0.58) !important;
+}
+.sales-layout .pos-service-list {
+    background:
+        linear-gradient(180deg, rgba(248, 250, 252, 0.84), rgba(255, 255, 255, 0.94)) !important;
+}
+
+/* Booking Approvals — clear workspace with smooth borders */
+.sales-layout .booking-approvals-header,
+.sales-layout .booking-approvals-tabs,
+.sales-layout .booking-approvals-content {
+    border-color: rgba(148, 163, 184, 0.18) !important;
+    box-shadow:
+        0 18px 42px rgba(15, 23, 42, 0.052),
+        0 1px 0 rgba(255, 255, 255, 0.88) inset !important;
+}
+.sales-layout .booking-approval-stat {
+    border-color: rgba(203, 213, 225, 0.36) !important;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.035) !important;
+}
+.sales-layout .booking-approval-card,
+.sales-layout .booking-approval-history-row {
+    border-color: rgba(203, 213, 225, 0.34) !important;
+    box-shadow:
+        0 12px 30px rgba(15, 23, 42, 0.045),
+        0 1px 0 rgba(255, 255, 255, 0.9) inset !important;
+}
+.sales-layout .booking-approval-card:hover,
+.sales-layout .booking-approval-history-row:hover {
+    border-color: rgba(147, 197, 253, 0.5) !important;
+    box-shadow:
+        0 16px 34px rgba(15, 23, 42, 0.06),
+        0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
+}
+.sales-layout .booking-approval-detail {
+    border-color: rgba(226, 232, 240, 0.7) !important;
+}
+.sales-layout .booking-approvals-empty {
+    border-color: rgba(226, 232, 240, 0.64) !important;
+    background:
+        radial-gradient(circle at top, rgba(219, 234, 254, 0.32), transparent 42%),
+        linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.96)) !important;
 }
 /* Rounded panels — upgrade to rounder corners */
 .sales-layout .rounded-xl {

@@ -31,6 +31,16 @@ type ScanUpload = {
 
 /** When false, AI Inspection History shows a Soon badge, is not clickable, and ?section=scan is redirected away. */
 const AI_INSPECTION_HISTORY_ENABLED = false;
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'sidebar_collapsed';
+
+function getStoredSidebarCollapsed() {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
 
 // ---- STATIC DATA FOR BOOKING ----
 const ADD_VEHICLE_TYPE_LABELS = ['Hatchback', 'Sedan', 'Midsized', 'SUV', 'Pick UP', 'Large SUV / Van', 'Highend Sedan'] as const;
@@ -130,6 +140,8 @@ function looksLikeOpaqueTechnicalId(value: unknown): boolean {
   if (s.length < 16) return false;
   if (/^[a-f0-9]{16,}$/i.test(s)) return true;
   if (/^[a-f0-9-]{20,}$/i.test(s)) return true;
+  // e.g. Firebase-style "hex32:hex32" wrongly stored as plate
+  if (/^[a-f0-9]{16,}:[a-f0-9]{16,}$/i.test(s)) return true;
   return false;
 }
 
@@ -200,6 +212,10 @@ function mapCustomerVehicleApiRecord(v: any) {
 
 export default function CustomerDashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(getStoredSidebarCollapsed);
+  const [sidebarLabelsHidden, setSidebarLabelsHidden] = useState(getStoredSidebarCollapsed);
+  const [sidebarTransitionsReady, setSidebarTransitionsReady] = useState(false);
+  const sidebarTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const location = useLocation();
   const [activeSection, setActiveSection] = useState<DashboardSection>(() => {
     const search = new URLSearchParams(location.search);
@@ -321,6 +337,44 @@ export default function CustomerDashboard() {
     });
   }, []);
   useLiveJobs(user, handleBookingStatus, handleIncomingNotification, scheduleSilentBookingsRefetch);
+
+  useLayoutEffect(() => {
+    const frame = window.requestAnimationFrame(() => setSidebarTransitionsReady(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? 'true' : 'false');
+    } catch {
+      // localStorage can be unavailable in private or restricted contexts.
+    }
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    return () => {
+      if (sidebarTransitionTimerRef.current) clearTimeout(sidebarTransitionTimerRef.current);
+    };
+  }, []);
+
+  const toggleSidebarCollapsed = useCallback(() => {
+    if (sidebarTransitionTimerRef.current) clearTimeout(sidebarTransitionTimerRef.current);
+
+    if (sidebarCollapsed) {
+      setSidebarCollapsed(false);
+      sidebarTransitionTimerRef.current = setTimeout(() => {
+        setSidebarLabelsHidden(false);
+        sidebarTransitionTimerRef.current = null;
+      }, 250);
+      return;
+    }
+
+    setSidebarLabelsHidden(true);
+    sidebarTransitionTimerRef.current = setTimeout(() => {
+      setSidebarCollapsed(true);
+      sidebarTransitionTimerRef.current = null;
+    }, 150);
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     if (vehicles.length === 0) {
@@ -1283,9 +1337,9 @@ export default function CustomerDashboard() {
     loadBookingsRef.current = load;
 
     load();
-    // Poll every 5s — cache is busted at the top of load() so this always hits the network.
-    // Real-time updates arrive via useLiveJobs (booking:status, orderUpdated), this is the fallback.
-    const interval = setInterval(() => load(), 5000);
+    // Poll every 5s — always silent so the list never flashes a full-page loading state.
+    // Real-time updates: booking:status patches + scheduleSilentBookingsRefetch; this is the HTTP fallback.
+    const interval = setInterval(() => load({ silent: true }), 5000);
 
     return () => {
       clearInterval(interval);
@@ -1586,24 +1640,48 @@ export default function CustomerDashboard() {
 
         {/* Sidebar */}
         <aside
-          className={`w-64 bg-white border-r border-slate-200 flex flex-col z-30 fixed inset-y-0 left-0 transform transition-transform duration-200 ease-in-out md:relative md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full hidden md:flex'
+          className={`customer-sidebar ${sidebarCollapsed ? 'is-collapsed' : 'is-expanded'} ${sidebarLabelsHidden ? 'is-labels-hidden' : ''} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} fixed inset-y-0 left-0 z-30 flex flex-col border-r border-slate-200 bg-white ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
             }`}
         >
-          <div className="h-16 flex items-center px-6 border-b border-slate-100 shrink-0">
-            <span className="font-semibold text-base tracking-tight text-slate-900">AutoSPF+</span>
+          <button
+            type="button"
+            onClick={toggleSidebarCollapsed}
+            className="customer-sidebar-toggle hidden md:flex"
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!sidebarCollapsed}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <iconify-icon
+              icon="solar:alt-arrow-left-linear"
+              width="16"
+              className="customer-sidebar-toggle-chevron"
+            ></iconify-icon>
+          </button>
+
+          <div className="customer-sidebar-brand h-16 flex items-center gap-3 border-b border-slate-100 shrink-0">
+            <span className="customer-sidebar-brand-mark flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm">
+              <iconify-icon icon="solar:shield-check-bold" width="18"></iconify-icon>
+            </span>
+            <span className="customer-sidebar-label font-semibold text-base text-slate-900">AutoSPF+</span>
           </div>
 
-          <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
-            <button onClick={() => nav('dashboard')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'dashboard' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
-              <iconify-icon icon="solar:widget-linear" width="20"></iconify-icon>
-              Dashboard
+          <nav className="customer-sidebar-nav flex-1 space-y-1 overflow-y-auto">
+            <button
+              onClick={() => nav('dashboard')}
+              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'dashboard' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              aria-label="Dashboard"
+              title={sidebarCollapsed ? 'Dashboard' : undefined}
+            >
+              <iconify-icon icon="solar:widget-linear" width="20" className="shrink-0"></iconify-icon>
+              <span className="customer-sidebar-label flex-1 min-w-0 text-left">Dashboard</span>
             </button>
             <button
               type="button"
               disabled={!AI_INSPECTION_HISTORY_ENABLED}
               onClick={() => nav('scan')}
-              title={AI_INSPECTION_HISTORY_ENABLED ? undefined : 'Coming soon'}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${AI_INSPECTION_HISTORY_ENABLED
+              title={sidebarCollapsed ? 'AI Inspection History' : AI_INSPECTION_HISTORY_ENABLED ? undefined : 'Coming soon'}
+              aria-label="AI Inspection History"
+              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${AI_INSPECTION_HISTORY_ENABLED
                 ? activeSection === 'scan'
                   ? 'bg-slate-100 text-slate-900'
                   : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
@@ -1611,45 +1689,70 @@ export default function CustomerDashboard() {
                 } disabled:pointer-events-none`}
             >
               <iconify-icon icon="solar:scanner-linear" width="20" className="shrink-0"></iconify-icon>
-              <span className="flex-1 min-w-0 text-left leading-snug">AI Inspection History</span>
-              <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${AI_INSPECTION_HISTORY_ENABLED ? 'uppercase tracking-wider bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>
+              <span className="customer-sidebar-label flex-1 min-w-0 text-left leading-snug">AI Inspection History</span>
+              <span className={`customer-sidebar-extra shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${AI_INSPECTION_HISTORY_ENABLED ? 'uppercase tracking-wider bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>
                 {AI_INSPECTION_HISTORY_ENABLED ? 'AI Lab' : 'Soon'}
               </span>
             </button>
-            <button onClick={() => nav('bookings')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'bookings' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
-              <iconify-icon icon="solar:calendar-linear" width="20"></iconify-icon>
-              My Bookings
+            <button
+              onClick={() => nav('bookings')}
+              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'bookings' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              aria-label="My Bookings"
+              title={sidebarCollapsed ? 'My Bookings' : undefined}
+            >
+              <iconify-icon icon="solar:calendar-linear" width="20" className="shrink-0"></iconify-icon>
+              <span className="customer-sidebar-label flex-1 min-w-0 text-left">My Bookings</span>
               {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length > 0 && (
-                <span className="ml-auto text-[9px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">
+                <span className="customer-sidebar-extra ml-auto text-[9px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">
                   {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length}
                 </span>
               )}
             </button>
-            <button onClick={() => nav('tracker')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'tracker' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
-              <iconify-icon icon="solar:routing-2-linear" width="20"></iconify-icon>
-              Live Tracker
+            <button
+              onClick={() => nav('tracker')}
+              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'tracker' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              aria-label="Live Tracker"
+              title={sidebarCollapsed ? 'Live Tracker' : undefined}
+            >
+              <iconify-icon icon="solar:routing-2-linear" width="20" className="shrink-0"></iconify-icon>
+              <span className="customer-sidebar-label flex-1 min-w-0 text-left">Live Tracker</span>
             </button>
 
-            <button onClick={() => nav('documents')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'documents' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
-              <iconify-icon icon="solar:document-text-linear" width="20"></iconify-icon>
-              Documents
+            <button
+              onClick={() => nav('documents')}
+              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'documents' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              aria-label="Documents"
+              title={sidebarCollapsed ? 'Documents' : undefined}
+            >
+              <iconify-icon icon="solar:document-text-linear" width="20" className="shrink-0"></iconify-icon>
+              <span className="customer-sidebar-label flex-1 min-w-0 text-left">Documents</span>
             </button>
 
-            <button onClick={() => nav('payments')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'payments' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
-              <iconify-icon icon="solar:card-2-linear" width="20"></iconify-icon>
-              Payment History
+            <button
+              onClick={() => nav('payments')}
+              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'payments' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              aria-label="Payment History"
+              title={sidebarCollapsed ? 'Payment History' : undefined}
+            >
+              <iconify-icon icon="solar:card-2-linear" width="20" className="shrink-0"></iconify-icon>
+              <span className="customer-sidebar-label flex-1 min-w-0 text-left">Payment History</span>
             </button>
 
-            <button onClick={() => nav('rewards')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium outline-none transition-colors ${activeSection === 'rewards' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}>
-              <iconify-icon icon="solar:star-linear" width="20"></iconify-icon>
-              Rewards
+            <button
+              onClick={() => nav('rewards')}
+              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'rewards' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              aria-label="Rewards"
+              title={sidebarCollapsed ? 'Rewards' : undefined}
+            >
+              <iconify-icon icon="solar:star-linear" width="20" className="shrink-0"></iconify-icon>
+              <span className="customer-sidebar-label flex-1 min-w-0 text-left">Rewards</span>
             </button>
           </nav>
 
         </aside>
 
         {/* Main Content */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className={`customer-main-shell ${sidebarCollapsed ? 'is-sidebar-collapsed' : 'is-sidebar-expanded'} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} flex flex-1 flex-col min-w-0`}>
 
           {/* Header */}
           <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-10">
@@ -2173,7 +2276,7 @@ export default function CustomerDashboard() {
                           const svcName = (booking.serviceName || booking.serviceType || '').toLowerCase();
                           const svcIcon = Object.entries(serviceIcons).find(([k]) => svcName.includes(k))?.[1] || 'solar:car-wash-bold';
                           const vehicleLabel = [booking.vehicleBrand || booking.vehicleMake, booking.vehicleModel].filter(Boolean).join(' ') || booking.vehicleModel || booking.vehicleMake || '';
-                          const plateLabel = booking.vehiclePlate || '';
+                          const plateLabel = displayVehicleLabel(booking.vehiclePlate, '');
 
                           return (
                             <div
@@ -3595,35 +3698,73 @@ export default function CustomerDashboard() {
               <div className="space-y-8">
 
                 {/* Service Overview Strip */}
-                <div className="bg-white border border-slate-200 rounded-lg flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-slate-100 shadow-sm">
-                  <div className="flex-1 p-5 flex flex-col justify-center">
-                    <span className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wider">Current Status</span>
-                    {customerStats.currentStatus ? (
-                      <div className="flex items-center gap-2 text-indigo-600">
-                        <span className="relative flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
-                        </span>
-                        <span className="font-medium text-base">{customerStats.currentStatus}</span>
+                <div className="customer-overview-grid grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="customer-overview-card rounded-2xl border bg-white p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-semibold text-slate-500">Current Status</span>
+                        {customerStats.currentStatus ? (
+                          <div className="mt-2 flex min-w-0 items-center gap-2 text-blue-700">
+                            <span className="relative flex h-2.5 w-2.5 shrink-0">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-60"></span>
+                              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"></span>
+                            </span>
+                            <span className="truncate text-base font-bold">{customerStats.currentStatus}</span>
+                          </div>
+                        ) : (
+                          <span className="mt-2 block truncate text-base font-bold text-slate-900">No active service</span>
+                        )}
                       </div>
-                    ) : (
-                      <span className="font-medium text-base text-slate-400">No active service</span>
-                    )}
-                  </div>
-                  <div className="flex-1 p-5 flex flex-col justify-center">
-                    <span className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wider">Next Appointment</span>
-                    <span className="font-medium text-base text-slate-900">{customerStats.nextAppointment || <span className="text-slate-400">None scheduled</span>}</span>
-                  </div>
-                  <div className="flex-1 p-5 flex flex-col justify-center">
-                    <span className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wider">Last Service</span>
-                    <span className="font-medium text-base text-slate-900">{customerStats.lastService || <span className="text-slate-400">No past services</span>}</span>
-                  </div>
-                  <div className="flex-1 p-5 flex flex-col justify-center">
-                    <span className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wider">Loyalty Points</span>
-                    <div className="flex items-center gap-1.5">
-                      <iconify-icon icon="solar:star-linear" className="text-amber-500" width="18"></iconify-icon>
-                      <span className="font-medium text-base text-slate-900">{customerStats.loyaltyPoints.toLocaleString()} pts</span>
+                      <div className="customer-overview-icon bg-blue-50 text-blue-600">
+                        <iconify-icon icon="solar:shield-check-linear" width="19"></iconify-icon>
+                      </div>
                     </div>
+                    <p className="mt-3 text-xs text-slate-400">Live queue and service progress</p>
+                  </div>
+
+                  <div className="customer-overview-card rounded-2xl border bg-white p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-semibold text-slate-500">Next Appointment</span>
+                        <span className={`mt-2 block truncate text-base font-bold ${customerStats.nextAppointment ? 'text-slate-900' : 'text-slate-400'}`}>
+                          {customerStats.nextAppointment || 'None scheduled'}
+                        </span>
+                      </div>
+                      <div className="customer-overview-icon bg-indigo-50 text-indigo-600">
+                        <iconify-icon icon="solar:calendar-mark-linear" width="19"></iconify-icon>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-xs text-slate-400">Confirmed bookings appear here</p>
+                  </div>
+
+                  <div className="customer-overview-card rounded-2xl border bg-white p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-semibold text-slate-500">Last Service</span>
+                        <span className={`mt-2 block truncate text-base font-bold ${customerStats.lastService ? 'text-slate-900' : 'text-slate-400'}`}>
+                          {customerStats.lastService || 'No past services'}
+                        </span>
+                      </div>
+                      <div className="customer-overview-icon bg-slate-100 text-slate-600">
+                        <iconify-icon icon="solar:history-2-linear" width="19"></iconify-icon>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-xs text-slate-400">Most recent completed visit</p>
+                  </div>
+
+                  <div className="customer-overview-card rounded-2xl border bg-white p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-semibold text-slate-500">Loyalty Points</span>
+                        <span className="mt-2 block truncate text-base font-bold text-slate-900">
+                          {customerStats.loyaltyPoints.toLocaleString()} pts
+                        </span>
+                      </div>
+                      <div className="customer-overview-icon bg-amber-50 text-amber-600">
+                        <iconify-icon icon="solar:star-linear" width="19"></iconify-icon>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-xs text-slate-400">{rewardTier} rewards tier</p>
                   </div>
                 </div>
 
@@ -4516,30 +4657,31 @@ export default function CustomerDashboard() {
       {/* Add Vehicle Modal */}
 
       {addVehicleOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6" style={{ backgroundColor: 'rgba(15,23,42,0.42)', backdropFilter: 'blur(10px)' }} onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-md sm:p-5" onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}>
           <div
-            className="bg-white w-full max-w-[460px] rounded-[1.75rem] overflow-hidden"
+            className="customer-vehicle-modal flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border bg-white"
             onClick={e => e.stopPropagation()}
             style={{
               animation: 'modalIn .2s ease-out',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              boxShadow: '0 32px 80px -24px rgba(15,23,42,0.22), 0 0 0 1px rgba(15,23,42,0.06), 0 0 0 1px rgba(255,255,255,0.88) inset, 0 1px 0 rgba(255,255,255,0.95) inset',
+              maxHeight: '94vh',
             }}
           >
 
             {/* Header */}
-            <div className="flex items-center justify-between px-7 pt-6 pb-4" style={{ borderBottom: '1px solid rgba(148,163,184,0.18)' }}>
-              <h3 className="text-[1.0625rem] font-semibold tracking-tight text-slate-900">Add Vehicle</h3>
+            <div className="customer-vehicle-header flex shrink-0 items-center justify-between gap-4 border-b px-5 py-4 sm:px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm">
+                  <iconify-icon icon="solar:garage-bold" width="20"></iconify-icon>
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-slate-950">Add Vehicle</h3>
+                  <p className="mt-0.5 text-xs font-medium text-slate-500">Create a clean garage profile for booking.</p>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border text-slate-500 transition-all duration-200 hover:text-slate-700"
-                style={{
-                  borderColor: 'rgba(148,163,184,0.32)',
-                  background: 'linear-gradient(180deg, #ffffff, #f8fafc)',
-                  boxShadow: '0 2px 8px -4px rgba(15,23,42,0.08)',
-                }}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
                 aria-label="Close"
               >
                 <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
@@ -4547,7 +4689,7 @@ export default function CustomerDashboard() {
             </div>
 
             {/* Form */}
-            <form onSubmit={handleAddVehicleSubmit} className="px-7 py-6 space-y-5" noValidate>
+            <form onSubmit={handleAddVehicleSubmit} className="customer-vehicle-form space-y-5 overflow-y-auto px-5 py-5 sm:px-6 sm:py-6" noValidate>
 
               {/* API error banner */}
               {vehicleApiError && (
@@ -4558,7 +4700,7 @@ export default function CustomerDashboard() {
               )}
 
               {/* ── Live Vehicle Card Preview ── */}
-              {(newVehicle.brand || newVehicle.model || newVehicle.plate) && (() => {
+              {(() => {
                 const colorHex: Record<string, string> = {
                   White: '#e2e8f0', Black: '#1e293b', Silver: '#94a3b8', Gray: '#64748b',
                   Blue: '#3b82f6', Red: '#ef4444', Green: '#22c55e', Yellow: '#eab308',
@@ -4568,23 +4710,45 @@ export default function CustomerDashboard() {
                 const isLight = ['White', 'Silver', 'Yellow', ''].includes(newVehicle.color);
                 const txt = isLight ? '#1e293b' : '#f8fafc';
                 const previewName = [newVehicle.year, newVehicle.brand, newVehicle.model].filter(Boolean).join(' ') || 'Your Vehicle';
+                const previewPlate = newVehicle.plate ? normalizePlateNumber(newVehicle.plate) : 'Plate';
                 return (
-                  <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200/55 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)]">
-                    <div style={{ background: `linear-gradient(135deg, ${bg}, ${bg}dd)`, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <iconify-icon icon="solar:car-bold" width="36" style={{ color: txt, opacity: 0.8, flexShrink: 0 }}></iconify-icon>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 13, fontWeight: 700, color: txt, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previewName}</p>
-                        <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
-                          {newVehicle.plate && <span style={{ fontSize: 10, fontWeight: 700, color: txt, opacity: 0.8, letterSpacing: '0.05em', background: 'rgba(255,255,255,0.2)', padding: '1px 6px', borderRadius: 4 }}>{normalizePlateNumber(newVehicle.plate)}</span>}
-                          {newVehicle.type && <span style={{ fontSize: 10, fontWeight: 600, color: txt, opacity: 0.7 }}>{newVehicle.type}</span>}
+                  <div className="customer-vehicle-preview overflow-hidden rounded-[22px] border bg-white">
+                    <div className="relative overflow-hidden px-5 py-5" style={{ background: `linear-gradient(135deg, ${bg}, ${bg}dd)` }}>
+                      <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/15" />
+                      <div className="absolute -bottom-12 left-8 h-28 w-28 rounded-full bg-white/10" />
+                      <div className="relative flex items-center gap-4">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/18 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]">
+                          <iconify-icon icon="solar:car-bold" width="30" style={{ color: txt, opacity: 0.9 }}></iconify-icon>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold" style={{ color: txt }}>{previewName}</p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className="rounded-lg bg-white/22 px-2.5 py-1 font-mono text-xs font-bold uppercase" style={{ color: txt }}>
+                              {previewPlate}
+                            </span>
+                            <span className="rounded-lg bg-white/18 px-2.5 py-1 text-xs font-semibold" style={{ color: txt, opacity: 0.86 }}>
+                              {newVehicle.type || 'Vehicle class'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                    <div className="border-t border-slate-200/40 bg-slate-50/95 px-4 py-2.5 text-center text-[10px] font-medium tracking-wide text-slate-500">Live preview — card appearance</div>
+                    <div className="grid grid-cols-3 divide-x divide-slate-100 bg-slate-50/75">
+                      {[
+                        { label: 'Brand', value: newVehicle.brand || 'Not set' },
+                        { label: 'Model', value: newVehicle.model || 'Not set' },
+                        { label: 'Color', value: newVehicle.color || 'Not set' },
+                      ].map(item => (
+                        <div key={item.label} className="min-w-0 px-3 py-3 text-center">
+                          <p className="text-[11px] font-semibold text-slate-400">{item.label}</p>
+                          <p className="mt-0.5 truncate text-xs font-bold text-slate-700">{item.value}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 );
               })()}
-              <div className="grid grid-cols-2 gap-3.5">
+              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
                 {/* Plate Number */}
                 <div>
                   <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -4641,16 +4805,16 @@ export default function CustomerDashboard() {
               {newVehicle.type && (() => {
                 const priceKey = getVehiclePriceKey(newVehicle.type);
                 return (
-                  <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_12px_40px_-18px_rgba(15,23,42,0.5)] ring-1 ring-slate-950/20">
+                  <div className="customer-vehicle-pricing-panel overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-4">
                     <div className="mb-2.5 flex items-center gap-2">
                       <iconify-icon icon="solar:tag-price-bold" width="14" style={{ color: '#f97316' }}></iconify-icon>
                       <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400/95">
                         {newVehicle.type} pricing (linked to this vehicle)
                       </span>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                       {RAW_SPF_PACKAGES.map(pkg => (
-                        <div key={pkg.id} className="rounded-xl border border-white/[0.07] bg-white/[0.05] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                        <div key={pkg.id} className="customer-vehicle-price-tile rounded-xl border border-white/[0.07] bg-white/[0.05] px-2.5 py-2">
                           <p className="mb-0.5 text-[10px] font-semibold leading-snug text-slate-400">
                             {pkg.name.split('—')[0].trim()}
                           </p>
@@ -4668,7 +4832,7 @@ export default function CustomerDashboard() {
               })()}
 
               {/* Brand + Year */}
-              <div className="grid grid-cols-2 gap-3.5">
+              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
                 <div>
                   <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                     Brand <span className="font-bold text-red-500 normal-case">*</span>
@@ -4766,7 +4930,7 @@ export default function CustomerDashboard() {
               </div>
 
               {/* Transmission + Fuel Type */}
-              <div className="grid grid-cols-2 gap-3.5">
+              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
                 <div>
                   <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                     Transmission <span className="font-normal normal-case text-slate-400">(optional)</span>
@@ -4813,7 +4977,7 @@ export default function CustomerDashboard() {
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3 pt-5" style={{ borderTop: '1px solid rgba(148,163,184,0.14)' }}>
+              <div className="customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-t bg-white/95 px-5 pt-4 backdrop-blur sm:-mx-6 sm:flex-row sm:px-6">
                 <button
                   type="button"
                   onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}
@@ -4835,38 +4999,48 @@ export default function CustomerDashboard() {
 
       {/* Book Service Modal */}
       {bookingOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,.45)', backdropFilter: 'blur(8px)' }} onClick={() => { if (!bookingSubmitting) { setBookingOpen(false); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); } }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-md sm:p-5" onClick={() => { if (!bookingSubmitting) { setBookingOpen(false); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); } }}>
           <div
-            className="bg-white w-full max-w-lg overflow-hidden border border-slate-200/70 rounded-[1.75rem]"
+              className="customer-booking-modal w-full max-w-3xl overflow-hidden rounded-[1.75rem] border bg-white"
             onClick={e => e.stopPropagation()}
             style={{
               animation: 'modalIn .2s ease-out',
-              maxHeight: '92vh',
+              maxHeight: '94vh',
               display: 'flex',
               flexDirection: 'column',
-              boxShadow: '0 32px 80px -24px rgba(15,23,42,0.22), 0 0 0 1px rgba(255,255,255,0.85) inset, 0 1px 0 rgba(255,255,255,0.9) inset',
             }}
           >
 
             {/* Header — hidden when success screen is active (hero fills the top) */}
             {!bookingDone && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px 14px', borderBottom: '1px solid rgba(148,163,184,0.22)', flexShrink: 0 }}>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' }}>Book a Service</div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, fontWeight: 500 }}>
-                    Step {bookingStep} of 6 &mdash; {
-                      bookingStep === 1 ? 'Choose Service' :
-                      bookingStep === 2 ? 'Your Details' :
-                      bookingStep === 3 ? 'Pick Date & Time' :
-                      bookingStep === 4 ? 'Review Booking' :
-                      bookingStep === 5 ? 'Terms & Conditions' :
-                      'GCash Downpayment'
-                    }
+              <div className="customer-booking-header flex shrink-0 items-center justify-between gap-4 border-b px-5 py-4 sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm">
+                    <iconify-icon icon="solar:calendar-add-bold" width="20"></iconify-icon>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-base font-bold text-slate-950">Book a Service</div>
+                    <div className="mt-0.5 text-xs font-medium text-slate-500">
+                      Step {bookingStep} of 6 · {
+                        bookingStep === 1 ? 'Choose Service' :
+                        bookingStep === 2 ? 'Your Details' :
+                        bookingStep === 3 ? 'Pick Date & Time' :
+                        bookingStep === 4 ? 'Review Booking' :
+                        bookingStep === 5 ? 'Terms & Conditions' :
+                        'GCash Downpayment'
+                      }
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-bold text-orange-700 ring-1 ring-orange-100">
+                        <iconify-icon icon="solar:wallet-money-bold" width="11"></iconify-icon>
+                        Transparent pricing
+                      </span>
+                    </div>
                   </div>
                 </div>
                 {!bookingSubmitting && (
                   <button onClick={() => { setBookingOpen(false); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); }}
-                    style={{ width: 34, height: 34, borderRadius: 12, border: '1px solid rgba(148,163,184,0.35)', background: 'linear-gradient(180deg,#ffffff,#f8fafc)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', flexShrink: 0, boxShadow: '0 2px 8px -4px rgba(15,23,42,0.08)' }}>
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900">
                     <iconify-icon icon="solar:close-circle-linear" width="16"></iconify-icon>
                   </button>
                 )}
@@ -4875,8 +5049,25 @@ export default function CustomerDashboard() {
 
             {/* Progress bar */}
             {!bookingDone && (
-              <div style={{ width: '100%', height: 3, background: 'linear-gradient(90deg, rgba(241,245,249,0.9), rgba(226,232,240,0.95))', flexShrink: 0, borderRadius: '999px 999px 0 0' }}>
-                <div style={{ height: '100%', background: 'linear-gradient(90deg,#fbbf24,#f59e0b,#d97706)', borderRadius: 999, transition: 'width 0.4s cubic-bezier(0.4,0,0.2,1)', width: bookingStep === 1 ? '17%' : bookingStep === 2 ? '33%' : bookingStep === 3 ? '50%' : bookingStep === 4 ? '67%' : bookingStep === 5 ? '83%' : '100%' }} />
+              <div className="shrink-0 border-b border-slate-100 bg-slate-50/70 px-5 py-3 sm:px-6">
+                <div className="grid grid-cols-6 gap-1.5" aria-label={`Booking step ${bookingStep} of 6`}>
+                  {Array.from({ length: 6 }, (_, index) => (
+                    <div
+                      key={index}
+                      className={`h-1.5 rounded-full transition-all duration-300 ${index + 1 <= bookingStep ? 'bg-orange-500 shadow-[0_0_0_1px_rgba(249,115,22,0.18)]' : 'bg-slate-200'}`}
+                      />
+                    ))}
+                </div>
+                <div className="mt-2 hidden grid-cols-6 gap-1.5 sm:grid">
+                  {['Service', 'Details', 'Schedule', 'Review', 'Terms', 'Payment'].map((label, index) => (
+                    <span
+                      key={label}
+                      className={`truncate text-center text-[10px] font-bold ${index + 1 === bookingStep ? 'text-orange-700' : index + 1 < bookingStep ? 'text-slate-500' : 'text-slate-300'}`}
+                      >
+                      {label}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -5004,17 +5195,33 @@ export default function CustomerDashboard() {
 
               ) : bookingStep === 1 ? (
                 /* ── Step 1: Service ── */
-                <div className="p-5">
-                  {/* ── Vehicle Chip / Auto-detected type ── */}
-                  <div className="mb-4">
-                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Pricing For</p>
+                <div className="space-y-5 p-5 sm:p-6">
+                  <section className="booking-service-panel rounded-[22px] border bg-slate-50/60 p-4">
+                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-950">Choose your vehicle</p>
+                        <p className="mt-1 text-xs font-medium text-slate-500">Pricing updates automatically based on the selected class.</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-orange-100 bg-white px-3 py-1.5 text-xs font-bold text-orange-700 shadow-sm">
+                          <iconify-icon icon="solar:tag-price-linear" width="14"></iconify-icon>
+                          {VEHICLE_OPTIONS.find(o => o.type === bookingVehicleType)?.label || bookingVehicleType}
+                        </div>
+                      </div>
+                    </div>
+
                     {vehicles.length === 0 ? (
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
-                        <iconify-icon icon="solar:info-circle-bold" width="16" style={{ color: '#d97706' }}></iconify-icon>
-                        <span className="text-xs text-amber-700 font-medium">No vehicles added yet. Showing Hatchback prices by default.</span>
+                      <div className="flex items-start gap-3 rounded-2xl border border-amber-100 bg-amber-50/75 px-4 py-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-amber-600 shadow-sm">
+                          <iconify-icon icon="solar:info-circle-bold" width="18"></iconify-icon>
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-amber-900">No vehicle saved yet</p>
+                          <p className="mt-0.5 text-xs font-medium text-amber-700">Showing Hatchback pricing for now. Vehicle details are collected on the next step.</p>
+                        </div>
                       </div>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
+                      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                         {vehicles.map((v: any, i: number) => {
                           const vKey = getVehiclePriceKey(v.type);
                           const isActive = bookingSelectedVehicleIdx === i;
@@ -5038,67 +5245,111 @@ export default function CustomerDashboard() {
                                   vehicleFuelType: v.fuelType || '',
                                 }));
                               }}
-                              className={`flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border text-xs font-semibold transition-all duration-300 ${isActive
-                                ? 'bg-slate-900 text-white border-slate-900 shadow-[0_8px_24px_-8px_rgba(15,23,42,0.45)] ring-2 ring-amber-400/25'
-                                : 'bg-white text-slate-600 border-slate-200/90 shadow-[0_2px_12px_-6px_rgba(15,23,42,0.06)] hover:border-slate-300 hover:shadow-[0_8px_24px_-10px_rgba(15,23,42,0.1)]'
+                              className={`booking-service-vehicle-card flex min-w-0 items-center gap-3 rounded-2xl border px-3.5 py-3 text-left transition-all ${isActive
+                                ? 'is-active border-slate-950 bg-slate-950 text-white'
+                                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-white'
                                 }`}
                             >
-                              <iconify-icon icon="solar:car-bold" width="14"></iconify-icon>
-                              <span>{v.name}</span>
-                              {v.type && (
-                                <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>{v.type}</span>
-                              )}
+                              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${isActive ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                <iconify-icon icon="solar:car-bold" width="17"></iconify-icon>
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-bold">{v.name}</p>
+                                <p className={`mt-0.5 text-xs font-medium ${isActive ? 'text-white/60' : 'text-slate-400'}`}>{v.type || 'Vehicle'}</p>
+                              </div>
+                              {isActive ? (
+                                <iconify-icon icon="solar:check-circle-bold" width="18" className="shrink-0 text-orange-300"></iconify-icon>
+                              ) : null}
                             </button>
                           );
                         })}
                       </div>
-                    )}
-                  </div>
+                      )}
+                    </section>
 
-                  {/* ── Active vehicle type indicator ── */}
-                  <div className="flex items-center gap-1.5 mb-3">
-                    <div className="h-px flex-1 bg-gray-100"></div>
-                    <span className="text-[11px] font-semibold text-gray-400 px-2">
-                      Prices for {VEHICLE_OPTIONS.find(o => o.type === bookingVehicleType)?.label || bookingVehicleType}
-                    </span>
-                    <div className="h-px flex-1 bg-gray-100"></div>
-                  </div>
+                  <div>
+                    <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-bold text-slate-950">Select a protection package</p>
+                          <p className="mt-1 text-xs font-medium text-slate-500">Prices reflect your selected vehicle class.</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
+                            {RAW_SPF_PACKAGES.length} packages
+                          </span>
+                        </div>
+                    </div>
 
-                  <div className="space-y-2.5">
-                    {RAW_SPF_PACKAGES.map((svc: any) => {
-                      const currentPrice = svc.prices[bookingVehicleType] || 0;
-                      return (
-                        <button key={svc.id} type="button"
-                          onClick={() => setBookingForm(f => ({ ...f, service: svc.id, serviceName: svc.name, servicePrice: currentPrice }))}
-                          className={`w-full flex flex-col px-5 py-4 rounded-2xl border text-left transition-all duration-300 ease-out ${bookingForm.service === svc.id
-                            ? 'border-amber-400/55 bg-gradient-to-b from-amber-50/90 via-white to-white shadow-[0_12px_40px_-14px_rgba(245,158,11,0.35),0_0_0_1px_rgba(251,191,36,0.2)_inset] ring-[3px] ring-amber-400/20'
-                            : 'border-slate-200/90 bg-white shadow-[0_4px_20px_-8px_rgba(15,23,42,0.08)] hover:border-slate-300/95 hover:shadow-[0_12px_36px_-12px_rgba(15,23,42,0.12)]'
-                            }`}
-                        >
-                          <div className="flex items-center justify-between w-full">
-                            <div>
-                              <p className="text-[15px] font-bold text-slate-900">{svc.name}</p>
-                              <p className="text-[13px] font-medium text-slate-500 mt-0.5">{svc.duration}</p>
-                              <p className="text-[12px] text-slate-600 leading-relaxed mt-2">{svc.description}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[15px] font-black text-slate-900">₱{currentPrice.toLocaleString()}</span>
-                              {bookingForm.service === svc.id && <iconify-icon icon="solar:check-circle-bold" width="20" style={{ color: '#d97706' }}></iconify-icon>}
-                            </div>
-                          </div>
-                          {svc.features && (
-                            <div className="mt-3.5 pt-3.5 border-t border-slate-100 space-y-2 w-full">
-                              {svc.features.map((f: string, i: number) => (
-                                <div key={i} className="flex items-start gap-2">
-                                  <iconify-icon icon="solar:check-circle-bold" width="16" style={{ color: '#16a34a', marginTop: '2px', flexShrink: 0 }}></iconify-icon>
-                                  <span className="text-[12px] font-medium text-slate-600 leading-snug">{f}</span>
+                    <div className="space-y-3">
+                      {RAW_SPF_PACKAGES.map((svc: any) => {
+                        const currentPrice = svc.prices[bookingVehicleType] || 0;
+                        const selected = bookingForm.service === svc.id;
+                        const packageBadge =
+                          svc.id === 'spf89' ? 'Most chosen' :
+                          svc.id === 'spf101' ? 'All-in package' :
+                          svc.id === 'spf99' ? 'Best value' :
+                          'Essential care';
+                        const vehicleLabel = VEHICLE_OPTIONS.find(o => o.type === bookingVehicleType)?.label || bookingVehicleType;
+                        return (
+                          <button
+                            key={svc.id}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => setBookingForm(f => ({ ...f, service: svc.id, serviceName: svc.name, servicePrice: currentPrice }))}
+                            className={`booking-service-package-card w-full rounded-[22px] border p-4 text-left transition-all ${selected ? 'is-selected border-orange-300 bg-orange-50/45' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                          >
+                            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                              <div className="min-w-0 flex-1">
+                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${selected ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'}`}>
+                                    {packageBadge}
+                                  </span>
+                                    {selected ? (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-orange-500 px-2.5 py-1 text-[11px] font-bold text-white">
+                                        <iconify-icon icon="solar:check-circle-bold" width="13"></iconify-icon>
+                                        Selected
+                                      </span>
+                                    ) : null}
                                 </div>
-                              ))}
+                                <p className="text-base font-black text-slate-950">{svc.name}</p>
+                                <p className="mt-1 text-sm font-semibold text-slate-500">{svc.duration}</p>
+                                <p className="mt-3 max-w-[34rem] text-sm font-medium leading-relaxed text-slate-600">{svc.description}</p>
+                              </div>
+
+                              <div className="booking-service-price-box flex shrink-0 flex-row items-center justify-between gap-3 rounded-2xl border bg-white px-4 py-3 sm:w-[170px] sm:flex-col sm:items-start">
+                                <div className="min-w-0">
+                                  <span className="mt-1 block text-xl font-black text-slate-950">₱{currentPrice.toLocaleString()}</span>
+                                  <span className="mt-0.5 block truncate text-[10px] font-semibold text-slate-400">For {vehicleLabel}</span>
+                                </div>
+                                <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${selected ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                  {selected ? 'Chosen' : 'Select'}
+                                  <iconify-icon icon={selected ? 'solar:check-circle-bold' : 'solar:arrow-right-linear'} width="13"></iconify-icon>
+                                </span>
+                              </div>
                             </div>
-                          )}
-                        </button>
-                      );
-                    })}
+
+                              {svc.features && (
+                                <div className="mt-4 border-t border-slate-100 pt-4">
+                                  <div className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-500">
+                                    <iconify-icon icon="solar:list-check-bold" width="15" className="text-slate-500"></iconify-icon>
+                                    Inclusions
+                                  </div>
+                                  <div className="grid gap-2 sm:grid-cols-3">
+                                    {svc.features.map((f: string, i: number) => (
+                                      <div key={i} className="booking-service-feature flex items-start gap-2 rounded-xl border bg-white/90 px-3 py-3">
+                                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+                                          <iconify-icon icon="solar:check-circle-bold" width="12"></iconify-icon>
+                                        </span>
+                                        <span className="min-w-0 text-xs font-bold leading-snug text-slate-700">{f}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               ) : bookingStep === 2 ? (
@@ -5953,10 +6204,10 @@ export default function CustomerDashboard() {
                 (bookingStep === 5 && !step5Valid);
 
               // Hint shown below button when blocked
-              const hintText =
-                bookingStep === 1 ? (!step1Valid ? 'Select a service to continue' : '') :
-                  bookingStep === 2 ? (!step2Valid ? 'Complete all required fields above' : '') :
-                    bookingStep === 3 ? (
+                const hintText =
+                  bookingStep === 1 ? (!step1Valid ? 'Select a service to continue' : '') :
+                    bookingStep === 2 ? (!step2Valid ? 'Complete all required fields above' : '') :
+                      bookingStep === 3 ? (
                       !bookingForm.date ? 'Select a date' :
                         slotError ? 'Your selected time is no longer available' :
                           !bookingForm.time ? 'Select an available time slot' :
@@ -5968,12 +6219,27 @@ export default function CustomerDashboard() {
                           : !bookingAgreed
                             ? 'Check the box to agree to the Terms and Conditions.'
                             : ''
-                        : '';
+                          : '';
+                const selectedBookingService = RAW_SPF_PACKAGES.find((svc: any) => svc.id === bookingForm.service);
 
-              return (
-                <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(148,163,184,0.22)', flexShrink: 0, background: 'linear-gradient(180deg,#ffffff,#fafbfc)' }}>
-                  <div
-                    style={{
+                return (
+                  <div className="booking-service-footer shrink-0 border-t px-5 py-4">
+                    {bookingStep === 1 && selectedBookingService && (
+                      <div className="booking-service-footer-summary mb-3 rounded-2xl border bg-white px-3.5 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-black text-slate-950">{selectedBookingService.name}</p>
+                            <p className="mt-0.5 truncate text-xs font-semibold text-slate-500">{selectedBookingService.duration}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] font-bold text-slate-400">Total</p>
+                            <p className="text-lg font-black text-slate-950">₱{bookingForm.servicePrice.toLocaleString()}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div
+                      style={{
                       display: 'grid',
                       gridTemplateColumns: bookingStep > 1 ? 'minmax(0,1fr) minmax(0,1fr)' : 'minmax(0,1fr)',
                       gap: 10,
@@ -6036,7 +6302,7 @@ export default function CustomerDashboard() {
                           boxShadow: isStepInvalid ? 'none' : '0 8px 28px -8px rgba(15,23,42,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset',
                           opacity: isStepInvalid ? 0.7 : 1,
                         }}>
-                        Continue →
+                          Continue →
                       </button>
                     ) : (
                       <button type="button" onClick={submitBooking} disabled={!step6Valid}

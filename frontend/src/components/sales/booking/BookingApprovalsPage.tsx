@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { createPortal } from 'react-dom';
-import { X, Search, CheckCircle2, XCircle, Clock, Calendar, Car, Image as ImageIcon, TrendingUp, ShieldCheck, RefreshCw } from 'lucide-react';
+import { X, Search, CheckCircle2, XCircle, Clock, Calendar, Car, Image as ImageIcon, TrendingUp, ShieldCheck, RefreshCw, AlertTriangle } from 'lucide-react';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { normalizeBooking } from '@/lib/order-service';
 
@@ -126,7 +126,7 @@ function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
           
           {/* warning */}
           <div className="mt-5 bg-amber-50/50 border border-amber-200/60 rounded-xl p-3.5 text-xs text-amber-800 font-medium flex gap-3 items-start leading-relaxed">
-            <span className="text-lg leading-none shrink-0">⚠️</span>
+            <AlertTriangle size={17} className="mt-0.5 shrink-0 text-amber-500" />
             <div>
               Approving will enable <strong className="font-extrabold text-amber-900">live tracking</strong> for the customer. 
               Balance of <strong className="font-extrabold text-amber-900">₱{balance.toLocaleString('en-PH')}</strong> to be collected on arrival.
@@ -205,8 +205,8 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
         <ProofModal booking={booking} onClose={() => setShowModal(false)}
           onApprove={doApprove} onReject={() => { setShowModal(false); setRejectMode(true); }} acting={acting} />
       )}
-      <div 
-        className={`bg-white rounded-2xl ring-1 ring-slate-900/[0.06] shadow-[0_1px_3px_rgba(0,0,0,0.04),0_6px_16px_-4px_rgba(0,0,0,0.06)] overflow-hidden transition-all duration-300 relative group
+      <div
+        className={`booking-approval-card bg-white rounded-[20px] border border-slate-100 overflow-hidden transition-all duration-300 relative group
           ${leaving ? 'opacity-0 translate-x-12 scale-95 pointer-events-none' : 'opacity-100 translate-x-0 scale-100'}
         `}
         style={{ animationDelay: `${idx * 0.05}s` }}
@@ -246,7 +246,7 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
                   { label:'Time', value: booking.bookingTime || '—', icon: Clock },
                   { label:'Phone', value: booking.customerPhone || '—', icon: null },
                 ].map(({ label, value, icon: Icon }) => (
-                  <div key={label} className="bg-slate-50/80 rounded-xl p-2.5 ring-1 ring-slate-900/5 group-hover:bg-slate-50 transition-colors">
+                  <div key={label} className="booking-approval-detail bg-slate-50/80 rounded-xl border border-slate-100 p-2.5 group-hover:bg-white transition-colors">
                     <div className="flex items-center gap-1 mb-1">
                       {Icon && <Icon size={10} className="text-slate-400" />}
                       <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest">{label}</div>
@@ -331,7 +331,7 @@ function HistoryRow({ b, type }: { b: any; type: 'approved' | 'rejected' }) {
   const isApproved = type === 'approved';
   
   return (
-    <div className="bg-white rounded-2xl ring-1 ring-slate-900/[0.06] p-4 flex items-center gap-4 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04),0_6px_16px_-4px_rgba(0,0,0,0.06)] hover:-translate-y-0.5 transition-all duration-200 group">
+    <div className="booking-approval-history-row bg-white rounded-[18px] border border-slate-100 p-4 flex items-center gap-4 hover:-translate-y-0.5 transition-all duration-200 group">
       <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ring-1 ring-inset ${
         isApproved 
           ? 'bg-emerald-50 text-emerald-600 ring-emerald-600/20' 
@@ -510,50 +510,71 @@ export default function BookingApprovalsPage() {
   ] as const;
 
   return (
-    <div className="h-full flex flex-col space-y-6 page-enter pb-6">
+    <div className="booking-approvals-shell h-full flex flex-col space-y-5 page-enter pb-6">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4 shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Booking Approvals</h1>
-          <p className="text-sm text-slate-500 mt-1">Review GCash payment proofs — approve or reject pending reservations</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {pending.length > 0 && (
-            <span className="bg-amber-50/80 backdrop-blur-sm border border-amber-200/50 rounded-full px-3.5 py-1.5 text-xs font-bold text-amber-700 shadow-sm flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-              </span>
-              {pending.length} Pending
+      <div className="booking-approvals-header shrink-0 rounded-[22px] border bg-white px-5 py-5 sm:px-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <span className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+              <ShieldCheck size={13} />
+              Payment Review
             </span>
-          )}
-          <button 
+            <h1 className="mt-3 text-2xl font-bold text-slate-950">Booking Approvals</h1>
+            <p className="mt-1 text-sm text-slate-500">Review GCash payment proofs and confirm reservations before they move to service.</p>
+          </div>
+          <button
             onClick={fetchAll}
-            className="bg-white ring-1 ring-slate-900/[0.08] shadow-[0_1px_3px_rgba(0,0,0,0.04)] rounded-xl px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-all flex items-center gap-2 active:scale-95"
+            disabled={loading}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 shadow-sm shadow-slate-200/40 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            ↻ Refresh
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            Refresh
           </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="booking-approval-stat rounded-2xl border bg-amber-50/80 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-amber-700">Pending Review</span>
+              <Clock size={16} className="text-amber-500" />
+            </div>
+            <p className="mt-2 text-2xl font-black text-amber-700 tabular-nums">{pending.length}</p>
+          </div>
+          <div className="booking-approval-stat rounded-2xl border bg-emerald-50/80 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-emerald-700">Approved</span>
+              <TrendingUp size={16} className="text-emerald-500" />
+            </div>
+            <p className="mt-2 text-2xl font-black text-emerald-700 tabular-nums">{approved.length}</p>
+          </div>
+          <div className="booking-approval-stat rounded-2xl border bg-rose-50/80 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-rose-700">Rejected</span>
+              <XCircle size={16} className="text-rose-500" />
+            </div>
+            <p className="mt-2 text-2xl font-black text-rose-700 tabular-nums">{rejected.length}</p>
+          </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-slate-200/60 shrink-0">
+      <div className="booking-approvals-tabs flex max-w-full shrink-0 gap-2 overflow-x-auto rounded-[18px] border bg-white p-1.5 scrollbar-thin">
         {TABS.map(t => {
           const active = tab === t.key;
           return (
-            <button 
-              key={t.key} 
+            <button
+              key={t.key}
               onClick={() => setTab(t.key)}
-              className={`flex items-center gap-2 px-5 py-3 border-b-2 transition-all duration-200 ${
-                active 
-                  ? 'border-amber-500 text-slate-900 font-bold' 
-                  : 'border-transparent text-slate-500 font-medium hover:text-slate-700 hover:bg-slate-50/50'
+              className={`flex h-11 min-w-[150px] items-center justify-center gap-2 rounded-xl px-4 text-sm transition-all duration-200 ${
+                active
+                  ? 'bg-slate-950 text-white font-bold shadow-[0_10px_22px_rgba(15,23,42,0.15)]'
+                  : 'text-slate-500 font-semibold hover:text-slate-800 hover:bg-slate-50'
               }`}
             >
               {t.label}
               <span className={`min-w-[1.5rem] px-1.5 py-0.5 rounded-full text-[10px] font-black text-center relative ${
-                active 
-                  ? (t.key === 'pending' ? 'bg-amber-500 text-white shadow-sm' : t.key === 'approved' ? 'bg-emerald-500 text-white shadow-sm' : 'bg-red-500 text-white shadow-sm')
+                active
+                  ? 'bg-white/20 text-white shadow-sm'
                   : 'bg-slate-100 text-slate-500'
               }`}>
                 {t.count}
@@ -567,18 +588,20 @@ export default function BookingApprovalsPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+      <div className="booking-approvals-content flex-1 min-h-0 overflow-y-auto rounded-[22px] border bg-white p-4 scrollbar-thin">
         {loading ? (
-          <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <div className="flex flex-col items-center justify-center h-64 gap-4 rounded-2xl bg-slate-50/70">
             <div className="w-10 h-10 border-4 border-amber-100 border-t-amber-500 rounded-full animate-spin" />
             <p className="text-sm font-medium text-slate-400">Loading bookings…</p>
           </div>
         ) : tab === 'pending' ? (
           pending.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <div className="text-6xl mb-4 animate-bounce">🎉</div>
-              <p className="text-xl font-extrabold text-slate-800 mb-1">All caught up!</p>
-              <p className="text-sm text-slate-400">No bookings pending confirmation right now.</p>
+            <div className="booking-approvals-empty flex min-h-[360px] flex-col items-center justify-center rounded-[20px] border bg-slate-50/70 px-6 text-center">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-sm shadow-slate-200/60 ring-1 ring-emerald-100">
+                <CheckCircle2 size={30} strokeWidth={2.5} />
+              </div>
+              <p className="text-xl font-extrabold text-slate-900 mb-1">All caught up</p>
+              <p className="max-w-md text-sm text-slate-500">No GCash payment proofs are waiting for confirmation right now.</p>
             </div>
           ) : (
             <div className="flex flex-col gap-5 pb-6">
@@ -590,8 +613,8 @@ export default function BookingApprovalsPage() {
           )
         ) : tab === 'approved' ? (
           approved.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-4 ring-1 ring-slate-900/5">
+            <div className="booking-approvals-empty flex min-h-[360px] flex-col items-center justify-center rounded-[20px] border bg-slate-50/70 px-6 text-center">
+              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 ring-1 ring-slate-200 shadow-sm">
                 <CheckCircle2 size={28} className="text-slate-300" />
               </div>
               <p className="text-sm font-bold text-slate-500">No approved bookings yet.</p>
@@ -603,8 +626,8 @@ export default function BookingApprovalsPage() {
           )
         ) : (
           rejected.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-4 ring-1 ring-slate-900/5">
+            <div className="booking-approvals-empty flex min-h-[360px] flex-col items-center justify-center rounded-[20px] border bg-slate-50/70 px-6 text-center">
+              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 ring-1 ring-slate-200 shadow-sm">
                 <XCircle size={28} className="text-slate-300" />
               </div>
               <p className="text-sm font-bold text-slate-500">No rejected bookings.</p>

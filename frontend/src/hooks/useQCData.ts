@@ -107,18 +107,24 @@ export function useQCData() {
   const [techLoading, setTechLoading] = useState(true);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** After first successful /qc/jobs response, never toggle jobsLoading again (silent refetches only). */
+  const qcJobsHydratedRef = useRef(false);
 
   // ── Fetchers ────────────────────────────────────────────────────────────────
 
   const fetchJobs = useCallback(async (silent = false) => {
-    if (!silent) setJobsLoading(true);
+    const blockingUi = !silent && !qcJobsHydratedRef.current;
+    if (blockingUi) setJobsLoading(true);
     try {
       const res = await api.get('/qc/jobs');
-      if (res.data?.success) setJobs(res.data.data ?? []);
+      if (res.data?.success) {
+        setJobs(res.data.data ?? []);
+        qcJobsHydratedRef.current = true;
+      }
     } catch (err: any) {
       if (!silent) console.error('[QC] Failed to fetch jobs:', err.message);
     } finally {
-      if (!silent) setJobsLoading(false);
+      if (blockingUi) setJobsLoading(false);
     }
   }, []);
 
@@ -187,17 +193,26 @@ export function useQCData() {
 
   useEffect(() => {
     const socket = getSharedSocket();
+    /** Coalesce db_change + orderUpdated bursts into one silent refetch (smoother for defense / slow Wi‑Fi). */
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleSocketRefetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        refetchAll(true);
+      }, 350);
+    };
 
     // db_change fires from MongoDB Change Streams via the backend
     const handleDbChange = (payload: any) => {
       if (payload.collection === 'orders') {
-        console.log('[useQCData] db_change orders → silent refetch');
-        refetchAll(true);
+        console.log('[useQCData] db_change orders → debounced silent refetch');
+        scheduleSocketRefetch();
       }
     };
     socket.on('db_change', handleDbChange);
     // Legacy event name used by some controllers
-    socket.on('orderUpdated', () => refetchAll(true));
+    socket.on('orderUpdated', scheduleSocketRefetch);
 
     // Visibility & focus refresh — catch changes missed while tab was in background
     let visTimer: ReturnType<typeof setTimeout> | null = null;
@@ -214,8 +229,9 @@ export function useQCData() {
     window.addEventListener('focus', handleVisibility);
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       socket.off('db_change', handleDbChange);
-      socket.off('orderUpdated');
+      socket.off('orderUpdated', scheduleSocketRefetch);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleVisibility);
       if (visTimer) clearTimeout(visTimer);
@@ -272,14 +288,15 @@ export function useQCData() {
     try {
       await api.patch(`/qc/jobs/${id}/service-status`, { stage });
       toast.success('Stage updated', { description: `Service stage advanced to: ${stage.replace(/_/g, ' ')}` });
-      await refetchAll(true);
+      // Live tracker only needs job rows — avoids 4 parallel GETs and browser “busy” feel.
+      await fetchJobs(true);
       return true;
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Failed to update service stage';
       toast.error('Stage update failed', { description: msg });
       return false;
     }
-  }, [refetchAll]);
+  }, [fetchJobs]);
 
   const uploadTrackerStagePhoto = useCallback(
     async (
@@ -354,14 +371,14 @@ export function useQCData() {
     try {
       await api.patch(`/orders/${orderId}/notes`, { content: trimmed });
       toast.success('Service update added', { description: 'Visible in the activity feed.' });
-      await refetchAll(true);
+      await fetchJobs(true);
       return true;
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Failed to add update';
       toast.error('Update failed', { description: msg });
       return false;
     }
-  }, [refetchAll]);
+  }, [fetchJobs]);
 
   const assignServiceStaff = useCallback(async (
     id: string,
@@ -370,14 +387,14 @@ export function useQCData() {
     try {
       await api.patch(`/qc/jobs/${id}/assign-staff`, { assignments });
       toast.success('Staff assigned', { description: 'Service team updated successfully.' });
-      await refetchAll(true);
+      await fetchJobs(true);
       return true;
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Failed to assign staff';
       toast.error('Assignment failed', { description: msg });
       return false;
     }
-  }, [refetchAll]);
+  }, [fetchJobs]);
 
   return {
     jobs,
