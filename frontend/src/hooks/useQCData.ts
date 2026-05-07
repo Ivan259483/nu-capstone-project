@@ -323,6 +323,24 @@ export function useQCData() {
     [refetchAll]
   );
 
+  const addStaffNote = useCallback(async (orderId: string, content: string): Promise<boolean> => {
+    const trimmed = content?.trim();
+    if (!trimmed) {
+      toast.error('Please enter an update message');
+      return false;
+    }
+    try {
+      await api.patch(`/orders/${orderId}/notes`, { content: trimmed });
+      toast.success('Service update added', { description: 'Visible in the activity feed.' });
+      await refetchAll(true);
+      return true;
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Failed to add update';
+      toast.error('Update failed', { description: msg });
+      return false;
+    }
+  }, [refetchAll]);
+
   const assignServiceStaff = useCallback(async (
     id: string,
     assignments: { slot: string; name: string; role: string }[]
@@ -357,5 +375,6 @@ export function useQCData() {
     updateServiceStatus,
     uploadTrackerStagePhoto,
     assignServiceStaff,
+    addStaffNote,
   };
 }

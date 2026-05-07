@@ -3834,6 +3834,9 @@ export default function CustomerDashboard() {
 
                   const isFullyComplete = status === 'completed' || status === 'paid' || status === 'released' || trackingStage === 'ready_pickup' || trackingStage === 'completed';
 
+                  const DASHBOARD_STEP_MEDIA_IDS = ['confirmed', 'received', 'in_progress', 'completed', 'paid'] as const;
+                  const MILESTONE_PCT_LABEL: (string | null)[] = [null, '25%', '50%', '75%', '100%'];
+
                   const STEPS = [
                     { id: 1, label: 'Appointment Confirmed', sub: 'Waiting for your vehicle', icon: 'solar:calendar-bold', time: activeBooking?.bookingTime || '--', status: currentStepIdx > 0 ? 'done' : currentStepIdx === 0 ? 'active' : 'pending' },
                     { id: 2, label: 'Vehicle Arrive', sub: 'In shop', icon: 'solar:garage-bold', time: '--', status: currentStepIdx > 1 ? 'done' : currentStepIdx === 1 ? 'active' : 'pending' },
@@ -3959,11 +3962,19 @@ export default function CustomerDashboard() {
                             {STEPS.map((step, i) => {
                               const isDone = step.status === 'done';
                               const isActive = step.status === 'active';
-                              const isLast = i === STEPS.length - 1;
+                              const mediaStageKey = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[DASHBOARD_STEP_MEDIA_IDS[i]];
+                              const media = findTrackerStageMedia(activeBooking as any, mediaStageKey);
+                              const photo = (media?.photoUrl || '').trim();
+                              const caption = resolveTrackerStageDescription(activeBooking as any, mediaStageKey);
+                              const pctTag = MILESTONE_PCT_LABEL[i];
+                              const showPhotoBlock = (isDone || isActive) && !!mediaStageKey;
+                              const showPendingHint =
+                                showPhotoBlock && !photo && mediaStageKey !== 'confirmed';
+
                               return (
                                 <div key={step.id} className="tracker-step-card" style={{
-                                  position: 'relative', display: 'flex', alignItems: 'center', gap: 14,
-                                  padding: isActive ? '13px 16px' : '10px 14px',
+                                  position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'stretch',
+                                  padding: 0,
                                   borderRadius: 14,
                                   background: isDone ? 'rgba(22,163,74,.06)' : isActive ? 'rgba(245,158,11,.07)' : 'rgba(255,255,255,.025)',
                                   border: isDone ? '1px solid rgba(22,163,74,.2)' : isActive ? '1px solid rgba(245,158,11,.3)' : '1px solid rgba(255,255,255,.05)',
@@ -3975,42 +3986,68 @@ export default function CustomerDashboard() {
                                   {/* Active card shimmer overlay */}
                                   {isActive && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg,transparent,rgba(245,158,11,.04),transparent)', backgroundSize: '200% 100%', animation: 'shimmerLine 2.5s linear infinite', borderRadius: 14, pointerEvents: 'none' }} />}
 
-                                  {/* Icon badge */}
-                                  <div style={{ position: 'relative', flexShrink: 0 }}>
-                                    {/* Spinning conic border for active */}
+                                  <div style={{
+                                    display: 'flex', alignItems: 'center', gap: 14,
+                                    padding: isActive ? '13px 16px 10px' : '10px 14px 8px',
+                                    position: 'relative', zIndex: 1,
+                                  }}>
+                                    {/* Icon badge */}
+                                    <div style={{ position: 'relative', flexShrink: 0 }}>
+                                      {isActive && (
+                                        <div style={{ position: 'absolute', inset: -3, borderRadius: '50%', background: 'conic-gradient(from 0deg,#f59e0b,#fbbf24,transparent,transparent,#f59e0b)', animation: 'rotateConic 2s linear infinite', zIndex: 0 }} />
+                                      )}
+                                      <div style={{
+                                        width: isActive ? 40 : 34, height: isActive ? 40 : 34, borderRadius: '50%', position: 'relative', zIndex: 1,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        background: isDone ? 'linear-gradient(135deg,#16a34a,#15803d)' : isActive ? 'linear-gradient(135deg,#d97706,#f59e0b)' : 'rgba(255,255,255,.05)',
+                                        boxShadow: isActive ? '0 0 20px rgba(245,158,11,.5)' : isDone ? '0 0 14px rgba(22,163,74,.4)' : 'none',
+                                        animation: isActive ? 'breathe 2.5s ease-in-out infinite' : 'none',
+                                      }}>
+                                        <iconify-icon icon={step.icon} width={isActive ? "18" : "15"} style={{ color: isDone || isActive ? '#fff' : 'rgba(255,255,255,.2)' }}></iconify-icon>
+                                      </div>
+                                    </div>
+
+                                    {/* Text */}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                                        <p style={{ margin: 0, fontSize: isActive ? 13 : 12, fontWeight: isActive ? 800 : isDone ? 600 : 500, color: isActive ? '#fbbf24' : isDone ? '#e5e7eb' : 'rgba(255,255,255,.25)', letterSpacing: '-.01em' }}>{step.label}</p>
+                                        {pctTag ? (
+                                          <span style={{ fontSize: 9, fontWeight: 800, color: 'rgba(251,191,36,.85)', textTransform: 'uppercase', letterSpacing: '.06em', padding: '2px 8px', borderRadius: 999, background: 'rgba(245,158,11,.12)', border: '1px solid rgba(245,158,11,.22)' }}>
+                                            {pctTag} status
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      <p style={{ margin: '1px 0 0', fontSize: 10, color: isActive ? 'rgba(251,191,36,.6)' : isDone ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.12)', fontWeight: 500 }}>{step.sub}</p>
+                                    </div>
+
+                                    {/* Time badge */}
+                                    <div style={{ flexShrink: 0, padding: '3px 10px', borderRadius: 999, background: isActive ? 'rgba(245,158,11,.15)' : isDone ? 'rgba(22,163,74,.1)' : 'rgba(255,255,255,.04)', border: isActive ? '1px solid rgba(245,158,11,.3)' : isDone ? '1px solid rgba(22,163,74,.2)' : '1px solid rgba(255,255,255,.06)' }}>
+                                      <span style={{ fontSize: 10, fontWeight: 700, color: isActive ? '#fbbf24' : isDone ? '#4ade80' : 'rgba(255,255,255,.2)' }}>{step.time}</span>
+                                    </div>
+
+                                    {isDone && <iconify-icon icon="solar:check-circle-bold" width="16" style={{ color: '#22c55e', flexShrink: 0 }}></iconify-icon>}
                                     {isActive && (
-                                      <div style={{ position: 'absolute', inset: -3, borderRadius: '50%', background: 'conic-gradient(from 0deg,#f59e0b,#fbbf24,transparent,transparent,#f59e0b)', animation: 'rotateConic 2s linear infinite', zIndex: 0 }} />
+                                      <div style={{ position: 'relative', width: 8, height: 8, flexShrink: 0 }}>
+                                        <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#f59e0b' }} />
+                                        <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#f59e0b', animation: 'orbPulse 1.5s ease-in-out infinite' }} />
+                                      </div>
                                     )}
-                                    <div style={{
-                                      width: isActive ? 40 : 34, height: isActive ? 40 : 34, borderRadius: '50%', position: 'relative', zIndex: 1,
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                      background: isDone ? 'linear-gradient(135deg,#16a34a,#15803d)' : isActive ? 'linear-gradient(135deg,#d97706,#f59e0b)' : 'rgba(255,255,255,.05)',
-                                      boxShadow: isActive ? '0 0 20px rgba(245,158,11,.5)' : isDone ? '0 0 14px rgba(22,163,74,.4)' : 'none',
-                                      animation: isActive ? 'breathe 2.5s ease-in-out infinite' : 'none',
-                                    }}>
-                                      <iconify-icon icon={step.icon} width={isActive ? "18" : "15"} style={{ color: isDone || isActive ? '#fff' : 'rgba(255,255,255,.2)' }}></iconify-icon>
+                                  </div>
+
+                                  {photo ? (
+                                    <div style={{ position: 'relative', zIndex: 1, padding: '0 14px 12px 16px' }}>
+                                      <a href={photo} target="_blank" rel="noopener noreferrer" style={{ display: 'block', borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,.1)' }}>
+                                        <img src={photo} alt="" style={{ width: '100%', height: 76, objectFit: 'cover', display: 'block' }} />
+                                      </a>
+                                      {caption ? (
+                                        <p style={{ margin: '6px 0 0', fontSize: 9, lineHeight: 1.35, color: 'rgba(255,255,255,.35)', fontWeight: 500 }}>{caption.length > 120 ? `${caption.slice(0, 118)}…` : caption}</p>
+                                      ) : null}
                                     </div>
-                                  </div>
-
-                                  {/* Text */}
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <p style={{ margin: 0, fontSize: isActive ? 13 : 12, fontWeight: isActive ? 800 : isDone ? 600 : 500, color: isActive ? '#fbbf24' : isDone ? '#e5e7eb' : 'rgba(255,255,255,.25)', letterSpacing: '-.01em' }}>{step.label}</p>
-                                    <p style={{ margin: '1px 0 0', fontSize: 10, color: isActive ? 'rgba(251,191,36,.6)' : isDone ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.12)', fontWeight: 500 }}>{step.sub}</p>
-                                  </div>
-
-                                  {/* Time badge */}
-                                  <div style={{ flexShrink: 0, padding: '3px 10px', borderRadius: 999, background: isActive ? 'rgba(245,158,11,.15)' : isDone ? 'rgba(22,163,74,.1)' : 'rgba(255,255,255,.04)', border: isActive ? '1px solid rgba(245,158,11,.3)' : isDone ? '1px solid rgba(22,163,74,.2)' : '1px solid rgba(255,255,255,.06)' }}>
-                                    <span style={{ fontSize: 10, fontWeight: 700, color: isActive ? '#fbbf24' : isDone ? '#4ade80' : 'rgba(255,255,255,.2)' }}>{step.time}</span>
-                                  </div>
-
-                                  {/* Done checkmark */}
-                                  {isDone && <iconify-icon icon="solar:check-circle-bold" width="16" style={{ color: '#22c55e', flexShrink: 0 }}></iconify-icon>}
-                                  {isActive && (
-                                    <div style={{ position: 'relative', width: 8, height: 8, flexShrink: 0 }}>
-                                      <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#f59e0b' }} />
-                                      <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#f59e0b', animation: 'orbPulse 1.5s ease-in-out infinite' }} />
-                                    </div>
-                                  )}
+                                  ) : showPendingHint ? (
+                                    <p style={{ position: 'relative', zIndex: 1, margin: '0 16px 12px', fontSize: 9, lineHeight: 1.4, color: 'rgba(255,255,255,.22)', fontStyle: 'italic', fontWeight: 500 }}>
+                                      Shop will post a real vehicle photo for this step — it will show here after upload.
+                                    </p>
+                                  ) : null}
                                 </div>
                               );
                             })}
