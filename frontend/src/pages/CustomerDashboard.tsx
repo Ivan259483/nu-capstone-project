@@ -4054,9 +4054,13 @@ export default function CustomerDashboard() {
                         {/* Glow orbs */}
                         <div className="absolute -left-8 -top-8 w-36 h-36 rounded-full blur-3xl opacity-30 pointer-events-none" style={{ background: '#818cf8' }} />
                         <div className="absolute -right-8 -bottom-8 w-36 h-36 rounded-full blur-3xl opacity-20 pointer-events-none" style={{ background: '#6366f1' }} />
-                        {/* Icon */}
-                        <div className="relative w-16 h-16 rounded-2xl flex items-center justify-center mb-5" style={{ background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.4)' }}>
-                          <iconify-icon icon="solar:car-bold" width="32" style={{ color: '#818cf8' }}></iconify-icon>
+                        {/* Brand logo — image only, above empty state */}
+                        <div className="relative z-10 flex justify-center mb-5">
+                          <img
+                            src="/images/autospf-logo.png"
+                            alt="AutoSPF+"
+                            className="h-14 w-auto max-w-[180px] object-contain"
+                          />
                         </div>
                         <h3 className="text-white font-black text-[18px] mb-2">Your Garage is Empty</h3>
                         <p className="text-slate-400 text-[13px] font-medium mb-6 max-w-[260px] leading-relaxed">
@@ -4395,9 +4399,13 @@ export default function CustomerDashboard() {
             <div className="relative px-8 pt-8 pb-10 text-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #312e81 100%)' }}>
               <div className="absolute -left-10 -top-10 w-40 h-40 rounded-full opacity-20 blur-3xl" style={{ background: '#818cf8' }} />
               <div className="absolute -right-10 -bottom-10 w-40 h-40 rounded-full opacity-20 blur-3xl" style={{ background: '#6366f1' }} />
-              {/* Welcome icon */}
-              <div className="relative w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.4)' }}>
-                <iconify-icon icon="solar:car-bold" width="32" style={{ color: '#818cf8' }}></iconify-icon>
+              {/* Brand logo — no glass frame, image only */}
+              <div className="relative z-10 mx-auto mb-4 flex justify-center">
+                <img
+                  src="/images/autospf-logo.png"
+                  alt="AutoSPF+"
+                  className="h-16 w-auto max-w-[200px] object-contain"
+                />
               </div>
               <h2 className="text-white text-[22px] font-black tracking-tight mb-1">Welcome to AutoSPF+</h2>
               <p className="text-slate-400 text-[13px] font-medium">Let's get your garage ready in 2 easy steps</p>
@@ -4471,28 +4479,44 @@ export default function CustomerDashboard() {
       {/* Add Vehicle Modal */}
 
       {addVehicleOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,.4)', backdropFilter: 'blur(4px)' }} onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}>
-          <div className="bg-white rounded-xl w-full max-w-[420px] shadow-2xl" onClick={e => e.stopPropagation()} style={{ animation: 'modalIn .2s ease-out', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6" style={{ backgroundColor: 'rgba(15,23,42,0.42)', backdropFilter: 'blur(10px)' }} onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}>
+          <div
+            className="bg-white w-full max-w-[460px] rounded-[1.75rem] overflow-hidden"
+            onClick={e => e.stopPropagation()}
+            style={{
+              animation: 'modalIn .2s ease-out',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 32px 80px -24px rgba(15,23,42,0.22), 0 0 0 1px rgba(15,23,42,0.06), 0 0 0 1px rgba(255,255,255,0.88) inset, 0 1px 0 rgba(255,255,255,0.95) inset',
+            }}
+          >
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h3 className="text-[15px] font-semibold text-gray-900">Add Vehicle</h3>
+            <div className="flex items-center justify-between px-7 pt-6 pb-4" style={{ borderBottom: '1px solid rgba(148,163,184,0.18)' }}>
+              <h3 className="text-[1.0625rem] font-semibold tracking-tight text-slate-900">Add Vehicle</h3>
               <button
+                type="button"
                 onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}
-                className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                className="flex h-9 w-9 items-center justify-center rounded-xl border text-slate-500 transition-all duration-200 hover:text-slate-700"
+                style={{
+                  borderColor: 'rgba(148,163,184,0.32)',
+                  background: 'linear-gradient(180deg, #ffffff, #f8fafc)',
+                  boxShadow: '0 2px 8px -4px rgba(15,23,42,0.08)',
+                }}
+                aria-label="Close"
               >
                 <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
               </button>
             </div>
 
             {/* Form */}
-            <form onSubmit={handleAddVehicleSubmit} className="px-5 py-4 space-y-3" noValidate>
+            <form onSubmit={handleAddVehicleSubmit} className="px-7 py-6 space-y-5" noValidate>
 
               {/* API error banner */}
               {vehicleApiError && (
-                <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-red-50 border border-red-100">
-                  <iconify-icon icon="solar:danger-triangle-bold" width="15" style={{ color: '#ef4444', marginTop: '1px', flexShrink: 0 }}></iconify-icon>
-                  <p className="text-[12px] text-red-600 font-medium leading-snug">{vehicleApiError}</p>
+                <div className="flex items-start gap-3 rounded-2xl border border-red-100/90 bg-red-50/85 px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]">
+                  <iconify-icon icon="solar:danger-triangle-bold" width="16" style={{ color: '#dc2626', marginTop: '1px', flexShrink: 0 }}></iconify-icon>
+                  <p className="text-[12px] font-medium leading-relaxed text-red-700">{vehicleApiError}</p>
                 </div>
               )}
 
@@ -4508,7 +4532,7 @@ export default function CustomerDashboard() {
                 const txt = isLight ? '#1e293b' : '#f8fafc';
                 const previewName = [newVehicle.year, newVehicle.brand, newVehicle.model].filter(Boolean).join(' ') || 'Your Vehicle';
                 return (
-                  <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                  <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200/55 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)]">
                     <div style={{ background: `linear-gradient(135deg, ${bg}, ${bg}dd)`, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
                       <iconify-icon icon="solar:car-bold" width="36" style={{ color: txt, opacity: 0.8, flexShrink: 0 }}></iconify-icon>
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -4519,22 +4543,22 @@ export default function CustomerDashboard() {
                         </div>
                       </div>
                     </div>
-                    <div style={{ background: '#f8fafc', padding: '6px 16px', fontSize: 10, color: '#94a3b8', fontWeight: 500, textAlign: 'center' }}>Live Preview — this is how your card will look</div>
+                    <div className="border-t border-slate-200/40 bg-slate-50/95 px-4 py-2.5 text-center text-[10px] font-medium tracking-wide text-slate-500">Live preview — card appearance</div>
                   </div>
                 );
               })()}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3.5">
                 {/* Plate Number */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Plate Number <span className="text-red-500">*</span>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Plate number <span className="font-bold text-red-500 normal-case">*</span>
                   </label>
                   <input
                     type="text"
                     placeholder="e.g. ABC-1234"
                     value={newVehicle.plate}
                     onChange={(e) => { setNewVehicle({ ...newVehicle, plate: e.target.value.toUpperCase() }); setVehicleErrors(er => ({ ...er, plate: '' })); }}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors uppercase tracking-widest font-mono ${vehicleErrors.plate ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
+                    className={`w-full rounded-2xl border px-3.5 py-2.5 font-mono text-sm uppercase tracking-widest text-slate-900 outline-none transition-[border-color,box-shadow,background-color] duration-200 placeholder:text-slate-400/75 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${vehicleErrors.plate ? 'border-red-100/95 bg-red-50/60 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]' : 'border-slate-100 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
                   />
                   {vehicleErrors.plate ? (
                     <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.plate}</p>
@@ -4552,13 +4576,13 @@ export default function CustomerDashboard() {
 
                 {/* Vehicle Type */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Type <span className="text-red-500">*</span>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Type <span className="font-bold text-red-500 normal-case">*</span>
                   </label>
                   <select
                     value={newVehicle.type}
                     onChange={(e) => { setNewVehicle({ ...newVehicle, type: e.target.value }); setVehicleErrors(er => ({ ...er, type: '' })); }}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${vehicleErrors.type ? 'border-red-300 bg-red-50 text-red-700 focus:border-red-400' : newVehicle.type ? 'border-gray-200 text-gray-900 focus:border-gray-400' : 'border-gray-200 text-gray-400 focus:border-gray-400'}`}
+                    className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow,background-color] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${vehicleErrors.type ? 'border-red-100/95 bg-red-50/60 text-red-800 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]' : newVehicle.type ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]' : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
                     style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
                   >
                     <option value="" disabled>Select...</option>
@@ -4580,42 +4604,42 @@ export default function CustomerDashboard() {
               {newVehicle.type && (() => {
                 const priceKey = getVehiclePriceKey(newVehicle.type);
                 return (
-                  <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 12, padding: '12px 14px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                      <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#f59e0b' }}></iconify-icon>
-                      <span style={{ fontSize: 10, fontWeight: 800, color: '#f59e0b', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        {newVehicle.type} Pricing — Locked to this vehicle
+                  <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_12px_40px_-18px_rgba(15,23,42,0.5)] ring-1 ring-slate-950/20">
+                    <div className="mb-2.5 flex items-center gap-2">
+                      <iconify-icon icon="solar:tag-price-bold" width="14" style={{ color: '#f97316' }}></iconify-icon>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400/95">
+                        {newVehicle.type} pricing (linked to this vehicle)
                       </span>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    <div className="grid grid-cols-2 gap-2">
                       {RAW_SPF_PACKAGES.map(pkg => (
-                        <div key={pkg.id} style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: '8px 10px' }}>
-                          <p style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginBottom: 2, lineHeight: 1.3 }}>
+                        <div key={pkg.id} className="rounded-xl border border-white/[0.07] bg-white/[0.05] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                          <p className="mb-0.5 text-[10px] font-semibold leading-snug text-slate-400">
                             {pkg.name.split('—')[0].trim()}
                           </p>
-                          <p style={{ fontSize: 14, fontWeight: 900, color: '#fff', letterSpacing: '-0.01em' }}>
+                          <p className="text-sm font-bold tracking-tight text-white">
                             ₱{(pkg.prices[priceKey as keyof typeof pkg.prices] || 0).toLocaleString()}
                           </p>
                         </div>
                       ))}
                     </div>
-                    <p style={{ fontSize: 10, color: '#475569', marginTop: 8, textAlign: 'center' }}>
-                      These prices will apply when you book for this vehicle
+                    <p className="mt-2.5 text-center text-[10px] font-medium text-slate-500">
+                      Shown rates apply when you book for this vehicle
                     </p>
                   </div>
                 );
               })()}
 
               {/* Brand + Year */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Brand <span className="text-red-500">*</span>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Brand <span className="font-bold text-red-500 normal-case">*</span>
                   </label>
                   <select
                     value={newVehicle.brand}
                     onChange={(e) => { setNewVehicle({ ...newVehicle, brand: e.target.value }); setVehicleErrors(er => ({ ...er, brand: '' })); }}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${vehicleErrors.brand ? 'border-red-300 bg-red-50 text-red-700' : newVehicle.brand ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow,background-color] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${vehicleErrors.brand ? 'border-red-100/95 bg-red-50/60 text-red-800 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]' : newVehicle.brand ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]' : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
                     style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
                   >
                     <option value="">Select brand</option>
@@ -4624,13 +4648,13 @@ export default function CustomerDashboard() {
                   {vehicleErrors.brand && <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.brand}</p>}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Year <span className="text-gray-400 font-normal">(optional)</span>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Year <span className="font-normal normal-case text-slate-400">(optional)</span>
                   </label>
                   <select
                     value={newVehicle.year}
                     onChange={(e) => setNewVehicle({ ...newVehicle, year: e.target.value })}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${newVehicle.year ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${newVehicle.year ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]' : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
                     style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
                   >
                     <option value="">Year</option>
@@ -4641,25 +4665,25 @@ export default function CustomerDashboard() {
 
               {/* Model */}
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Model <span className="text-red-500">*</span>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Model <span className="font-bold text-red-500 normal-case">*</span>
                 </label>
                 <input
                   type="text"
                   placeholder="e.g. Vios, Civic, Ranger"
                   value={newVehicle.model}
                   onChange={(e) => { setNewVehicle({ ...newVehicle, model: e.target.value }); setVehicleErrors(er => ({ ...er, model: '' })); }}
-                  className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${vehicleErrors.model ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
+                  className={`w-full rounded-2xl border px-3.5 py-2.5 text-sm text-slate-900 outline-none transition-[border-color,box-shadow,background-color] duration-200 placeholder:text-slate-400/75 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${vehicleErrors.model ? 'border-red-100/95 bg-red-50/60 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]' : 'border-slate-100 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
                 />
                 {vehicleErrors.model && <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.model}</p>}
               </div>
 
               {/* Color Swatch Picker */}
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  Color <span className="text-gray-400 font-normal">(optional)</span>
+                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Color <span className="font-normal normal-case text-slate-400">(optional)</span>
                 </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                <div className="flex flex-wrap gap-2">
                   {[
                     { name: 'White', hex: '#f1f5f9' }, { name: 'Black', hex: '#1e293b' },
                     { name: 'Silver', hex: '#94a3b8' }, { name: 'Gray', hex: '#64748b' },
@@ -4671,24 +4695,23 @@ export default function CustomerDashboard() {
                     return (
                       <button key={c.name} type="button" title={c.name}
                         onClick={() => { setNewVehicle(nv => ({ ...nv, color: c.name })); setNewVehicleShowColorInput(false); }}
-                        style={{
-                          width: 28, height: 28, borderRadius: '50%', border: sel ? '2.5px solid #0f172a' : '2px solid #e2e8f0',
-                          background: c.hex, cursor: 'pointer', transition: 'all 0.15s',
-                          boxShadow: sel ? '0 0 0 2px #fff, 0 0 0 4px #0f172a' : 'none',
-                          outline: 'none', flexShrink: 0,
-                        }}
+                        className={`h-8 w-8 shrink-0 rounded-full border-0 shadow-[0_1px_3px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.25)] transition-all duration-200 outline-none ring-2 ${
+                          sel
+                            ? 'ring-slate-400/55 ring-offset-2 ring-offset-white scale-[1.06]'
+                            : 'ring-white/80 ring-slate-200/50 hover:ring-slate-300/65'
+                        }`}
+                        style={{ background: c.hex }}
                       />
                     );
                   })}
                   {/* Other button */}
                   <button type="button"
                     onClick={() => { setNewVehicleShowColorInput(true); setNewVehicle(nv => ({ ...nv, color: '' })); }}
-                    style={{
-                      height: 28, padding: '0 10px', borderRadius: 14, fontSize: 11, fontWeight: 600,
-                      border: newVehicleShowColorInput ? '2px solid #0f172a' : '2px solid #e2e8f0',
-                      background: newVehicleShowColorInput ? '#f8fafc' : '#fff', color: '#64748b',
-                      cursor: 'pointer', transition: 'all 0.15s',
-                    }}
+                    className={`h-8 shrink-0 rounded-full border px-3.5 text-[11px] font-semibold transition-all duration-200 shadow-[0_1px_2px_rgba(15,23,42,0.05)] ${
+                      newVehicleShowColorInput
+                        ? 'border-slate-200/70 bg-gradient-to-b from-slate-50 to-slate-100/80 text-slate-800 ring-2 ring-slate-300/35 ring-offset-2 ring-offset-white'
+                        : 'border border-slate-100/90 bg-gradient-to-b from-white to-slate-50/70 text-slate-500 hover:border-slate-200/90 hover:text-slate-700'
+                    }`}
                   >Other</button>
                 </div>
                 {newVehicleShowColorInput && (
@@ -4696,25 +4719,25 @@ export default function CustomerDashboard() {
                     type="text" placeholder="e.g. Champagne Gold"
                     value={newVehicle.color}
                     onChange={(e) => setNewVehicle({ ...newVehicle, color: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 transition-colors mt-2"
+                    className="mt-2.5 w-full rounded-2xl border border-slate-100 bg-gradient-to-b from-white to-slate-50/80 px-3.5 py-2.5 text-sm text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-slate-400/75 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]"
                     autoFocus
                   />
                 )}
                 {newVehicle.color && !newVehicleShowColorInput && (
-                  <p className="mt-1.5 text-[11px] text-gray-400 pl-0.5">Selected: <span className="font-semibold text-gray-600">{newVehicle.color}</span></p>
+                  <p className="mt-1.5 pl-0.5 text-[11px] text-slate-400">Selected: <span className="font-semibold text-slate-600">{newVehicle.color}</span></p>
                 )}
               </div>
 
               {/* Transmission + Fuel Type */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Transmission <span className="text-gray-400 font-normal">(optional)</span>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Transmission <span className="font-normal normal-case text-slate-400">(optional)</span>
                   </label>
                   <select
                     value={newVehicle.transmission}
                     onChange={(e) => setNewVehicle({ ...newVehicle, transmission: e.target.value })}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${newVehicle.transmission ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${newVehicle.transmission ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]' : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
                     style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
                   >
                     <option value="">Select...</option>
@@ -4724,13 +4747,13 @@ export default function CustomerDashboard() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Fuel Type <span className="text-gray-400 font-normal">(optional)</span>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Fuel type <span className="font-normal normal-case text-slate-400">(optional)</span>
                   </label>
                   <select
                     value={newVehicle.fuelType}
                     onChange={(e) => setNewVehicle({ ...newVehicle, fuelType: e.target.value })}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${newVehicle.fuelType ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
+                    className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${newVehicle.fuelType ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]' : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
                     style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
                   >
                     <option value="">Select...</option>
@@ -4742,26 +4765,28 @@ export default function CustomerDashboard() {
                 </div>
               </div>
 
-              {/* Hint */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #dcfce7' }}>
-                <iconify-icon icon="solar:calendar-add-bold" width="14" style={{ color: '#16a34a', flexShrink: 0 }}></iconify-icon>
-                <p style={{ fontSize: 11, color: '#15803d', fontWeight: 500, lineHeight: 1.4 }}>
-                  After adding, tap <strong>📅 Book</strong> on your vehicle card to book instantly with all details pre-filled.
+              {/* Hint — no emoji */}
+              <div className="flex gap-3.5 rounded-2xl border-0 bg-slate-50/90 px-4 py-3.5 ring-1 ring-slate-200/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+                <div className="shrink-0 pt-0.5" aria-hidden>
+                  <iconify-icon icon="solar:calendar-mark-bold" width="18" style={{ color: '#64748b' }}></iconify-icon>
+                </div>
+                <p className="text-[12px] font-medium leading-relaxed text-slate-600">
+                  After you save, open <span className="font-semibold text-slate-800">Book</span> on your vehicle card to schedule a service with these details pre-filled.
                 </p>
               </div>
 
               {/* Actions */}
-              <div className="flex gap-2 pt-1">
+              <div className="flex gap-3 pt-5" style={{ borderTop: '1px solid rgba(148,163,184,0.14)' }}>
                 <button
                   type="button"
                   onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}
-                  className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  className="flex-1 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-white to-slate-50/90 py-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all hover:border-slate-300/85 hover:shadow-[0_4px_14px_-6px_rgba(15,23,42,0.1)]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-700 rounded-lg transition-colors"
+                  className="flex-1 rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 py-3 text-sm font-semibold text-white shadow-[0_4px_18px_-6px_rgba(15,23,42,0.45),inset_0_1px_0_rgba(255,255,255,0.12)] transition-all hover:from-slate-700 hover:to-slate-800 hover:shadow-[0_6px_22px_-6px_rgba(15,23,42,0.5)]"
                 >
                   Add Vehicle
                 </button>
