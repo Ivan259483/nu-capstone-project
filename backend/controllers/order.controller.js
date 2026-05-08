@@ -668,6 +668,13 @@ export const createOrder = async (req, res, next) => {
       }
     }
 
+    const resolvedPaymentProof = (() => {
+      const a = typeof downpaymentProofInput === 'string' ? downpaymentProofInput.trim() : '';
+      const b = typeof paymentProofUrlInput === 'string' ? paymentProofUrlInput.trim() : '';
+      const proof = a || b;
+      return proof || undefined;
+    })();
+
     // ── Create Order ──────────────────────────────────────────────────
     const order = new Order({
       orderNumber: `ORD-${Date.now()}`,
@@ -685,8 +692,8 @@ export const createOrder = async (req, res, next) => {
       ...finalVehicleData,
       bookingDate,
       bookingTime,
-      downpaymentProof: typeof downpaymentProofInput === 'string' ? downpaymentProofInput : undefined,
-      paymentProofUrl: typeof paymentProofUrlInput === 'string' ? paymentProofUrlInput : undefined,
+      downpaymentProof: resolvedPaymentProof,
+      paymentProofUrl: resolvedPaymentProof,
     });
 
     const checklist = generateOperationsChecklist(finalServiceType);
@@ -695,7 +702,6 @@ export const createOrder = async (req, res, next) => {
     // Auto-assign was removed to prevent unconfirmed bookings entering the service queue.
 
     await order.save();
-
 
     // ⚠️ Bug #3 fix: Wrapped debug log in dev-only guard — never runs in production.
     if (process.env.NODE_ENV === 'development') {
@@ -714,67 +720,92 @@ export const createOrder = async (req, res, next) => {
       });
     }
 
-    // Populate so the response DTO is consistent with list endpoints (My Bookings)
-    try {
-      await order.populate('customer', 'name email phone avatar');
-      await order.populate('items.product');
-      await order.populate('assignedDetailer', 'name email');
-    } catch (populateErr) {
-      // Non-fatal; DTO formatter has fallbacks
-      console.warn('Failed to populate order before response:', populateErr.message);
-    }
-
-    // 1. Create In-App Notification for Admin
-    try {
-      await Notification.create({
-        title: 'New Service Booking',
-        message: `New booking ${order.orderNumber} for ${finalVehicleData.vehicleYear} ${finalVehicleData.vehicleMake} ${finalVehicleData.vehicleModel}`,
-        type: 'booking',
-        recipientRole: 'admin_family',
-        link: `/admin/bookings/${order._id}`,
-        metadata: { orderId: order._id }
-      });
-    } catch (notifyErr) {
-      console.error('Failed to create notification:', notifyErr);
-    }
-
-    // 2. Send Email Notification if enabled
-    try {
-      const settings = await Setting.findOne();
-      if (settings?.notifications?.emailNewBookings) {
-        // Find admin user(s) to notify
-        const admins = await User.find({ role: { $in: FULL_ADMIN_ROLES }, isActive: true });
-        const adminEmails = admins.map(a => a.email);
-        
-        if (adminEmails.length > 0) {
-          // Fetch customer name for email (if populated or available)
-          const customer = await User.findById(order.customer);
-          
-          await emailService.sendBookingNotification(adminEmails, {
-            orderNumber: order.orderNumber,
-            customerName: customer?.name || 'Customer',
-            serviceName: finalServiceType || (serviceId && (await Service.findById(serviceId))?.name) || 'Premium Detailing',
-            bookingDate: order.bookingDate,
-            bookingTime: order.bookingTime,
-            vehicleInfo: `${finalVehicleData.vehicleYear} ${finalVehicleData.vehicleMake} ${finalVehicleData.vehicleModel}`
-          });
-        }
-      }
-    } catch (emailErr) {
-      console.error('Failed to send booking email notification:', emailErr);
-    }
-
-    logActivity({
-      req, type: 'booking_created', module: 'Booking', action: 'Booking Created',
-      description: `${fallbackCustomerName || 'Customer'} created booking ${order.orderNumber} — ${finalServiceType || 'Service'}.`,
-      status: 'success', referenceId: order.orderNumber,
-      metadata: { orderId: order._id, serviceType: finalServiceType, totalPrice: safeTotalPrice },
-    });
-
-    res.status(201).json({
+    const responsePayload = {
       success: true,
       message: 'Order created successfully. Admin has been notified.',
       data: formatBookingDto(order),
+    };
+
+    // Respond immediately — email + in-app notifications can take seconds on cold DB / SMTP.
+    res.status(201).json(responsePayload);
+
+    const orderIdForSideEffects = order._id;
+    const orderNumberForSideEffects = order.orderNumber;
+    const bookingRefForSideEffects = order.bookingReference;
+    const customerRef = order.customer;
+    const hasReservationProof = Boolean(resolvedPaymentProof);
+    setImmediate(() => {
+      void (async () => {
+        try {
+          const customerLabel = fallbackCustomerName || 'Customer';
+          const serviceLabel = finalServiceType || 'Service';
+          const vehicleLine = [finalVehicleData.vehicleYear, finalVehicleData.vehicleMake, finalVehicleData.vehicleModel]
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          const notifTitle = hasReservationProof
+            ? 'GCash reservation submitted'
+            : 'New service booking';
+          const notifMessage = hasReservationProof
+            ? `${customerLabel} sent a reservation fee proof for ${serviceLabel}. Ref ${bookingRefForSideEffects}. Review payment in Booking Approvals.`
+            : `New booking ${orderNumberForSideEffects} — ${customerLabel}, ${serviceLabel}${vehicleLine ? ` (${vehicleLine})` : ''}. Review in Booking Approvals.`;
+          await Notification.create({
+            title: notifTitle,
+            message: notifMessage,
+            type: 'booking',
+            recipientRole: 'admin_family',
+            link: `/admin/bookings/${orderIdForSideEffects}`,
+            metadata: {
+              orderId: orderIdForSideEffects,
+              bookingReference: bookingRefForSideEffects,
+              kind: hasReservationProof ? 'reservation_fee' : 'booking',
+            },
+          });
+        } catch (notifyErr) {
+          console.error('Failed to create notification:', notifyErr);
+        }
+
+        try {
+          const settings = await Setting.findOne();
+          if (settings?.notifications?.emailNewBookings) {
+            const admins = await User.find({ role: { $in: FULL_ADMIN_ROLES }, isActive: true });
+            const adminEmails = admins.map((a) => a.email);
+
+            if (adminEmails.length > 0) {
+              const customer = await User.findById(customerRef);
+
+              await emailService.sendBookingNotification(adminEmails, {
+                orderNumber: orderNumberForSideEffects,
+                customerName: customer?.name || 'Customer',
+                serviceName:
+                  finalServiceType ||
+                  (serviceId && (await Service.findById(serviceId))?.name) ||
+                  'Premium Detailing',
+                bookingDate,
+                bookingTime,
+                vehicleInfo: `${finalVehicleData.vehicleYear} ${finalVehicleData.vehicleMake} ${finalVehicleData.vehicleModel}`,
+              });
+            }
+          }
+        } catch (emailErr) {
+          console.error('Failed to send booking email notification:', emailErr);
+        }
+
+        try {
+          logActivity({
+            req,
+            type: 'booking_created',
+            module: 'Booking',
+            action: 'Booking Created',
+            description: `${fallbackCustomerName || 'Customer'} created booking ${orderNumberForSideEffects} — ${finalServiceType || 'Service'}.`,
+            status: 'success',
+            referenceId: orderNumberForSideEffects,
+            metadata: { orderId: orderIdForSideEffects, serviceType: finalServiceType, totalPrice: safeTotalPrice },
+          });
+        } catch (actErr) {
+          console.error('Failed to log booking activity:', actErr);
+        }
+      })();
     });
   } catch (error) {
     if (error.name === 'ValidationError') {
@@ -2145,7 +2176,7 @@ export const updateWorkflowStep = async (req, res, next) => {
     }).catch(err => console.error("Error retrieving socket io module inside updateWorkflowStep", err));
 
     // Log activity
-    const STEP_LABELS = ['', 'Job Order', 'Ingress Checklist', 'Damage Annotation', 'Customer Waiver', 'Service Proper', 'QC Checklist', 'Egress Release'];
+    const STEP_LABELS = ['', 'Job Order', 'Pre-Assessment & Ingress Checklist', 'Damage Annotation', 'Customer Waiver', 'Service Proper', 'QC Checklist', 'Egress Release'];
     logActivity({
       req,
       type: 'system',

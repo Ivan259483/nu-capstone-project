@@ -66,8 +66,8 @@ export default function Step2_IngressChecklist({ order, onComplete, isCompleted 
   return (
     <motion.div className="step-panel" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
       <div className="step-header">
-        <h3><ListChecks style={{ width: 20, height: 20, color: 'var(--accent)', marginRight: 8, verticalAlign: 'middle' }} />Ingress Checklist</h3>
-        <p>Complete all pre-service checks before proceeding — {checkedCount}/{totalCount} items verified</p>
+        <h3><ListChecks style={{ width: 20, height: 20, color: 'var(--accent)', marginRight: 8, verticalAlign: 'middle' }} />Pre-Assessment & Ingress Checklist</h3>
+        <p>Assess the vehicle before any detailing service — {checkedCount}/{totalCount} items verified</p>
       </div>
 
       {/* Progress */}
@@ -134,8 +134,8 @@ export default function Step2_IngressChecklist({ order, onComplete, isCompleted 
         <div className="step-section-title">Additional Notes</div>
         <div className="wf-form-grid cols-1">
           <div className="wf-field">
-            <label className="wf-label">Before-Service Notes</label>
-            <textarea className="wf-textarea" value={beforeServiceNotes} onChange={e => setBeforeServiceNotes(e.target.value)} placeholder="General notes before starting service..." disabled={isCompleted} />
+            <label className="wf-label">Pre-Assessment Notes</label>
+            <textarea className="wf-textarea" value={beforeServiceNotes} onChange={e => setBeforeServiceNotes(e.target.value)} placeholder="General notes from the vehicle pre-assessment..." disabled={isCompleted} />
           </div>
           <div className="wf-field">
             <label className="wf-label">Pre-existing Conditions</label>
@@ -152,13 +152,13 @@ export default function Step2_IngressChecklist({ order, onComplete, isCompleted 
           disabled={!allChecked || saving}
           whileTap={{ scale: 0.98 }}
         >
-          {saving ? 'Saving...' : allChecked ? 'Complete Ingress ✓' : `Complete all ${totalCount - checkedCount} remaining items`}
+          {saving ? 'Saving...' : allChecked ? 'Complete Pre-Assessment ✓' : `Complete all ${totalCount - checkedCount} remaining items`}
         </motion.button>
       )}
 
       {isCompleted && (
         <div style={{ textAlign: 'center', padding: 16, color: '#22c55e', fontSize: 13, fontWeight: 700 }}>
-          ✓ Ingress Checklist completed
+          ✓ Pre-assessment checklist completed
         </div>
       )}
     </motion.div>

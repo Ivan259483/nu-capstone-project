@@ -13,7 +13,7 @@ function InnerWorkflowLayout() {
       animation: 'slide_from_right'
     }}>
       <Stack.Screen name="Step1_BookingInbox" options={{ title: 'Booking Inbox' }} />
-      <Stack.Screen name="Step2_IngressChecklist" options={{ title: 'Ingress' }} />
+      <Stack.Screen name="Step2_IngressChecklist" options={{ title: 'Pre-Assessment' }} />
       <Stack.Screen name="Step3_DigitalTerms" options={{ title: 'Service Terms' }} />
       <Stack.Screen name="Step4_DamageAnnotation" options={{ title: 'Inspection' }} />
       <Stack.Screen name="Step5_JobOrder" options={{ title: 'Job Order' }} />

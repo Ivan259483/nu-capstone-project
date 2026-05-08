@@ -21,6 +21,9 @@ export const SERVICE_CATEGORIES: { value: ServiceCategory; label: string }[] = [
 // ═══════ INGRESS CHECKLISTS (Step 2) ═══════
 export const INGRESS_CHECKLISTS: Record<string, { category: string; name: string }[]> = {
   _default: [
+    { category: 'Pre-Assessment', name: 'Conduct vehicle pre-assessment before any detailing service' },
+    { category: 'Pre-Assessment', name: 'Document visible exterior, interior, glass, trim, wheel, and panel concerns' },
+    { category: 'Pre-Assessment', name: 'Confirm pre-existing damage or issues with the customer before service proper' },
     { category: 'Vehicle Inspection', name: 'Verify vehicle matches job order (model, color, plate)' },
     { category: 'Vehicle Inspection', name: 'Check dashboard warning lights' },
     { category: 'Vehicle Inspection', name: 'Record odometer reading' },

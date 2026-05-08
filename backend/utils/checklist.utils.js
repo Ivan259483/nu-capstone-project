@@ -15,6 +15,10 @@ export const generateOperationsChecklist = (serviceName = '') => {
     completedAt: null
   });
 
+  checklist.ingress.push(
+    createItem('Vehicle Pre-Assessment Before Any Detailing Service', true)
+  );
+
   // --- Identify Service Type based on Keywords ---
   if (name.includes('coating') || name.includes('paint protection')) {
     // COATING / PAINT + PPF (If it contains both, we default to the heaviest which is PPF/Coating)

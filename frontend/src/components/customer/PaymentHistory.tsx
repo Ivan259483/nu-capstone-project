@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/utils';
 import type { Booking } from '@/types';
+import { downloadDetailedReceiptPdf, receiptFromBooking } from '@/lib/receipt-document';
 import {
     Table,
     TableBody,
@@ -105,7 +106,13 @@ export const PaymentHistory: React.FC<PaymentHistoryProps> = ({ bookings }) => {
                                                 {getStatusBadge(transaction.paymentStatus || (transaction.status === 'completed' ? 'paid' : 'pending'))}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-[var(--text-secondary)] hover:text-[var(--gold-primary)] hover:bg-gold-500/10 rounded-full transition-colors">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 w-8 p-0 text-[var(--text-secondary)] hover:text-[var(--gold-primary)] hover:bg-gold-500/10 rounded-full transition-colors"
+                                                    title="Download detailed receipt PDF"
+                                                    onClick={() => downloadDetailedReceiptPdf(receiptFromBooking(transaction))}
+                                                >
                                                     <Download className="w-4 h-4" />
                                                     <span className="sr-only">Download Receipt</span>
                                                 </Button>

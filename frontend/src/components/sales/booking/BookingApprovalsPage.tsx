@@ -1,11 +1,39 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { createPortal } from 'react-dom';
-import { X, Search, CheckCircle2, XCircle, Clock, Calendar, Car, Image as ImageIcon, TrendingUp, ShieldCheck, RefreshCw, AlertTriangle } from 'lucide-react';
+import {
+  AlertTriangle,
+  BadgeCheck,
+  Banknote,
+  Calendar,
+  Car,
+  CheckCircle2,
+  ClipboardCheck,
+  Clock,
+  Eye,
+  Hash,
+  Image as ImageIcon,
+  Phone,
+  ReceiptText,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Smartphone,
+  TrendingUp,
+  UserRound,
+  WalletCards,
+  X,
+  XCircle,
+} from 'lucide-react';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { normalizeBooking } from '@/lib/order-service';
 
 const DOWNPAYMENT = 500;
+const moneyFormatter = new Intl.NumberFormat('en-PH', {
+  style: 'currency',
+  currency: 'PHP',
+  minimumFractionDigits: 2,
+});
 
 function getToken() {
   return (
@@ -26,15 +54,49 @@ async function apiPatch(url: string, body?: object) {
   return r.json();
 }
 
+const formatMoney = (amount: number) => moneyFormatter.format(Number.isFinite(amount) ? amount : 0);
+
+const toTitleCase = (str: string) =>
+  str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase());
+
+const formatTitle = (value: unknown, fallback = '—') => {
+  const formatted = toTitleCase(String(value ?? '').trim());
+  return formatted || fallback;
+};
+
+const formatPlate = (value: unknown, fallback = '—') => {
+  const formatted = String(value ?? '').trim().toUpperCase();
+  return formatted || fallback;
+};
+
+const getProofUrl = (booking: any) => booking.paymentProofUrl || booking.downpaymentProof || '';
+
+const getTotal = (booking: any) => Number(booking.totalPrice || booking.totalAmount || 0);
+
+const getVehicleLabel = (booking: any) =>
+  [
+    booking.vehicleYear ? String(booking.vehicleYear).trim() : '',
+    formatTitle(booking.vehicleMake, ''),
+    formatTitle(booking.vehicleModel, ''),
+  ].filter(Boolean).join(' ') || formatTitle(booking.vehicleInfo, '—');
+
+const getScheduleLabel = (booking: any) =>
+  [booking.bookingDate || booking.date || '—', booking.bookingTime || booking.time || ''].filter(Boolean).join(' ');
+
+const getInitials = (name: string) => {
+  const parts = String(name || 'Customer').trim().split(/\s+/).filter(Boolean);
+  return (parts[0]?.[0] || 'C') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
+};
+
 // ─── Status badge ───────────────────────────────────────────────────────────
 function PendingBadge() {
   return (
-    <span className="inline-flex items-center gap-1.5 bg-amber-50/80 backdrop-blur-sm border border-amber-200/50 rounded-full px-2.5 py-1 shadow-sm">
+    <span className="inline-flex items-center gap-2 rounded-full border border-amber-200/70 bg-amber-50 px-3 py-1.5 shadow-sm shadow-amber-100/60">
       <span className="relative flex h-2 w-2">
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
         <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
       </span>
-      <span className="text-[10px] font-extrabold text-amber-700 uppercase tracking-widest">Pending Confirmation</span>
+      <span className="text-[10px] font-black text-amber-700 uppercase tracking-[0.16em]">Payment Review</span>
     </span>
   );
 }
@@ -43,21 +105,109 @@ function PendingBadge() {
 function PayBreakdown({ total }: { total: number }) {
   const balance = Math.max(0, total - DOWNPAYMENT);
   return (
-    <div className="bg-slate-50/50 rounded-xl p-3.5 text-xs ring-1 ring-slate-900/5 shadow-inner">
-      <div className="flex justify-between mb-2">
-        <span className="text-slate-500 font-medium">Service Total</span>
-        <span className="font-bold text-slate-800">₱{total.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+    <div className="booking-payment-ledger overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+            <WalletCards size={16} strokeWidth={2.4} />
+          </span>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Payment Ledger</p>
+            <p className="text-xs font-bold text-slate-800">GCash reservation fee</p>
+          </div>
+        </div>
+        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-blue-700 ring-1 ring-blue-100">
+          GCash
+        </span>
       </div>
-      <div className="flex justify-between mb-2">
-        <span className="text-emerald-600 font-medium">Downpayment (GCash)</span>
-        <span className="font-bold text-emerald-600">− ₱{DOWNPAYMENT.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
-      </div>
-      <div className="h-px bg-slate-200/60 my-2.5" />
-      <div className="flex justify-between items-center">
-        <span className="text-red-600 font-bold">Balance on Arrival</span>
-        <span className="font-extrabold text-red-600 text-sm">₱{balance.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+
+      <div className="space-y-2.5 px-4 py-3.5 text-sm">
+        <div className="flex items-center justify-between gap-4">
+          <span className="font-semibold text-slate-500">Service total</span>
+          <span className="font-black tabular-nums text-slate-950">{formatMoney(total)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <span className="font-semibold text-emerald-700">Paid now</span>
+          <span className="font-black tabular-nums text-emerald-600">− {formatMoney(DOWNPAYMENT)}</span>
+        </div>
+        <div className="h-px bg-slate-100" />
+        <div className="flex items-center justify-between gap-4 rounded-xl bg-rose-50 px-3 py-2 ring-1 ring-rose-100">
+          <span className="font-black text-rose-700">Balance on arrival</span>
+          <span className="font-black tabular-nums text-rose-700">{formatMoney(balance)}</span>
+        </div>
       </div>
     </div>
+  );
+}
+
+function DetailTile({ label, value, icon: Icon }: { label: string; value: React.ReactNode; icon?: any }) {
+  return (
+    <div className="booking-approval-detail rounded-2xl border border-slate-200/70 bg-white px-3.5 py-3 shadow-sm shadow-slate-200/30">
+      <div className="mb-1.5 flex items-center gap-1.5">
+        {Icon ? <Icon size={12} strokeWidth={2.4} className="text-slate-400" /> : null}
+        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</div>
+      </div>
+      <div className="min-w-0 truncate text-sm font-black text-slate-800">{value}</div>
+    </div>
+  );
+}
+
+function ProofPreview({
+  proofUrl,
+  onOpen,
+  compact = false,
+  interactive = true,
+}: {
+  proofUrl: string;
+  onOpen?: () => void;
+  compact?: boolean;
+  interactive?: boolean;
+}) {
+  if (!proofUrl) {
+    return (
+      <div className={`${compact ? 'h-[220px]' : 'h-[360px]'} flex flex-col items-center justify-center rounded-[22px] border-2 border-dashed border-slate-200 bg-slate-50/80 text-slate-400`}>
+        <ImageIcon size={32} className="mb-2 opacity-50" />
+        <span className="text-xs font-black uppercase tracking-[0.16em]">No proof uploaded</span>
+      </div>
+    );
+  }
+
+  const frameClass = `${compact ? 'h-[240px]' : 'h-[calc(100vh-220px)] max-h-[680px] min-h-[420px]'} group/proof relative w-full overflow-hidden rounded-[24px] border border-slate-200 bg-slate-950 text-left shadow-[0_24px_60px_rgba(15,23,42,0.18)] transition-all duration-300 ${
+    interactive ? 'hover:-translate-y-0.5 hover:shadow-[0_30px_80px_rgba(15,23,42,0.24)]' : 'cursor-default'
+  }`;
+
+  const content = (
+    <>
+      <img src={proofUrl} alt="GCash proof" className="h-full w-full object-contain bg-slate-950" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-slate-950/80 to-transparent px-4 py-3">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/12 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-white ring-1 ring-white/15 backdrop-blur-md">
+          <Smartphone size={12} />
+          GCash proof
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-800 shadow-sm">
+          {interactive ? <Eye size={12} /> : <ImageIcon size={12} />}
+          {interactive ? 'Open' : 'Full proof'}
+        </span>
+      </div>
+      {interactive && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/80 to-transparent px-4 py-4 opacity-0 transition-opacity duration-300 group-hover/proof:opacity-100">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/14 px-3 py-1.5 text-xs font-bold text-white ring-1 ring-white/15 backdrop-blur-md">
+            <Search size={13} />
+            Click to inspect receipt
+          </span>
+        </div>
+      )}
+    </>
+  );
+
+  if (!interactive) {
+    return <div className={frameClass}>{content}</div>;
+  }
+
+  return (
+    <button type="button" onClick={onOpen} className={frameClass}>
+      {content}
+    </button>
   );
 }
 
@@ -66,101 +216,91 @@ function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
   booking: any; onClose: () => void;
   onApprove: () => void; onReject: () => void; acting: boolean;
 }) {
-  const total = Number(booking.totalPrice || booking.totalAmount || 0);
+  const total = getTotal(booking);
   const balance = Math.max(0, total - DOWNPAYMENT);
-  const proofUrl = booking.paymentProofUrl || booking.downpaymentProof;
-  
+  const proofUrl = getProofUrl(booking);
+  const ref = booking.bookingReference || booking.orderNumber || (booking._id || booking.id || '').slice(-8) || '—';
+
   return createPortal(
-    <div 
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6"
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md transition-opacity" onClick={onClose} />
-      
-      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-[0_32px_80px_rgba(0,0,0,0.2)] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        {/* header */}
-        <div className="bg-gradient-to-br from-amber-500 to-amber-600 px-6 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-2 text-white">
-            <ShieldCheck size={20} className="opacity-80" />
-            <span className="font-extrabold text-base tracking-tight">GCash Payment Proof</span>
-          </div>
-          <button 
-            onClick={onClose} 
-            className="p-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white transition-colors"
-          >
-            <X size={18} strokeWidth={2.5} />
-          </button>
+      <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md transition-opacity" onClick={onClose} />
+
+      <div className="relative grid max-h-[92vh] w-full max-w-6xl grid-cols-1 overflow-hidden rounded-[28px] bg-white shadow-[0_34px_100px_rgba(15,23,42,0.34)] animate-in fade-in zoom-in-95 duration-200 lg:grid-cols-[minmax(0,1fr)_390px]">
+        <div className="min-h-0 bg-slate-950 p-3 sm:p-4">
+          <ProofPreview proofUrl={proofUrl} interactive={false} />
         </div>
-        
-        {/* image */}
-        <div className="p-6 pb-2">
-          {proofUrl ? (
-            <div className="relative rounded-2xl overflow-hidden ring-1 ring-slate-900/10 shadow-sm group">
-              <img src={proofUrl} alt="GCash proof" className="w-full max-h-[280px] object-contain bg-slate-50" />
+
+        <aside className="flex min-h-0 flex-col border-l border-slate-200 bg-white">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-5">
+            <div className="min-w-0">
+              <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-blue-700 ring-1 ring-blue-100">
+                <ShieldCheck size={12} />
+                Payment verification
+              </span>
+              <h2 className="mt-3 text-xl font-black tracking-tight text-slate-950">GCash proof review</h2>
+              <p className="mt-1 text-xs font-semibold text-slate-500">Reference #{ref}</p>
             </div>
-          ) : (
-            <div className="h-32 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 gap-2 bg-slate-50/50">
-              <ImageIcon size={24} className="opacity-50" />
-              <span className="text-sm font-medium">No proof uploaded</span>
-            </div>
-          )}
-        </div>
-        
-        {/* details */}
-        <div className="p-6 pt-4">
-          <div className="grid grid-cols-2 gap-3 text-xs mb-5">
-            {[
-              { label:'Customer', value: booking.customerName },
-              { label:'Vehicle', value: [booking.vehicleMake, booking.vehicleModel].filter(Boolean).join(' ') || booking.vehiclePlate || '—' },
-              { label:'Service', value: booking.serviceType || booking.serviceName || '—' },
-              { label:'Schedule', value: `${booking.bookingDate || '—'} ${booking.bookingTime || ''}`.trim() },
-            ].map(({ label, value }) => (
-              <div key={label} className="bg-slate-50/80 rounded-xl p-2.5 ring-1 ring-slate-900/5">
-                <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">{label}</div>
-                <div className="font-bold text-slate-800 truncate">{value}</div>
-              </div>
-            ))}
-          </div>
-          
-          <PayBreakdown total={total} />
-          
-          {/* warning */}
-          <div className="mt-5 bg-amber-50/50 border border-amber-200/60 rounded-xl p-3.5 text-xs text-amber-800 font-medium flex gap-3 items-start leading-relaxed">
-            <AlertTriangle size={17} className="mt-0.5 shrink-0 text-amber-500" />
-            <div>
-              Approving will enable <strong className="font-extrabold text-amber-900">live tracking</strong> for the customer. 
-              Balance of <strong className="font-extrabold text-amber-900">₱{balance.toLocaleString('en-PH')}</strong> to be collected on arrival.
-            </div>
-          </div>
-          
-          {/* actions */}
-          <div className="flex gap-3 mt-6">
-            <button 
-              onClick={onReject} 
-              disabled={acting}
-              className="flex-1 py-3 px-4 rounded-xl border border-red-200 bg-red-50 text-red-600 font-bold text-sm hover:bg-red-100 hover:border-red-300 disabled:opacity-50 transition-all active:scale-95"
+            <button
+              onClick={onClose}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-all hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+              aria-label="Close proof modal"
             >
-              Reject
+              <X size={18} strokeWidth={2.5} />
             </button>
-            <button 
-              onClick={onApprove} 
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+            <div className="mb-4 grid grid-cols-2 gap-3">
+              <DetailTile label="Customer" value={booking.customerName || '—'} icon={UserRound} />
+              <DetailTile label="Phone" value={booking.customerPhone || '—'} icon={Phone} />
+              <DetailTile label="Vehicle" value={getVehicleLabel(booking)} icon={Car} />
+              <DetailTile label="Plate" value={formatPlate(booking.vehiclePlate)} icon={Hash} />
+              <DetailTile label="Service" value={booking.serviceType || booking.serviceName || '—'} icon={ClipboardCheck} />
+              <DetailTile label="Schedule" value={getScheduleLabel(booking)} icon={Calendar} />
+            </div>
+
+            <PayBreakdown total={total} />
+
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold leading-relaxed text-amber-900">
+              <div className="mb-2 flex items-center gap-2 font-black">
+                <AlertTriangle size={16} className="text-amber-600" />
+                Before approving
+              </div>
+              Confirm the receipt amount, timestamp, and sender details match this reservation. Approving enables live tracking for the customer and leaves <strong>{formatMoney(balance)}</strong> for onsite collection.
+            </div>
+          </div>
+
+          <div className="grid gap-3 border-t border-slate-100 bg-slate-50/80 p-5">
+            <button
+              onClick={onApprove}
               disabled={acting}
-              className="flex-[2] py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold text-sm shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30 disabled:opacity-70 transition-all flex items-center justify-center gap-2 active:scale-95"
+              className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {acting ? (
                 <>
-                  <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  <span>Processing…</span>
+                  <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  Processing approval…
                 </>
               ) : (
                 <>
-                  <CheckCircle2 size={18} strokeWidth={2.5} />
-                  <span>Approve Reservation</span>
+                  <CheckCircle2 size={18} strokeWidth={2.6} />
+                  Approve reservation
                 </>
               )}
             </button>
+            <button
+              onClick={onReject}
+              disabled={acting}
+              className="flex h-11 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-4 text-sm font-black text-rose-600 transition-all hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <XCircle size={17} strokeWidth={2.5} />
+              Reject proof
+            </button>
           </div>
-        </div>
+        </aside>
       </div>
     </div>,
     document.body
@@ -179,13 +319,16 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
   const [rejectMode, setRejectMode] = useState(false);
   const [reason, setReason] = useState('');
   const id = booking._id || booking.id;
-  const total = Number(booking.totalPrice || booking.totalAmount || 0);
-  const proofUrl = booking.paymentProofUrl || booking.downpaymentProof;
-  const ref = booking.bookingReference || booking.orderNumber || id?.slice(-6) || '—';
+  const total = getTotal(booking);
+  const balance = Math.max(0, total - DOWNPAYMENT);
+  const proofUrl = getProofUrl(booking);
+  const ref = booking.bookingReference || booking.orderNumber || id?.slice(-8) || '—';
+  const customerName = booking.customerName || 'Customer';
+  const serviceLabel = booking.serviceType || booking.serviceName || '—';
 
   const doApprove = async () => {
     setActing(true);
-    await onApprove(id, booking.customerName || 'Customer');
+    await onApprove(id, customerName);
     setLeaving(true);
     setActing(false);
     setShowModal(false);
@@ -193,7 +336,7 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
 
   const doReject = async () => {
     setActing(true);
-    await onReject(id, booking.customerName || 'Customer', reason || 'Payment proof could not be verified.');
+    await onReject(id, customerName, reason || 'Payment proof could not be verified.');
     setLeaving(true);
     setActing(false);
     setShowModal(false);
@@ -206,91 +349,125 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
           onApprove={doApprove} onReject={() => { setShowModal(false); setRejectMode(true); }} acting={acting} />
       )}
       <div
-        className={`booking-approval-card bg-white rounded-[20px] border border-slate-100 overflow-hidden transition-all duration-300 relative group
+        className={`booking-approval-card overflow-hidden rounded-[28px] border border-slate-200 bg-white transition-all duration-300 relative group
           ${leaving ? 'opacity-0 translate-x-12 scale-95 pointer-events-none' : 'opacity-100 translate-x-0 scale-100'}
         `}
         style={{ animationDelay: `${idx * 0.05}s` }}
       >
-        {/* Amber accent bar */}
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-300" />
-        
-        <div className="p-5 sm:p-6">
-          {/* Top row */}
-          <div className="flex items-start sm:items-center justify-between mb-5 flex-col sm:flex-row gap-3">
-            <div className="flex items-center gap-3.5">
-              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 shadow-sm ring-2 ring-white">
-                <span className="text-white font-black text-lg">{(booking.customerName || 'C').charAt(0).toUpperCase()}</span>
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-400 via-blue-500 to-emerald-500" />
+
+        <div className="p-4 sm:p-5 lg:p-6">
+          <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex min-w-0 items-center gap-4">
+              <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg shadow-slate-950/15 ring-4 ring-slate-100">
+                <span className="text-lg font-black uppercase tracking-tight">{getInitials(customerName)}</span>
+                <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white ring-2 ring-white">
+                  <Smartphone size={11} strokeWidth={3} />
+                </span>
               </div>
-              <div>
-                <div className="font-extrabold text-base text-slate-900 tracking-tight">{booking.customerName || '—'}</div>
-                <div className="text-[11px] font-medium text-slate-500 mt-0.5 flex items-center gap-1.5">
-                  <Clock size={12} className="opacity-70" />
-                  {booking.createdAt ? new Date(booking.createdAt).toLocaleString('en-PH', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '—'}
-                  <span className="text-slate-300">•</span>
-                  <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">#{ref}</span>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="truncate text-lg font-black tracking-tight text-slate-950">{customerName}</h2>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+                    Queue {idx + 1}
+                  </span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-500">
+                  <span className="inline-flex items-center gap-1">
+                    <Clock size={12} className="opacity-70" />
+                    {booking.createdAt ? new Date(booking.createdAt).toLocaleString('en-PH', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '—'}
+                  </span>
+                  <span className="text-slate-300">/</span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 font-mono text-slate-600 ring-1 ring-slate-200">
+                    <Hash size={11} />
+                    {ref}
+                  </span>
                 </div>
               </div>
             </div>
-            <PendingBadge />
+            <div className="flex flex-wrap items-center gap-2">
+              <PendingBadge />
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-blue-700">
+                <ReceiptText size={12} />
+                Proof attached
+              </span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_160px] gap-6 items-start">
-            <div className="flex flex-col gap-5">
-              {/* Details grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {[
-                  { label:'Plate', value: booking.vehiclePlate || '—', icon: Car },
-                  { label:'Vehicle', value: [booking.vehicleMake, booking.vehicleModel].filter(Boolean).join(' ') || '—', icon: null },
-                  { label:'Service', value: booking.serviceType || booking.serviceName || '—', icon: null },
-                  { label:'Date', value: booking.bookingDate || '—', icon: Calendar },
-                  { label:'Time', value: booking.bookingTime || '—', icon: Clock },
-                  { label:'Phone', value: booking.customerPhone || '—', icon: null },
-                ].map(({ label, value, icon: Icon }) => (
-                  <div key={label} className="booking-approval-detail bg-slate-50/80 rounded-xl border border-slate-100 p-2.5 group-hover:bg-white transition-colors">
-                    <div className="flex items-center gap-1 mb-1">
-                      {Icon && <Icon size={10} className="text-slate-400" />}
-                      <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest">{label}</div>
-                    </div>
-                    <div className="text-xs font-bold text-slate-700 truncate">{value}</div>
-                  </div>
-                ))}
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+            <div className="min-w-0 space-y-5">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                <DetailTile label="Plate" value={formatPlate(booking.vehiclePlate)} icon={Car} />
+                <DetailTile label="Vehicle" value={getVehicleLabel(booking)} icon={Car} />
+                <DetailTile label="Service" value={serviceLabel} icon={ClipboardCheck} />
+                <DetailTile label="Date" value={booking.bookingDate || booking.date || '—'} icon={Calendar} />
+                <DetailTile label="Time" value={booking.bookingTime || booking.time || '—'} icon={Clock} />
+                <DetailTile label="Phone" value={booking.customerPhone || '—'} icon={Phone} />
               </div>
 
-              <div className="max-w-sm">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,420px)_minmax(280px,1fr)]">
                 <PayBreakdown total={total} />
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <BadgeCheck size={17} className="text-blue-600" />
+                    <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Review checklist</p>
+                  </div>
+                  <div className="grid gap-2 text-xs font-semibold text-slate-600">
+                    <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-emerald-500" /> Confirm amount paid: {formatMoney(DOWNPAYMENT)}</div>
+                    <div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-emerald-500" /> Check customer name or GCash sender match</div>
+                    <div className="flex items-center gap-2"><Banknote size={14} className="text-rose-500" /> Collect balance: {formatMoney(balance)}</div>
+                  </div>
+                </div>
               </div>
 
-              {/* Actions */}
               {!rejectMode ? (
-                <div className="flex gap-3 max-w-sm">
-                  <button onClick={() => setShowModal(true)}
-                    className="flex-[2] py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold text-sm shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30 transition-all flex items-center justify-center gap-2 active:scale-95">
-                    <CheckCircle2 size={18} strokeWidth={2.5} />
-                    Approve Reservation
+                <div className="booking-approval-action-bar flex flex-col gap-3 rounded-[22px] border border-slate-200 bg-white p-3 shadow-sm sm:flex-row">
+                  <button
+                    onClick={() => setShowModal(true)}
+                    className="flex h-12 flex-[2] items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:bg-emerald-700 active:scale-[0.99]"
+                  >
+                    <CheckCircle2 size={18} strokeWidth={2.6} />
+                    Approve reservation
                   </button>
-                  <button onClick={() => setRejectMode(true)}
-                    className="flex-1 py-2.5 px-4 rounded-xl border border-red-200 bg-red-50 text-red-600 font-bold text-sm hover:bg-red-100 hover:border-red-300 transition-all active:scale-95">
+                  <button
+                    onClick={() => setRejectMode(true)}
+                    className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-5 text-sm font-black text-rose-700 transition-all hover:border-rose-300 hover:bg-rose-100 active:scale-[0.99]"
+                  >
+                    <XCircle size={17} strokeWidth={2.5} />
                     Reject
                   </button>
                 </div>
               ) : (
-                <div className="bg-red-50/50 ring-1 ring-red-200 rounded-2xl p-4 max-w-sm animate-in fade-in zoom-in-95 duration-200">
-                  <div className="text-xs font-extrabold text-red-700 mb-2 uppercase tracking-wide">Reason for rejection (optional)</div>
-                  <input value={reason} onChange={e => setReason(e.target.value)}
-                    placeholder="e.g. Screenshot unclear, wrong reference…"
-                    className="w-full rounded-xl border border-red-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all mb-3 bg-white shadow-sm" />
-                  <div className="flex gap-2">
-                    <button onClick={doReject} disabled={acting}
-                      className="flex-1 py-2 rounded-xl bg-red-600 text-white font-bold text-sm shadow-sm hover:bg-red-700 disabled:opacity-70 transition-all flex items-center justify-center gap-2 active:scale-95">
+                <div className="rounded-[22px] border border-rose-200 bg-rose-50 p-4 animate-in fade-in zoom-in-95 duration-200">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-rose-700">
+                    <AlertTriangle size={15} />
+                    Reason for rejection
+                  </div>
+                  <textarea
+                    value={reason}
+                    onChange={e => setReason(e.target.value)}
+                    rows={3}
+                    placeholder="Example: screenshot is unclear, amount does not match, or sender reference cannot be verified."
+                    className="mb-3 w-full resize-none rounded-2xl border border-rose-200 bg-white px-3.5 py-3 text-sm text-slate-800 shadow-sm transition-all placeholder:text-slate-400 focus:border-rose-400 focus:outline-none focus:ring-4 focus:ring-rose-500/10"
+                  />
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <button
+                      onClick={doReject}
+                      disabled={acting}
+                      className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 text-sm font-black text-white shadow-sm shadow-rose-600/20 transition-all hover:bg-rose-700 disabled:opacity-70"
+                    >
                       {acting ? (
-                        <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                        <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
                       ) : (
                         <XCircle size={16} strokeWidth={2.5} />
                       )}
-                      {acting ? 'Rejecting…' : 'Confirm Reject'}
+                      {acting ? 'Rejecting…' : 'Confirm rejection'}
                     </button>
-                    <button onClick={() => setRejectMode(false)}
-                      className="px-4 py-2 rounded-xl ring-1 ring-slate-200 bg-white text-slate-600 font-bold text-sm shadow-sm hover:bg-slate-50 transition-all active:scale-95">
+                    <button
+                      onClick={() => setRejectMode(false)}
+                      className="h-11 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-600 transition-all hover:bg-slate-50"
+                    >
                       Cancel
                     </button>
                   </div>
@@ -298,25 +475,17 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
               )}
             </div>
 
-            {/* GCash proof thumbnail */}
-            <div className="w-full md:w-[160px] shrink-0">
-              <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-[0.15em] mb-2 px-1">GCash Proof</div>
-              {proofUrl ? (
-                <div onClick={() => setShowModal(true)}
-                  className="cursor-zoom-in rounded-2xl overflow-hidden ring-2 ring-slate-200/80 hover:ring-amber-400 hover:shadow-lg hover:shadow-amber-500/20 relative transition-all duration-300 group/proof bg-slate-50">
-                  <img src={proofUrl} alt="GCash proof" className="w-full h-[180px] object-cover transition-transform duration-500 group-hover/proof:scale-105" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent opacity-0 group-hover/proof:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-3">
-                    <span className="text-[10px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full">
-                      <Search size={12} /> Click to review
-                    </span>
-                  </div>
+            <div className="booking-proof-rail rounded-[26px] border border-slate-200 bg-slate-50/70 p-3 shadow-inner shadow-slate-200/40">
+              <div className="mb-3 flex items-center justify-between px-1">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">GCash proof</p>
+                  <p className="mt-0.5 text-xs font-bold text-slate-700">Receipt screenshot</p>
                 </div>
-              ) : (
-                <div className="w-full h-[180px] rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center bg-slate-50/50 gap-2 text-slate-400">
-                  <ImageIcon size={28} className="opacity-40" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">No proof uploaded</span>
-                </div>
-              )}
+                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.13em] text-slate-500 ring-1 ring-slate-200">
+                  Tap to zoom
+                </span>
+              </div>
+              <ProofPreview proofUrl={proofUrl} onOpen={() => setShowModal(true)} compact />
             </div>
           </div>
         </div>
@@ -327,14 +496,14 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
 
 // ─── Approved / Rejected history row ────────────────────────────────────────
 function HistoryRow({ b, type }: { b: any; type: 'approved' | 'rejected' }) {
-  const total = Number(b.totalPrice || b.totalAmount || 0);
+  const total = getTotal(b);
   const isApproved = type === 'approved';
-  
+
   return (
     <div className="booking-approval-history-row bg-white rounded-[18px] border border-slate-100 p-4 flex items-center gap-4 hover:-translate-y-0.5 transition-all duration-200 group">
       <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ring-1 ring-inset ${
-        isApproved 
-          ? 'bg-emerald-50 text-emerald-600 ring-emerald-600/20' 
+        isApproved
+          ? 'bg-emerald-50 text-emerald-600 ring-emerald-600/20'
           : 'bg-red-50 text-red-600 ring-red-600/20'
       }`}>
         {isApproved ? <CheckCircle2 size={20} strokeWidth={2.5} /> : <XCircle size={20} strokeWidth={2.5} />}
@@ -344,16 +513,16 @@ function HistoryRow({ b, type }: { b: any; type: 'approved' | 'rejected' }) {
         <div className="text-[11px] font-medium text-slate-500 truncate flex items-center gap-1.5">
           <span>{b.serviceType || b.serviceName || '—'}</span>
           <span className="text-slate-300">•</span>
-          <span className="font-mono bg-slate-100 px-1 rounded">{b.vehiclePlate || '—'}</span>
+          <span className="font-mono bg-slate-100 px-1 rounded">{formatPlate(b.vehiclePlate)}</span>
           <span className="text-slate-300">•</span>
-          <span>{b.bookingDate || '—'}</span>
+          <span>{b.bookingDate || b.date || '—'}</span>
         </div>
       </div>
       <div className="text-right shrink-0">
         <div className={`font-black text-xs uppercase tracking-wider ${isApproved ? 'text-emerald-600' : 'text-red-600'}`}>
           {isApproved ? 'Approved' : 'Rejected'}
         </div>
-        <div className="text-[11px] font-bold text-slate-500 mt-0.5">₱{total.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
+        <div className="text-[11px] font-bold text-slate-500 mt-0.5">{formatMoney(total)}</div>
       </div>
     </div>
   );
@@ -512,20 +681,22 @@ export default function BookingApprovalsPage() {
   return (
     <div className="booking-approvals-shell h-full flex flex-col space-y-5 page-enter pb-6">
       {/* Header */}
-      <div className="booking-approvals-header shrink-0 rounded-[22px] border bg-white px-5 py-5 sm:px-6">
+      <div className="booking-approvals-header shrink-0 overflow-hidden rounded-[28px] border bg-white px-5 py-5 sm:px-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <span className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+            <span className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-[0.12em] text-blue-700">
               <ShieldCheck size={13} />
-              Payment Review
+              GCash Payment Command Center
             </span>
-            <h1 className="mt-3 text-2xl font-bold text-slate-950">Booking Approvals</h1>
-            <p className="mt-1 text-sm text-slate-500">Review GCash payment proofs and confirm reservations before they move to service.</p>
+            <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950">Booking Approvals</h1>
+            <p className="mt-1 max-w-2xl text-sm font-semibold leading-relaxed text-slate-500">
+              Verify the GCash receipt, lock the reservation, and hand the remaining balance to onsite collection with a clean audit trail.
+            </p>
           </div>
           <button
             onClick={fetchAll}
             disabled={loading}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 shadow-sm shadow-slate-200/40 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 shadow-sm shadow-slate-200/50 transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             Refresh
@@ -533,21 +704,21 @@ export default function BookingApprovalsPage() {
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="booking-approval-stat rounded-2xl border bg-amber-50/80 px-4 py-3">
+          <div className="booking-approval-stat rounded-2xl border bg-amber-50/90 px-4 py-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-amber-700">Pending Review</span>
               <Clock size={16} className="text-amber-500" />
             </div>
             <p className="mt-2 text-2xl font-black text-amber-700 tabular-nums">{pending.length}</p>
           </div>
-          <div className="booking-approval-stat rounded-2xl border bg-emerald-50/80 px-4 py-3">
+          <div className="booking-approval-stat rounded-2xl border bg-emerald-50/90 px-4 py-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-emerald-700">Approved</span>
               <TrendingUp size={16} className="text-emerald-500" />
             </div>
             <p className="mt-2 text-2xl font-black text-emerald-700 tabular-nums">{approved.length}</p>
           </div>
-          <div className="booking-approval-stat rounded-2xl border bg-rose-50/80 px-4 py-3">
+          <div className="booking-approval-stat rounded-2xl border bg-rose-50/90 px-4 py-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-rose-700">Rejected</span>
               <XCircle size={16} className="text-rose-500" />

@@ -6,6 +6,16 @@ export const BOOKING_TERMS_DOCUMENT_TITLE = 'AutoSPF+ Terms & Conditions';
 export const BOOKING_TERMS_INTRO =
   'By booking a service with AutoSPF+, you enter a service relationship governed by the policies below. Please read each section before you accept.';
 
+export const BOOKING_TERMS_SUMMARY: string[] = [
+  'You confirm that service, vehicle, and schedule details are accurate; we perform booked work with reasonable care.',
+  'A reservation fee secures your slot and applies toward service; the balance is due at the shop unless agreed otherwise.',
+  'Cancel or reschedule as early as possible; late cancellations or no-shows may affect fees per our policy.',
+  'Liability limits, privacy use of your data, and dispute handling are set out in the full terms below.',
+];
+
+export const BOOKING_TERMS_LAST_UPDATED = 'May 7, 2026';
+export const BOOKING_TERMS_VERSION = '1.0';
+
 export type BookingTermsSection = {
   id: string;
   title: string;

@@ -247,103 +247,206 @@ export const generateWarrantyPDF = async (order) => {
  * @returns {Buffer}
  */
 export const buildInvoicePdfBuffer = (snapshot) => {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const pageW = 210;
-  let y = 14;
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 44;
+  const contentW = pageW - margin * 2;
+  let y = 44;
+
+  const money = (value) =>
+    `PHP ${Number(value || 0).toLocaleString('en-PH', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  const ensure = (height) => {
+    if (y + height <= pageH - margin) return;
+    doc.addPage();
+    y = margin;
+  };
+  const rule = () => {
+    doc.setDrawColor(226, 232, 240);
+    doc.line(margin, y, pageW - margin, y);
+  };
+  const right = (text, x = pageW - margin, yy = y) => doc.text(String(text || ''), x, yy, { align: 'right' });
+
+  const issuedAt = snapshot.issuedAt ? new Date(snapshot.issuedAt) : new Date();
+  const paidAt = snapshot.paidAt || snapshot.payment?.paidAt ? new Date(snapshot.paidAt || snapshot.payment?.paidAt) : null;
+  const vehicle = snapshot.vehicle || {};
+  const payment = snapshot.payment || {};
+  const computed = snapshot.computed || {};
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.text('AutoSPF+', 14, y);
+  doc.setFontSize(22);
+  doc.setTextColor(29, 78, 216);
+  doc.text('AutoSPF+', margin, y);
+  doc.setTextColor(15, 23, 42);
+  right('Official Digital Receipt');
+  y += 18;
+
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  y += 6;
-  doc.text('Sales invoice (A4)', 14, y);
-  y += 8;
+  doc.setTextColor(100, 116, 139);
+  doc.text('Automotive Detailing & Protection Center', margin, y);
+  right(snapshot.invoiceNumber || payment.posInvoiceId || '');
+  y += 13;
+  doc.text('Unit 12, Autozone Bldg., Quezon Ave., Quezon City', margin, y);
+  if (snapshot.bookingReference) right(`Booking ${snapshot.bookingReference}`);
+  y += 13;
+  doc.text('(02) 8888-AUTOSPF - care@autospf.ph', margin, y);
+  y += 22;
+  rule();
+  y += 18;
 
-  doc.setFontSize(10);
-  doc.text(`Invoice #: ${snapshot.invoiceNumber || ''}`, 14, y);
-  doc.text(`Date: ${snapshot.issuedAt ? new Date(snapshot.issuedAt).toLocaleString() : ''}`, pageW - 14, y, { align: 'right' });
-  y += 7;
-  doc.text(`Order: ${snapshot.orderNumber || ''}`, 14, y);
-  if (snapshot.bookingReference) {
-    doc.text(`Booking ref: ${snapshot.bookingReference}`, pageW - 14, y, { align: 'right' });
+  const boxW = (contentW - 18) / 2;
+  const drawInfoBox = (x, title, rows) => {
+    const startY = y;
+    const height = 30 + rows.length * 16;
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(x, startY, boxW, height, 8, 8);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text(title.toUpperCase(), x + 12, startY + 18);
+
+    rows.forEach(([label, value], index) => {
+      const rowY = startY + 36 + index * 16;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text(label, x + 12, rowY);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      const split = doc.splitTextToSize(String(value || '-'), boxW - 96);
+      right(split[0] || '-', x + boxW - 12, rowY);
+    });
+    return height;
+  };
+
+  const detailsRows = [
+    ['Date', issuedAt.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })],
+    ['Time', issuedAt.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })],
+    ['Order no.', snapshot.orderNumber || '-'],
+  ];
+  if (paidAt && Number.isFinite(paidAt.getTime())) {
+    detailsRows.push(['Paid', paidAt.toLocaleString('en-PH')]);
   }
+  if (payment.staff?.name) detailsRows.push(['Served by', payment.staff.name]);
+
+  const customerRows = [
+    ['Customer', snapshot.customerName || 'Customer'],
+    ['Phone', snapshot.customerPhone || '-'],
+    ['Plate', vehicle.plate || '-'],
+    ['Vehicle', [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || '-'],
+  ];
+
+  const detailsH = drawInfoBox(margin, 'Transaction Details', detailsRows);
+  const customerH = drawInfoBox(margin + boxW + 18, 'Customer & Vehicle', customerRows);
+  y += Math.max(detailsH, customerH) + 28;
+
+  ensure(80);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(100, 116, 139);
+  doc.text('SERVICES RENDERED', margin, y);
+  right('QTY', pageW - margin - 178, y);
+  right('UNIT', pageW - margin - 78, y);
+  right('AMOUNT');
   y += 8;
-
-  doc.setFont('helvetica', 'bold');
-  doc.text('Bill to', 14, y);
-  y += 5;
-  doc.setFont('helvetica', 'normal');
-  doc.text(String(snapshot.customerName || ''), 14, y);
-  y += 5;
-  if (snapshot.customerPhone) doc.text(String(snapshot.customerPhone), 14, y);
-  y += 8;
-
-  const v = snapshot.vehicle || {};
-  doc.setFont('helvetica', 'bold');
-  doc.text('Vehicle', 14, y);
-  y += 5;
-  doc.setFont('helvetica', 'normal');
-  doc.text(`${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() || '—', 14, y);
-  y += 5;
-  if (v.plate) doc.text(`Plate: ${v.plate}`, 14, y);
-  y += 10;
-
-  doc.setFont('helvetica', 'bold');
-  doc.text('Description', 14, y);
-  doc.text('Qty', 120, y);
-  doc.text('Unit', 140, y);
-  doc.text('Line', pageW - 14, y, { align: 'right' });
-  y += 2;
-  doc.line(14, y, pageW - 14, y);
-  y += 5;
-  doc.setFont('helvetica', 'normal');
+  rule();
+  y += 18;
 
   const lines = snapshot.lineItems || [];
+  doc.setFontSize(10);
   for (const li of lines) {
-    if (y > 250) {
-      doc.addPage();
-      y = 14;
-    }
-    const name = String(li.name || '');
-    const split = doc.splitTextToSize(name, 100);
-    doc.text(split, 14, y);
-    doc.text(String(li.quantity ?? 1), 120, y);
-    doc.text(`₱${Number(li.unitPrice || 0).toLocaleString()}`, 140, y);
-    const lineTotal = li.lineTotal ?? Number(li.unitPrice || 0) * Number(li.quantity || 1);
-    doc.text(`₱${Number(lineTotal).toLocaleString()}`, pageW - 14, y, {
-      align: 'right',
-    });
-    y += Math.max(6, split.length * 5);
+    const qty = Number(li.quantity || 1);
+    const unit = Number(li.unitPrice || 0);
+    const total = li.lineTotal ?? unit * qty;
+    const nameLines = doc.splitTextToSize(String(li.name || 'Service'), contentW - 250);
+    const rowH = Math.max(18, nameLines.length * 12 + 4);
+    ensure(rowH + 10);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(nameLines, margin, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(`${qty} x ${money(unit)}`, margin, y + rowH - 4);
+    doc.setTextColor(15, 23, 42);
+    right(String(qty), pageW - margin - 178, y);
+    right(money(unit), pageW - margin - 78, y);
+    right(money(total));
+    y += rowH + 8;
+    rule();
+    y += 10;
   }
 
-  y += 6;
-  doc.line(14, y, pageW - 14, y);
-  y += 8;
+  ensure(160);
+  const summaryX = pageW - margin - 250;
+  const summaryRows = [
+    ['Subtotal', computed.subtotal],
+    ['Discount', computed.discountTotal ? -Number(computed.discountTotal) : 0],
+    ['VAT / Tax', computed.taxVatTotal],
+    ['Additional fees', computed.additionalFeesTotal],
+    ['Downpayment', snapshot.downpayment ? -Number(snapshot.downpayment) : 0],
+  ].filter(([, value]) => Number(value || 0) !== 0);
 
-  const c = snapshot.computed || {};
-  const row = (label, val) => {
-    doc.text(label, pageW - 70, y);
-    doc.text(`₱${Number(val || 0).toLocaleString()}`, pageW - 14, y, { align: 'right' });
-    y += 6;
-  };
-  row('Subtotal', c.subtotal);
-  row('Discount', c.discountTotal);
-  row('VAT / tax', c.taxVatTotal);
-  row('Additional fees', c.additionalFeesTotal);
-  row('Grand total', c.grandTotal);
-  row('Downpayment', snapshot.downpayment);
-  row('Balance due (this payment)', c.balanceDue);
+  doc.setFontSize(10);
+  for (const [label, value] of summaryRows) {
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(label, summaryX, y);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    right(Number(value) < 0 ? `-${money(Math.abs(Number(value)))}` : money(value));
+    y += 17;
+  }
 
-  y += 10;
+  y += 4;
+  doc.setDrawColor(203, 213, 225);
+  doc.line(summaryX, y, pageW - margin, y);
+  y += 22;
   doc.setFont('helvetica', 'bold');
-  doc.text('Signatures', 14, y);
-  y += 8;
+  doc.setFontSize(15);
+  doc.setTextColor(29, 78, 216);
+  doc.text('Total Paid', summaryX, y);
+  right(money(payment.amountCollected ?? computed.balanceDue ?? computed.grandTotal));
+  y += 20;
+
+  const balanceRemaining = Number(payment.balanceRemaining ?? 0);
+  if (balanceRemaining > 0) {
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Balance Remaining', summaryX, y);
+    right(money(balanceRemaining));
+    y += 18;
+  }
+
+  y += 12;
+  rule();
+  y += 18;
   doc.setFont('helvetica', 'normal');
-  doc.rect(14, y, 80, 22);
-  doc.rect(pageW - 94, y, 80, 22);
-  doc.text('Client', 16, y + 6);
-  doc.text('Sales', pageW - 92, y + 6);
+  doc.setFontSize(10);
+  doc.setTextColor(71, 85, 105);
+  doc.text('Payment Method', margin, y);
+  doc.text('Payment Status', margin + 190, y);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(String(payment.method || 'cash').replace(/_/g, ' ').toUpperCase(), margin, y + 16);
+  doc.text(String(payment.status || snapshot.paymentStatus || 'paid').toUpperCase(), margin + 190, y + 16);
+  y += 48;
+
+  ensure(42);
+  rule();
+  y += 20;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('Thank you for choosing AutoSPF+.', pageW / 2, y, { align: 'center' });
+  y += 14;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139);
+  doc.text('This serves as your official digital receipt. Keep this copy for your records.', pageW / 2, y, { align: 'center' });
 
   return Buffer.from(doc.output('arraybuffer'));
 };

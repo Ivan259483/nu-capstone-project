@@ -94,6 +94,52 @@
     0 8px 18px rgba(15, 23, 42, 0.035);
 }
 
+/* QC live tracker: premium operations console treatment. */
+.detailer-root:not(.dark) .qc-live-header,
+.detailer-root:not(.dark) .qc-live-ops-strip,
+.detailer-root:not(.dark) .qc-live-job-card,
+.detailer-root:not(.dark) .qc-live-panel {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  box-shadow:
+    0 18px 44px rgba(15, 23, 42, 0.055),
+    0 1px 0 rgba(255, 255, 255, 0.88) inset !important;
+}
+
+.detailer-root:not(.dark) .qc-live-header {
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 56%, #edf5ff 100%) !important;
+}
+
+.detailer-root:not(.dark) .qc-live-hero {
+  background: linear-gradient(135deg, #ffffff 0%, #fbfdff 48%, #f5fbf8 100%) !important;
+}
+
+.detailer-root:not(.dark) .qc-live-panel,
+.detailer-root:not(.dark) .qc-live-header-stat,
+.detailer-root:not(.dark) .qc-live-mini-stat,
+.detailer-root:not(.dark) .qc-live-photo-card {
+  border-color: rgba(203, 213, 225, 0.5) !important;
+}
+
+.detailer-root:not(.dark) .qc-live-header-stat,
+.detailer-root:not(.dark) .qc-live-mini-stat {
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.04),
+    0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
+}
+
+.detailer-root:not(.dark) .qc-live-photo-card {
+  box-shadow:
+    0 12px 28px rgba(15, 23, 42, 0.045),
+    0 1px 0 rgba(255, 255, 255, 0.88) inset !important;
+}
+
+.detailer-root:not(.dark) .qc-live-job-card:hover,
+.detailer-root:not(.dark) .qc-live-photo-card:hover {
+  box-shadow:
+    0 22px 54px rgba(15, 23, 42, 0.07),
+    0 1px 0 rgba(255, 255, 255, 0.9) inset !important;
+}
+
 /* ══════════════════════════════════════════
    🌑 DARK MODE OVERRIDES — AutoSPF+ Obsidian Theme
    Activated by: .detailer-root.dark

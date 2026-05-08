@@ -11,7 +11,10 @@ import { RAW_SPF_PACKAGES } from '../lib/customer-booking-catalog';
 import {
   BOOKING_TERMS_DOCUMENT_TITLE,
   BOOKING_TERMS_INTRO,
+  BOOKING_TERMS_LAST_UPDATED,
   BOOKING_TERMS_SECTIONS,
+  BOOKING_TERMS_SUMMARY,
+  BOOKING_TERMS_VERSION,
 } from '../lib/booking-terms';
 import {
   DASHBOARD_TRACKER_STEP_MEDIA_STAGE,
@@ -19,6 +22,7 @@ import {
   resolveTrackerStageDescription,
 } from '../lib/customer-tracker-stage-media';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
+import { compressImageForBookingProof } from '../lib/compress-image-for-upload';
 
 type DashboardSection = 'dashboard' | 'scan' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker' | 'payments';
 
@@ -128,6 +132,25 @@ const SCAN_PRICING: Record<string, { low: number; recommended: number; high: num
 };
 
 const formatPeso = (amount: number) => `₱${amount.toLocaleString()}`;
+
+const toTitleCase = (str: string) =>
+  str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase());
+
+const formatTitleCaseDisplay = (value: unknown, fallback = '—') => {
+  const formatted = toTitleCase(String(value ?? '').trim());
+  return formatted || fallback;
+};
+
+const formatPlateDisplay = (value: unknown, fallback = '—') => {
+  const formatted = String(value ?? '').trim().toUpperCase();
+  return formatted || fallback;
+};
+
+const formatVehicleMakeModelDisplay = (make: unknown, model: unknown) =>
+  [
+    formatTitleCaseDisplay(make, ''),
+    formatTitleCaseDisplay(model, ''),
+  ].filter(Boolean).join(' ') || '—';
 
 const formatFileSize = (size: number) => {
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
@@ -536,6 +559,17 @@ export default function CustomerDashboard() {
   const [bookingDownpaymentProof, setBookingDownpaymentProof] = useState<string | null>(null);
   // True when booking was opened from a garage vehicle card (pre-filled, read-only vehicle fields)
   const [bookingFromVehicle, setBookingFromVehicle] = useState(false);
+  const bookingBodyRef = useRef<HTMLDivElement | null>(null);
+  const packageListRef = useRef<HTMLDivElement | null>(null);
+  const packageCardRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const packagePeekFrameRef = useRef<number | null>(null);
+  const [packagePeek, setPackagePeek] = useState({
+    visible: false,
+    remaining: 0,
+    left: 0,
+    top: 0,
+    width: 0,
+  });
 
   // Vehicle History Modal
   const [vehicleHistoryOpen, setVehicleHistoryOpen] = useState(false);
@@ -674,6 +708,109 @@ export default function CustomerDashboard() {
     contactNo: '',
     date: '', time: '', notes: '',
   });
+
+  const setPackagePeekHidden = useCallback(() => {
+    setPackagePeek((prev) => (
+      prev.visible || prev.remaining
+        ? { ...prev, visible: false, remaining: 0 }
+        : prev
+    ));
+  }, []);
+
+  const updatePackagePeek = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    if (packagePeekFrameRef.current !== null) return;
+
+    packagePeekFrameRef.current = window.requestAnimationFrame(() => {
+      packagePeekFrameRef.current = null;
+
+      const body = bookingBodyRef.current;
+      const list = packageListRef.current;
+      const cards = packageCardRefs.current.slice(0, RAW_SPF_PACKAGES.length);
+
+      if (!bookingOpen || bookingDone || bookingStep !== 1 || !body || !list || cards.length <= 1) {
+        setPackagePeekHidden();
+        return;
+      }
+
+      const bodyRect = body.getBoundingClientRect();
+      const listRect = list.getBoundingClientRect();
+      const bodyBottom = Math.min(bodyRect.bottom, window.innerHeight);
+      const listIsInView = listRect.top < bodyBottom - 48 && listRect.bottom > bodyRect.top + 24;
+      const listHasMoreBelow = listRect.bottom > bodyBottom + 8;
+
+      if (!listIsInView || !listHasMoreBelow) {
+        setPackagePeekHidden();
+        return;
+      }
+
+      const visibleBoundary = bodyBottom - 64;
+      let lastVisiblePackageIndex = -1;
+
+      cards.forEach((card, index) => {
+        if (!card) return;
+        const rect = card.getBoundingClientRect();
+        if (rect.top < visibleBoundary && rect.bottom > bodyRect.top) {
+          lastVisiblePackageIndex = index;
+        }
+      });
+
+      const remaining = Math.max(0, RAW_SPF_PACKAGES.length - lastVisiblePackageIndex - 1);
+      if (remaining <= 0) {
+        setPackagePeekHidden();
+        return;
+      }
+
+      const next = {
+        visible: true,
+        remaining,
+        left: bodyRect.left,
+        top: bodyBottom - 76,
+        width: bodyRect.width,
+      };
+
+      setPackagePeek((prev) => (
+        prev.visible === next.visible &&
+        prev.remaining === next.remaining &&
+        Math.abs(prev.left - next.left) < 0.5 &&
+        Math.abs(prev.top - next.top) < 0.5 &&
+        Math.abs(prev.width - next.width) < 0.5
+          ? prev
+          : next
+      ));
+    });
+  }, [bookingDone, bookingOpen, bookingStep, setPackagePeekHidden]);
+
+  useLayoutEffect(() => {
+    if (!bookingOpen || bookingDone || bookingStep !== 1) {
+      setPackagePeekHidden();
+      return;
+    }
+
+    const body = bookingBodyRef.current;
+    if (!body) return;
+
+    updatePackagePeek();
+    body.addEventListener('scroll', updatePackagePeek, { passive: true });
+    window.addEventListener('resize', updatePackagePeek);
+
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(updatePackagePeek)
+      : null;
+    resizeObserver?.observe(body);
+    if (packageListRef.current) resizeObserver?.observe(packageListRef.current);
+
+    return () => {
+      body.removeEventListener('scroll', updatePackagePeek);
+      window.removeEventListener('resize', updatePackagePeek);
+      resizeObserver?.disconnect();
+      if (packagePeekFrameRef.current !== null) {
+        window.cancelAnimationFrame(packagePeekFrameRef.current);
+        packagePeekFrameRef.current = null;
+      }
+    };
+  }, [bookingDone, bookingForm.service, bookingOpen, bookingStep, updatePackagePeek, setPackagePeekHidden]);
+
   // Map vehicle type labels → pricing keys
   const VEHICLE_TYPE_MAP: Record<string, string> = {
     'hatchback': 'hatchback', 'sedan': 'sedan', 'midsized': 'midsized',
@@ -927,9 +1064,8 @@ export default function CustomerDashboard() {
         serviceType: bookingForm.serviceName || '',
         serviceName: bookingForm.serviceName || '',
         items: JSON.stringify([{ product: bookingForm.service, quantity: 1, price: bookingForm.servicePrice }]),
-        // GCash proof — sent as base64 data URL so Sales can verify the payment screenshot
+        // GCash proof — single field keeps JSON body small (backend copies to paymentProofUrl if needed)
         downpaymentProof: bookingDownpaymentProof || undefined,
-        paymentProofUrl: bookingDownpaymentProof || undefined,
       };
       const res = await OrderService.createOrder(payload);
 
@@ -942,20 +1078,19 @@ export default function CustomerDashboard() {
           duration: 7000,
         });
         setBookingDone(true);
-        // Refresh myBookings so the pending_confirmation card appears
-        try {
-          const { OrderService: OS } = await import('../lib/order-service');
-          const r = await OS.getAllOrders({ suppressErrorToast: true });
-          if (r.success && Array.isArray(r.data)) {
-            const mine = r.data.filter((o: any) => {
-              const cid = o.customerId || o.customer?._id || o.customer;
-              return cid === user?.id || cid === user?._id || o.customerName === user?.name;
-            });
-            setMyBookings(mine);
-            const pc = mine.find((o: any) => o.status === 'pending_confirmation');
-            setPendingConfirmationBooking(pc || null);
+        invalidate('/bookings');
+        const created = res.data as any;
+        if (created) {
+          setMyBookings((prev) => {
+            const id = created.id || created._id;
+            const idStr = id != null ? String(id) : '';
+            const next = prev.filter((b: any) => String(b.id || b._id || '') !== idStr);
+            return [created, ...next];
+          });
+          if (created.status === 'pending_confirmation') {
+            setPendingConfirmationBooking(created);
           }
-        } catch { /* silent */ }
+        }
 
       } else if (res?.status === 409 || res?.message?.toLowerCase().includes('slot')) {
         const serverMsg = res.message || 'Slot is no longer available. Please select another time.';
@@ -5001,7 +5136,7 @@ export default function CustomerDashboard() {
       {bookingOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-md sm:p-5" onClick={() => { if (!bookingSubmitting) { setBookingOpen(false); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); } }}>
           <div
-              className="customer-booking-modal w-full max-w-3xl overflow-hidden rounded-[1.75rem] border bg-white"
+            className={`customer-booking-modal w-full min-h-0 overflow-hidden rounded-[1.75rem] border bg-white ${!bookingDone && (bookingStep === 4 || bookingStep === 5) ? 'max-w-4xl' : 'max-w-3xl'}`}
             onClick={e => e.stopPropagation()}
             style={{
               animation: 'modalIn .2s ease-out',
@@ -5054,7 +5189,7 @@ export default function CustomerDashboard() {
                   {Array.from({ length: 6 }, (_, index) => (
                     <div
                       key={index}
-                      className={`h-1.5 rounded-full transition-all duration-300 ${index + 1 <= bookingStep ? 'bg-orange-500 shadow-[0_0_0_1px_rgba(249,115,22,0.18)]' : 'bg-slate-200'}`}
+                      className={`h-1.5 rounded-full transition-all duration-300 ${index + 1 <= bookingStep ? 'customer-booking-progress-segment-active' : 'bg-slate-200'}`}
                       />
                     ))}
                 </div>
@@ -5072,7 +5207,7 @@ export default function CustomerDashboard() {
             )}
 
             {/* Body */}
-            <div className="overflow-y-auto flex-1 booking-body" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <div ref={bookingBodyRef} className="booking-body min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               <style dangerouslySetInnerHTML={{ __html: `.booking-body::-webkit-scrollbar { display: none; } @keyframes spin { to { transform: rotate(360deg); } }` }} />
               {bookingDone ? (
                 /* ── Success Receipt — Premium Dark Luxury ── */
@@ -5137,9 +5272,9 @@ export default function CustomerDashboard() {
                       <div>
                         {[
                           { icon: 'solar:user-bold', label: 'Owner', value: user?.name || '—' },
-                          { icon: 'solar:car-bold', label: 'Model', value: [bookingForm.vehicleMake, bookingForm.vehicleModel].filter(Boolean).join(' ') || '—' },
-                          { icon: 'solar:palette-bold', label: 'Color', value: bookingForm.vehicleColor || '—' },
-                          { icon: 'solar:tag-bold', label: 'Plate', value: bookingForm.vehiclePlate || '—' },
+                          { icon: 'solar:car-bold', label: 'Model', value: formatVehicleMakeModelDisplay(bookingForm.vehicleMake, bookingForm.vehicleModel) },
+                          { icon: 'solar:palette-bold', label: 'Color', value: formatTitleCaseDisplay(bookingForm.vehicleColor) },
+                          { icon: 'solar:tag-bold', label: 'Plate', value: formatPlateDisplay(bookingForm.vehiclePlate) },
                         ].map(({ icon, label, value }) => (
                           <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #f8fafc' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -5195,7 +5330,7 @@ export default function CustomerDashboard() {
 
               ) : bookingStep === 1 ? (
                 /* ── Step 1: Service ── */
-                <div className="space-y-5 p-5 sm:p-6">
+                <div className="space-y-4 p-4 sm:p-5">
                   <section className="booking-service-panel rounded-[22px] border bg-slate-50/60 p-4">
                     <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -5280,8 +5415,8 @@ export default function CustomerDashboard() {
                         </div>
                     </div>
 
-                    <div className="space-y-3">
-                      {RAW_SPF_PACKAGES.map((svc: any) => {
+                    <div ref={packageListRef} className="space-y-3">
+                      {RAW_SPF_PACKAGES.map((svc: any, index: number) => {
                         const currentPrice = svc.prices[bookingVehicleType] || 0;
                         const selected = bookingForm.service === svc.id;
                         const packageBadge =
@@ -5293,6 +5428,7 @@ export default function CustomerDashboard() {
                         return (
                           <button
                             key={svc.id}
+                            ref={(el) => { packageCardRefs.current[index] = el; }}
                             type="button"
                             aria-pressed={selected}
                             onClick={() => setBookingForm(f => ({ ...f, service: svc.id, serviceName: svc.name, servicePrice: currentPrice }))}
@@ -5330,15 +5466,18 @@ export default function CustomerDashboard() {
 
                               {svc.features && (
                                 <div className="mt-4 border-t border-slate-100 pt-4">
-                                  <div className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-500">
-                                    <iconify-icon icon="solar:list-check-bold" width="15" className="text-slate-500"></iconify-icon>
+                                  <div className="mb-2 flex items-center gap-2 text-xs font-bold text-blue-800">
+                                    <iconify-icon icon="solar:verified-check-bold" width="16" className="text-blue-600"></iconify-icon>
                                     Inclusions
                                   </div>
                                   <div className="grid gap-2 sm:grid-cols-3">
                                     {svc.features.map((f: string, i: number) => (
                                       <div key={i} className="booking-service-feature flex items-start gap-2 rounded-xl border bg-white/90 px-3 py-3">
-                                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 ring-1 ring-slate-200">
-                                          <iconify-icon icon="solar:check-circle-bold" width="12"></iconify-icon>
+                                        <span
+                                          className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-blue-500 text-white shadow-[0_2px_8px_rgba(37,99,235,0.4)] ring-2 ring-blue-400/25"
+                                          aria-hidden
+                                        >
+                                          <iconify-icon icon="solar:verified-check-bold" width="15"></iconify-icon>
                                         </span>
                                         <span className="min-w-0 text-xs font-bold leading-snug text-slate-700">{f}</span>
                                       </div>
@@ -5354,7 +5493,7 @@ export default function CustomerDashboard() {
                 </div>
               ) : bookingStep === 2 ? (
                 /* ── Step 2: Vehicle Details ── */
-                <div className="p-5 space-y-4">
+                <div className="space-y-4 p-4 sm:p-5">
                   {/* Locked Customer Name */}
                   <div>
                     <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Full Name</p>
@@ -5377,7 +5516,7 @@ export default function CustomerDashboard() {
                         setBookingForm(f => ({ ...f, contactNo: e.target.value }));
                         if (step2Errors.contactNo) setStep2Errors(err => ({ ...err, contactNo: '' }));
                       }}
-                      className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 ${step2Errors.contactNo ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 ${step2Errors.contactNo ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                     />
                     {step2Errors.contactNo
                       ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.contactNo}</p>
@@ -5410,7 +5549,7 @@ export default function CustomerDashboard() {
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Brand</p>
                           <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:car-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
-                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleMake || '—'}</span>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{formatTitleCaseDisplay(bookingForm.vehicleMake)}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
                           </div>
                         </div>
@@ -5419,7 +5558,7 @@ export default function CustomerDashboard() {
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Model</p>
                           <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:car-2-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
-                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleModel || '—'}</span>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{formatTitleCaseDisplay(bookingForm.vehicleModel)}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
                           </div>
                         </div>
@@ -5428,7 +5567,7 @@ export default function CustomerDashboard() {
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Color</p>
                           <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:palette-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
-                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleColor || '—'}</span>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{formatTitleCaseDisplay(bookingForm.vehicleColor)}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
                           </div>
                         </div>
@@ -5437,7 +5576,7 @@ export default function CustomerDashboard() {
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Plate No.</p>
                           <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
                             <iconify-icon icon="solar:tag-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
-                            <span className="text-sm font-semibold text-gray-700 flex-1 tracking-widest">{bookingForm.vehiclePlate ? normalizePlateNumber(bookingForm.vehiclePlate) : '—'}</span>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 tracking-widest">{formatPlateDisplay(bookingForm.vehiclePlate)}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
                           </div>
                         </div>
@@ -5494,7 +5633,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehicleMake: e.target.value }));
                               if (step2Errors.vehicleMake) setStep2Errors(err => ({ ...err, vehicleMake: '' }));
                             }}
-                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleMake ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleMake ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           >
                             <option value="">Select brand</option>
                             {CAR_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
@@ -5511,7 +5650,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehicleModel: e.target.value }));
                               if (step2Errors.vehicleModel) setStep2Errors(err => ({ ...err, vehicleModel: '' }));
                             }}
-                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 ${step2Errors.vehicleModel ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 ${step2Errors.vehicleModel ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           />
                           {step2Errors.vehicleModel && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleModel}</p>}
                         </div>
@@ -5526,7 +5665,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehicleColor: e.target.value }));
                               if (step2Errors.vehicleColor) setStep2Errors(err => ({ ...err, vehicleColor: '' }));
                             }}
-                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleColor ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleColor ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           >
                             <option value="">Select color</option>
                             {['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Brown', 'Other'].map(c => <option key={c} value={c}>{c}</option>)}
@@ -5543,7 +5682,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehiclePlate: e.target.value.toUpperCase() }));
                               if (step2Errors.vehiclePlate) setStep2Errors(err => ({ ...err, vehiclePlate: '' }));
                             }}
-                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 uppercase tracking-widest font-mono ${step2Errors.vehiclePlate ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 uppercase tracking-widest font-mono ${step2Errors.vehiclePlate ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           />
                           {step2Errors.vehiclePlate
                             ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehiclePlate}</p>
@@ -5557,7 +5696,7 @@ export default function CustomerDashboard() {
                           <select
                             value={bookingForm.vehicleYear}
                             onChange={e => { setBookingForm(f => ({ ...f, vehicleYear: e.target.value })); }}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none"
                           >
                             <option value="">Year</option>
                             {BOOKING_YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>)}
@@ -5579,7 +5718,7 @@ export default function CustomerDashboard() {
                               }));
                               if (step2Errors.vehicleCategory) setStep2Errors(err => ({ ...err, vehicleCategory: '' }));
                             }}
-                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleCategory ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleCategory ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           >
                             <option value="">Select type</option>
                             {ADD_VEHICLE_TYPE_LABELS.map(t => <option key={t} value={t}>{t}</option>)}
@@ -5594,7 +5733,7 @@ export default function CustomerDashboard() {
                           <select
                             value={bookingForm.vehicleTransmission}
                             onChange={e => setBookingForm(f => ({ ...f, vehicleTransmission: e.target.value }))}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none"
                           >
                             <option value="">Select...</option>
                             <option value="Automatic">Automatic</option>
@@ -5607,7 +5746,7 @@ export default function CustomerDashboard() {
                           <select
                             value={bookingForm.vehicleFuelType}
                             onChange={e => setBookingForm(f => ({ ...f, vehicleFuelType: e.target.value }))}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-amber-500/20 focus:border-slate-300 appearance-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none"
                           >
                             <option value="">Select...</option>
                             <option value="Gasoline">Gasoline</option>
@@ -5639,7 +5778,7 @@ export default function CustomerDashboard() {
 
               ) : bookingStep === 3 ? (
                 /* ── Step 3 — Calendar (real-time availability) ── */
-                <div style={{ padding: '20px 20px 16px' }}>
+                <div className="p-4 pb-4 sm:p-5 sm:pb-4">
 
                   {/* Month nav — triggers availability fetch */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -5870,15 +6009,15 @@ export default function CustomerDashboard() {
 
               ) : bookingStep === 4 ? (
                 /* ── Step 4: Booking Summary ── */
-                <div style={{ padding: '20px' }}>
+                <div className="p-4 sm:p-5">
                   {/* Header */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
                     <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,#1e293b,#0f172a)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <iconify-icon icon="solar:clipboard-check-bold" width="18" style={{ color: '#fff' }}></iconify-icon>
                     </div>
                     <div>
-                      <p style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0, lineHeight: 1.2 }}>Review Your Booking</p>
-                      <p style={{ fontSize: 11, color: '#94a3b8', margin: 0, marginTop: 2 }}>Please confirm all details before proceeding</p>
+                      <p className="text-base font-bold leading-tight text-slate-900" style={{ margin: 0 }}>Review Your Booking</p>
+                      <p className="mt-0.5 text-xs text-slate-500" style={{ margin: 0 }}>Please confirm all details before proceeding</p>
                     </div>
                   </div>
 
@@ -5910,9 +6049,9 @@ export default function CustomerDashboard() {
                     </div>
                     <div style={{ padding: '4px 0' }}>
                       {[
-                        { icon: 'solar:car-bold', label: 'Brand & Model', value: [bookingForm.vehicleMake, bookingForm.vehicleModel].filter(Boolean).join(' ') || '—' },
-                        { icon: 'solar:palette-bold', label: 'Color', value: bookingForm.vehicleColor || '—' },
-                        { icon: 'solar:tag-bold', label: 'Plate', value: bookingForm.vehiclePlate || '—' },
+                        { icon: 'solar:car-bold', label: 'Brand & Model', value: formatVehicleMakeModelDisplay(bookingForm.vehicleMake, bookingForm.vehicleModel) },
+                        { icon: 'solar:palette-bold', label: 'Color', value: formatTitleCaseDisplay(bookingForm.vehicleColor) },
+                        { icon: 'solar:tag-bold', label: 'Plate', value: formatPlateDisplay(bookingForm.vehiclePlate) },
                       ].map(({ icon, label, value }) => (
                         <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f8fafc' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -5998,15 +6137,24 @@ export default function CustomerDashboard() {
 
               ) : bookingStep === 5 ? (
                 /* ── Step 5: Terms & Conditions ── */
-                <div className="px-5 pt-4 pb-6 space-y-4">
+                <div className="flex min-h-0 flex-col gap-4 px-4 pb-6 pt-4 sm:px-6">
                   <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500 mb-1.5">Step 5 of 6</p>
-                    <h3 className="text-[17px] font-semibold text-slate-900 tracking-tight leading-snug">{BOOKING_TERMS_DOCUMENT_TITLE}</h3>
-                    <p className="text-[13px] text-slate-600 mt-2 leading-relaxed">{BOOKING_TERMS_INTRO}</p>
+                    <h3 className="text-base font-semibold leading-snug tracking-tight text-slate-900">{BOOKING_TERMS_DOCUMENT_TITLE}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600">{BOOKING_TERMS_INTRO}</p>
+                    <p className="mt-3 text-xs text-slate-500">
+                      Last updated {BOOKING_TERMS_LAST_UPDATED} · Version {BOOKING_TERMS_VERSION}
+                    </p>
                   </div>
 
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500 mb-2">Full text (scroll to the end)</p>
+                  <div className="min-h-0 shrink-0">
+                    <p className="booking-modal-label mb-2">Key points</p>
+                    <ul className="mb-4 list-disc space-y-1.5 rounded-xl border border-slate-100 bg-slate-50/80 py-3 pl-5 pr-4 text-sm leading-relaxed text-slate-700">
+                      {BOOKING_TERMS_SUMMARY.map((line, idx) => (
+                        <li key={idx} className="pl-0.5 marker:text-slate-400">{line}</li>
+                      ))}
+                    </ul>
+
+                    <p className="booking-modal-label mb-2">Full text (scroll to the end)</p>
                     <div
                       ref={bookingTcScrollRef}
                       id="tc-scroll-box"
@@ -6017,18 +6165,18 @@ export default function CustomerDashboard() {
                         const el = e.currentTarget;
                         if (el.scrollHeight - el.scrollTop - el.clientHeight <= 28) setBookingTermsReachedEnd(true);
                       }}
-                      className="max-h-[min(280px,48vh)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/90 bg-slate-50/90 px-4 py-3.5 text-[13px] text-slate-700 leading-[1.65] shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] scroll-smooth outline-none"
+                      className="max-h-[min(420px,56vh)] min-h-[min(260px,36vh)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/90 bg-slate-50/90 px-4 py-3.5 text-sm leading-[1.65] text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] scroll-smooth outline-none"
                       style={{ WebkitOverflowScrolling: 'touch' }}
                     >
                       {BOOKING_TERMS_SECTIONS.map((sec) => (
                         <section key={sec.id} className="mb-4 last:mb-1">
-                          <h4 className="text-[12px] font-bold text-slate-900 tracking-tight mb-1.5">{sec.title}</h4>
-                          <p className="text-slate-600">{sec.body}</p>
+                          <h4 className="mb-1.5 text-sm font-bold tracking-tight text-slate-900">{sec.title}</h4>
+                          <p className="leading-relaxed text-slate-600">{sec.body}</p>
                         </section>
                       ))}
                     </div>
                     {!bookingTermsReachedEnd ? (
-                      <p className="mt-2 text-center text-[11px] font-medium text-orange-700" aria-live="polite">
+                      <p className="mt-2 text-center text-xs font-medium text-orange-700" aria-live="polite">
                         Scroll to the bottom to enable the agreement checkbox.
                       </p>
                     ) : null}
@@ -6037,7 +6185,7 @@ export default function CustomerDashboard() {
                   <div
                     className={`flex items-start gap-3 rounded-xl border px-3.5 py-3.5 shadow-sm ${
                       bookingTermsReachedEnd
-                        ? 'border-slate-200 bg-white hover:border-slate-300 focus-within:ring-2 focus-within:ring-indigo-500/25'
+                        ? 'border-slate-200 bg-white hover:border-slate-300 focus-within:ring-2 focus-within:ring-[color:var(--booking-focus-ring)]'
                         : 'border-slate-200 bg-slate-50 opacity-75'
                     }`}
                   >
@@ -6050,12 +6198,12 @@ export default function CustomerDashboard() {
                         if (!bookingTermsReachedEnd) return;
                         setBookingAgreed(e.target.checked);
                       }}
-                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-[color:var(--booking-focus)] focus:ring-2 focus:ring-[color:var(--booking-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50"
                     />
                     <div className="min-w-0 flex-1">
                       <label
                         htmlFor="tc-checkbox"
-                        className={`text-[13px] leading-relaxed ${bookingTermsReachedEnd ? 'text-slate-600 cursor-pointer' : 'text-slate-400 cursor-not-allowed'}`}
+                        className={`text-sm leading-relaxed ${bookingTermsReachedEnd ? 'text-slate-600 cursor-pointer' : 'text-slate-400 cursor-not-allowed'}`}
                       >
                         I have read and agree to the <strong className="font-semibold text-slate-900">Terms and Conditions</strong>{' '}
                         <span className="text-red-600">*</span>
@@ -6063,7 +6211,7 @@ export default function CustomerDashboard() {
                       {bookingTermsReachedEnd ? (
                         <button
                           type="button"
-                          className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 underline decoration-indigo-500/35 underline-offset-[3px] hover:decoration-indigo-600"
+                          className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 underline decoration-indigo-500/35 underline-offset-[3px] hover:decoration-indigo-600"
                           onClick={() => {
                             setBookingTermsReachedEnd(false);
                             setBookingAgreed(false);
@@ -6081,7 +6229,7 @@ export default function CustomerDashboard() {
                 </div>
               ) : (
                 /* ── Step 6: GCash Downpayment ── */
-                <div className="p-5">
+                <div className="p-4 sm:p-5">
 
                   {/* Amount Summary Card */}
                   {(() => {
@@ -6127,13 +6275,21 @@ export default function CustomerDashboard() {
                       {bookingDownpaymentProof && <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}><iconify-icon icon="solar:check-circle-bold" width="12"></iconify-icon> Uploaded</span>}
                     </div>
                     <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed rounded-xl transition-colors cursor-pointer relative overflow-hidden group" style={{ borderColor: bookingDownpaymentProof ? '#86efac' : '#d1d5db', background: bookingDownpaymentProof ? '#f0fdf4' : '#f9fafb' }}>
-                      <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
+                      <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                        const inputEl = e.target;
+                        const file = inputEl.files?.[0];
+                        if (!file) return;
+                        try {
+                          const compressed = await compressImageForBookingProof(file);
+                          const reader = new FileReader();
+                          reader.onloadend = () => setBookingDownpaymentProof(reader.result as string);
+                          reader.readAsDataURL(compressed);
+                        } catch {
                           const reader = new FileReader();
                           reader.onloadend = () => setBookingDownpaymentProof(reader.result as string);
                           reader.readAsDataURL(file);
                         }
+                        inputEl.value = '';
                       }} />
                       {bookingDownpaymentProof ? (
                         <>
@@ -6166,6 +6322,24 @@ export default function CustomerDashboard() {
                 </div>
               )}
             </div>
+
+            {bookingStep === 1 && (
+              <div
+                className={`booking-package-peek-overlay ${packagePeek.visible ? 'is-visible' : ''}`}
+                style={{
+                  left: packagePeek.left,
+                  top: packagePeek.top,
+                  width: packagePeek.width,
+                }}
+                aria-hidden={!packagePeek.visible}
+              >
+                <div className="booking-package-peek-pill">
+                  {packagePeek.remaining === RAW_SPF_PACKAGES.length
+                    ? `View all ${RAW_SPF_PACKAGES.length} packages ↓`
+                    : `↓ ${packagePeek.remaining} more package${packagePeek.remaining === 1 ? '' : 's'} available`}
+                </div>
+              </div>
+            )}
 
             {/* Footer */}
             {!bookingDone && (() => {
@@ -6837,7 +7011,7 @@ export default function CustomerDashboard() {
             </div>
 
             {/* Body */}
-            <div className="overflow-y-auto flex-1 booking-body" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <div className="booking-body min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               {vehicleHistoryLoading ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-3">
                   <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-600 rounded-full animate-spin"></div>

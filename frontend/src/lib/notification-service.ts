@@ -9,13 +9,20 @@ export interface SystemNotification {
     isRead: boolean;
     createdAt: string;
     link?: string;
+    metadata?: Record<string, unknown>;
+}
+
+export interface NotificationsResponse {
+    success: boolean;
+    data?: SystemNotification[];
+    unreadCount?: number;
+    message?: string;
 }
 
 export const NotificationService = {
-    getNotifications: async () => {
+    getNotifications: async (): Promise<NotificationsResponse> => {
         try {
-            const response = await api.get('/notifications', { meta: { suppressErrorToast: true } } as any);
-            return response.data;
+            return response.data as NotificationsResponse;
         } catch (error: any) {
             return {
                 success: false,

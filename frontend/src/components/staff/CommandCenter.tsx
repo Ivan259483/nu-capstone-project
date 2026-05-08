@@ -76,7 +76,7 @@ export function CommandCenter({
                 {/* Ingress Checklist */}
                 {activeJob.operationsChecklist?.ingress && activeJob.operationsChecklist.ingress.length > 0 && (
                     <div style={{ marginBottom: 20 }}>
-                        <h4 style={{ fontFamily: "'Inter', sans-serif", fontSize: 10, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontWeight: 600 }}>Ingress Operations</h4>
+                        <h4 style={{ fontFamily: "'Inter', sans-serif", fontSize: 10, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontWeight: 600 }}>Pre-Assessment / Ingress Operations</h4>
                         <div className="progress-track" style={{ marginBottom: 12 }}>
                             <motion.div className="progress-fill" initial={{ width: 0 }} animate={{ width: `${(activeJob.operationsChecklist.ingress.filter(s => s.completed).length / activeJob.operationsChecklist.ingress.length) * 100}%` }} transition={{ duration: 0.8 }} />
                         </div>

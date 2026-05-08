@@ -10,6 +10,7 @@ import {
 import TransactionReceiptModal from './TransactionReceiptModal';
 import { useSalesContext } from '@/contexts/SalesAnalyticsContext';
 import { getPrimaryKpiDayTransactions } from '@/lib/dashboard-time';
+import { printDetailedReceipt, receiptFromTransaction } from '@/lib/receipt-document';
 
 type SortKey = keyof Transaction | '';
 type SortDir = 'asc' | 'desc';
@@ -513,7 +514,7 @@ export default function TransactionsTable() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => console.info(`Printing receipt for ${txn.id}`)}
+                          onClick={() => printDetailedReceipt(receiptFromTransaction(txn))}
                           className="txn-row-icon-btn rounded-full p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-500/[0.08] active:bg-slate-500/[0.12]"
                           title="Print Receipt"
                         >

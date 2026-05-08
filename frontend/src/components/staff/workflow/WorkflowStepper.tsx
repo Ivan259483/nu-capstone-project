@@ -3,7 +3,7 @@ import { Check, Lock, ClipboardEdit, ListChecks, Camera, FileSignature, Wrench, 
 
 const STEPS = [
   { num: 1, label: 'Job Order',  sub: 'Vehicle & Service Info',  icon: ClipboardEdit },
-  { num: 2, label: 'Ingress',    sub: 'Pre-Service Checklist',   icon: ListChecks },
+  { num: 2, label: 'Pre-Assessment', sub: 'Before Service Checklist', icon: ListChecks },
   { num: 3, label: 'Damage',     sub: 'Annotation & Photos',     icon: Camera },
   { num: 4, label: 'Waiver',     sub: 'Terms & Signature',       icon: FileSignature },
   { num: 5, label: 'Service',    sub: 'Service Proper',          icon: Wrench },

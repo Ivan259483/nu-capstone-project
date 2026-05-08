@@ -634,7 +634,7 @@ export function DashboardTab({
                             {/* Ingress */}
                             {ingressSteps.length > 0 && (
                                 <div style={{ marginBottom: 24 }}>
-                                    <h4 style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, color: '#43474c', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Ingress Operations</h4>
+                                    <h4 style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, color: '#43474c', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Pre-Assessment / Ingress Operations</h4>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                         {ingressSteps.map((step, idx) => (
                                             <motion.div key={`ing-${idx}`} whileHover={{ x: 4 }} whileTap={{ scale: 0.98 }}

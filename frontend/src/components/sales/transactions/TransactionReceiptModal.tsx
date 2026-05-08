@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { X, Printer, Download, CheckCircle2, Clock, XCircle, Car, Phone, Image as ImageIcon } from 'lucide-react';
 import { Transaction, formatPeso, getPaymentMethodLabel, PaymentMethod } from '@/lib/salesData';
 import AppLogo from '@/components/sales/ui/AppLogo';
+import {
+  downloadDetailedReceiptPdf,
+  printDetailedReceipt,
+  receiptFromTransaction,
+} from '@/lib/receipt-document';
 
 interface Props {
   txn: Transaction;
@@ -43,6 +48,7 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
   const [showConfirm, setShowConfirm] = useState(false);
   const statusCfg = STATUS_CONFIG[txn.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG['pending'];
   const StatusIcon = statusCfg.icon;
+  const receipt = receiptFromTransaction(txn);
 
   const handleConfirmPayment = () => {
     // integration logic goes here (e.g., update txn status to 'completed')
@@ -55,43 +61,8 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
   const dateStr = dateObj.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
   const timeStr = dateObj.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
 
-  const handlePrint = () => {
-    const win = window.open('', '_blank', 'width=420,height=700');
-    if (!win) return;
-    win.document.write(`<html><head><title>Receipt ${txn.id}</title>
-      <style>
-        body { font-family: sans-serif; padding: 24px; font-size: 12px; color: #0f172a; }
-        .bold { font-weight: 700; } .center { text-align: center; }
-        .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-        .dim { color: #64748b; } .blue { color: #1d4ed8; } .green { color: #047857; }
-        .dashed { border-bottom: 1px dashed #e2e8f0; margin: 12px 0; padding-bottom: 12px; }
-        .total { font-size: 16px; font-weight: 700; }
-      </style></head><body>
-      <div class="center bold" style="font-size:18px">AutoSPF+</div>
-      <div class="center dim" style="margin-bottom:16px">Automotive Detailing & Protection</div>
-      <div class="dashed">
-        <div class="row"><span class="dim">Transaction #</span><span class="bold">${txn.id}</span></div>
-        <div class="row"><span class="dim">Date</span><span>${dateStr}</span></div>
-        <div class="row"><span class="dim">Time</span><span>${timeStr}</span></div>
-        <div class="row"><span class="dim">Staff</span><span>${txn.staffName}</span></div>
-      </div>
-      <div class="dashed">
-        <div class="bold" style="margin-bottom:6px">${txn.customerName}</div>
-        <div class="dim">${txn.customerPhone} · ${txn.vehiclePlate}</div>
-        <div class="dim">${txn.vehicleInfo}</div>
-      </div>
-      <div class="dashed">
-        ${txn.services.map((s) => `<div class="row"><span>${s.name}${s.qty > 1 ? ` ×${s.qty}` : ''}</span><span class="bold">₱${(s.price * s.qty).toLocaleString('en-PH')}</span></div>`).join('')}
-      </div>
-      <div class="row"><span class="dim">Subtotal</span><span>₱${txn.subtotal.toLocaleString('en-PH')}</span></div>
-      ${txn.discount > 0 ? `<div class="row green"><span>Discount</span><span>−₱${txn.discount.toLocaleString('en-PH')}</span></div>` : ''}
-      <div class="row bold total"><span>Total Paid</span><span class="blue">₱${txn.total.toLocaleString('en-PH')}</span></div>
-      <div class="row"><span class="dim">Method</span><span>${txn.paymentMethod.replace('_', ' ')}</span></div>
-      <div class="center dim" style="margin-top:20px;font-size:11px">Thank you for choosing AutoSPF+!<br/>care@autospf.ph · (02) 8888-AUTOSPF</div>
-    </body></html>`);
-    win.document.close();
-    win.print();
-  };
+  const handlePrint = () => printDetailedReceipt(receipt);
+  const handleDownloadPdf = () => downloadDetailedReceiptPdf(receipt);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fade-in">
@@ -176,11 +147,9 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
                   <div key={`modal-svc-${txn.id}-${si}`} className="flex items-start justify-between gap-2">
                     <div className="flex-1">
                       <p className="text-xs font-medium text-slate-900">{svc.name}</p>
-                      {svc.qty > 1 && (
-                        <p className="text-[10px] text-slate-500">
-                          {formatPeso(svc.price)} × {svc.qty}
-                        </p>
-                      )}
+                      <p className="text-[10px] text-slate-500">
+                        Qty {svc.qty} x {formatPeso(svc.price)}
+                      </p>
                     </div>
                     <span className="text-xs font-semibold text-slate-900 font-tabular shrink-0">
                       {formatPeso(svc.price * svc.qty)}
@@ -284,7 +253,10 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
             </button>
           )}
 
-          <button className="flex items-center justify-center gap-2 btn-secondary px-4 hidden sm:flex">
+          <button
+            onClick={handleDownloadPdf}
+            className="flex items-center justify-center gap-2 btn-secondary px-4 hidden sm:flex"
+          >
             <Download size={14} />
             PDF
           </button>

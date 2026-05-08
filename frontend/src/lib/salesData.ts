@@ -41,9 +41,14 @@ export interface Customer {
 
 export interface Transaction {
   id: string;
+  orderId?: string;
+  orderNumber?: string;
+  bookingReference?: string;
+  invoiceId?: string;
   customerId: string;
   customerName: string;
   customerPhone: string;
+  customerEmail?: string;
   vehiclePlate: string;
   vehicleInfo: string;
   services: { name: string; price: number; qty: number }[];
@@ -60,6 +65,7 @@ export interface Transaction {
   dateTime: string;
   /** Payment or last-write time — used for dashboard KPI day buckets (Manila) */
   analyticsDateTime?: string;
+  paidAt?: string;
   staffName: string;
   notes: string;
 }

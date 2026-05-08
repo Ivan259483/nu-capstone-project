@@ -93,6 +93,7 @@ export interface Booking {
     status: 'pending' | 'pending_confirmation' | 'confirmed' | 'approved' | 'assigned' | 'received' | 'in_progress' | 'in-progress' | 'completed' | 'paid' | 'released' | 'cancelled' | 'failed' | 'rejected';
     totalPrice?: number;
     totalAmount?: number;
+    downPaymentAmount?: number;
     invoiceId?: string;
     paymentStatus?: 'unpaid' | 'paid' | 'failed' | 'refunded';
     paymentMethod?: string;
@@ -111,7 +112,7 @@ export interface Booking {
     // Backend Populated Fields
     customer?: User;
     customerAvatar?: string;
-    items?: { product: InventoryItem; quantity: number }[];
+    items?: { product?: InventoryItem; name?: string; quantity: number; price?: number }[];
 
     // assignedDetailer moved below with updated type
     estimatedCompletion?: string;

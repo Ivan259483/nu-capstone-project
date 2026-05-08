@@ -5,10 +5,10 @@ import { useTheme } from '@/hooks/useThemeContext';
 import { CheckCircle, Clock, CheckSquare, Square } from '@/components/ui/Icons';
 
 const CHECKLIST_TEMPLATES: Record<string, string[]> = {
-  general: ['Verify Keys Received', 'Check Odometer Reading', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables', 'Verify Gas Level'],
-  ppf: ['Verify Keys Received', 'Check Odometer Reading', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables', 'Measure Paint Thickness', 'Note Existing Paint Chips', 'Wash & Decontaminate Prep'],
-  detailing: ['Verify Keys Received', 'Check Odometer Reading', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables', 'Empty Trash/Loose Items', 'Assess Interior Stains'],
-  tint: ['Fill/Explain Tint form', 'Dashcams, accessories removed', 'Ask client about RFID removal', 'Verify Keys Received', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables']
+  general: ['Vehicle Pre-Assessment Before Any Detailing Service', 'Verify Keys Received', 'Check Odometer Reading', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables', 'Verify Gas Level'],
+  ppf: ['Vehicle Pre-Assessment Before Any Detailing Service', 'Verify Keys Received', 'Check Odometer Reading', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables', 'Measure Paint Thickness', 'Note Existing Paint Chips', 'Wash & Decontaminate Prep'],
+  detailing: ['Vehicle Pre-Assessment Before Any Detailing Service', 'Verify Keys Received', 'Check Odometer Reading', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables', 'Empty Trash/Loose Items', 'Assess Interior Stains'],
+  tint: ['Vehicle Pre-Assessment Before Any Detailing Service', 'Fill/Explain Tint form', 'Dashcams, accessories removed', 'Ask client about RFID removal', 'Verify Keys Received', 'Inspect Exterior (Walkaround)', 'Check Interior Valuables']
 };
 
 export default function Step2_IngressChecklist() {
@@ -53,8 +53,8 @@ export default function Step2_IngressChecklist() {
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.text }]}>Ingress Checklist</Text>
-        <Text style={styles.subtitle}>Standard operating procedure for vehicle turnover.</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Pre-Assessment & Ingress Checklist</Text>
+        <Text style={styles.subtitle}>Assess the vehicle before any detailing service.</Text>
       </View>
 
       <View style={styles.progressContainer}>
@@ -77,7 +77,7 @@ export default function Step2_IngressChecklist() {
         ))}
       </View>
 
-      <Text style={styles.label}>Pre-Service Notes & Belongings</Text>
+      <Text style={styles.label}>Pre-Assessment Notes & Belongings</Text>
       <TextInput 
         style={[styles.input, { color: colors.text, borderColor: isDark ? '#333' : '#ddd', backgroundColor: isDark ? '#111' : '#f4f4f5' }]} 
         value={notes} onChangeText={setNotes} multiline placeholder="Note valuables left inside or specific customer requests..." placeholderTextColor="#666" 
@@ -90,7 +90,7 @@ export default function Step2_IngressChecklist() {
       >
         {saving ? <Clock color="#fff" style={{marginRight: 8}}/> : <CheckCircle color="#fff" style={{marginRight: 8}}/>}
         <Text style={styles.saveBtnText}>
-          {saving ? 'Saving...' : progress < 100 ? 'Complete All Items First' : 'Sign-off Ingress'}
+          {saving ? 'Saving...' : progress < 100 ? 'Complete All Items First' : 'Sign-off Pre-Assessment'}
         </Text>
       </TouchableOpacity>
     </ScrollView>

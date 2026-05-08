@@ -992,7 +992,7 @@ export default function BookScreen() {
     const WORKFLOW_STEPS = [
       { key: 'booking', label: 'Booking Submitted', icon: 'document-text', active: true, ts: 'Just now' },
       { key: 'confirmed', label: 'Confirmed', icon: 'checkmark-circle', active: false, ts: '—' },
-      { key: 'ingress', label: 'Ingress Checklist', icon: 'clipboard', active: false, ts: '—' },
+      { key: 'ingress', label: 'Vehicle Pre-Assessment', icon: 'clipboard', active: false, ts: '—' },
       { key: 'job', label: 'Job Order Created', icon: 'construct', active: false, ts: '—' },
       { key: 'service', label: 'Service In Progress', icon: 'build', active: false, ts: '—' },
       { key: 'qc', label: 'QC Checklist', icon: 'shield-checkmark', active: false, ts: '—' },

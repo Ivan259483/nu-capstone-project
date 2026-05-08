@@ -129,9 +129,14 @@ export function useSalesAnalytics() {
 
           return {
             id: o.bookingReference || o.id,
+            orderId: o.id || o._id,
+            orderNumber: o.orderNumber,
+            bookingReference: o.bookingReference,
+            invoiceId: o.invoiceId,
             customerId: o.customer?._id || o.customerId || 'unknown',
             customerName: o.customerName || 'Walk-in Customer',
             customerPhone: o.customerPhone || '',
+            customerEmail: o.customer?.email || '',
             vehiclePlate,
             vehicleInfo: o.vehicleInfo || '',
             services: buildTransactionServices(o),
@@ -144,6 +149,7 @@ export function useSalesAnalytics() {
             statusRaw: rawStatus || undefined,
             dateTime: created,
             analyticsDateTime,
+            paidAt: coerceOrderInstant(o.paidAt) || undefined,
             staffName: o.assignedDetailer?.name || 'Unassigned',
             notes: o.notes || '',
           };

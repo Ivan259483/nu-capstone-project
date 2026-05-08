@@ -169,7 +169,7 @@ export function ProgressReportsTab({
             {/* Checklist Grid */}
             <motion.div variants={staggerContainer} initial="initial" animate="animate" className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8 pt-8">
                 
-                {renderChecklistPanel('Prep & Ingress', <CheckCircle size={14} style={{ color: '#06274b' }} />, ingressChecklist, (idx) => handleToggleOperationsChecklist(activeJob, 'ingress', idx), 'No ingress items.')}
+                {renderChecklistPanel('Pre-Assessment & Ingress', <CheckCircle size={14} style={{ color: '#06274b' }} />, ingressChecklist, (idx) => handleToggleOperationsChecklist(activeJob, 'ingress', idx), 'No ingress items.')}
                 
                 {renderChecklistPanel('Service Stages', <Activity size={14} style={{ color: '#06274b' }} />, steps.map(s => ({ name: s.name, completed: s.status === 'completed' })), (idx) => handleToggleChecklist(activeJob, idx), 'No service stages defined.')}
                 

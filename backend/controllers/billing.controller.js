@@ -326,6 +326,23 @@ export const checkoutBilling = async (req, res, next) => {
     });
 
     invoiceRecord.payment = payment._id;
+    invoiceRecord.snapshot = {
+      ...invoiceRecord.snapshot,
+      paidAt: payment.createdAt || new Date(),
+      payment: {
+        paymentId: payment._id?.toString(),
+        posInvoiceId: invoiceId,
+        method: payment.method || paymentMethod,
+        status: payment.status || 'succeeded',
+        amountCollected: receiptData.amountCollected,
+        cashReceived: receiptData.cashReceived,
+        changeGiven: receiptData.changeGiven,
+        balanceRemaining: receiptData.balanceRemaining,
+        splitPayments: receiptData.splitPayments || [],
+        staff: receiptData.staff || null,
+      },
+    };
+    invoiceRecord.markModified('snapshot');
     await invoiceRecord.save();
 
     billing.status = 'checked_out';
