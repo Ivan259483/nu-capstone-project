@@ -1273,7 +1273,7 @@ html.dark * {
 
 .customer-live-progress-panel {
     display: grid;
-    grid-template-columns: 8rem minmax(0, 1fr);
+    grid-template-columns: minmax(7.4rem, 1fr) minmax(0, 1.65fr);
     gap: 1rem;
     align-items: center;
     padding: 1rem;
@@ -1284,6 +1284,7 @@ html.dark * {
     position: relative;
     display: grid;
     grid-row: span 2;
+    justify-self: center;
     width: 7.4rem;
     height: 7.4rem;
     place-items: center;
