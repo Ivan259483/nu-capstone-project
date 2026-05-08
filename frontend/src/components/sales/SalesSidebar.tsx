@@ -16,7 +16,7 @@ interface Props {
 
 const NAV_MAIN = [
   { key: 'dashboard' as SalesView, label: 'Dashboard', icon: LayoutDashboard },
-  { key: 'pos' as SalesView, label: 'POS', icon: ShoppingCart, badge: 'NEW' },
+  { key: 'pos' as SalesView, label: 'POS', icon: ShoppingCart },
   { key: 'transactions' as SalesView, label: 'Transactions', icon: Receipt },
   { key: 'approvals' as SalesView, label: 'Booking Approvals', icon: CheckSquare, badgeKey: 'approvals' },
   { key: 'calendar' as SalesView, label: 'Smart Calendar', icon: CalendarDays },
