@@ -5,6 +5,33 @@ import { handleSocketMessage } from '../controllers/chatbot.controller.js';
 import { isAdminDashboardRole } from '../constants/roles.js';
 import User from '../models/user.model.js';
 import { sendExpoPushNotification } from './push.utils.js';
+import { decrypt } from './encryption.utils.js';
+
+/**
+ * Change streams return raw BSON — Mongoose decrypt middleware does not run.
+ * Mirror order.controller formatBookingDto safeDecrypt so Sales / dashboards see real plates.
+ */
+function safeDecryptOrderField(val) {
+  if (!val || typeof val !== 'string') return val;
+  if (/^[0-9a-f]{32}:[0-9a-f]+$/i.test(val)) {
+    try {
+      return decrypt(val);
+    } catch {
+      return val;
+    }
+  }
+  return val;
+}
+
+function prepareOrderDocumentForSocket(doc) {
+  if (!doc || typeof doc !== 'object') return doc;
+  return {
+    ...doc,
+    vehiclePlate: safeDecryptOrderField(doc.vehiclePlate),
+    notes: safeDecryptOrderField(doc.notes),
+    shippingAddress: safeDecryptOrderField(doc.shippingAddress),
+  };
+}
 
 let io;
 
@@ -110,13 +137,17 @@ export const initChangeStreams = (mongooseConnection) => {
       // Only emit changes for collections the frontends care about
       if (!WATCHED_COLLECTIONS.has(collectionName)) return;
 
+      const rawDoc = change.fullDocument || null;
+      const fullDocument =
+        collectionName === 'orders' && rawDoc ? prepareOrderDocumentForSocket(rawDoc) : rawDoc;
+
       const payload = {
         collection: collectionName,
         operationType: change.operationType,
         documentKey: change.documentKey,
         // Include the full document so clients can update state
         // without a follow-up HTTP fetch (only for insert/update)
-        fullDocument: change.fullDocument || null,
+        fullDocument,
       };
 
       // Batch rapid successive changes (e.g. bulk import, migration)

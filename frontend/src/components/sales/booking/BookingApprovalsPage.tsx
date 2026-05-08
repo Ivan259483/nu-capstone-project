@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { normalizeBooking } from '@/lib/order-service';
+import { isEncryptedPlateToken } from '@/lib/salesData';
+import { isLikelyInternalVehiclePlate } from '@/lib/vehicle-display';
 
 const DOWNPAYMENT = 500;
 const moneyFormatter = new Intl.NumberFormat('en-PH', {
@@ -65,8 +67,11 @@ const formatTitle = (value: unknown, fallback = '—') => {
 };
 
 const formatPlate = (value: unknown, fallback = '—') => {
-  const formatted = String(value ?? '').trim().toUpperCase();
-  return formatted || fallback;
+  const s = String(value ?? '').trim();
+  if (!s) return fallback;
+  // Stored ciphertext (socket/lean) or internal id — never show hex blobs as a plate
+  if (isEncryptedPlateToken(s) || isLikelyInternalVehiclePlate(s)) return fallback;
+  return s.toUpperCase();
 };
 
 const getProofUrl = (booking: any) => booking.paymentProofUrl || booking.downpaymentProof || '';
