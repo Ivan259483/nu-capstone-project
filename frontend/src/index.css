@@ -1863,6 +1863,7 @@ html.dark * {
 }
 
 .customer-live-step-evidence a,
+.customer-live-step-evidence button.customer-live-evidence-thumb,
 .customer-live-photo-placeholder {
     position: relative;
     display: flex;
@@ -1876,7 +1877,17 @@ html.dark * {
     background: rgba(255, 255, 255, 0.05);
 }
 
-.customer-live-step-evidence a::after {
+.customer-live-step-evidence button.customer-live-evidence-thumb {
+    cursor: pointer;
+    appearance: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+}
+
+.customer-live-step-evidence a::after,
+.customer-live-step-evidence button.customer-live-evidence-thumb::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -2037,6 +2048,7 @@ html.dark * {
     .customer-live-step.is-active .customer-live-step-icon,
     .customer-live-step-evidence,
     .customer-live-step-evidence a::after,
+    .customer-live-step-evidence button.customer-live-evidence-thumb::after,
     .customer-live-step-evidence img,
     .customer-live-photo-placeholder::before {
         animation: none !important;

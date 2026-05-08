@@ -23,6 +23,7 @@ import {
 } from '../lib/customer-tracker-stage-media';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
 import { compressImageForBookingProof } from '../lib/compress-image-for-upload';
+import { isNonNavigableImageSrc } from '../lib/non-navigable-image-url';
 
 type DashboardSection = 'dashboard' | 'scan' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker' | 'payments';
 
@@ -366,6 +367,8 @@ export default function CustomerDashboard() {
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   // Payment History lightbox
   const [paymentLightboxUrl, setPaymentLightboxUrl] = useState<string | null>(null);
+  /** Inline/base64 tracker photos cannot open in a new tab — use overlay instead. */
+  const [trackerEvidenceLightbox, setTrackerEvidenceLightbox] = useState<{ url: string; title: string } | null>(null);
 
   /** Socket-driven silent refetch — avoids full page reload; see bookings `load()` effect. */
   const loadBookingsRef = useRef<((opts?: { silent?: boolean }) => Promise<void>) | null>(null);
@@ -4415,9 +4418,20 @@ export default function CustomerDashboard() {
 	                                    </div>
 	                                    <p>{caption || (photo ? 'Vehicle photo received.' : step.detail)}</p>
 	                                    {photo ? (
-                                      <a href={photo} target="_blank" rel="noopener noreferrer" aria-label={`${step.label} vehicle photo`}>
-                                        <img src={photo} alt="" />
-                                      </a>
+                                      isNonNavigableImageSrc(photo) ? (
+                                        <button
+                                          type="button"
+                                          className="customer-live-evidence-thumb"
+                                          aria-label={`${step.label} vehicle photo — enlarge`}
+                                          onClick={() => setTrackerEvidenceLightbox({ url: photo, title: step.label })}
+                                        >
+                                          <img src={photo} alt="" />
+                                        </button>
+                                      ) : (
+                                        <a href={photo} target="_blank" rel="noopener noreferrer" aria-label={`${step.label} vehicle photo`}>
+                                          <img src={photo} alt="" />
+                                        </a>
+                                      )
                                     ) : (
                                       <div className="customer-live-photo-placeholder">
                                         <iconify-icon icon="solar:camera-minimalistic-bold" width="18"></iconify-icon>
@@ -6620,6 +6634,34 @@ export default function CustomerDashboard() {
               );
             })()}
 
+          </div>
+        </div>
+      )}
+
+      {/* Tracker stage photo (inline/base64 fallbacks — full view in-page) */}
+      {trackerEvidenceLightbox && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={trackerEvidenceLightbox.title}
+          onClick={() => setTrackerEvidenceLightbox(null)}
+        >
+          <div className="relative max-w-4xl w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setTrackerEvidenceLightbox(null)}
+              className="absolute -top-11 right-0 text-white/85 hover:text-white text-sm font-semibold flex items-center gap-1 z-10"
+            >
+              <iconify-icon icon="solar:close-circle-linear" width="20"></iconify-icon>
+              Close
+            </button>
+            <img
+              src={trackerEvidenceLightbox.url}
+              alt=""
+              className="w-full max-h-[min(85vh,900px)] object-contain rounded-2xl shadow-2xl border border-white/10 bg-slate-950/40"
+            />
+            <p className="text-center text-white/65 text-xs mt-3 font-medium">{trackerEvidenceLightbox.title}</p>
           </div>
         </div>
       )}

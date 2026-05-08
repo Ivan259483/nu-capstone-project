@@ -28,6 +28,7 @@ import {
   resolveTrackerStageDescription,
   type LiveTrackerStepId,
 } from '@/lib/customer-tracker-stage-media';
+import { isNonNavigableImageSrc } from '@/lib/non-navigable-image-url';
 
 const BRAND_ORANGE = '#E8650A';
 const LUXURY_EASE = [0.22, 1, 0.36, 1] as const;
@@ -408,6 +409,7 @@ export default function CustomerLiveTrackerPage() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
+  const [stagePhotoLightbox, setStagePhotoLightbox] = useState<{ url: string; title: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeBooking, setActiveBooking] = useState<Booking | null>(null);
   const [detailer, setDetailer] = useState<User | null>(null);
@@ -1503,18 +1505,35 @@ export default function CustomerLiveTrackerPage() {
                                       {step.stagePhotoUrl ? (
                                         <div className="mt-3 flex items-start gap-2 rounded-xl border border-slate-200/90 bg-slate-50/80 p-2">
                                           <Camera size={14} className="text-slate-400 shrink-0 mt-0.5" aria-hidden />
-                                          <a
-                                            href={step.stagePhotoUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="block min-w-0 flex-1"
-                                          >
-                                            <img
-                                              src={step.stagePhotoUrl}
-                                              alt={`${step.title} update`}
-                                              className="w-full max-h-48 rounded-lg object-cover border border-slate-200/80"
-                                            />
-                                          </a>
+                                          {isNonNavigableImageSrc(step.stagePhotoUrl) ? (
+                                            <button
+                                              type="button"
+                                              className="block min-w-0 flex-1 cursor-zoom-in text-left rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2"
+                                              aria-label={`${step.title} photo — enlarge`}
+                                              onClick={() =>
+                                                setStagePhotoLightbox({ url: step.stagePhotoUrl!, title: step.title })
+                                              }
+                                            >
+                                              <img
+                                                src={step.stagePhotoUrl}
+                                                alt={`${step.title} update`}
+                                                className="w-full max-h-48 rounded-lg object-cover border border-slate-200/80"
+                                              />
+                                            </button>
+                                          ) : (
+                                            <a
+                                              href={step.stagePhotoUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="block min-w-0 flex-1"
+                                            >
+                                              <img
+                                                src={step.stagePhotoUrl}
+                                                alt={`${step.title} update`}
+                                                className="w-full max-h-48 rounded-lg object-cover border border-slate-200/80"
+                                              />
+                                            </a>
+                                          )}
                                         </div>
                                       ) : null}
                                       <p className="text-[11px] text-slate-400 mt-2">{step.timestamp}</p>
@@ -1632,6 +1651,32 @@ export default function CustomerLiveTrackerPage() {
           </main>
         </div>
       </div>
+
+      {stagePhotoLightbox && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={stagePhotoLightbox.title}
+          onClick={() => setStagePhotoLightbox(null)}
+        >
+          <div className="relative max-w-4xl w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setStagePhotoLightbox(null)}
+              className="absolute -top-11 right-0 text-white/85 hover:text-white text-sm font-semibold flex items-center gap-1 z-10"
+            >
+              Close
+            </button>
+            <img
+              src={stagePhotoLightbox.url}
+              alt=""
+              className="w-full max-h-[min(85vh,900px)] object-contain rounded-2xl shadow-2xl border border-white/10 bg-slate-950/40"
+            />
+            <p className="text-center text-white/65 text-xs mt-3 font-medium">{stagePhotoLightbox.title}</p>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes ring {
