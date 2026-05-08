@@ -268,12 +268,19 @@ function formatActivityWhen(booking: any): string {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+/** Plate string from garage API record or UI object (supports plate / plateNumber / licensePlate). */
+function resolveGarageVehiclePlate(v: any): string {
+  if (!v || typeof v !== 'object') return '';
+  const raw = v.plate ?? v.plateNumber ?? v.licensePlate;
+  return String(raw ?? '').trim();
+}
+
 /** Normalize API vehicle → garage / booking UI shape (single source of truth). */
 function mapCustomerVehicleApiRecord(v: any) {
   return {
     _id: v._id || v.id,
     id: v._id || v.id,
-    plate: v.plateNumber || v.plate || '',
+    plate: resolveGarageVehiclePlate(v) || '',
     year: v.year || '',
     make: v.make || '',
     model: v.model || '',
@@ -922,7 +929,7 @@ export default function CustomerDashboard() {
       vehicleModel: targetVehicle ? (targetVehicle.model || '') : '',
       vehicleYear: targetVehicle ? (targetVehicle.year || '') : '',
       vehicleColor: targetVehicle ? (targetVehicle.color || '') : '',
-      vehiclePlate: targetVehicle ? (targetVehicle.plate || '') : '',
+      vehiclePlate: targetVehicle ? resolveGarageVehiclePlate(targetVehicle) : '',
       vehicleCategory: targetVehicle ? (targetVehicle.type || '') : '',
       vehicleTransmission: targetVehicle ? (targetVehicle.transmission || '') : '',
       vehicleFuelType: targetVehicle ? (targetVehicle.fuelType || '') : '',
@@ -1095,6 +1102,13 @@ export default function CustomerDashboard() {
     const loadingId = toast.loading('Submitting your booking…');
     try {
       const { OrderService } = await import('../lib/order-service');
+      const garageForSubmit =
+        bookingSelectedVehicleIdx >= 0 && bookingSelectedVehicleIdx < vehicles.length
+          ? vehicles[bookingSelectedVehicleIdx]
+          : undefined;
+      const plateForSubmit = normalizePlateNumber(
+        (bookingForm.vehiclePlate || '').trim() || resolveGarageVehiclePlate(garageForSubmit) || ''
+      );
       const payload = {
         customer: user.id,
         customerName: user.name || '',
@@ -1108,7 +1122,7 @@ export default function CustomerDashboard() {
         })(),
         vehicleYear: bookingForm.vehicleYear, vehicleMake: bookingForm.vehicleMake,
         vehicleModel: bookingForm.vehicleModel, vehicleColor: bookingForm.vehicleColor,
-        vehiclePlate: normalizePlateNumber(bookingForm.vehiclePlate || ''),
+        vehiclePlate: plateForSubmit,
         price: bookingForm.servicePrice, bookingDate: bookingForm.date,
         bookingTime: bookingForm.time, notes: bookingForm.notes,
         // Catalog package IDs (spf80, …) are NOT Mongo product IDs — backend needs serviceType
@@ -1574,13 +1588,24 @@ export default function CustomerDashboard() {
         vehicleModel: f.vehicleModel || vehicles[0].model || '',
         vehicleYear: f.vehicleYear || vehicles[0].year || '',
         vehicleColor: f.vehicleColor || vehicles[0].color || '',
-        vehiclePlate: f.vehiclePlate || vehicles[0].plate || '',
+        vehiclePlate: f.vehiclePlate || resolveGarageVehiclePlate(vehicles[0]) || '',
         vehicleCategory: f.vehicleCategory || vehicles[0].type || '',
         vehicleTransmission: f.vehicleTransmission || vehicles[0].transmission || '',
         vehicleFuelType: f.vehicleFuelType || vehicles[0].fuelType || '',
       }));
     }
   }, [vehicles, bookingSelectedVehicleIdx, bookingOpen]);
+
+  // If the form lost plate but the selected garage row has one, copy it so Step 2 / Sales see the real plate.
+  useEffect(() => {
+    if (!bookingOpen || bookingSelectedVehicleIdx < 0 || bookingSelectedVehicleIdx >= vehicles.length) return;
+    const fromGarage = resolveGarageVehiclePlate(vehicles[bookingSelectedVehicleIdx]);
+    if (!fromGarage) return;
+    setBookingForm(f => {
+      if ((f.vehiclePlate || '').trim()) return f;
+      return { ...f, vehiclePlate: String(fromGarage).toUpperCase() };
+    });
+  }, [bookingOpen, bookingSelectedVehicleIdx, vehicles]);
 
   useEffect(() => {
     if (location.pathname === '/customer/book' && bookRouteModalOpenedRef.current && !bookingOpen) {
@@ -5445,7 +5470,7 @@ export default function CustomerDashboard() {
                                   vehicleMake: v.make || '',
                                   vehicleModel: v.model || '',
                                   vehicleYear: v.year || '',
-                                  vehiclePlate: v.plate || '',
+                                  vehiclePlate: resolveGarageVehiclePlate(v),
                                   vehicleColor: v.color || '',
                                   vehicleCategory: v.type || '',
                                   vehicleTransmission: v.transmission || '',
@@ -6421,17 +6446,22 @@ export default function CustomerDashboard() {
                 !!contactCompact &&
                 (isValidPhilippineBookingContact(bookingForm.contactNo || '') ||
                   /^\+[1-9]\d{7,14}$/.test(contactCompact));
-              const plateNormStep = normalizePlateNumber(bookingForm.vehiclePlate || '');
+              const garageVForPlate =
+                bookingSelectedVehicleIdx >= 0 && bookingSelectedVehicleIdx < vehicles.length
+                  ? vehicles[bookingSelectedVehicleIdx]
+                  : undefined;
+              const effectivePlateRaw =
+                (bookingForm.vehiclePlate || '').trim() ||
+                resolveGarageVehiclePlate(garageVForPlate);
+              const plateNormStep = normalizePlateNumber(effectivePlateRaw);
               const plateOk = plateNormStep.length >= 4 && plateNormStep.length <= 9;
               const step1Valid = !!bookingForm.service;
-              const vehicleFieldsValid = bookingFromVehicle
-                ? true
-                : !!bookingForm.vehicleMake &&
-                  !!(bookingForm.vehicleModel || '').trim() &&
-                  !!bookingForm.vehicleColor &&
-                  !!(bookingForm.vehiclePlate || '').trim() &&
-                  plateOk &&
-                  !!bookingForm.vehicleCategory;
+              const vehicleFieldsValid =
+                !!bookingForm.vehicleMake &&
+                !!(bookingForm.vehicleModel || '').trim() &&
+                !!bookingForm.vehicleColor &&
+                plateOk &&
+                !!bookingForm.vehicleCategory;
               const step2Valid = contactOk && vehicleFieldsValid;
               const selectedSlotStatus = slotStatuses.find(s => s.time === bookingForm.time)?.status;
               const step3Valid =
@@ -6513,14 +6543,21 @@ export default function CustomerDashboard() {
                             else if (!isValidPhilippineBookingContact(bookingForm.contactNo || '') && !/^\+[1-9]\d{7,14}$/.test(cc)) {
                               errs.contactNo = 'Enter a valid PH mobile (09…) or international number.';
                             }
-                            // Only validate vehicle fields when not pre-filled from garage
+                            {
+                              const gv =
+                                bookingSelectedVehicleIdx >= 0 && bookingSelectedVehicleIdx < vehicles.length
+                                  ? vehicles[bookingSelectedVehicleIdx]
+                                  : undefined;
+                              const mergedPlate =
+                                (bookingForm.vehiclePlate || '').trim() || resolveGarageVehiclePlate(gv);
+                              if (!mergedPlate) errs.vehiclePlate = 'Plate number is required.';
+                              else if (!plateOk) errs.vehiclePlate = 'Use 4–9 letters/numbers (spaces ignored).';
+                            }
                             if (!bookingFromVehicle) {
                               if (!bookingForm.vehicleMake) errs.vehicleMake = 'Select a brand.';
                               if (!(bookingForm.vehicleModel || '').trim()) errs.vehicleModel = 'Model is required.';
                               if (!bookingForm.vehicleColor) errs.vehicleColor = 'Select a color.';
                               if (!bookingForm.vehicleCategory) errs.vehicleCategory = 'Select vehicle type.';
-                              if (!(bookingForm.vehiclePlate || '').trim()) errs.vehiclePlate = 'Plate number is required.';
-                              else if (!plateOk) errs.vehiclePlate = 'Use 4–9 letters/numbers (spaces ignored).';
                             }
                             if (Object.keys(errs).length > 0) {
                               setStep2Errors(errs);
