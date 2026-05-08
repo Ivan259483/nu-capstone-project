@@ -679,7 +679,7 @@ export default function BookingApprovalsPage() {
   ] as const;
 
   return (
-    <div className="booking-approvals-shell h-full flex flex-col space-y-5 page-enter pb-6">
+    <div className="booking-approvals-shell flex min-h-0 flex-col space-y-5 page-enter pb-6">
       {/* Header */}
       <div className="booking-approvals-header shrink-0 overflow-hidden rounded-[28px] border bg-white px-5 py-5 sm:px-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -759,7 +759,7 @@ export default function BookingApprovalsPage() {
       </div>
 
       {/* Content */}
-      <div className="booking-approvals-content flex-1 min-h-0 overflow-y-auto rounded-[22px] border bg-white p-4 scrollbar-thin">
+      <div className="booking-approvals-content rounded-[22px] border bg-white p-4">
         {loading ? (
           <div className="flex flex-col items-center justify-center h-64 gap-4 rounded-2xl bg-slate-50/70">
             <div className="w-10 h-10 border-4 border-amber-100 border-t-amber-500 rounded-full animate-spin" />

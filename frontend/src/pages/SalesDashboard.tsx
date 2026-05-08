@@ -122,10 +122,10 @@ export default function SalesDashboard() {
           collapsed={collapsed}
           onToggle={() => setCollapsed(!collapsed)}
         />
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <SalesTopbar onNavigateToApprovals={() => setActiveView('approvals')} />
-          <main className={`flex-1 p-6 scrollbar-thin ${activeView === 'pos' ? 'overflow-hidden flex flex-col' :
-              activeView === 'calendar' ? 'overflow-hidden flex flex-col' :
+          <main className={`min-h-0 flex-1 p-6 scrollbar-thin ${activeView === 'pos' ? 'flex flex-col overflow-hidden' :
+              activeView === 'calendar' ? 'flex flex-col overflow-hidden' :
                 'overflow-y-auto'
             }`}>
             {renderView()}
