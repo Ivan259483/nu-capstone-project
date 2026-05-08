@@ -11,6 +11,8 @@ import { SERVICE_OPERATION_ROLES } from '../constants/roles.js';
 
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
 const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'];
+const INLINE_STAGE_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+const INLINE_STAGE_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 
 export const TRACKER_STAGE_MEDIA_ROLES = [
   ...SERVICE_OPERATION_ROLES,
@@ -20,6 +22,34 @@ export const TRACKER_STAGE_MEDIA_ROLES = [
 
 function isHttpsUrl(s) {
   return typeof s === 'string' && /^https:\/\//i.test(s.trim()) && s.length < 4096;
+}
+
+function isSupportedInlineStagePhoto(file) {
+  return Boolean(file?.buffer?.length && INLINE_STAGE_PHOTO_MIME_TYPES.has(file.mimetype));
+}
+
+function cloudinaryErrorMessage(error) {
+  const data = error?.response?.data;
+  if (typeof data?.error?.message === 'string') return data.error.message;
+  if (typeof data?.message === 'string') return data.message;
+  if (typeof data === 'string') return data;
+  return error?.message || 'Cloudinary upload failed';
+}
+
+function buildInlineStagePhotoUrl(file) {
+  if (!isSupportedInlineStagePhoto(file)) {
+    const error = new Error('Upload a JPG, PNG, or WebP image.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (file.buffer.length > INLINE_STAGE_PHOTO_MAX_BYTES) {
+    const error = new Error('Photo storage failed. Please upload a smaller JPG, PNG, or WebP image.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
 }
 
 function upsertTrackerStageMedia(order, { stage, photoUrl, description, actorName, actorId }) {
@@ -162,9 +192,19 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
     let photoUrl = '';
+    let storage = 'none';
     if (req.file?.buffer) {
-      const urls = await uploadVehicleScanImages([req.file], { folder: 'live-tracker-stages' });
-      photoUrl = urls[0] || '';
+      try {
+        const urls = await uploadVehicleScanImages([req.file], { folder: 'live-tracker-stages' });
+        photoUrl = urls[0] || '';
+        storage = photoUrl ? 'cloudinary' : 'none';
+      } catch (uploadError) {
+        console.warn(
+          `[tracker] Cloudinary stage photo upload failed; using inline fallback: ${cloudinaryErrorMessage(uploadError)}`
+        );
+        photoUrl = buildInlineStagePhotoUrl(req.file);
+        storage = 'inline';
+      }
     }
 
     if (!photoUrl && stage !== 'confirmed') {
@@ -194,17 +234,17 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
       description: `${req.user?.name || 'Staff'} uploaded tracker stage media (${stage}) for order ${order.orderNumber || id}.`,
       status: 'success',
       referenceId: order._id,
-      metadata: { stage },
+      metadata: { stage, storage },
     });
 
     res.json({
       success: true,
       message: 'Stage photo uploaded',
-      data: { id: order._id, photoUrl, trackerStageMedia: order.trackerStageMedia },
+      data: { id: order._id, photoUrl, photoStorage: storage, trackerStageMedia: order.trackerStageMedia },
     });
   } catch (error) {
-    if (error?.code === 'CLOUDINARY_NOT_CONFIGURED') {
-      return res.status(503).json({ success: false, message: error.message });
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
     }
     next(error);
   }

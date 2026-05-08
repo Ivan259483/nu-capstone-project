@@ -17,10 +17,45 @@ import { getBilling, putBilling, checkoutBilling } from '../controllers/billing.
 
 const router = express.Router();
 
+const TRACKER_STAGE_PHOTO_MAX_BYTES = 12 * 1024 * 1024;
+const TRACKER_STAGE_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+
 const trackerStagePhotoUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 12 * 1024 * 1024 },
+  limits: { fileSize: TRACKER_STAGE_PHOTO_MAX_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (TRACKER_STAGE_PHOTO_MIME_TYPES.has(file.mimetype)) {
+      cb(null, true);
+      return;
+    }
+
+    const error = new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'photo');
+    error.message = 'Upload a JPG, PNG, or WebP image.';
+    cb(error);
+  },
 });
+
+const handleTrackerStagePhotoUpload = (req, res, next) => {
+  trackerStagePhotoUpload.single('photo')(req, res, (error) => {
+    if (!error) {
+      next();
+      return;
+    }
+
+    if (error instanceof multer.MulterError) {
+      const message = error.code === 'LIMIT_FILE_SIZE'
+        ? 'Photo is too large. Upload a JPG, PNG, or WebP image under 12 MB.'
+        : error.message || 'Invalid photo upload.';
+
+      return res.status(400).json({ success: false, message });
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: error.message || 'Invalid photo upload.',
+    });
+  });
+};
 
 router.use(authenticate);
 
@@ -266,7 +301,7 @@ router.patch(
 router.post(
   '/:id/stage-photo',
   authorize(...trackerController.TRACKER_STAGE_MEDIA_ROLES),
-  trackerStagePhotoUpload.single('photo'),
+  handleTrackerStagePhotoUpload,
   trackerController.postTrackerStagePhotoUpload
 );
 

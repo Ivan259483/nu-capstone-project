@@ -325,19 +325,21 @@ export function useQCData() {
           if (payload.description?.trim()) form.append('description', payload.description.trim());
           form.append('photo', file);
 
-          await api.post(`/bookings/${orderId}/stage-photo`, form, {
+          await api.post(`/orders/${orderId}/stage-photo`, form, {
             timeout: 120_000,
-            transformRequest: [(data, hdr) => {
-              delete (hdr as Record<string, unknown>)['Content-Type'];
-              return data as typeof form;
-            }],
-          });
+            headers: { 'Content-Type': undefined },
+            meta: { suppressErrorToast: true },
+          } as any);
         } else if (payload.stage === 'confirmed' && payload.description?.trim()) {
           loadingId = toast.loading('Saving note…');
-          await api.patch(`/bookings/${orderId}/stage-photo`, {
-            stage: 'confirmed',
-            description: payload.description.trim(),
-          });
+          await api.patch(
+            `/orders/${orderId}/stage-photo`,
+            {
+              stage: 'confirmed',
+              description: payload.description.trim(),
+            },
+            { meta: { suppressErrorToast: true } } as any
+          );
         } else {
           toast.error(
             payload.stage === 'confirmed'
@@ -354,7 +356,7 @@ export function useQCData() {
         await fetchJobs(true);
         return true;
       } catch (err: any) {
-        const msg = err?.response?.data?.message || 'Upload failed';
+        const msg = err?.response?.data?.message || err?.message || 'Upload failed';
         toast.error('Stage photo upload failed', { id: loadingId, description: msg });
         return false;
       }
