@@ -158,6 +158,15 @@ const generateBookingReference = () => {
   return `ASPF-${yy}${mm}${dd}-${hex}`;
 };
 
+/**
+ * Bulk dashboard lists (sales / ops / admin POS views) fetch hundreds of orders.
+ * Full documents often include multi‑MB inline tracker photos (`data:image/...`)
+ * and heavy workflow payloads — killing JSON parse time and bandwidth.
+ * Customers & assigned detailers keep full projections (small result sets).
+ */
+const ORDER_LIST_LITE_PROJECTION =
+  '-damageAnnotations -damagePhotos -photos -ingressChecklist -customerWaiver -serviceProper -qcChecklist -egressData -operationsChecklist -warrantyAndReceipt -workflow -jobOrder -staffNotes -rating -inventoryReservation -serviceSteps -trackerStageMedia -legalCompliance';
+
 const formatBookingDto = (orderDoc) => {
   if (!orderDoc) return null;
   const order = typeof orderDoc.toObject === 'function'
@@ -272,14 +281,27 @@ export const getAllOrders = async (req, res, next) => {
     const parsedSkip = parseInt(skip);
     const parsedLimit = parseInt(limit);
 
-    const orders = await Order.find(query)
+    const useLiteListPayload =
+      isPosManagerRole(req.user.role) || isBookingManagerRole(req.user.role);
+
+    let orderQuery = Order.find(query);
+
+    if (useLiteListPayload) {
+      orderQuery = orderQuery.select(ORDER_LIST_LITE_PROJECTION);
+    }
+
+    orderQuery = orderQuery
       .populate('customer', 'name email phone avatar')
-      .populate('items.product')
       .populate('assignedDetailer', 'name email')
       .sort({ createdAt: -1 })
       .skip(parsedSkip)
-      .limit(parsedLimit)
-      .lean();
+      .limit(parsedLimit);
+
+    if (!useLiteListPayload) {
+      orderQuery = orderQuery.populate('items.product');
+    }
+
+    const orders = await orderQuery.lean();
 
     // Skip the expensive countDocuments round-trip when the client
     // requests a large batch (dashboard loads). Only count when

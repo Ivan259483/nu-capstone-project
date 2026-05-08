@@ -12,6 +12,9 @@ const connectDB = async () => {
       useNewUrlParser: true,
       useUnifiedTopology: true,
       serverSelectionTimeoutMS: 8000,
+      /** Atlas-friendly defaults — avoids starving under concurrent dashboard tabs */
+      maxPoolSize: 25,
+      minPoolSize: 2,
     });
     console.log(`MongoDB Connected: ${conn.connection.host}`);
     return conn;

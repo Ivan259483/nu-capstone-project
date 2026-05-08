@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import api from '@/lib/api';
 import { getSharedSocket } from './useRealtimeSync';
 import type { Transaction, TransactionStatus, PaymentMethod } from '@/lib/salesData';
@@ -114,8 +114,11 @@ function buildTransactionServices(o: any): Transaction['services'] {
 export function useSalesAnalytics() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const fetchInFlight = useRef(false);
 
   const fetchOrders = useCallback(async () => {
+    if (fetchInFlight.current) return;
+    fetchInFlight.current = true;
     try {
       const { data } = await api.get('/orders?limit=500', { meta: { suppressErrorToast: true } });
       if (data.success && Array.isArray(data.data)) {
@@ -161,6 +164,7 @@ export function useSalesAnalytics() {
     } catch (error) {
       console.error('Failed to fetch sales transactions:', error);
     } finally {
+      fetchInFlight.current = false;
       setIsLoading(false);
     }
   }, []);
@@ -168,8 +172,8 @@ export function useSalesAnalytics() {
   useEffect(() => {
     void fetchOrders();
 
-    // Backup poll — short interval so the dashboard feels "live" even without socket events
-    const interval = setInterval(() => void fetchOrders(), 5_000);
+    // Backup poll — avoid stacking requests if an /orders fetch is slow (socket still drives live updates)
+    const interval = setInterval(() => void fetchOrders(), 30_000);
 
     const socket = getSharedSocket();
     const handleDbChange = (payload: any) => {
