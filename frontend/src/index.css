@@ -722,6 +722,1347 @@ html.dark * {
     box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
 }
 
+@property --customer-live-ring-angle {
+    syntax: "<angle>";
+    inherits: false;
+    initial-value: 0deg;
+}
+
+/* Customer live service tracker */
+.customer-live-tracker-section {
+    margin-bottom: 2rem;
+}
+
+.customer-live-tracker {
+    --tracker-progress: 0%;
+    --tracker-progress-angle: 0deg;
+    --customer-live-ring-angle: var(--tracker-progress-angle);
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 1.5rem;
+    background:
+        linear-gradient(115deg, rgba(20, 184, 166, 0.14), transparent 34%, rgba(245, 158, 11, 0.14) 72%, transparent),
+        linear-gradient(145deg, #08111f 0%, #101827 48%, #171f32 100%);
+    color: #f8fafc;
+    box-shadow:
+        0 34px 70px rgba(15, 23, 42, 0.34),
+        0 1px 0 rgba(255, 255, 255, 0.08) inset;
+}
+
+.customer-live-tracker::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(112deg, transparent 0 34%, rgba(125, 211, 252, 0.11) 44%, rgba(251, 191, 36, 0.09) 52%, transparent 64%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 34%);
+    background-position: 180% 50%, 0 0;
+    background-size: 220% 100%, 100% 100%;
+    mix-blend-mode: screen;
+    opacity: 0.72;
+    animation: customerLiveSurfaceSweep 6.8s linear infinite;
+}
+
+.customer-live-tracker::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent 82%);
+    opacity: 0.76;
+    animation: customerLiveGridDrift 18s linear infinite;
+}
+
+.customer-live-tracker-header,
+.customer-live-command-grid,
+.customer-live-step-grid,
+.customer-live-footer {
+    position: relative;
+    z-index: 1;
+}
+
+.customer-live-tracker-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.5rem 1.75rem 1.25rem;
+}
+
+.customer-live-title-block {
+    min-width: 0;
+}
+
+.customer-live-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.55rem;
+    color: #67e8f9;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.customer-live-dot {
+    position: relative;
+    width: 0.5rem;
+    height: 0.5rem;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: #22c55e;
+    box-shadow: 0 0 0 0.25rem rgba(34, 197, 94, 0.14);
+}
+
+.customer-live-dot::after {
+    content: "";
+    position: absolute;
+    inset: -0.25rem;
+    border-radius: inherit;
+    border: 1px solid rgba(34, 197, 94, 0.45);
+    animation: customerLivePulse 1.8s ease-out infinite;
+}
+
+@keyframes customerLivePulse {
+    0% {
+        opacity: 0.85;
+        transform: scale(0.82);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(1.55);
+    }
+}
+
+@keyframes customerLiveSurfaceSweep {
+    0% {
+        background-position: 180% 50%, 0 0;
+    }
+    100% {
+        background-position: -80% 50%, 0 0;
+    }
+}
+
+@keyframes customerLiveGridDrift {
+    0% {
+        background-position: 0 0, 0 0;
+    }
+    100% {
+        background-position: 44px 44px, 44px 44px;
+    }
+}
+
+@keyframes customerLiveChipIn {
+    0% {
+        opacity: 0;
+        transform: translateY(0.35rem);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes customerLiveChipSheen {
+    0%,
+    54% {
+        transform: translateX(-120%);
+    }
+    82%,
+    100% {
+        transform: translateX(120%);
+    }
+}
+
+@keyframes customerLivePanelIn {
+    0% {
+        opacity: 0;
+        transform: translateY(0.7rem) scale(0.985);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes customerLiveRingSweep {
+    0% {
+        --customer-live-ring-angle: 0deg;
+        filter: saturate(0.82);
+        transform: scale(0.96);
+    }
+    70% {
+        filter: saturate(1.12);
+        transform: scale(1.025);
+    }
+    100% {
+        --customer-live-ring-angle: var(--tracker-progress-angle);
+        filter: saturate(1);
+        transform: scale(1);
+    }
+}
+
+@keyframes customerLiveRingSheen {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes customerLiveNumberPop {
+    0% {
+        opacity: 0;
+        transform: translateY(0.25rem) scale(0.84);
+    }
+    72% {
+        opacity: 1;
+        transform: translateY(0) scale(1.08);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes customerLiveNumberBreathe {
+    0%,
+    100% {
+        text-shadow: 0 0 0 rgba(251, 191, 36, 0);
+    }
+    50% {
+        text-shadow: 0 0 18px rgba(251, 191, 36, 0.22);
+    }
+}
+
+@keyframes customerLiveNextGlow {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.1);
+    }
+    50% {
+        box-shadow: 0 0 0 0.22rem rgba(56, 189, 248, 0.08);
+    }
+}
+
+@keyframes customerLiveRowIn {
+    0% {
+        opacity: 0;
+        transform: translateX(-0.45rem);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes customerLiveRailFlow {
+    0% {
+        transform: translateX(-120%);
+    }
+    100% {
+        transform: translateX(120%);
+    }
+}
+
+@keyframes customerLiveMarkerEnter {
+    0% {
+        opacity: 0;
+        transform: scale(0.78);
+    }
+    68% {
+        opacity: 1;
+        transform: scale(1.08);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes customerLiveActiveRadar {
+    0% {
+        opacity: 0.7;
+        transform: scale(0.74);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(1.55);
+    }
+}
+
+@keyframes customerLiveActiveGlow {
+    0%,
+    100% {
+        transform: scale(0.96);
+        opacity: 0.58;
+    }
+    50% {
+        transform: scale(1.08);
+        opacity: 0.92;
+    }
+}
+
+@keyframes customerLiveLabelIn {
+    0% {
+        opacity: 0;
+        transform: translateY(0.35rem);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes customerLiveCardIn {
+    0% {
+        opacity: 0;
+        transform: translateY(0.8rem) scale(0.985);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes customerLiveActiveCardBreath {
+    0%,
+    100% {
+        border-color: rgba(251, 191, 36, 0.42);
+        box-shadow: 0 16px 34px rgba(245, 158, 11, 0.12);
+    }
+    50% {
+        border-color: rgba(251, 191, 36, 0.68);
+        box-shadow:
+            0 18px 42px rgba(245, 158, 11, 0.18),
+            0 0 0 0.18rem rgba(251, 191, 36, 0.065);
+    }
+}
+
+@keyframes customerLiveCardSweep {
+    0%,
+    46% {
+        transform: translateX(-120%);
+    }
+    82%,
+    100% {
+        transform: translateX(120%);
+    }
+}
+
+@keyframes customerLiveIconLive {
+    0%,
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(251, 191, 36, 0);
+    }
+    50% {
+        transform: scale(1.04);
+        box-shadow: 0 0 0 0.22rem rgba(251, 191, 36, 0.08);
+    }
+}
+
+@keyframes customerLiveEvidenceIn {
+    0% {
+        opacity: 0;
+        transform: translateY(0.45rem);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes customerLivePhotoReveal {
+    0% {
+        opacity: 0;
+        transform: scale(1.06);
+        filter: saturate(0.65);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+        filter: saturate(1);
+    }
+}
+
+@keyframes customerLivePhotoGlint {
+    0%,
+    58% {
+        transform: translateX(-120%);
+    }
+    88%,
+    100% {
+        transform: translateX(120%);
+    }
+}
+
+@keyframes customerLiveEvidenceScan {
+    0%,
+    38% {
+        transform: translateY(-100%);
+    }
+    72%,
+    100% {
+        transform: translateY(100%);
+    }
+}
+
+.customer-live-title-block h2 {
+    margin: 0;
+    color: #ffffff;
+    font-size: 1.75rem;
+    font-weight: 900;
+    letter-spacing: 0;
+    line-height: 1.05;
+}
+
+.customer-live-title-block p {
+    margin: 0.45rem 0 0;
+    max-width: 42rem;
+    color: rgba(226, 232, 240, 0.7);
+    font-size: 0.86rem;
+    font-weight: 600;
+    line-height: 1.45;
+}
+
+.customer-live-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-top: 0.85rem;
+}
+
+.customer-live-chip-row span {
+    position: relative;
+    display: inline-flex;
+    max-width: 16rem;
+    align-items: center;
+    gap: 0.35rem;
+    overflow: hidden;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.055);
+    color: rgba(226, 232, 240, 0.72);
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    animation: customerLiveChipIn 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.customer-live-chip-row span:nth-child(2) {
+    animation-delay: 80ms;
+}
+
+.customer-live-chip-row span:nth-child(3) {
+    animation-delay: 160ms;
+}
+
+.customer-live-header-actions {
+    display: flex;
+    align-items: stretch;
+    gap: 0.75rem;
+    flex-shrink: 0;
+}
+
+.customer-live-eta {
+    position: relative;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    min-width: 10rem;
+    padding: 0.65rem 0.85rem;
+    border: 1px solid rgba(251, 191, 36, 0.28);
+    border-radius: 0.95rem;
+    background: rgba(245, 158, 11, 0.1);
+    color: #fbbf24;
+}
+
+.customer-live-eta::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(105deg, transparent 0 34%, rgba(254, 243, 199, 0.2) 48%, transparent 62% 100%);
+    transform: translateX(-120%);
+    animation: customerLiveChipSheen 4.2s ease-in-out infinite;
+}
+
+.customer-live-eta > * {
+    position: relative;
+    z-index: 1;
+}
+
+.customer-live-eta div {
+    display: grid;
+    gap: 0.1rem;
+}
+
+.customer-live-eta strong {
+    color: #fde68a;
+    font-size: 0.85rem;
+    line-height: 1.1;
+}
+
+.customer-live-eta span {
+    color: rgba(254, 243, 199, 0.62);
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.customer-live-open-button {
+    display: inline-flex;
+    min-width: 2.75rem;
+    height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 0 0.85rem;
+    border: 1px solid rgba(125, 211, 252, 0.3);
+    border-radius: 0.95rem;
+    background: rgba(14, 165, 233, 0.12);
+    color: #7dd3fc;
+    font-size: 0.76rem;
+    font-weight: 900;
+    transition:
+        border-color 160ms ease,
+        background-color 160ms ease,
+        transform 160ms ease;
+}
+
+.customer-live-open-button:hover {
+    border-color: rgba(125, 211, 252, 0.56);
+    background: rgba(14, 165, 233, 0.2);
+    transform: translateY(-1px);
+}
+
+.customer-live-command-grid {
+    display: grid;
+    grid-template-columns: minmax(17rem, 0.85fr) minmax(0, 1.15fr);
+    gap: 1rem;
+    padding: 0 1.75rem 1.25rem;
+}
+
+.customer-live-progress-panel,
+.customer-live-status-panel {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 1.1rem;
+    background: rgba(15, 23, 42, 0.58);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+    animation: customerLivePanelIn 640ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.customer-live-status-panel {
+    animation-delay: 90ms;
+}
+
+.customer-live-progress-panel {
+    display: grid;
+    grid-template-columns: 8rem minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    padding: 1rem;
+}
+
+.customer-live-progress-ring {
+    --customer-live-ring-angle: var(--tracker-progress-angle);
+    position: relative;
+    display: grid;
+    grid-row: span 2;
+    width: 7.4rem;
+    height: 7.4rem;
+    place-items: center;
+    border-radius: 999px;
+    box-shadow:
+        0 0 28px rgba(245, 158, 11, 0.22),
+        0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+    background: conic-gradient(#f59e0b var(--customer-live-ring-angle), rgba(255, 255, 255, 0.1) 0deg);
+    animation: customerLiveRingSweep 1.05s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.customer-live-progress-ring::before {
+    content: "";
+    position: absolute;
+    inset: -0.35rem;
+    border-radius: inherit;
+    background: conic-gradient(from 0deg, transparent 0 36%, rgba(255, 255, 255, 0.45) 45%, transparent 54% 100%);
+    opacity: 0.5;
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1rem), #000 calc(100% - 0.96rem));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 1rem), #000 calc(100% - 0.96rem));
+    animation: customerLiveRingSheen 3.1s linear infinite;
+}
+
+.customer-live-progress-ring::after {
+    content: "";
+    position: absolute;
+    inset: 0.55rem;
+    border-radius: inherit;
+    border: 1px solid rgba(251, 191, 36, 0.16);
+    box-shadow: 0 0 32px rgba(245, 158, 11, 0.12);
+    pointer-events: none;
+}
+
+.customer-live-progress-ring > div {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    width: 5.65rem;
+    height: 5.65rem;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: inherit;
+    background: #0b1220;
+    text-align: center;
+}
+
+.customer-live-progress-ring strong {
+    display: block;
+    color: #ffffff;
+    font-size: 1.7rem;
+    font-weight: 900;
+    line-height: 1;
+    animation:
+        customerLiveNumberPop 720ms cubic-bezier(0.16, 1, 0.3, 1) both 260ms,
+        customerLiveNumberBreathe 2.8s ease-in-out infinite 1.1s;
+}
+
+.customer-live-progress-ring span {
+    display: block;
+    margin-top: 0.2rem;
+    color: rgba(226, 232, 240, 0.54);
+    font-size: 0.64rem;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.customer-live-progress-caption {
+    align-self: end;
+    min-width: 0;
+}
+
+.customer-live-progress-caption strong {
+    display: block;
+    overflow: hidden;
+    color: #f8fafc;
+    font-size: 1rem;
+    font-weight: 900;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.customer-live-progress-caption span {
+    position: relative;
+    display: inline-flex;
+    overflow: hidden;
+    margin-top: 0.45rem;
+    padding: 0.22rem 0.55rem;
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    border-radius: 999px;
+    background: rgba(14, 165, 233, 0.1);
+    color: #7dd3fc;
+    font-size: 0.68rem;
+    font-weight: 850;
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.18);
+    animation: customerLiveNextGlow 2.8s ease-in-out infinite;
+}
+
+.customer-live-progress-caption span::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(105deg, transparent 0 34%, rgba(125, 211, 252, 0.22) 50%, transparent 66% 100%);
+    transform: translateX(-120%);
+    animation: customerLiveChipSheen 3.6s ease-in-out infinite;
+}
+
+.customer-live-summary-list {
+    display: grid;
+    grid-column: 2;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.customer-live-summary-list div {
+    min-width: 0;
+    animation: customerLiveRowIn 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.customer-live-summary-list div:nth-child(2) {
+    animation-delay: 90ms;
+}
+
+.customer-live-summary-list div:nth-child(3) {
+    animation-delay: 180ms;
+}
+
+.customer-live-summary-list span,
+.customer-live-status-topline span,
+.customer-live-reward-panel span {
+    display: block;
+    margin-bottom: 0.2rem;
+    color: rgba(148, 163, 184, 0.92);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.customer-live-summary-list strong,
+.customer-live-status-topline strong,
+.customer-live-reward-panel strong {
+    display: block;
+    overflow: hidden;
+    color: #f8fafc;
+    font-size: 0.88rem;
+    font-weight: 800;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.customer-live-status-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.customer-live-status-topline {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1rem;
+}
+
+.customer-live-status-topline div:last-child {
+    text-align: right;
+}
+
+.customer-live-stage-note {
+    margin: -0.2rem 0 0;
+    max-width: 52rem;
+    color: rgba(226, 232, 240, 0.56);
+    font-size: 0.78rem;
+    font-weight: 650;
+    line-height: 1.45;
+    animation: customerLiveRowIn 620ms cubic-bezier(0.22, 1, 0.36, 1) both 120ms;
+}
+
+.customer-live-rail {
+    position: relative;
+    height: 2.25rem;
+}
+
+.customer-live-rail::before,
+.customer-live-rail-fill {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    right: 1rem;
+    height: 0.25rem;
+    border-radius: 999px;
+}
+
+.customer-live-rail::before {
+    content: "";
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.customer-live-rail-fill {
+    right: auto;
+    max-width: calc(100% - 2rem);
+    overflow: hidden;
+    background: linear-gradient(90deg, #22c55e, #f59e0b, #38bdf8);
+    box-shadow:
+        0 0 18px rgba(56, 189, 248, 0.18),
+        0 0 22px rgba(245, 158, 11, 0.13);
+    transition: width 650ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.customer-live-rail-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0 12%, rgba(255, 255, 255, 0.62) 46%, transparent 78% 100%);
+    transform: translateX(-120%);
+    animation: customerLiveRailFlow 2.35s linear infinite;
+}
+
+.customer-live-rail-markers {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: center;
+    height: 100%;
+}
+
+.customer-live-rail-marker {
+    position: relative;
+    display: inline-flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    justify-self: center;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    background: #111827;
+    color: rgba(226, 232, 240, 0.4);
+    animation: customerLiveMarkerEnter 540ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--live-step-delay, 0ms);
+}
+
+.customer-live-rail-marker iconify-icon {
+    position: relative;
+    z-index: 1;
+}
+
+.customer-live-rail-marker.is-done {
+    border-color: rgba(34, 197, 94, 0.42);
+    background: #15803d;
+    color: #ffffff;
+    box-shadow:
+        0 0 0 0.28rem rgba(34, 197, 94, 0.09),
+        0 10px 18px rgba(22, 163, 74, 0.18);
+}
+
+.customer-live-rail-marker.is-active {
+    border-color: rgba(251, 191, 36, 0.7);
+    background: #d97706;
+    color: #ffffff;
+    box-shadow: 0 0 0 0.35rem rgba(245, 158, 11, 0.14);
+}
+
+.customer-live-rail-marker.is-active::before {
+    content: "";
+    position: absolute;
+    inset: -0.7rem;
+    border-radius: inherit;
+    border: 1px solid rgba(251, 191, 36, 0.42);
+    opacity: 0;
+    animation: customerLiveActiveRadar 1.85s ease-out infinite;
+}
+
+.customer-live-rail-marker.is-active::after {
+    content: "";
+    position: absolute;
+    inset: -0.18rem;
+    border-radius: inherit;
+    background: radial-gradient(circle, rgba(254, 243, 199, 0.26), transparent 62%);
+    opacity: 0.86;
+    animation: customerLiveActiveGlow 2.4s ease-in-out infinite;
+}
+
+.customer-live-rail-labels {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-top: -0.2rem;
+}
+
+.customer-live-rail-labels span {
+    overflow: hidden;
+    color: rgba(148, 163, 184, 0.72);
+    font-size: 0.64rem;
+    font-weight: 850;
+    line-height: 1.15;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    animation: customerLiveLabelIn 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--live-step-delay, 0ms);
+}
+
+.customer-live-rail-labels span.is-done {
+    color: #86efac;
+}
+
+.customer-live-rail-labels span.is-active {
+    color: #fde68a;
+    text-shadow: 0 0 14px rgba(251, 191, 36, 0.26);
+}
+
+.customer-live-reward-panel {
+    display: grid;
+    grid-template-columns: minmax(9rem, auto) minmax(8rem, 1fr);
+    gap: 0.8rem 1rem;
+    align-items: center;
+    padding-top: 0.9rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.customer-live-reward-progress {
+    position: relative;
+    height: 0.55rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.customer-live-reward-progress span {
+    position: relative;
+    display: block;
+    height: 100%;
+    margin: 0;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #f59e0b, #22c55e, #38bdf8);
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+    transition: width 650ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.customer-live-reward-progress span::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0 20%, rgba(255, 255, 255, 0.55) 48%, transparent 76% 100%);
+    transform: translateX(-120%);
+    animation: customerLiveRailFlow 2.8s linear infinite;
+}
+
+.customer-live-reward-panel p {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: rgba(226, 232, 240, 0.58);
+    font-size: 0.74rem;
+    font-weight: 700;
+}
+
+.customer-live-step-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 0.7rem;
+    padding: 0 1.75rem 1.25rem;
+}
+
+.customer-live-step {
+    position: relative;
+    overflow: hidden;
+    min-width: 0;
+    min-height: 11rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 1rem;
+    background: rgba(15, 23, 42, 0.48);
+    transition:
+        border-color 180ms ease,
+        background-color 180ms ease,
+        transform 180ms ease;
+    animation: customerLiveCardIn 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--live-step-delay, 0ms);
+    will-change: transform, opacity;
+}
+
+.customer-live-step::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: linear-gradient(115deg, transparent 0 38%, rgba(255, 255, 255, 0.09) 48%, transparent 62% 100%);
+    opacity: 0;
+    transform: translateX(-120%);
+}
+
+.customer-live-step:hover {
+    transform: translateY(-2px);
+}
+
+.customer-live-step.is-done {
+    border-color: rgba(34, 197, 94, 0.26);
+    background: rgba(20, 83, 45, 0.28);
+}
+
+.customer-live-step.is-active {
+    border-color: rgba(251, 191, 36, 0.48);
+    background: rgba(120, 53, 15, 0.32);
+    box-shadow: 0 16px 34px rgba(245, 158, 11, 0.12);
+    animation:
+        customerLiveCardIn 620ms cubic-bezier(0.22, 1, 0.36, 1) both,
+        customerLiveActiveCardBreath 2.9s ease-in-out infinite 900ms;
+    animation-delay: var(--live-step-delay, 0ms), 900ms;
+}
+
+.customer-live-step.is-active::before {
+    opacity: 1;
+    animation: customerLiveCardSweep 3.4s ease-in-out infinite;
+}
+
+.customer-live-step-main {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 2.35rem minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.85rem;
+}
+
+.customer-live-step-icon {
+    display: inline-flex;
+    width: 2.35rem;
+    height: 2.35rem;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.85rem;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(226, 232, 240, 0.56);
+}
+
+.customer-live-step.is-done .customer-live-step-icon {
+    border-color: rgba(34, 197, 94, 0.34);
+    background: rgba(34, 197, 94, 0.18);
+    color: #86efac;
+}
+
+.customer-live-step.is-active .customer-live-step-icon {
+    border-color: rgba(251, 191, 36, 0.5);
+    background: rgba(245, 158, 11, 0.22);
+    color: #fde68a;
+    animation: customerLiveIconLive 1.9s ease-in-out infinite;
+}
+
+.customer-live-step-copy {
+    min-width: 0;
+}
+
+.customer-live-step-copy > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.customer-live-step-copy h3 {
+    margin: 0;
+    overflow: hidden;
+    color: rgba(226, 232, 240, 0.86);
+    font-size: 0.82rem;
+    font-weight: 850;
+    letter-spacing: 0;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.customer-live-step.is-active .customer-live-step-copy h3 {
+    color: #fde68a;
+}
+
+.customer-live-step-copy span {
+    display: inline-flex;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(226, 232, 240, 0.54);
+    font-size: 0.62rem;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.customer-live-step.is-done .customer-live-step-copy span {
+    background: rgba(34, 197, 94, 0.14);
+    color: #86efac;
+}
+
+.customer-live-step.is-active .customer-live-step-copy span {
+    background: rgba(245, 158, 11, 0.16);
+    color: #fde68a;
+}
+
+.customer-live-step-copy p {
+    margin: 0.28rem 0 0;
+    overflow: hidden;
+    color: rgba(226, 232, 240, 0.42);
+    font-size: 0.72rem;
+    font-weight: 650;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.customer-live-step-time {
+    align-self: start;
+    padding: 0.28rem 0.55rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(226, 232, 240, 0.56);
+    font-size: 0.66rem;
+    font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.customer-live-step.is-active .customer-live-step-time {
+    border-color: rgba(251, 191, 36, 0.3);
+    background: rgba(245, 158, 11, 0.12);
+    color: #fde68a;
+}
+
+.customer-live-step-evidence {
+    position: relative;
+    z-index: 1;
+    padding: 0 0.85rem 0.85rem;
+    animation: customerLiveEvidenceIn 520ms cubic-bezier(0.22, 1, 0.36, 1) both 180ms;
+}
+
+.customer-live-evidence-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin: 0 0 0.5rem;
+}
+
+.customer-live-evidence-meta span {
+    overflow: hidden;
+    color: rgba(148, 163, 184, 0.74);
+    font-size: 0.6rem;
+    font-weight: 900;
+    line-height: 1;
+    text-transform: uppercase;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.customer-live-evidence-meta strong {
+    flex: 0 0 auto;
+    color: rgba(226, 232, 240, 0.72);
+    font-size: 0.62rem;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.customer-live-step-evidence p {
+    display: -webkit-box;
+    overflow: hidden;
+    margin: 0 0 0.55rem;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    color: rgba(226, 232, 240, 0.5);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.customer-live-step-evidence a,
+.customer-live-photo-placeholder {
+    position: relative;
+    display: flex;
+    width: 100%;
+    height: 4.6rem;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.8rem;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.customer-live-step-evidence a::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(105deg, transparent 0 36%, rgba(255, 255, 255, 0.32) 50%, transparent 64% 100%);
+    transform: translateX(-120%);
+    animation: customerLivePhotoGlint 3.9s ease-in-out infinite 900ms;
+}
+
+.customer-live-step-evidence img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    animation: customerLivePhotoReveal 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.customer-live-photo-placeholder {
+    flex-direction: column;
+    gap: 0.3rem;
+    color: rgba(226, 232, 240, 0.42);
+    font-size: 0.68rem;
+    font-weight: 800;
+}
+
+.customer-live-photo-placeholder::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(180deg, transparent 0 18%, rgba(125, 211, 252, 0.18) 44%, transparent 72% 100%),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03), transparent);
+    transform: translateY(-100%);
+    animation: customerLiveEvidenceScan 2.6s ease-in-out infinite;
+}
+
+.customer-live-photo-placeholder iconify-icon,
+.customer-live-photo-placeholder span {
+    position: relative;
+    z-index: 1;
+}
+
+.customer-live-step.is-active .customer-live-photo-placeholder {
+    border-color: rgba(251, 191, 36, 0.18);
+    background: rgba(245, 158, 11, 0.065);
+}
+
+.customer-live-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(2, 6, 23, 0.22);
+    color: rgba(226, 232, 240, 0.54);
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.customer-live-footer span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.customer-live-footer strong {
+    color: #fbbf24;
+    font-size: 0.74rem;
+    text-transform: uppercase;
+}
+
+@media (max-width: 1180px) {
+    .customer-live-command-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 720px) {
+    .customer-live-tracker {
+        border-radius: 1.15rem;
+    }
+
+    .customer-live-tracker-header,
+    .customer-live-command-grid,
+    .customer-live-step-grid,
+    .customer-live-footer {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .customer-live-tracker-header,
+    .customer-live-header-actions,
+    .customer-live-status-topline,
+    .customer-live-reward-panel {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .customer-live-header-actions {
+        width: 100%;
+    }
+
+    .customer-live-open-button {
+        width: 100%;
+    }
+
+    .customer-live-progress-panel {
+        grid-template-columns: 1fr;
+        justify-items: center;
+        text-align: center;
+    }
+
+    .customer-live-progress-ring,
+    .customer-live-summary-list {
+        grid-column: auto;
+        grid-row: auto;
+    }
+
+    .customer-live-status-topline div:last-child {
+        text-align: left;
+    }
+
+    .customer-live-step-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .customer-live-footer {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .customer-live-tracker::before,
+    .customer-live-tracker::after,
+    .customer-live-dot::after,
+    .customer-live-chip-row span,
+    .customer-live-eta::after,
+    .customer-live-progress-panel,
+    .customer-live-status-panel,
+    .customer-live-progress-ring,
+    .customer-live-progress-ring::before,
+    .customer-live-progress-ring strong,
+    .customer-live-progress-caption span,
+    .customer-live-progress-caption span::after,
+    .customer-live-summary-list div,
+    .customer-live-stage-note,
+    .customer-live-rail-fill::after,
+    .customer-live-rail-marker,
+    .customer-live-rail-marker.is-active::before,
+    .customer-live-rail-marker.is-active::after,
+    .customer-live-rail-labels span,
+    .customer-live-reward-progress span::after,
+    .customer-live-step,
+    .customer-live-step::before,
+    .customer-live-step.is-active,
+    .customer-live-step.is-active::before,
+    .customer-live-step.is-active .customer-live-step-icon,
+    .customer-live-step-evidence,
+    .customer-live-step-evidence a::after,
+    .customer-live-step-evidence img,
+    .customer-live-photo-placeholder::before {
+        animation: none !important;
+        transition-duration: 1ms !important;
+    }
+
+    .customer-live-progress-ring {
+        --customer-live-ring-angle: var(--tracker-progress-angle);
+        transform: none !important;
+    }
+
+    .customer-live-chip-row span,
+    .customer-live-progress-panel,
+    .customer-live-status-panel,
+    .customer-live-summary-list div,
+    .customer-live-stage-note,
+    .customer-live-rail-marker,
+    .customer-live-rail-labels span,
+    .customer-live-step,
+    .customer-live-step-evidence,
+    .customer-live-step-evidence img {
+        opacity: 1 !important;
+        transform: none !important;
+    }
+}
+
 /* Customer booking modal */
 .customer-booking-modal {
     border-color: rgba(203, 213, 225, 0.42) !important;

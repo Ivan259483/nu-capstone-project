@@ -146,6 +146,58 @@ const formatPlateDisplay = (value: unknown, fallback = '—') => {
   return formatted || fallback;
 };
 
+const TRACKER_ESTIMATED_SERVICE_MINUTES = 210;
+
+function parseClockTimeToMinutes(value: unknown): number | null {
+  const raw = String(value ?? '').trim();
+  if (!raw || raw === '--') return null;
+  const match = raw.match(/(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)?/i);
+  if (!match) return null;
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  const meridiem = match[3]?.toLowerCase().replace(/\./g, '');
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute > 59) return null;
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    if (hour === 12) hour = 0;
+    if (meridiem === 'pm') hour += 12;
+  } else if (hour > 23) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+}
+
+function formatMinutesAsLocaleTime(totalMinutes: number): string {
+  const normalized = ((totalMinutes % 1440) + 1440) % 1440;
+  const date = new Date(2026, 0, 1, Math.floor(normalized / 60), normalized % 60);
+  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+function formatTrackerClockLabel(value: unknown, fallback = '--'): string {
+  const minutes = parseClockTimeToMinutes(value);
+  if (minutes == null) {
+    const raw = String(value ?? '').trim();
+    return raw && raw !== '--' ? raw : fallback;
+  }
+  return formatMinutesAsLocaleTime(minutes);
+}
+
+function formatTrackerEtaLabel(value: unknown): string {
+  const start = parseClockTimeToMinutes(value);
+  if (start == null) return 'ETA updating';
+  return `Est. ${formatMinutesAsLocaleTime(start + TRACKER_ESTIMATED_SERVICE_MINUTES)}`;
+}
+
+function formatTrackerUpdatedLabel(value: unknown): string {
+  if (!value) return 'Live sync active';
+  const d = new Date(value as string);
+  if (Number.isNaN(d.getTime())) return 'Live sync active';
+  return `Updated ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+}
+
 const formatVehicleMakeModelDisplay = (make: unknown, model: unknown) =>
   [
     formatTitleCaseDisplay(make, ''),
@@ -1755,6 +1807,20 @@ export default function CustomerDashboard() {
   const scanUploadTotalSize = scanUploads.reduce((total, upload) => total + upload.size, 0);
   const rewardTier =
     customerStats.loyaltyPoints >= 1000 ? 'Platinum' : customerStats.loyaltyPoints >= 500 ? 'Gold' : customerStats.loyaltyPoints >= 200 ? 'Silver' : 'Starter';
+  const rewardTierLevels = [
+    { name: 'Starter', min: 0 },
+    { name: 'Silver', min: 200 },
+    { name: 'Gold', min: 500 },
+    { name: 'Platinum', min: 1000 },
+  ] as const;
+  const currentRewardTierIndex = Math.max(0, rewardTierLevels.findIndex((tier) => tier.name === rewardTier));
+  const currentRewardTier = rewardTierLevels[currentRewardTierIndex] || rewardTierLevels[0];
+  const nextRewardTier = rewardTierLevels[currentRewardTierIndex + 1] || null;
+  const pointsToNextRewardTier = nextRewardTier ? Math.max(0, nextRewardTier.min - customerStats.loyaltyPoints) : 0;
+  const rewardTierProgressPct = nextRewardTier
+    ? Math.min(100, Math.max(0, Math.round(((customerStats.loyaltyPoints - currentRewardTier.min) / (nextRewardTier.min - currentRewardTier.min)) * 100)))
+    : 100;
+  const formattedLoyaltyPoints = new Intl.NumberFormat(undefined).format(customerStats.loyaltyPoints);
   const rewardCatalog = [
     { id: 'rw-1', title: 'Free Premium Wash', points: 150, code: 'WASH150', desc: 'Use on any maintenance wash booking.' },
     { id: 'rw-2', title: '10% Coating Discount', points: 300, code: 'COAT10', desc: 'Applies to selected coating services.' },
@@ -3469,7 +3535,7 @@ export default function CustomerDashboard() {
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
                       <iconify-icon icon="solar:star-bold" width="16"></iconify-icon>
-                      {customerStats.loyaltyPoints.toLocaleString()} points
+                      {formattedLoyaltyPoints} points
                     </span>
                     <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700">
                       Tier: {rewardTier}
@@ -3892,14 +3958,19 @@ export default function CustomerDashboard() {
                       <div className="min-w-0">
                         <span className="text-[11px] font-semibold text-slate-500">Loyalty Points</span>
                         <span className="mt-2 block truncate text-base font-bold text-slate-900">
-                          {customerStats.loyaltyPoints.toLocaleString()} pts
+                          {formattedLoyaltyPoints} pts
                         </span>
                       </div>
                       <div className="customer-overview-icon bg-amber-50 text-amber-600">
                         <iconify-icon icon="solar:star-linear" width="19"></iconify-icon>
                       </div>
                     </div>
-                    <p className="mt-3 text-xs text-slate-400">{rewardTier} rewards tier</p>
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-amber-100">
+                      <div className="h-full rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-500" style={{ width: `${rewardTierProgressPct}%` }} />
+                    </div>
+                    <p className="mt-2 text-xs text-slate-400">
+                      {nextRewardTier ? `${new Intl.NumberFormat(undefined).format(pointsToNextRewardTier)} pts to ${nextRewardTier.name}` : 'Top rewards tier active'}
+                    </p>
                   </div>
                 </div>
 
@@ -4073,28 +4144,21 @@ export default function CustomerDashboard() {
                   );
                 })()}
 
-                {/* ── Live Service Tracker — Ultra Premium ── */}
+                {/* ── Live Service Tracker ── */}
                 {hasActiveBooking && (() => {
                   const activeBooking = myBookings.find((b: any) =>
                     ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress', 'completed'].includes(b.status)
                   );
                   const status = activeBooking ? activeBooking.status.toLowerCase() : '';
-                  
-                  // ── Read QC-controlled fine-grained stage (primary) ──────────
-                  // When QC advances the tracker, serviceTrackingStage updates.
-                  // Falls back to status-based mapping for legacy/pre-tracking orders.
                   const trackingStage = (activeBooking as any)?.serviceTrackingStage;
-                  
                   const stageMap: Record<string, number> = {
-                    'confirmed':     0,  // Step 1: Appointment Confirmed
-                    'received':      1,  // Step 2: Vehicle Arrive
-                    'in_progress':   2,  // Step 3: Service In Progress
-                    'quality_check': 3,  // Step 4: Quality Check
-                    'ready_pickup':  4,  // Step 5: Ready for Pickup
+                    'confirmed': 0,
+                    'received': 1,
+                    'in_progress': 2,
+                    'quality_check': 3,
+                    'ready_pickup': 4,
                     'completed':     4,
                   };
-                  
-                  // Legacy fallback: map old status to step index
                   const statusFallback: Record<string, number> = {
                     'approved': 0, 'confirmed': 0, 'assigned': 0,
                     'received': 1,
@@ -4102,244 +4166,252 @@ export default function CustomerDashboard() {
                     'completed': 4,
                     'paid': 4, 'released': 4, 'done': 4
                   };
-                  
-                  // Prefer QC-controlled stage, fall back to status
                   const currentStepIdx = trackingStage
                     ? (stageMap[trackingStage] ?? 0)
                     : (statusFallback[status] ?? 0);
 
                   const isFullyComplete = status === 'completed' || status === 'paid' || status === 'released' || trackingStage === 'ready_pickup' || trackingStage === 'completed';
-
-                  const DASHBOARD_STEP_MEDIA_IDS = ['confirmed', 'received', 'in_progress', 'completed', 'paid'] as const;
-                  const MILESTONE_PCT_LABEL: (string | null)[] = [null, '25%', '50%', '75%', '100%'];
-
                   const STEPS = [
-                    { id: 1, label: 'Appointment Confirmed', sub: 'Waiting for your vehicle', icon: 'solar:calendar-bold', time: activeBooking?.bookingTime || '--', status: currentStepIdx > 0 ? 'done' : currentStepIdx === 0 ? 'active' : 'pending' },
-                    { id: 2, label: 'Vehicle Arrive', sub: 'In shop', icon: 'solar:garage-bold', time: '--', status: currentStepIdx > 1 ? 'done' : currentStepIdx === 1 ? 'active' : 'pending' },
-                    { id: 3, label: 'Service In Progress', sub: 'Working on vehicle', icon: 'solar:wrench-bold', time: '--', status: currentStepIdx > 2 ? 'done' : currentStepIdx === 2 ? 'active' : 'pending' },
-                    { id: 4, label: 'Quality Check', sub: 'Final inspection', icon: 'solar:shield-check-bold', time: '--', status: currentStepIdx > 3 ? 'done' : currentStepIdx === 3 ? 'active' : 'pending' },
-                    { id: 5, label: 'Ready for Pickup', sub: 'Service complete', icon: 'solar:car-bold', time: '--', status: isFullyComplete ? 'done' : currentStepIdx === 4 ? 'active' : 'pending' },
-                  ];
-                  const activeIdx = currentStepIdx;
-                  const pct = activeIdx >= 0 ? Math.round((activeIdx / (STEPS.length - 1)) * 100) : 0;
+                    { id: 'confirmed', label: 'Appointment Confirmed', short: 'Confirmed', sub: 'Booking secured', detail: 'Appointment locked and ready for shop intake.', icon: 'solar:calendar-bold', time: formatTrackerClockLabel(activeBooking?.bookingTime), mediaId: 'confirmed' },
+                    { id: 'received', label: 'Vehicle Arrived', short: 'Arrived', sub: 'Shop intake complete', detail: 'Vehicle is checked in and prepared for the service bay.', icon: 'solar:garage-bold', time: '25%', mediaId: 'received' },
+                    { id: 'in_progress', label: 'Service In Progress', short: 'In Service', sub: 'Technician working now', detail: 'Certified technicians are working on your vehicle now.', icon: 'solar:wrench-bold', time: '50%', mediaId: 'in_progress' },
+                    { id: 'completed', label: 'Quality Check', short: 'QC Review', sub: 'Final inspection', detail: 'QC verifies finish quality before pickup readiness.', icon: 'solar:shield-check-bold', time: '75%', mediaId: 'completed' },
+                    { id: 'paid', label: 'Ready for Pickup', short: 'Pickup', sub: 'Handover ready', detail: 'Final handover is ready for customer pickup.', icon: 'solar:car-bold', time: '100%', mediaId: 'paid' },
+                  ] as const;
+                  const activeIdx = Math.min(Math.max(currentStepIdx, 0), STEPS.length - 1);
+                  const pct = Math.round((activeIdx / (STEPS.length - 1)) * 100);
+                  const activeStep = STEPS[activeIdx] || STEPS[0];
+                  const nextStep = isFullyComplete ? null : STEPS[Math.min(activeIdx + 1, STEPS.length - 1)];
+                  const etaLabel = isFullyComplete ? 'Ready now' : formatTrackerEtaLabel(activeBooking?.bookingTime);
+                  const updatedLabel = formatTrackerUpdatedLabel(activeBooking?.serviceTrackingUpdatedAt || activeBooking?.updatedAt || activeBooking?.createdAt);
+                  const serviceTitle = displayServiceTitle(activeBooking?.serviceName || activeBooking?.serviceType || activeBooking?.packageName, 'AutoSPF+ service');
+                  const vehicleTitle = [
+                    activeBooking?.vehicleYear,
+                    activeBooking?.vehicleMake,
+                    activeBooking?.vehicleModel,
+                  ].filter(Boolean).join(' ') || activeBooking?.vehicleInfo || 'Your vehicle';
+                  const vehicleMeta = [
+                    displayVehicleLabel(activeBooking?.vehiclePlate, ''),
+                    formatTitleCaseDisplay(activeBooking?.vehicleColor, ''),
+                  ].filter(Boolean).join(' / ') || 'Vehicle profile syncing';
+                  const reference = activeBooking?.bookingReference || activeBooking?.orderNumber || activeBooking?._id || '';
+                  const referenceLabel = reference && !looksLikeOpaqueTechnicalId(reference) ? reference : 'Confirmed job';
+                  const assignments: { slot?: string; name?: string; role?: string }[] = activeBooking?.serviceStaffAssignments || [];
+                  const assigned = assignments.filter(a => a.name?.trim());
+                  const specialistLabel = assigned.length > 0
+                    ? `${assigned.length} specialist${assigned.length === 1 ? '' : 's'} assigned`
+                    : (activeBooking?.assignedDetailerName || activeBooking?.technicianName || activeBooking?.technician || 'QC team online');
+                  const rewardProgressLabel = nextRewardTier
+                    ? `${new Intl.NumberFormat(undefined).format(pointsToNextRewardTier)} pts to ${nextRewardTier.name}`
+                    : 'Top tier active';
+                  const stageNote = nextStep
+                    ? `${activeStep.detail} Next checkpoint: ${nextStep.label}.`
+                    : activeStep.detail;
+                  const trackerMotionStyle = {
+                    '--tracker-progress': `${pct}%`,
+                    '--tracker-progress-angle': `${pct * 3.6}deg`,
+                  } as React.CSSProperties;
 
                   return (
-                    <section style={{ marginBottom: 32 }}>
-                      <style dangerouslySetInnerHTML={{
-                        __html: `
-                        @keyframes shimmerLine{0%{background-position:-200% 0}100%{background-position:200% 0}}
-                        @keyframes orbPulse{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.7);opacity:0}}
-                        @keyframes goldRing{0%{transform:scale(1);opacity:.8}100%{transform:scale(2.6);opacity:0}}
-                        @keyframes breathe{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.6)}50%{box-shadow:0 0 0 14px rgba(245,158,11,0)}}
-                        @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
-                        @keyframes rotateConic{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-                        @keyframes auroraShift{0%,100%{opacity:.5;transform:translate(0,0) scale(1)}33%{opacity:.8;transform:translate(20px,-15px) scale(1.1)}66%{opacity:.4;transform:translate(-10px,20px) scale(.95)}}
-                        @keyframes cardIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
-                        @keyframes counterSpin{from{stroke-dashoffset:220}to{stroke-dashoffset:0}}
-                        .tracker-step-card:hover{transform:translateX(4px) scale(1.01)!important;transition:all .25s ease!important}
-                      `}} />
+                    <section className="customer-live-tracker-section">
+                      <div className="customer-live-tracker" style={trackerMotionStyle}>
+                        <div className="customer-live-tracker-header">
+                          <div className="customer-live-title-block">
+                            <div className="customer-live-eyebrow">
+                              <span className="customer-live-dot" />
+                              <span>Live Tracking</span>
+	                            </div>
+	                            <h2>Service In Progress</h2>
+	                            <p>{serviceTitle} / {vehicleTitle}</p>
+	                            <div className="customer-live-chip-row" aria-label="Live tracker details">
+	                              <span>
+	                                <iconify-icon icon="solar:bolt-circle-bold" width="13"></iconify-icon>
+	                                {activeStep.short}
+	                              </span>
+	                              <span>
+	                                <iconify-icon icon="solar:refresh-circle-bold" width="13"></iconify-icon>
+	                                {updatedLabel}
+	                              </span>
+	                              <span>
+	                                <iconify-icon icon="solar:hashtag-square-bold" width="13"></iconify-icon>
+	                                {referenceLabel}
+	                              </span>
+	                            </div>
+	                          </div>
+	                          <div className="customer-live-header-actions">
+	                            <div className="customer-live-eta">
+	                              <iconify-icon icon="solar:clock-circle-bold" width="16"></iconify-icon>
+	                              <div>
+	                                <strong>{etaLabel}</strong>
+	                                <span>Estimated pickup</span>
+	                              </div>
+	                            </div>
+	                            <button
+	                              type="button"
+	                              onClick={() => nav('tracker')}
+	                              className="customer-live-open-button"
+	                              aria-label="Open full live tracker"
+	                              title="Open full live tracker"
+	                            >
+	                              <iconify-icon icon="solar:routing-2-bold" width="18"></iconify-icon>
+	                              <span>Full Tracker</span>
+	                            </button>
+	                          </div>
+	                        </div>
 
-                      <div style={{ background: 'linear-gradient(145deg,#060c1a 0%,#0d1528 40%,#080e1c 100%)', borderRadius: 24, overflow: 'hidden', boxShadow: '0 40px 80px -20px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.07)', animation: 'slideUp .5s ease-out', position: 'relative' }}>
+                        <div className="customer-live-command-grid">
+                          <div className="customer-live-progress-panel">
+	                            <div
+	                              className="customer-live-progress-ring"
+	                              aria-label={`Service ${pct}% complete`}
+	                            >
+                              <div>
+                                <strong>{pct}%</strong>
+	                                <span>complete</span>
+	                              </div>
+	                            </div>
+	                            <div className="customer-live-progress-caption">
+	                              <strong>{activeStep.label}</strong>
+	                              <span>{nextStep ? `Next: ${nextStep.short}` : 'Pickup ready'}</span>
+	                            </div>
 
-                        {/* Aurora mesh background */}
-                        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
-                          <div style={{ position: 'absolute', top: -100, right: -80, width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle,rgba(245,158,11,.09) 0%,transparent 65%)', animation: 'auroraShift 8s ease-in-out infinite' }} />
-                          <div style={{ position: 'absolute', bottom: -120, left: -60, width: 350, height: 350, borderRadius: '50%', background: 'radial-gradient(circle,rgba(99,102,241,.07) 0%,transparent 65%)', animation: 'auroraShift 10s ease-in-out infinite reverse' }} />
-                          <div style={{ position: 'absolute', top: '40%', left: '35%', width: 250, height: 250, borderRadius: '50%', background: 'radial-gradient(circle,rgba(34,197,94,.05) 0%,transparent 65%)', animation: 'auroraShift 12s ease-in-out infinite 2s' }} />
-                        </div>
-
-                        {/* Top header bar */}
-                        <div style={{ padding: '22px 28px 0', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', position: 'relative', zIndex: 2 }}>
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                              <div style={{ position: 'relative', width: 8, height: 8 }}>
-                                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#22c55e' }} />
-                                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#22c55e', animation: 'orbPulse 2s ease-in-out infinite' }} />
+	                            <div className="customer-live-summary-list">
+                              <div>
+                                <span>Vehicle</span>
+                                <strong>{vehicleMeta}</strong>
                               </div>
-                              <span style={{ fontSize: 9, fontWeight: 800, color: '#22c55e', textTransform: 'uppercase', letterSpacing: '.14em' }}>Live Tracking</span>
-                            </div>
-                            <h2 style={{ fontSize: 22, fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '-.035em', lineHeight: 1.1 }}>Service<br /><span style={{ background: 'linear-gradient(90deg,#f59e0b,#fbbf24,#f59e0b)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundSize: '200%', animation: 'shimmerLine 3s linear infinite' }}>In Progress</span></h2>
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-                            <div style={{ background: 'rgba(245,158,11,.1)', border: '1px solid rgba(245,158,11,.3)', borderRadius: 999, padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <iconify-icon icon="solar:clock-circle-bold" width="13" style={{ color: '#f59e0b' }}></iconify-icon>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>Est. 2:30 PM</span>
-                            </div>
-                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', fontWeight: 500 }}>Step {activeIdx + 1} of {STEPS.length}</span>
-                          </div>
-                        </div>
-
-                        {/* Main body — two columns */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 0, padding: '20px 28px 24px', position: 'relative', zIndex: 2 }}>
-
-                          {/* LEFT — circular ring progress */}
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingRight: 24, borderRight: '1px solid rgba(255,255,255,.06)' }}>
-                            {/* SVG Ring */}
-                            <div style={{ position: 'relative', width: 120, height: 120, marginBottom: 16 }}>
-                              <svg width="120" height="120" style={{ transform: 'rotate(-90deg)' }}>
-                                <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,.05)" strokeWidth="8" />
-                                <circle cx="60" cy="60" r="50" fill="none" stroke="url(#goldGrad)" strokeWidth="8"
-                                  strokeLinecap="round"
-                                  strokeDasharray={`${2 * Math.PI * 50}`}
-                                  strokeDashoffset={`${2 * Math.PI * 50 * (1 - pct / 100)}`}
-                                  style={{ transition: 'stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1)', filter: 'drop-shadow(0 0 8px rgba(245,158,11,.6))' }} />
-                                <defs>
-                                  <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                                    <stop offset="0%" stopColor="#f59e0b" />
-                                    <stop offset="100%" stopColor="#fbbf24" />
-                                  </linearGradient>
-                                </defs>
-                              </svg>
-                              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                                <span style={{ fontSize: 26, fontWeight: 900, color: '#fff', letterSpacing: '-.04em', lineHeight: 1 }}>{pct}%</span>
-                                <span style={{ fontSize: 9, color: 'rgba(255,255,255,.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', marginTop: 2 }}>Done</span>
+                              <div>
+                                <span>Team</span>
+                                <strong>{specialistLabel}</strong>
+                              </div>
+                              <div>
+                                <span>Reference</span>
+                                <strong>{referenceLabel}</strong>
                               </div>
                             </div>
-                            {/* Vehicle info */}
-                            <div style={{ textAlign: 'center' }}>
-                              <p style={{ fontSize: 13, fontWeight: 700, color: '#fff', margin: '0 0 2px', letterSpacing: '-.02em' }}>
-                                {activeBooking?.vehicleMake || activeBooking?.vehicleModel || '—'}
-                              </p>
-                              <p style={{ fontSize: 10, color: 'rgba(255,255,255,.35)', margin: '0 0 10px', fontWeight: 500 }}>
-                                {activeBooking?.vehiclePlate || '—'} · {activeBooking?.vehicleColor || '—'}
-                              </p>
-                              {/* Service team badges */}
-                              {(() => {
-                                const assignments: { slot: string; name: string; role: string }[] = activeBooking?.serviceStaffAssignments || [];
-                                const assigned = assignments.filter(a => a.name?.trim());
-                                if (assigned.length === 0) {
-                                  const techName = activeBooking?.assignedDetailerName || activeBooking?.technicianName || activeBooking?.technician || 'QC Team';
+                          </div>
+
+                          <div className="customer-live-status-panel">
+                            <div className="customer-live-status-topline">
+                              <div>
+                                <span>Current Stage</span>
+                                <strong>{isFullyComplete ? 'Ready for Pickup' : activeStep.label}</strong>
+                              </div>
+                              <div>
+                                <span>Step</span>
+	                                <strong>{activeIdx + 1} / {STEPS.length}</strong>
+	                              </div>
+	                            </div>
+	                            <p className="customer-live-stage-note">{stageNote}</p>
+
+	                            <div className="customer-live-rail" aria-hidden="true">
+                              <div className="customer-live-rail-fill" style={{ width: `${pct}%` }} />
+                              <div className="customer-live-rail-markers">
+                                {STEPS.map((step, i) => {
+                                  const isDone = i < activeIdx || (isFullyComplete && i === activeIdx);
+                                  const isActive = !isFullyComplete && i === activeIdx;
                                   return (
-                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(34,197,94,.1)', border: '1px solid rgba(34,197,94,.2)', borderRadius: 8, padding: '4px 12px' }}>
-                                      <iconify-icon icon="solar:user-bold" width="11" style={{ color: '#22c55e' }}></iconify-icon>
-                                      <span style={{ fontSize: 10, fontWeight: 700, color: '#22c55e' }}>{techName}</span>
-                                    </div>
+                                    <span
+                                      key={step.id}
+                                      className={`customer-live-rail-marker ${isDone ? 'is-done' : ''} ${isActive ? 'is-active' : ''}`}
+                                      style={{ '--live-step-delay': `${i * 90}ms` } as React.CSSProperties}
+                                    >
+                                      <iconify-icon icon={isDone ? 'solar:check-circle-bold' : step.icon} width="13"></iconify-icon>
+                                    </span>
                                   );
-                                }
-                                return (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'center' }}>
-                                    <p style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.3)', textTransform: 'uppercase', letterSpacing: '.12em', margin: '0 0 2px' }}>Service Team</p>
-                                    {assigned.map((a, i) => (
-                                      <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(99,102,241,.12)', border: '1px solid rgba(99,102,241,.25)', borderRadius: 8, padding: '3px 10px' }}>
-                                        <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800, color: '#fff' }}>
-                                          {a.name.split(' ').map((p: string) => p[0]).join('').slice(0, 2)}
-                                        </div>
-                                        <span style={{ fontSize: 10, fontWeight: 700, color: '#a5b4fc' }}>{a.name}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                );
-                              })()}
+	                                })}
+	                              </div>
+	                            </div>
+	                            <div className="customer-live-rail-labels" aria-hidden="true">
+	                              {STEPS.map((step, i) => {
+	                                const isDone = i < activeIdx || (isFullyComplete && i === activeIdx);
+	                                const isActive = !isFullyComplete && i === activeIdx;
+	                                return (
+	                                  <span
+	                                    key={step.id}
+	                                    className={`${isDone ? 'is-done' : ''} ${isActive ? 'is-active' : ''}`}
+	                                    style={{ '--live-step-delay': `${i * 90}ms` } as React.CSSProperties}
+	                                  >
+	                                    {step.short}
+	                                  </span>
+	                                );
+	                              })}
+	                            </div>
+
+	                            <div className="customer-live-reward-panel">
+                              <div>
+                                <span>Rewards Balance</span>
+                                <strong>{formattedLoyaltyPoints} pts</strong>
+                              </div>
+                              <div className="customer-live-reward-progress">
+                                <span style={{ width: `${rewardTierProgressPct}%` }} />
+                              </div>
+                              <p>{rewardTier} tier / {rewardProgressLabel}</p>
                             </div>
                           </div>
+                        </div>
 
-                          {/* RIGHT — vertical step cards */}
-                          <div style={{ paddingLeft: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {STEPS.map((step, i) => {
-                              const isDone = step.status === 'done';
-                              const isActive = step.status === 'active';
-                              const mediaStageKey = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[DASHBOARD_STEP_MEDIA_IDS[i]];
-                              const media = findTrackerStageMedia(activeBooking as any, mediaStageKey);
-                              const photo = (media?.photoUrl || '').trim();
-                              const caption = resolveTrackerStageDescription(activeBooking as any, mediaStageKey);
-                              const pctTag = MILESTONE_PCT_LABEL[i];
-                              const showPhotoBlock = (isDone || isActive) && !!mediaStageKey;
-                              const showPendingHint =
-                                showPhotoBlock && !photo && mediaStageKey !== 'confirmed';
+                        <div className="customer-live-step-grid">
+                          {STEPS.map((step, i) => {
+                            const isDone = i < activeIdx || (isFullyComplete && i === activeIdx);
+                            const isActive = !isFullyComplete && i === activeIdx;
+                            const mediaStageKey = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[step.mediaId];
+                            const media = findTrackerStageMedia(activeBooking as any, mediaStageKey);
+                            const photo = (media?.photoUrl || '').trim();
+                            const caption = resolveTrackerStageDescription(activeBooking as any, mediaStageKey);
+                            const statusLabel = isDone ? 'Complete' : isActive ? 'Live now' : 'Upcoming';
 
-                              return (
-                                <div key={step.id} className="tracker-step-card" style={{
-                                  position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'stretch',
-                                  padding: 0,
-                                  borderRadius: 14,
-                                  background: isDone ? 'rgba(22,163,74,.06)' : isActive ? 'rgba(245,158,11,.07)' : 'rgba(255,255,255,.025)',
-                                  border: isDone ? '1px solid rgba(22,163,74,.2)' : isActive ? '1px solid rgba(245,158,11,.3)' : '1px solid rgba(255,255,255,.05)',
-                                  boxShadow: isActive ? '0 8px 32px rgba(245,158,11,.15), inset 0 1px 0 rgba(255,255,255,.06)' : isDone ? '0 2px 8px rgba(22,163,74,.1)' : 'none',
-                                  transition: 'all .3s ease',
-                                  animation: `cardIn .4s ease-out ${i * 0.07}s both`,
-                                  overflow: 'hidden',
-                                }}>
-                                  {/* Active card shimmer overlay */}
-                                  {isActive && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg,transparent,rgba(245,158,11,.04),transparent)', backgroundSize: '200% 100%', animation: 'shimmerLine 2.5s linear infinite', borderRadius: 14, pointerEvents: 'none' }} />}
-
-                                  <div style={{
-                                    display: 'flex', alignItems: 'center', gap: 14,
-                                    padding: isActive ? '13px 16px 10px' : '10px 14px 8px',
-                                    position: 'relative', zIndex: 1,
-                                  }}>
-                                    {/* Icon badge */}
-                                    <div style={{ position: 'relative', flexShrink: 0 }}>
-                                      {isActive && (
-                                        <div style={{ position: 'absolute', inset: -3, borderRadius: '50%', background: 'conic-gradient(from 0deg,#f59e0b,#fbbf24,transparent,transparent,#f59e0b)', animation: 'rotateConic 2s linear infinite', zIndex: 0 }} />
-                                      )}
-                                      <div style={{
-                                        width: isActive ? 40 : 34, height: isActive ? 40 : 34, borderRadius: '50%', position: 'relative', zIndex: 1,
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        background: isDone ? 'linear-gradient(135deg,#16a34a,#15803d)' : isActive ? 'linear-gradient(135deg,#d97706,#f59e0b)' : 'rgba(255,255,255,.05)',
-                                        boxShadow: isActive ? '0 0 20px rgba(245,158,11,.5)' : isDone ? '0 0 14px rgba(22,163,74,.4)' : 'none',
-                                        animation: isActive ? 'breathe 2.5s ease-in-out infinite' : 'none',
-                                      }}>
-                                        <iconify-icon icon={step.icon} width={isActive ? "18" : "15"} style={{ color: isDone || isActive ? '#fff' : 'rgba(255,255,255,.2)' }}></iconify-icon>
-                                      </div>
+                            return (
+	                              <article
+	                                key={step.id}
+	                                className={`customer-live-step ${isDone ? 'is-done' : ''} ${isActive ? 'is-active' : ''}`}
+	                                aria-current={isActive ? 'step' : undefined}
+	                                style={{ '--live-step-delay': `${i * 95}ms` } as React.CSSProperties}
+	                              >
+	                                <div className="customer-live-step-main">
+                                  <div className="customer-live-step-icon">
+                                    <iconify-icon icon={isDone ? 'solar:check-read-bold' : step.icon} width="17"></iconify-icon>
+                                  </div>
+                                  <div className="customer-live-step-copy">
+                                    <div>
+                                      <h3>{step.label}</h3>
+                                      <span>{statusLabel}</span>
                                     </div>
+	                                    <p>{step.sub}</p>
+	                                  </div>
+	                                  <div className="customer-live-step-time">{step.time}</div>
+	                                </div>
 
-                                    {/* Text */}
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-                                        <p style={{ margin: 0, fontSize: isActive ? 13 : 12, fontWeight: isActive ? 800 : isDone ? 600 : 500, color: isActive ? '#fbbf24' : isDone ? '#e5e7eb' : 'rgba(255,255,255,.25)', letterSpacing: '-.01em' }}>{step.label}</p>
-                                        {pctTag ? (
-                                          <span style={{ fontSize: 9, fontWeight: 800, color: 'rgba(251,191,36,.85)', textTransform: 'uppercase', letterSpacing: '.06em', padding: '2px 8px', borderRadius: 999, background: 'rgba(245,158,11,.12)', border: '1px solid rgba(245,158,11,.22)' }}>
-                                            {pctTag} status
-                                          </span>
-                                        ) : null}
-                                      </div>
-                                      <p style={{ margin: '1px 0 0', fontSize: 10, color: isActive ? 'rgba(251,191,36,.6)' : isDone ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.12)', fontWeight: 500 }}>{step.sub}</p>
-                                    </div>
-
-                                    {/* Time badge */}
-                                    <div style={{ flexShrink: 0, padding: '3px 10px', borderRadius: 999, background: isActive ? 'rgba(245,158,11,.15)' : isDone ? 'rgba(22,163,74,.1)' : 'rgba(255,255,255,.04)', border: isActive ? '1px solid rgba(245,158,11,.3)' : isDone ? '1px solid rgba(22,163,74,.2)' : '1px solid rgba(255,255,255,.06)' }}>
-                                      <span style={{ fontSize: 10, fontWeight: 700, color: isActive ? '#fbbf24' : isDone ? '#4ade80' : 'rgba(255,255,255,.2)' }}>{step.time}</span>
-                                    </div>
-
-                                    {isDone && <iconify-icon icon="solar:check-circle-bold" width="16" style={{ color: '#22c55e', flexShrink: 0 }}></iconify-icon>}
-                                    {isActive && (
-                                      <div style={{ position: 'relative', width: 8, height: 8, flexShrink: 0 }}>
-                                        <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#f59e0b' }} />
-                                        <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#f59e0b', animation: 'orbPulse 1.5s ease-in-out infinite' }} />
+	                                {(photo || isDone || isActive) && (
+	                                  <div className="customer-live-step-evidence">
+	                                    <div className="customer-live-evidence-meta">
+	                                      <span>Customer Evidence</span>
+	                                      <strong>{photo ? 'Photo posted' : isActive ? 'Upload pending' : 'Awaiting photo'}</strong>
+	                                    </div>
+	                                    <p>{caption || (photo ? 'Vehicle photo received.' : step.detail)}</p>
+	                                    {photo ? (
+                                      <a href={photo} target="_blank" rel="noopener noreferrer" aria-label={`${step.label} vehicle photo`}>
+                                        <img src={photo} alt="" />
+                                      </a>
+                                    ) : (
+                                      <div className="customer-live-photo-placeholder">
+                                        <iconify-icon icon="solar:camera-minimalistic-bold" width="18"></iconify-icon>
+                                        <span>Awaiting photo</span>
                                       </div>
                                     )}
                                   </div>
-
-                                  {photo ? (
-                                    <div style={{ position: 'relative', zIndex: 1, padding: '0 14px 12px 16px' }}>
-                                      <a href={photo} target="_blank" rel="noopener noreferrer" style={{ display: 'block', borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,.1)' }}>
-                                        <img src={photo} alt="" style={{ width: '100%', height: 76, objectFit: 'cover', display: 'block' }} />
-                                      </a>
-                                      {caption ? (
-                                        <p style={{ margin: '6px 0 0', fontSize: 9, lineHeight: 1.35, color: 'rgba(255,255,255,.35)', fontWeight: 500 }}>{caption.length > 120 ? `${caption.slice(0, 118)}…` : caption}</p>
-                                      ) : null}
-                                    </div>
-                                  ) : showPendingHint ? (
-                                    <p style={{ position: 'relative', zIndex: 1, margin: '0 16px 12px', fontSize: 9, lineHeight: 1.4, color: 'rgba(255,255,255,.22)', fontStyle: 'italic', fontWeight: 500 }}>
-                                      Shop will post a real vehicle photo for this step — it will show here after upload.
-                                    </p>
-                                  ) : null}
-                                </div>
-                              );
-                            })}
-                          </div>
+                                )}
+                              </article>
+                            );
+                          })}
                         </div>
 
-                        {/* Bottom bar */}
-                        <div style={{ borderTop: '1px solid rgba(255,255,255,.05)', padding: '12px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', zIndex: 2 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <iconify-icon icon="solar:shield-star-bold" width="13" style={{ color: 'rgba(255,255,255,.3)' }}></iconify-icon>
-                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', fontWeight: 500 }}>AutoSPF+ Premium Service</span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(245,158,11,.08)', borderRadius: 10, padding: '5px 14px', border: '1px solid rgba(245,158,11,.15)' }}>
-                            <iconify-icon icon="solar:graph-up-bold" width="12" style={{ color: '#f59e0b' }}></iconify-icon>
-                            <span style={{ fontSize: 10, fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '.08em' }}>{pct}% Complete</span>
-                          </div>
+                        <div className="customer-live-footer">
+                          <span>
+                            <iconify-icon icon="solar:shield-star-bold" width="14"></iconify-icon>
+                            QC verified live tracker
+                          </span>
+                          <strong>{pct}% complete</strong>
                         </div>
                       </div>
                     </section>
