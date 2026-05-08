@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { createPortal } from 'react-dom';
 import {
@@ -92,6 +92,32 @@ const getInitials = (name: string) => {
   const parts = String(name || 'Customer').trim().split(/\s+/).filter(Boolean);
   return (parts[0]?.[0] || 'C') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
 };
+
+/** Earlier submission → lower queue number (FIFO). */
+function approvalFifoTimestamp(booking: Record<string, unknown>): number {
+  const raw =
+    booking.createdAt ??
+    booking.created_at ??
+    (booking as { bookedAt?: unknown }).bookedAt ??
+    (booking as { submittedAt?: unknown }).submittedAt;
+  if (raw != null && raw !== '') {
+    const t = new Date(raw as string).getTime();
+    if (!Number.isNaN(t)) return t;
+  }
+  const id = String((booking as { _id?: unknown })._id ?? (booking as { id?: unknown }).id ?? '');
+  if (/^[a-f0-9]{24}$/i.test(id)) {
+    return parseInt(id.slice(0, 8), 16) * 1000;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function sortPendingApprovalsFifo(list: any[]): any[] {
+  return [...list].sort((a, b) => {
+    const d = approvalFifoTimestamp(a) - approvalFifoTimestamp(b);
+    if (d !== 0) return d;
+    return String(a._id || a.id).localeCompare(String(b._id || b.id));
+  });
+}
 
 // ─── Status badge ───────────────────────────────────────────────────────────
 function PendingBadge() {
@@ -653,7 +679,10 @@ export default function BookingApprovalsPage() {
     };
   }, [fetchAll]);
 
-  const pending = allBookings.filter(b => b.status === 'pending_confirmation');
+  const pending = useMemo(
+    () => sortPendingApprovalsFifo(allBookings.filter((b) => b.status === 'pending_confirmation')),
+    [allBookings]
+  );
   const approved = allBookings.filter(b => b.status === 'approved');
   const rejected = allBookings.filter(b => b.status === 'rejected');
 
