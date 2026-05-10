@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Users, UserCheck, Clock, ShieldCheck, TrendingUp, ArrowRight, LogIn, Edit, Key, UserPlus as UserPlusIcon, AlertTriangle, Calendar, Package } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { getRoleLabel, getSafeUserRole } from '@/lib/roles';
 
 interface Props {
   users: any[];
@@ -41,6 +42,23 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
   const recentUsers = useMemo(() => {
     return [...users]
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, 8);
+  }, [users]);
+
+  /** Canonical role counts + labels — matches User Management / ROLE_LABELS (excludes bootstrap Administrator bar — Office Admin covers ops admin) */
+  const roleDistributionData = useMemo(() => {
+    const roleMap: Record<string, number> = {};
+    users.forEach((u) => {
+      const slug = getSafeUserRole(u.role);
+      roleMap[slug] = (roleMap[slug] || 0) + 1;
+    });
+    return Object.entries(roleMap)
+      .filter(([slug]) => slug !== 'administrator')
+      .map(([slug, count]) => ({
+        role: getRoleLabel(slug),
+        count,
+      }))
+      .sort((a, b) => b.count - a.count)
       .slice(0, 8);
   }, [users]);
 
@@ -156,13 +174,9 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
           <div><h2 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', margin: 0 }}>Users by Role</h2><p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Distribution across system roles</p></div>
           <div style={{ marginTop: 16 }}>
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={(() => {
-                const roleMap: Record<string, number> = {};
-                users.forEach(u => { const r = u.role || 'unknown'; roleMap[r] = (roleMap[r] || 0) + 1; });
-                return Object.entries(roleMap).map(([role, count]) => ({ role: role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), count })).sort((a, b) => b.count - a.count).slice(0, 8);
-              })()} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
+              <BarChart data={roleDistributionData} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="role" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <XAxis dataKey="role" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} interval={0} angle={-18} textAnchor="end" height={52} />
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
                 <Bar dataKey="count" name="Users" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={24} />
@@ -189,7 +203,7 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
                     <span style={{ fontWeight: 500, color: '#1e293b' }}>{u.name || 'Unknown'}</span>
                   </div></td>
                   <td><span className="font-mono" style={{ fontSize: 12, color: '#64748b' }}>{u.email}</span></td>
-                  <td style={{ color: '#334155' }}>{(u.role || 'N/A').replace(/_/g, ' ')}</td>
+                  <td style={{ color: '#334155' }}>{getRoleLabel(u.role)}</td>
                   <td>{statusBadge(u.status)}</td>
                   <td><span className="font-mono" style={{ fontSize: 12, color: '#94a3b8' }}>{u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span></td>
                 </tr>

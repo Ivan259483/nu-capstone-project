@@ -58,7 +58,7 @@ export default function AddEditItemModal({ open, item, onClose, onSave }: AddEdi
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <div className="px-6 py-5 space-y-6">
           {item && (
-            <div className="p-4 rounded-xl bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-100">
+            <div className="p-4 rounded-xl bg-gradient-to-r from-blue-50 to-slate-50 border border-blue-100/80">
               <div className="flex items-center justify-between mb-2"><span className="text-xs font-semibold text-gray-600">Current Stock Level</span><span className="text-xs font-bold text-gray-800 font-tabular">{currentPct}% capacity</span></div>
               <div className="h-2 bg-white/60 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-500 ${currentPct === 0 ? 'bg-gray-300' : currentPct <= 20 ? 'bg-gradient-to-r from-red-500 to-red-400' : currentPct <= 40 ? 'bg-gradient-to-r from-amber-400 to-amber-500' : 'bg-gradient-to-r from-emerald-400 to-emerald-500'}`} style={{ width: `${currentPct}%` }} /></div>
             </div>
@@ -83,7 +83,7 @@ export default function AddEditItemModal({ open, item, onClose, onSave }: AddEdi
           </div>
           <div className="border-t border-gray-100" />
           <div>
-            <div className="flex items-center gap-2 mb-4"><div className="w-6 h-6 rounded-lg bg-purple-500 flex items-center justify-center"><span className="text-white text-[10px] font-bold">₱</span></div><h3 className="text-sm font-bold text-gray-800">Pricing & Supplier</h3></div>
+            <div className="flex items-center gap-2 mb-4"><div className="w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center"><span className="text-white text-[10px] font-bold">₱</span></div><h3 className="text-sm font-bold text-gray-800">Pricing & Supplier</h3></div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div><label className={labelClass} htmlFor="item-cost">Cost per Unit (PHP)</label><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-semibold">₱</span><input id="item-cost" type="number" step="0.01" min="0" className={`${inputClass(!!errors.costPerUnit)} pl-7`} {...register('costPerUnit', { required: 'Cost is required', min: { value: 0, message: 'Cannot be negative' }, valueAsNumber: true })} /></div>{errors.costPerUnit && <p className={errorClass}>{errors.costPerUnit.message}</p>}</div>
               <div><label className={labelClass} htmlFor="item-supplier">Supplier</label><select id="item-supplier" className={inputClass(!!errors.supplierId)} {...register('supplierId', { required: 'Supplier is required' })}>{suppliers.map((s) => <option key={`sup-opt-${s.id}`} value={s.id}>{s.name}</option>)}</select>{selectedSupplier && <p className={helperClass}>Lead time: {selectedSupplier.leadTimeDays} day{selectedSupplier.leadTimeDays !== 1 ? 's' : ''} · {selectedSupplier.paymentTerms}</p>}{errors.supplierId && <p className={errorClass}>{errors.supplierId.message}</p>}</div>

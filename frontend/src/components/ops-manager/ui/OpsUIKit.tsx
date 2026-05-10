@@ -16,10 +16,10 @@ const statusConfig: Record<JobStatus, { cls: string; dot: string; label: string 
 };
 
 const priorityConfig: Record<Priority, { cls: string }> = {
-  Critical: { cls: 'bg-red-50 text-red-700 border border-red-100' },
-  High:     { cls: 'bg-orange-50 text-orange-700 border border-orange-100' },
-  Medium:   { cls: 'bg-yellow-50 text-yellow-700 border border-yellow-100' },
-  Low:      { cls: 'bg-gray-50 text-gray-600 border border-gray-200' },
+  Critical: { cls: 'bg-red-50 text-red-700' },
+  High:     { cls: 'bg-orange-50 text-orange-700' },
+  Medium:   { cls: 'bg-yellow-50 text-yellow-700' },
+  Low:      { cls: 'bg-gray-50 text-gray-600' },
 };
 
 export function OpsStatusBadge({ status }: { status: JobStatus }) {
@@ -64,7 +64,7 @@ export function OpsSlideOver({ open, onClose, title, subtitle, width = 'w-[520px
     <>
       <div className="ops-slide-backdrop" onClick={onClose} />
       <div className={`ops-slide-panel ${width}`}>
-        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-start justify-between px-6 py-5 flex-shrink-0 shadow-[0_8px_24px_-16px_rgba(15,23,42,0.08)]">
           <div>
             <h2 className="text-[15px] font-semibold text-gray-900">{title}</h2>
             {subtitle && <p className="text-[12px] text-gray-400 mt-0.5">{subtitle}</p>}

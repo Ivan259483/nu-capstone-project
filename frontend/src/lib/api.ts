@@ -159,9 +159,11 @@ api.interceptors.response.use(
         } else if (response?.status === 409) {
             // Conflict - Usually duplicate data
             console.warn('⚠️ [API 409]: Conflict detected.');
-            toast.warning('Conflict', {
-                description: message || 'This action conflicts with existing data.'
-            });
+            if (!suppressErrorToast) {
+                toast.warning('Conflict', {
+                    description: message || 'This action conflicts with existing data.'
+                });
+            }
         } else if (response?.status === 422) {
             // Unprocessable Entity - Validation Error
             console.warn('⚠️ [API 422]: Validation error.');

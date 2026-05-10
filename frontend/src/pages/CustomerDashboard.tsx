@@ -884,11 +884,42 @@ export default function CustomerDashboard() {
   // Structured per-slot statuses for the selected date
   type SlotStatus = 'AVAILABLE' | 'FULL' | 'CLOSED';
   type TimeSlot = { time: string; status: SlotStatus };
+  type DayAvailabilityStatus = 'available' | 'full' | 'closed';
+  type AvailableSlotsPayload = {
+    success?: boolean;
+    bookedSlots?: string[];
+    unavailable?: boolean;
+    errorCode?: string | null;
+    message?: string | null;
+    error?: string | null;
+    remaining?: number | null;
+  };
+  type DayAvailabilityInfo = {
+    status: DayAvailabilityStatus;
+    unavailable: boolean;
+    reason: string;
+    errorCode: string | null;
+    remaining: number | null;
+  };
   const [slotStatuses, setSlotStatuses] = useState<TimeSlot[]>([]);
   const [slotError, setSlotError] = useState<string>('');
-  // Per-date availability: 'available' | 'full' | 'closed'
-  const [monthAvailability, setMonthAvailability] = useState<Record<string, 'available' | 'full' | 'closed'>>({});
+  const [monthAvailability, setMonthAvailability] = useState<Record<string, DayAvailabilityInfo>>({});
   const [monthAvailLoading, setMonthAvailLoading] = useState(false);
+
+  const parseAvailableSlotsPayload = (payload: AvailableSlotsPayload): {
+    unavailable: boolean;
+    errorCode: string | null;
+    message: string;
+    remaining: number | null;
+    bookedSlots: string[];
+  } => {
+    const bookedSlots = Array.isArray(payload?.bookedSlots) ? payload.bookedSlots : [];
+    const unavailable = !!payload?.unavailable;
+    const errorCode = typeof payload?.errorCode === 'string' ? payload.errorCode : null;
+    const message = (payload?.message || payload?.error || '').toString().trim();
+    const remaining = typeof payload?.remaining === 'number' ? payload.remaining : null;
+    return { unavailable, errorCode, message, remaining, bookedSlots };
+  };
 
   const openBookingModal = async (preSelectedVehicle?: any, options?: { presetPackageId?: string }) => {
     setBookingOpen(true); setBookingStep(1); setBookingDone(false);
@@ -972,8 +1003,18 @@ export default function CustomerDashboard() {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('authToken')}` }
       });
       const data = await res.json();
-      const apiBooked: string[] = Array.isArray(data.bookedSlots) ? data.bookedSlots : [];
+      const {
+        unavailable,
+        errorCode,
+        message: availabilityMessage,
+        remaining,
+        bookedSlots: apiBooked,
+      } = parseAvailableSlotsPayload(data);
       setBookedSlots(apiBooked);
+
+      if (unavailable && availabilityMessage) {
+        setSlotError(availabilityMessage);
+      }
 
       // Derive AVAILABLE / FULL / CLOSED for every slot
       const now = new Date();
@@ -989,7 +1030,14 @@ export default function CustomerDashboard() {
         return h;
       };
 
-      const derived: TimeSlot[] = BOOKING_TIMES.map(t => {
+      const derived: TimeSlot[] = BOOKING_TIMES.map((t) => {
+        if (unavailable) {
+          const status: SlotStatus = errorCode === 'DATE_FULL' ? 'FULL' : 'CLOSED';
+          return { time: t, status };
+        }
+        if (typeof remaining === 'number' && remaining <= 0) {
+          return { time: t, status: 'FULL' as SlotStatus };
+        }
         if (apiBooked.includes(t)) return { time: t, status: 'FULL' as SlotStatus };
         if (isToday) {
           const slotHour = parseHour(t);
@@ -1027,7 +1075,7 @@ export default function CustomerDashboard() {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const token = localStorage.getItem('authToken');
-    const result: Record<string, 'available' | 'full' | 'closed'> = {};
+    const result: Record<string, DayAvailabilityInfo> = {};
 
     // Build list of dates to fetch (skip weekends and past dates)
     const datesToFetch: string[] = [];
@@ -1037,7 +1085,13 @@ export default function CustomerDashboard() {
       const isWeekend = date.getDay() === 0 || date.getDay() === 6;
       const isPast = date < today;
       if (isWeekend || isPast) {
-        result[iso] = 'closed';
+        result[iso] = {
+          status: 'closed',
+          unavailable: true,
+          errorCode: isPast ? 'PAST_DATE' : 'CLOSED_BY_RECURRING_DAY',
+          reason: isPast ? 'Past date is no longer available for booking.' : 'The shop is closed on this day.',
+          remaining: 0,
+        };
       } else {
         datesToFetch.push(iso);
       }
@@ -1051,10 +1105,43 @@ export default function CustomerDashboard() {
             headers: { 'Authorization': `Bearer ${token}` }
           });
           const data = await res.json();
-          const booked: string[] = Array.isArray(data.bookedSlots) ? data.bookedSlots : [];
-          result[iso] = booked.length >= BOOKING_TIMES.length ? 'full' : 'available';
+          const {
+            unavailable,
+            errorCode,
+            message: availabilityMessage,
+            remaining,
+            bookedSlots: booked,
+          } = parseAvailableSlotsPayload(data);
+
+          let status: DayAvailabilityStatus = 'available';
+          if (unavailable) {
+            status = errorCode === 'DATE_FULL' ? 'full' : 'closed';
+          } else if ((typeof remaining === 'number' && remaining <= 0) || booked.length >= BOOKING_TIMES.length) {
+            status = 'full';
+          }
+
+          const fallbackReason =
+            status === 'full'
+              ? 'All booking slots for this date are fully booked.'
+              : status === 'closed'
+                ? 'This date is not available for booking.'
+                : '';
+
+          result[iso] = {
+            status,
+            unavailable: unavailable || status !== 'available',
+            errorCode: errorCode || (status === 'full' ? 'DATE_FULL' : status === 'closed' ? 'DATE_UNAVAILABLE' : null),
+            reason: availabilityMessage || fallbackReason,
+            remaining,
+          };
         } catch {
-          result[iso] = 'available'; // fail-open: allow selection if API fails
+          result[iso] = {
+            status: 'available',
+            unavailable: false,
+            errorCode: null,
+            reason: '',
+            remaining: null,
+          };
         }
       }));
     } finally {
@@ -1151,10 +1238,10 @@ export default function CustomerDashboard() {
           }
         }
 
-      } else if (res?.status === 409 || res?.message?.toLowerCase().includes('slot')) {
-        const serverMsg = res.message || 'Slot is no longer available. Please select another time.';
+      } else if (res?.status === 409 || res?.errorCode || res?.error) {
+        const serverMsg = res?.message || res?.error || 'This booking date is no longer available.';
         toast.dismiss(loadingId);
-        toast.error('Time slot no longer available', { description: serverMsg, duration: 5000 });
+        toast.error('Booking unavailable', { description: serverMsg, duration: 5000 });
         setSlotError(serverMsg);
         setBookingForm(f => ({ ...f, time: '' }));
         if (bookingForm.date) fetchSlotsForDate(bookingForm.date);
@@ -1168,13 +1255,15 @@ export default function CustomerDashboard() {
       }
     } catch (e: any) {
       toast.dismiss(loadingId);
-      const msg = e?.response?.data?.message || e?.message || '';
-      if (e?.response?.status === 409 || msg.toLowerCase().includes('slot')) {
-        toast.error('Time slot no longer available', {
-          description: msg || 'Please select a different time.',
+      const serverData = e?.response?.data || {};
+      const msg = serverData?.message || serverData?.error || e?.message || '';
+      const errorCode = serverData?.errorCode;
+      if (e?.response?.status === 409 || errorCode || serverData?.unavailable) {
+        toast.error('Booking unavailable', {
+          description: msg || 'Please select a different date or time.',
           duration: 5000,
         });
-        setSlotError(msg || 'Slot is no longer available. Please select another time.');
+        setSlotError(msg || 'This booking date is no longer available. Please select another schedule.');
         setBookingForm(f => ({ ...f, time: '' }));
         if (bookingForm.date) fetchSlotsForDate(bookingForm.date);
         setBookingStep(3);
@@ -5653,14 +5742,19 @@ export default function CustomerDashboard() {
                       date.setHours(0, 0, 0, 0);
                       const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                       const isToday = iso === todayIso;
-                      // Use API-driven status; fall back to closed for past/weekend while loading
-                      const status: 'available' | 'full' | 'closed' = monthAvailability[iso] || 'closed';
-                      const disabled = status === 'closed' || status === 'full';
+                      const dayInfo = monthAvailability[iso];
+                      // Use API-driven status; fall back to closed for safety while loading.
+                      const status: DayAvailabilityStatus = dayInfo?.status || 'closed';
+                      const disabled = !!dayInfo?.unavailable || status === 'closed' || status === 'full';
                       const isSelected = bookingForm.date === iso;
-                      const dotColor = status === 'full' ? '#ef4444' : status === 'closed' ? 'transparent' : '#22c55e';
+                      const unavailableReason =
+                        dayInfo?.reason
+                        || (status === 'full' ? 'All booking slots for this date are fully booked.' : 'This date is unavailable.');
+                      const dotColor = status === 'available' ? '#22c55e' : 'transparent';
                       cells.push(
                         <button key={iso} type="button" disabled={disabled}
-                          title={status === 'full' ? 'Fully booked' : status === 'closed' ? 'Unavailable' : undefined}
+                          title={disabled ? unavailableReason : undefined}
+                          aria-label={disabled ? `Unavailable date: ${unavailableReason}` : undefined}
                           onClick={() => {
                             if (disabled) return;
                             const prevTime = bookingForm.time;
@@ -5683,13 +5777,12 @@ export default function CustomerDashboard() {
                             fontSize: 14,
                             fontWeight: isSelected ? 700 : isToday ? 700 : 500,
                             color: isSelected ? '#fff'
-                              : status === 'closed' ? '#d1d5db'
-                                : status === 'full' ? '#fca5a5'
-                                  : isToday ? '#0f172a'
+                              : disabled ? '#9ca3af'
+                                : isToday ? '#0f172a'
                                     : '#374151',
                             lineHeight: 1,
                           }}>{day}</span>
-                          {status !== 'closed' && (
+                          {status === 'available' && (
                             <span style={{
                               width: 4, height: 4, borderRadius: '50%',
                               background: isSelected ? 'rgba(255,255,255,0.6)' : dotColor,
@@ -5705,8 +5798,7 @@ export default function CustomerDashboard() {
                   <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 12 }}>
                     {[
                       { c: '#22c55e', l: 'Available' },
-                      { c: '#ef4444', l: 'Fully Booked' },
-                      { c: '#d1d5db', l: 'Closed' },
+                      { c: '#9ca3af', l: 'Unavailable' },
                     ].map(({ c, l }) => (
                       <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: c }} />

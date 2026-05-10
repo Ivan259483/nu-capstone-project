@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
   X, Clock, Car, CheckCircle, XCircle, Loader2,
-  Calendar, AlertCircle, Package, Banknote,
+  Calendar, AlertCircle, Package, Banknote, GripVertical,
 } from 'lucide-react';
 import { approveBooking, rejectBooking } from './calendarService';
 import { invalidateDateCache } from './useBookingsByDate';
@@ -106,9 +106,9 @@ function BookingCard({
       : booking.bookingReference;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_6px_28px_rgba(15,23,42,0.07)] ring-1 ring-slate-900/[0.04]">
+    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_32px_-14px_rgba(15,23,42,0.12),0_0_0_1px_rgba(226,232,240,0.45)]">
       {/* Header strip */}
-      <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 to-white px-4 py-4">
+      <div className="bg-gradient-to-br from-slate-50/90 to-white px-4 py-4">
         <div className="flex items-start gap-3">
           <div
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white shadow-md"
@@ -120,9 +120,9 @@ function BookingCard({
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[15px] font-bold tracking-tight text-slate-900">{booking.customerName}</span>
               <span
-                className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-bold shadow-sm"
+                className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold"
                 style={{
-                  borderColor: `${meta.dot}55`,
+                  boxShadow: `0 1px 6px -3px rgba(15,23,42,0.08), 0 0 0 1px ${meta.dot}38`,
                   background: meta.bg,
                   color: meta.text,
                 }}
@@ -158,10 +158,10 @@ function BookingCard({
       </div>
 
       {/* Detail rows */}
-      <div className="space-y-2.5 px-4 py-4">
-        <div className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-100">
-            <Package size={16} className="text-violet-600" strokeWidth={2} />
+      <div className="space-y-3 px-4 py-4">
+        <div className="flex gap-3 rounded-2xl bg-gradient-to-br from-blue-50/50 via-slate-50/40 to-white p-3.5 shadow-[0_2px_12px_-6px_rgba(37,99,235,0.08)] ring-1 ring-blue-100/40">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/90 shadow-sm ring-1 ring-blue-100/60">
+            <Package size={16} className="text-blue-600" strokeWidth={2} />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Service</p>
@@ -171,8 +171,8 @@ function BookingCard({
           </div>
         </div>
 
-        <div className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-100">
+        <div className="flex gap-3 rounded-2xl bg-gradient-to-br from-slate-50/90 to-emerald-50/25 p-3.5 shadow-[0_2px_12px_-6px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/35">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/90 shadow-sm ring-1 ring-emerald-100/70">
             <Banknote size={16} className="text-emerald-600" strokeWidth={2} />
           </div>
           <div className="min-w-0 flex-1">
@@ -184,9 +184,9 @@ function BookingCard({
         </div>
 
         {(booking.vehicleMake || booking.vehicleModel) && (
-          <div className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-100">
-              <Car size={16} className="text-sky-600" strokeWidth={2} />
+          <div className="flex gap-3 rounded-2xl bg-gradient-to-br from-slate-50/90 to-sky-50/30 p-3.5 shadow-[0_2px_12px_-6px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/35">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/90 shadow-sm ring-1 ring-sky-100/70">
+              <Car size={16} className="text-blue-600" strokeWidth={2} />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Vehicle</p>
@@ -200,29 +200,28 @@ function BookingCard({
 
       {/* Payment proof image */}
       {isPending && booking.paymentProofUrl && (
-        <div className="border-t border-slate-100 px-4 pb-4 pt-2">
+        <div className="border-t border-slate-100/60 px-4 pb-4 pt-3">
           <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-2">GCash Proof</p>
           <img
             src={booking.paymentProofUrl}
             alt="Payment proof"
-            className="w-full h-32 object-cover rounded-xl cursor-zoom-in transition-opacity hover:opacity-90"
-            style={{ border: '1px solid #e2e8f0' }}
+            className="h-32 w-full cursor-zoom-in rounded-xl object-cover shadow-[0_2px_12px_-4px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/40 transition-opacity hover:opacity-90"
             onClick={() => window.open(booking.paymentProofUrl, '_blank')}
           />
         </div>
       )}
       {isPending && !booking.paymentProofUrl && (
-        <div className="border-t border-slate-100 px-4 pb-4 pt-2">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: '#fef9c3', border: '1px solid #fde68a' }}>
-            <AlertCircle size={12} className="text-amber-600 flex-shrink-0" />
-            <span className="text-[11px] text-amber-700 font-medium">No payment proof uploaded yet</span>
+        <div className="border-t border-slate-100/60 px-4 pb-4 pt-3">
+          <div className="flex items-center gap-2 rounded-xl bg-amber-50/90 px-3 py-2.5 shadow-[0_1px_8px_-4px_rgba(245,158,11,0.15)] ring-1 ring-amber-200/40">
+            <AlertCircle size={12} className="flex-shrink-0 text-amber-600" />
+            <span className="text-[11px] font-medium text-amber-800">No payment proof uploaded yet</span>
           </div>
         </div>
       )}
 
       {/* Action buttons — ONLY for pending_confirmation */}
       {isPending && (
-        <div className="border-t border-slate-100 px-4 pb-4 pt-1">
+        <div className="border-t border-slate-100/60 px-4 pb-4 pt-2">
           {rejectMode ? (
             <div className="space-y-2">
               <textarea
@@ -230,21 +229,20 @@ function BookingCard({
                 onChange={e => setRejectReason(e.target.value)}
                 placeholder="Reason for rejection (optional)"
                 rows={2}
-                className="w-full text-xs px-3 py-2 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-red-300"
-                style={{ border: '1px solid #fca5a5', background: '#fff5f5' }}
+                className="w-full resize-none rounded-xl border-0 bg-red-50/80 px-3 py-2 text-xs shadow-[inset_0_0_0_1px_rgba(252,165,165,0.5)] focus:outline-none focus:ring-2 focus:ring-red-200"
               />
               <div className="flex gap-2">
                 <button
                   onClick={() => { setRejectMode(false); setRejectReason(''); }}
                   disabled={actioning}
-                  className="flex-1 py-2 text-xs font-semibold text-slate-600 rounded-xl transition-colors hover:bg-slate-100"
-                  style={{ border: '1px solid #e2e8f0' }}>
+                  className="flex-1 rounded-xl border-0 bg-white py-2 text-xs font-semibold text-slate-600 shadow-[0_0_0_1px_rgba(226,232,240,0.9)] transition-colors hover:bg-slate-50"
+                >
                   Cancel
                 </button>
                 <button
                   onClick={handleReject}
                   disabled={actioning}
-                  className="flex-1 py-2 text-xs font-semibold text-white rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold text-white transition-colors"
                   style={{ background: actioning ? '#fca5a5' : '#ef4444' }}>
                   {actioning
                     ? <Loader2 size={12} className="animate-spin" />
@@ -258,14 +256,14 @@ function BookingCard({
               <button
                 onClick={() => setRejectMode(true)}
                 disabled={actioning}
-                className="flex-1 py-2 text-xs font-semibold text-red-600 rounded-xl transition-colors hover:bg-red-50 flex items-center justify-center gap-1"
-                style={{ border: '1px solid #fecaca' }}>
+                className="flex flex-1 items-center justify-center gap-1 rounded-xl border-0 bg-white py-2 text-xs font-semibold text-red-600 shadow-[0_0_0_1px_rgba(254,202,202,0.9)] transition-colors hover:bg-red-50"
+              >
                 <XCircle size={12} /> Reject
               </button>
               <button
                 onClick={handleApprove}
                 disabled={actioning}
-                className="flex-1 py-2 text-xs font-semibold text-white rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold text-white transition-colors shadow-[0_2px_10px_-4px_rgba(16,185,129,0.4)]"
                 style={{ background: actioning ? '#6ee7b7' : '#10b981' }}>
                 {actioning
                   ? <Loader2 size={12} className="animate-spin" />
@@ -320,18 +318,18 @@ export default function DayPanel({ date, bookings, loading, onClose, onRefresh }
         onClick={onClose}
       />
       <aside
-        className="fixed top-0 right-0 z-[210] flex h-[100dvh] w-[min(100vw,420px)] flex-col overflow-hidden border-l border-slate-200/90 bg-white shadow-[-16px_0_48px_rgba(15,23,42,0.14)] sm:rounded-l-2xl"
+        className="fixed top-0 right-0 z-[220] flex h-[100dvh] w-[min(100vw,420px)] flex-col overflow-hidden bg-white shadow-[-20px_0_48px_-12px_rgba(15,23,42,0.14),-8px_0_24px_-8px_rgba(15,23,42,0.06)] sm:rounded-l-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="day-panel-title"
       >
 
         {/* Header */}
-        <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-slate-100 bg-white px-5 py-5">
+        <div className="flex flex-shrink-0 items-start justify-between gap-4 bg-white px-5 py-5 shadow-[0_1px_0_0_rgba(226,232,240,0.65)]">
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Selected date</p>
             <div className="mt-1 flex items-center gap-2">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 shadow-[0_0_0_1px_rgba(191,219,254,0.7)]">
                 <Calendar size={18} strokeWidth={2} />
               </div>
               <div>
@@ -348,12 +346,23 @@ export default function DayPanel({ date, bookings, loading, onClose, onRefresh }
           <button
             type="button"
             onClick={onClose}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-400 ring-1 ring-slate-200/80 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="relative z-[221] flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-400 ring-1 ring-slate-200/80 transition-colors hover:bg-slate-100 hover:text-slate-700"
             aria-label="Close panel"
           >
             <X size={18} />
           </button>
         </div>
+
+        {!loading && active.length > 0 && (
+          <div className="flex-shrink-0 px-4 pb-3 pt-0 shadow-[0_1px_0_0_rgba(226,232,240,0.7)]">
+            <div className="flex items-start gap-2 rounded-xl bg-blue-50/90 px-3 py-2.5 text-[11px] leading-snug text-blue-950 shadow-[0_6px_22px_-12px_rgba(37,99,235,0.22)]">
+              <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" aria-hidden />
+              <span>
+                <span className="font-semibold">Reschedule:</span> drag a booking card onto another date in the calendar, then pick a time in the dialog.
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex-1 space-y-4 overflow-y-auto bg-gradient-to-b from-slate-50/90 to-slate-50/40 p-4">
@@ -395,8 +404,8 @@ export default function DayPanel({ date, bookings, loading, onClose, onRefresh }
                     const meta = getMeta(b.status);
                     return (
                       <div key={b._id || b.id}
-                        className="flex items-center gap-3 px-3 py-2.5 rounded-xl opacity-60"
-                        style={{ background: '#f8fafc', border: '1px solid #f1f5f9' }}>
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 opacity-60 shadow-[0_4px_16px_-8px_rgba(15,23,42,0.1)]"
+                        style={{ background: '#f8fafc' }}>
                         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: meta.dot }} />
                         <span className="text-xs text-slate-600 flex-1 truncate">{b.customerName}</span>
                         <span className="text-[10px] font-medium" style={{ color: meta.text }}>{meta.label}</span>

@@ -390,6 +390,35 @@ const MONTH_NAMES_FULL = ['January', 'February', 'March', 'April', 'May', 'June'
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']; // Sunday-first, matches web
 const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+type DayAvailabilityStatus = 'available' | 'full' | 'closed';
+type DayAvailabilityInfo = {
+  status: DayAvailabilityStatus;
+  unavailable: boolean;
+  reason: string;
+  errorCode: string | null;
+  remaining: number | null;
+};
+type DayAvailabilityMap = Record<string, DayAvailabilityInfo>;
+
+type AvailableSlotsPayload = {
+  success?: boolean;
+  bookedSlots?: string[];
+  unavailable?: boolean;
+  errorCode?: string | null;
+  message?: string | null;
+  error?: string | null;
+  remaining?: number | null;
+};
+
+const normalizeAvailableSlotsPayload = (payload: AvailableSlotsPayload) => {
+  const bookedSlots = Array.isArray(payload?.bookedSlots) ? payload.bookedSlots : [];
+  const unavailable = !!payload?.unavailable;
+  const errorCode = typeof payload?.errorCode === 'string' ? payload.errorCode : null;
+  const message = (payload?.message || payload?.error || '').toString().trim();
+  const remaining = typeof payload?.remaining === 'number' ? payload.remaining : null;
+  return { bookedSlots, unavailable, errorCode, message, remaining };
+};
+
 /** Month Calendar Grid Component — mirrors web CustomerDashboard calendar */
 function MonthCalendar({
   selectedDate,
@@ -399,7 +428,7 @@ function MonthCalendar({
 }: {
   selectedDate: string | null;
   onSelectDate: (dateKey: string, iso: string) => void;
-  monthAvailability?: Record<string, 'available' | 'full' | 'closed'>;
+  monthAvailability?: DayAvailabilityMap;
   onMonthChange?: (year: number, month: number) => void;
 }) {
   const { colors } = useTheme();
@@ -475,18 +504,21 @@ function MonthCalendar({
       <View style={cal.grid}>
         {grid.map((item, idx) => {
           const isSelected = item.isCurrentMonth && selectedDate === item.dateKey;
-          const isDisabled = !item.isCurrentMonth || item.isPast;
-          const avail      = item.isCurrentMonth && !item.isPast ? monthAvailability[item.iso] : undefined;
-          const dotColor   = avail ? DOT_COLORS[avail] : undefined;
+          const isStaticDisabled = !item.isCurrentMonth || item.isPast;
+          const dayInfo = item.isCurrentMonth && !item.isPast ? monthAvailability[item.iso] : undefined;
+          const availStatus = dayInfo?.status;
+          const isUnavailable = !!dayInfo?.unavailable || availStatus === 'closed' || availStatus === 'full';
+          const dotColor = availStatus ? DOT_COLORS[availStatus] : undefined;
 
           return (
             <TouchableOpacity
               key={idx}
-              activeOpacity={0.8}
-              disabled={isDisabled || avail === 'closed'}
+              activeOpacity={isStaticDisabled || isUnavailable ? 1 : 0.8}
+              disabled={isStaticDisabled}
               onPress={() => {
-                if (avail === 'full') {
-                  Toast.show('This date is fully booked', 'info');
+                if (isStaticDisabled) return;
+                if (isUnavailable) {
+                  Toast.show(dayInfo?.reason || 'This date is unavailable for booking.', 'info');
                   return;
                 }
                 onSelectDate(item.dateKey, item.iso);
@@ -503,12 +535,12 @@ function MonthCalendar({
                 !item.isCurrentMonth && cal.dayTextHidden,
                 item.isCurrentMonth && item.isPast && cal.dayTextPast,
                 isSelected && cal.dayTextSelected,
-                avail === 'closed' && !isSelected && cal.dayTextPast,
+                isUnavailable && !isSelected && cal.dayTextPast,
               ]}>
                 {item.day}
               </Text>
               {/* Availability dot */}
-              {dotColor && !isSelected ? (
+              {dotColor && !isSelected && availStatus === 'available' ? (
                 <View style={[cal.dot, { backgroundColor: dotColor }]} />
               ) : null}
             </TouchableOpacity>
@@ -682,23 +714,30 @@ export default function BookScreen() {
 
   // ── Calendar availability state (mirrors web CustomerDashboard) ──
   type SlotStatus = 'AVAILABLE' | 'FULL' | 'CLOSED';
-  const [monthAvailability, setMonthAvailability] = useState<Record<string, 'available' | 'full' | 'closed'>>({});
+  const [monthAvailability, setMonthAvailability] = useState<DayAvailabilityMap>({});
   const [monthAvailLoading, setMonthAvailLoading] = useState(false);
   const [slotStatuses, setSlotStatuses] = useState<{ time: string; status: SlotStatus }[]>([]);
+  const [scheduleMessage, setScheduleMessage] = useState('');
   const [slotsLoading, setSlotsLoading] = useState(false);
 
   const fetchMonthAvailability = useCallback(async (y: number, m: number) => {
     setMonthAvailLoading(true);
     const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
     const daysInM = new Date(y, m + 1, 0).getDate();
-    const result: Record<string, 'available' | 'full' | 'closed'> = {};
+    const result: DayAvailabilityMap = {};
     const toFetch: string[] = [];
 
     for (let d = 1; d <= daysInM; d++) {
       const date = new Date(y, m, d);
       const iso  = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       if (date.getDay() === 0 || date.getDay() === 6 || date < todayD) {
-        result[iso] = 'closed';
+        result[iso] = {
+          status: 'closed',
+          unavailable: true,
+          errorCode: date < todayD ? 'PAST_DATE' : 'CLOSED_BY_RECURRING_DAY',
+          reason: date < todayD ? 'Past date is no longer available for booking.' : 'The shop is closed on this day.',
+          remaining: 0,
+        };
       } else {
         toFetch.push(iso);
       }
@@ -709,10 +748,43 @@ export default function BookScreen() {
       await Promise.all(toFetch.map(async (iso) => {
         try {
           const res = await apiClient.get(`/orders/available-slots?date=${iso}`);
-          const booked: string[] = Array.isArray(res.data?.bookedSlots) ? res.data.bookedSlots : [];
-          result[iso] = booked.length >= TIME_SLOTS.length ? 'full' : 'available';
+          const {
+            unavailable,
+            errorCode,
+            message,
+            remaining,
+            bookedSlots,
+          } = normalizeAvailableSlotsPayload(res.data);
+
+          let status: DayAvailabilityStatus = 'available';
+          if (unavailable) {
+            status = errorCode === 'DATE_FULL' ? 'full' : 'closed';
+          } else if ((typeof remaining === 'number' && remaining <= 0) || bookedSlots.length >= TIME_SLOTS.length) {
+            status = 'full';
+          }
+
+          const fallbackReason =
+            status === 'full'
+              ? 'All booking slots for this date are fully booked.'
+              : status === 'closed'
+                ? 'This date is unavailable for booking.'
+                : '';
+
+          result[iso] = {
+            status,
+            unavailable: unavailable || status !== 'available',
+            errorCode: errorCode || (status === 'full' ? 'DATE_FULL' : status === 'closed' ? 'DATE_UNAVAILABLE' : null),
+            reason: message || fallbackReason,
+            remaining,
+          };
         } catch {
-          result[iso] = 'available';
+          result[iso] = {
+            status: 'available',
+            unavailable: false,
+            errorCode: null,
+            reason: '',
+            remaining: null,
+          };
         }
       }));
     } catch { /* network down — keep already-computed closed entries */ }
@@ -725,10 +797,22 @@ export default function BookScreen() {
   const fetchSlotsForDate = useCallback(async (iso: string) => {
     if (!iso) return;
     setSlotsLoading(true);
+    setScheduleMessage('');
     try {
       const { apiClient } = await import('@/services/api/client');
-      const res   = await apiClient.get(`/orders/available-slots?date=${iso}`);
-      const booked: string[] = Array.isArray(res.data?.bookedSlots) ? res.data.bookedSlots : [];
+      const res = await apiClient.get(`/orders/available-slots?date=${iso}`);
+      const {
+        unavailable,
+        errorCode,
+        message,
+        remaining,
+        bookedSlots,
+      } = normalizeAvailableSlotsPayload(res.data);
+
+      if (unavailable && message) {
+        setScheduleMessage(message);
+      }
+
       const now   = new Date();
       const isToday = iso === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const h = now.getHours();
@@ -742,12 +826,17 @@ export default function BookScreen() {
       };
 
       setSlotStatuses(TIME_SLOTS.map(t => {
-        if (booked.includes(t)) return { time: t, status: 'FULL'  as SlotStatus };
+        if (unavailable) {
+          return { time: t, status: (errorCode === 'DATE_FULL' ? 'FULL' : 'CLOSED') as SlotStatus };
+        }
+        if (typeof remaining === 'number' && remaining <= 0) return { time: t, status: 'FULL' as SlotStatus };
+        if (bookedSlots.includes(t)) return { time: t, status: 'FULL'  as SlotStatus };
         if (isToday && parseHour(t) <= h) return { time: t, status: 'CLOSED' as SlotStatus };
         return { time: t, status: 'AVAILABLE' as SlotStatus };
       }));
     } catch {
       setSlotStatuses(TIME_SLOTS.map(t => ({ time: t, status: 'AVAILABLE' as SlotStatus })));
+      setScheduleMessage('');
     } finally {
       setSlotsLoading(false);
     }
@@ -1596,6 +1685,7 @@ export default function BookScreen() {
                   setSelectedDate(dateKey);
                   setSelectedTime('');
                   setSlotStatuses([]);
+                  setScheduleMessage('');
                   fetchSlotsForDate(iso);
                 }}
                 monthAvailability={monthAvailability}
@@ -1604,6 +1694,7 @@ export default function BookScreen() {
                   setSelectedDate(null);
                   setSelectedTime('');
                   setSlotStatuses([]);
+                  setScheduleMessage('');
                   fetchMonthAvailability(y, m);
                 }}
               />
@@ -1612,8 +1703,7 @@ export default function BookScreen() {
               <View style={sch.legend}>
                 {[
                   { color: '#22c55e', label: 'Available' },
-                  { color: '#ef4444', label: 'Fully Booked' },
-                  { color: '#94a3b8', label: 'Closed' },
+                  { color: '#94a3b8', label: 'Unavailable' },
                 ].map((item) => (
                   <View key={item.label} style={sch.legendItem}>
                     <View style={[sch.legendDot, { backgroundColor: item.color }]} />
@@ -1624,6 +1714,12 @@ export default function BookScreen() {
 
               {/* ── Preferred Time ── */}
               <Text style={sch.sectionLabel}>PREFERRED TIME</Text>
+
+              {!!scheduleMessage && (
+                <View style={{ marginBottom: 10, borderWidth: 1, borderColor: '#fde68a', backgroundColor: '#fffbeb', borderRadius: 10, padding: 10 }}>
+                  <Text style={{ color: '#92400e', fontSize: 12, lineHeight: 18 }}>{scheduleMessage}</Text>
+                </View>
+              )}
 
               {!selectedDate ? (
                 <View style={sch.emptyState}>

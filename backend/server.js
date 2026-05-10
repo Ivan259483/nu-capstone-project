@@ -21,6 +21,7 @@ import { initializeMailer } from './utils/mail.utils.js'; // Import mailer
 import { migrateLegacyUserRoles } from './utils/migrateLegacyUserRoles.utils.js';
 import { initSocket, initChangeStreams } from './utils/socket.utils.js';
 import { cleanupExpiredReservations } from './utils/inventory.utils.js';
+import { authenticate, authorize } from './middleware/auth.middleware.js';
 
 // ============================================
 // RESEND EMAIL CONFIGURATION
@@ -51,6 +52,7 @@ import aiRoutes from './routes/ai.routes.js';
 import systemRoutes from './routes/system.routes.js';
 import qcRoutes from './routes/qc.routes.js';
 import slotRoutes from './routes/slot.routes.js';
+import availabilityRouter from './routes/admin/availability.js';
 
 const app = express();
 
@@ -192,6 +194,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/qc', qcRoutes);
 app.use('/api/slots', slotRoutes);
+app.use('/api/admin/availability', authenticate, authorize('administrator'), availabilityRouter);
 
 // Serve static public assets (e.g. /ar-viewer.html used by the mobile WebView)
 // Must be before the 404 handler so the file is matched first.

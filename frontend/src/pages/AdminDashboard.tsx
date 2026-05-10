@@ -311,6 +311,8 @@ export default function AdminDashboard() {
     const [editDate, setEditDate] = useState('');
     const [editTime, setEditTime] = useState('');
     const [bookedSlots, setBookedSlots] = useState<string[]>([]);
+    const [editDateUnavailable, setEditDateUnavailable] = useState(false);
+    const [editAvailabilityMessage, setEditAvailabilityMessage] = useState('');
     const [isLoadingSlots, setIsLoadingSlots] = useState(false);
 
     // Inventory Modal
@@ -1806,26 +1808,37 @@ export default function AdminDashboard() {
     useEffect(() => {
         if (!editDate || !isEditScheduleOpen) {
             setBookedSlots([]);
+            setEditDateUnavailable(false);
+            setEditAvailabilityMessage('');
             return;
         }
         const fetchEditSlots = async () => {
             setIsLoadingSlots(true);
             try {
                 const response = await OrderService.getAvailableSlots(editDate);
-                if (response.success && response.bookedSlots) {
+                if (response.success) {
+                    const booked = Array.isArray(response.bookedSlots) ? response.bookedSlots : [];
+                    const unavailable = !!response.unavailable;
+                    const availabilityMsg = response.message || response.error || '';
+
                     // Filter out the booking's own original time so they can keep their slot
                     const slots = detailBooking?.bookingDate === editDate
-                        ? response.bookedSlots.filter((t: string) => t !== detailBooking.bookingTime)
-                        : response.bookedSlots;
+                        ? booked.filter((t: string) => t !== detailBooking.bookingTime)
+                        : booked;
 
                     setBookedSlots(slots);
-                    if (editTime && slots.includes(editTime)) {
+                    setEditDateUnavailable(unavailable);
+                    setEditAvailabilityMessage(availabilityMsg || (unavailable ? 'This date is unavailable for booking.' : ''));
+
+                    if (editTime && (unavailable || slots.includes(editTime))) {
                         setEditTime('');
-                        toast.error('The selected time slot is already booked.');
+                        toast.error(availabilityMsg || 'The selected time slot is already booked.');
                     }
                 }
             } catch (error) {
                 toast.error('Could not verify time slot availability.');
+                setEditDateUnavailable(false);
+                setEditAvailabilityMessage('');
             } finally {
                 setIsLoadingSlots(false);
             }
@@ -2176,6 +2189,7 @@ export default function AdminDashboard() {
             {/* ── OVERLAY ── */}
             <div
                 className={`drawer-overlay ${!sidebarCollapsed ? 'open' : ''}`}
+                style={isAdminHubMode ? { display: 'none', pointerEvents: 'none' } : undefined}
                 onClick={() => setSidebarCollapsed(true)}
             />
 
@@ -2223,7 +2237,7 @@ export default function AdminDashboard() {
             )}
 
             {/* ── SIDEBAR ── */}
-            <div className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`} style={isHRMode ? { display: 'none' } : undefined}>
+            <div className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`} style={isHRMode ? { display: 'none' } : isAdminHubMode ? { display: 'none' } : undefined}>
                 <div className="brand">
                     <div className="sidebar-profile-avatar" onClick={() => { setActiveTab('profile'); setSidebarCollapsed(true); }}>
                         {profilePhoto ? <img src={profilePhoto} alt="Profile" /> : (user?.name?.charAt(0).toUpperCase() || 'A')}
@@ -2318,7 +2332,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* ── MAIN AREA ── */}
-            <div className="main" style={isHRMode ? { display: 'none' } : undefined}>
+            <div className="main" style={isHRMode ? { display: 'none' } : isAdminHubMode ? { display: 'none' } : undefined}>
                 {/* Topbar */}
                 <div className="topbar">
                     <div className="flex items-center gap-3">
@@ -3751,9 +3765,15 @@ export default function AdminDashboard() {
                         </div>
                         <div className="space-y-2">
                             <Label className={theme === 'light' ? 'text-gray-700' : 'text-zinc-300'}>Time Slot</Label>
-                            <Select value={editTime} onValueChange={setEditTime} disabled={isLoadingSlots || !editDate}>
+                            <Select value={editTime} onValueChange={setEditTime} disabled={isLoadingSlots || !editDate || editDateUnavailable}>
                                 <SelectTrigger className={theme === 'light' ? 'bg-gray-50 border-gray-300' : 'bg-[#09090b] border-zinc-800'}>
-                                    <SelectValue placeholder={isLoadingSlots ? 'Checking availability...' : 'Select new time'} />
+                                    <SelectValue placeholder={
+                                        isLoadingSlots
+                                            ? 'Checking availability...'
+                                            : editDateUnavailable
+                                                ? (editAvailabilityMessage || 'This date is unavailable.')
+                                                : 'Select new time'
+                                    } />
                                 </SelectTrigger>
                                 <SelectContent className={theme === 'light' ? 'bg-white' : 'bg-[#121214] border-zinc-800'}>
                                     {['09:00 AM', '10:00 AM', '11:00 AM', '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM'].map((t) => {
@@ -3771,6 +3791,11 @@ export default function AdminDashboard() {
                                     })}
                                 </SelectContent>
                             </Select>
+                            {editDateUnavailable && (
+                                <p className={`text-xs ${theme === 'light' ? 'text-amber-700' : 'text-amber-400'}`}>
+                                    {editAvailabilityMessage || 'This date is unavailable for booking.'}
+                                </p>
+                            )}
                         </div>
                     </div>
                     <div className="flex gap-3 justify-end mt-4">

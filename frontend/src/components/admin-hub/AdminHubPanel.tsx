@@ -16,6 +16,7 @@ import InventoryPanel from '@/components/inventory/InventoryPanel';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getSafeUserRole, isServiceCatalogRole } from '@/lib/roles';
+import { CalendarScheduleDnDProvider, useCalendarScheduleDnD } from '@/components/sales/calendar/CalendarScheduleDnDContext';
 
 interface Props {
   currentUser?: any;
@@ -39,24 +40,27 @@ interface Props {
   fullMode?: boolean; // When true, this is the ONLY UI (no old dashboard behind it)
 }
 
-const NAV_ITEMS_CORE = [
+const NAV_MAIN_MENU = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'Main Menu' },
-  { id: 'users', label: 'User Management', icon: Users, section: 'Main Menu' },
-  { id: 'roles', label: 'Role Management', icon: ShieldCheck, section: 'Main Menu' },
-  { id: 'logs', label: 'Activity Logs', icon: ScrollText, section: 'Main Menu' },
 ];
 
-const ADMIN_NAV = [
+const NAV_OPERATIONS = [
+  { id: 'scheduling', label: 'Appointments', icon: Calendar, section: 'Operations' },
+  { id: 'live_tracking', label: 'Live Tracking', icon: Radio, section: 'Operations' },
+];
+
+const NAV_CATALOG = [
   { id: 'pricing', label: 'Services', icon: PhilippinePeso, section: 'Catalog' },
   { id: 'inventory', label: 'Inventory', icon: Package, section: 'Catalog' },
 ];
 
-const OPS_NAV = [
-  { id: 'scheduling', label: 'Appointments', icon: Calendar, section: 'Operation' },
-  { id: 'live_tracking', label: 'Live Tracking', icon: Radio, section: 'Operation' },
+const NAV_MANAGEMENT = [
+  { id: 'users', label: 'User Management', icon: Users, section: 'Management' },
+  { id: 'roles', label: 'Role Management', icon: ShieldCheck, section: 'Management' },
+  { id: 'logs', label: 'Activity Logs', icon: ScrollText, section: 'Management' },
 ];
 
-export default function AdminHubPanel({
+function AdminHubPanelInner({
   currentUser, onClose,
   inventory = [], suppliers = [], services = [], bookings = [], settings, setSettings,
   onLoadData, onAddSupplier, onEditSupplier, onOrderSupplier,
@@ -151,25 +155,25 @@ export default function AdminHubPanel({
   const navItems = useMemo(() => {
     const role = getSafeUserRole(currentUser?.role);
     if (role === 'administrator') {
-      return [...NAV_ITEMS_CORE, ...ADMIN_NAV, ...OPS_NAV];
+      return [...NAV_MAIN_MENU, ...NAV_OPERATIONS, ...NAV_CATALOG, ...NAV_MANAGEMENT];
     }
     if (role === 'office_admin') {
-      return [...NAV_ITEMS_CORE, ...ADMIN_NAV, ...OPS_NAV];
+      return [...NAV_MAIN_MENU, ...NAV_OPERATIONS, ...NAV_CATALOG, ...NAV_MANAGEMENT];
     }
     if (role === 'staff_quality_checker') {
-      return [...OPS_NAV];
+      return [...NAV_OPERATIONS];
     }
-    return NAV_ITEMS_CORE;
+    return [...NAV_MAIN_MENU, ...NAV_MANAGEMENT];
   }, [currentUser?.role]);
 
   const sidebarW = collapsed ? 64 : 240;
+  const { isDraggingSchedule } = useCalendarScheduleDnD();
+  const sidebarWEffective = isDraggingSchedule ? 0 : sidebarW;
   const userRoleLower = (currentUser?.role || '').toLowerCase();
   const prefetchCustomerTracker =
     userRoleLower === 'office_admin' ||
     userRoleLower === 'administrator' ||
     userRoleLower === 'staff_quality_checker';
-
-  const initials = currentUser?.name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() || 'OA';
 
   const handleLogout = () => {
     logout();
@@ -186,10 +190,26 @@ export default function AdminHubPanel({
 
   const safeBookings = Array.isArray(bookings) ? bookings : [];
 
+  const mainBgWhite =
+    activePage === 'pricing' || activePage === 'scheduling' || isDraggingSchedule ? '#ffffff' : '#f8fafc';
+
   return (
-    <div className="adminhub-root" style={{ position: 'fixed', inset: 0, zIndex: 100 }}>
+    <div
+      className={`adminhub-root ${isDraggingSchedule ? 'ah-schedule-dragging' : ''}`}
+      style={{ position: 'fixed', inset: 0, zIndex: 100 }}
+    >
       {/* ── Sidebar ── */}
-      <aside className="ah-sidebar" style={{ width: sidebarW }}>
+      <aside
+        className="ah-sidebar"
+        style={{
+          width: sidebarWEffective,
+          opacity: isDraggingSchedule ? 0 : 1,
+          pointerEvents: isDraggingSchedule ? 'none' : 'auto',
+          transition: 'width 0.22s cubic-bezier(0.16,1,0.3,1), opacity 0.18s ease',
+          overflow: 'hidden',
+          ...(isDraggingSchedule ? { border: 'none', boxShadow: 'none' } : {}),
+        }}
+      >
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', height: 64, padding: '0 12px', borderBottom: '1px solid #f1f5f9', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
@@ -236,19 +256,6 @@ export default function AdminHubPanel({
             {!collapsed && <span style={{ fontSize: 14 }}>Notifications</span>}
           </button>
 
-          {/* User */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px', borderRadius: 8, background: '#f8fafc', border: '1px solid #f1f5f9', overflow: 'hidden', justifyContent: collapsed ? 'center' : 'flex-start' }}>
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, flexShrink: 0 }}>{initials}</div>
-            {!collapsed && (
-              <>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{currentUser?.name || 'Office Admin'}</p>
-                  <p style={{ fontSize: 10, color: '#94a3b8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentUser?.email || 'admin@autospf.com'}</p>
-                </div>
-              </>
-            )}
-          </div>
-
           {/* Logout button (full mode) */}
           {fullMode && (
             <button type="button" className="ah-nav-item" onClick={handleLogout} style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : { color: '#dc2626' }}>
@@ -273,13 +280,22 @@ export default function AdminHubPanel({
       </aside>
 
       {/* ── Main Content ── */}
-      <main style={{ flex: 1, minHeight: '100vh', overflow: 'auto', transition: 'margin-left 0.3s cubic-bezier(0.16,1,0.3,1)', marginLeft: sidebarW, background: '#f8fafc' }}>
+      <main
+        style={{
+          flex: 1,
+          minHeight: '100vh',
+          overflow: 'auto',
+          transition: 'margin-left 0.22s cubic-bezier(0.16,1,0.3,1), background-color 0.18s ease',
+          marginLeft: sidebarWEffective,
+          background: mainBgWhite,
+        }}
+      >
         <div style={{ maxWidth: activePage === 'live_tracking' || activePage === 'scheduling' || activePage === 'inventory' ? 1560 : 1400, margin: '0 auto', padding: '32px 24px' }}>
           {activePage === 'dashboard' && (
             <AdminDashboardPage users={users} activityLogs={activityLogs} loading={loading} onNavigate={selectNavPage} />
           )}
           {activePage === 'scheduling' && (
-            <AdminAppointmentsPage onNavigate={selectNavPage} />
+            <AdminAppointmentsPage onNavigate={selectNavPage} currentUserRole={currentUser?.role} />
           )}
           {activePage === 'users' && (
             <AdminUserManagement
@@ -331,5 +347,13 @@ export default function AdminHubPanel({
         </div>
       )}
     </div>
+  );
+}
+
+export default function AdminHubPanel(props: Props) {
+  return (
+    <CalendarScheduleDnDProvider>
+      <AdminHubPanelInner {...props} />
+    </CalendarScheduleDnDProvider>
   );
 }

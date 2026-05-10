@@ -31,7 +31,7 @@ function KPICard({
   return (
     <div
       className={`glass-card glass-card-hover rounded-2xl p-5 relative overflow-hidden
-        ${highlight ? 'border-blue-200/80 bg-gradient-to-br from-blue-50/80 to-purple-50/40' : ''}
+        ${highlight ? 'border-blue-200/80 bg-gradient-to-br from-blue-50/90 to-blue-100/40' : ''}
         ${alert ? 'border-red-200/60 bg-gradient-to-br from-red-50/60 to-orange-50/30' : ''}
         ${colSpan} card-enter`}
       style={{ animationDelay: `${delay}ms` }}
@@ -82,7 +82,7 @@ export default function KPIBentoGrid() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <div className="sm:col-span-2 lg:col-span-2">
-        <KPICard icon={Package} iconBg="bg-gradient-to-br from-blue-500 to-purple-600" iconColor="text-white" label="Total SKUs" value={totalItems} sub={`Across ${new Set(items.map(i => i.category)).size} categories`} trend="up" trendValue={totalItems > 0 ? 'Live data' : 'No items'} highlight delay={0} />
+        <KPICard icon={Package} iconBg="bg-gradient-to-br from-blue-600 to-blue-700" iconColor="text-white" label="Total SKUs" value={totalItems} sub={`Across ${new Set(items.map(i => i.category)).size} categories`} trend="up" trendValue={totalItems > 0 ? 'Live data' : 'No items'} highlight delay={0} />
       </div>
       <KPICard icon={AlertTriangle} iconBg="bg-amber-50 border border-amber-100" iconColor="text-amber-500" label="Low Stock" value={lowStock} sub="Below reorder threshold" trend={lowStock > 0 ? 'down' : 'neutral'} trendValue={lowStock > 0 ? 'needs order' : 'all good'} delay={80} />
       <KPICard icon={XCircle} iconBg="bg-red-50 border border-red-100" iconColor="text-red-500" label="Critical / OOS" value={critical + outOfStock} sub={`${critical} critical · ${outOfStock} out`} trend={critical + outOfStock > 0 ? 'down' : 'neutral'} trendValue={critical + outOfStock > 0 ? 'urgent' : 'clear'} alert={critical + outOfStock > 0} delay={120} />

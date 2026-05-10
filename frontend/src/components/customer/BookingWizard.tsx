@@ -75,6 +75,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [bookedSlots, setBookedSlots] = useState<string[]>([]);
     const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+    const [availabilityMessage, setAvailabilityMessage] = useState('');
+    const [dateUnavailable, setDateUnavailable] = useState(false);
     const [gcashProof, setGcashProof] = useState<File | null>(null);
     const [waiverSigned, setWaiverSigned] = useState(false);
 
@@ -82,6 +84,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
     useEffect(() => {
         if (!date) {
             setBookedSlots([]);
+            setDateUnavailable(false);
+            setAvailabilityMessage('');
             return;
         }
 
@@ -89,17 +93,26 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
             setIsLoadingSlots(true);
             try {
                 const response = await OrderService.getAvailableSlots(date);
-                if (response.success && response.bookedSlots) {
-                    setBookedSlots(response.bookedSlots);
+                if (response.success) {
+                    const booked = Array.isArray(response.bookedSlots) ? response.bookedSlots : [];
+                    const unavailable = !!response.unavailable;
+                    const message = response.message || response.error || '';
+
+                    setBookedSlots(booked);
+                    setDateUnavailable(unavailable);
+                    setAvailabilityMessage(message || (unavailable ? 'This date is unavailable for booking.' : ''));
+
                     // If currently selected time is now booked, clear it
-                    if (time && response.bookedSlots.includes(time)) {
+                    if (time && (unavailable || booked.includes(time))) {
                         setTime('');
-                        toast.error('The selected time slot is no longer available.', { id: 'slot-taken' });
+                        toast.error(message || 'The selected time slot is no longer available.', { id: 'slot-taken' });
                     }
                 }
             } catch (error) {
                 console.error('Failed to fetch booked slots:', error);
                 toast.error('Could not verify time slot availability.', { id: 'slot-error' });
+                setDateUnavailable(false);
+                setAvailabilityMessage('');
             } finally {
                 setIsLoadingSlots(false);
             }
@@ -377,9 +390,15 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                     </div>
                     <div className="space-y-4">
                         <Label htmlFor="time" className="text-white">Select Time</Label>
-                        <Select value={time} onValueChange={setTime} name="time" disabled={isLoadingSlots || !date}>
+                        <Select value={time} onValueChange={setTime} name="time" disabled={isLoadingSlots || !date || dateUnavailable}>
                             <SelectTrigger id="time" className="bg-zinc-900 border-zinc-700 text-white focus:ring-indigo-500">
-                                <SelectValue placeholder={isLoadingSlots ? "Loading availability..." : (date ? "Select time slot" : "Select a date first")} />
+                                <SelectValue placeholder={
+                                    isLoadingSlots
+                                        ? 'Loading availability...'
+                                        : dateUnavailable
+                                            ? (availabilityMessage || 'This date is unavailable.')
+                                            : (date ? 'Select time slot' : 'Select a date first')
+                                } />
                             </SelectTrigger>
                             <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
                                 {['09:00 AM', '10:00 AM', '11:00 AM', '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM'].map(t => {
@@ -397,6 +416,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ services, vehicles
                                 })}
                             </SelectContent>
                         </Select>
+                        {dateUnavailable && (
+                            <p className="text-xs text-amber-400">{availabilityMessage || 'This date is unavailable for booking.'}</p>
+                        )}
                     </div>
                     <div className="space-y-4">
                         <Label htmlFor="phone" className="text-white">Phone Number</Label>

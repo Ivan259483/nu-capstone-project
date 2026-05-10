@@ -9,6 +9,7 @@
  */
 
 import React, { useMemo, useState, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import {
   ChevronLeft,
   ChevronRight,
@@ -19,11 +20,22 @@ import {
   ClipboardClock,
   Layers,
   CalendarX,
+  Clock,
+  GripVertical,
 } from 'lucide-react';
-import { DndContext as _DndContext, DragEndEvent } from '@dnd-kit/core';
+import {
+  DndContext as _DndContext,
+  DragEndEvent,
+  DragOverlay as _DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
 // Workaround: @dnd-kit/core v6 ships types that conflict with @types/react >=18.3
 // (bigint added to ReactNode). Cast to ComponentType<any> until dnd-kit ships a fix.
 const DndContext = _DndContext as React.ComponentType<React.ComponentProps<typeof _DndContext>>;
+const DragOverlay = _DragOverlay as React.ComponentType<React.ComponentProps<typeof _DragOverlay>>;
 import { toast } from 'sonner';
 import { useCalendarSlots, type DayMapEntry } from './useCalendarSlots';
 import { useBookingsByDate, invalidateDateCache } from './useBookingsByDate';
@@ -31,6 +43,7 @@ import DayPanel from './DayPanel';
 import DroppableSlot from './DroppableSlot';
 import RescheduleModal from './RescheduleModal';
 import type { DayStatus, CalendarBooking } from './calendarTypes';
+import { useCalendarScheduleDnD } from './CalendarScheduleDnDContext';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function dateKey(d: Date): string { return d.toLocaleDateString('en-CA'); }
@@ -194,6 +207,16 @@ export default function SalesSmartCalendar() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   
   const [rescheduleData, setRescheduleData] = useState<{ booking: CalendarBooking; targetDate: string } | null>(null);
+  /** Shown inside DragOverlay after the day panel closes so the drag continues (see onDragStart). */
+  const [dragOverlayBooking, setDragOverlayBooking] = useState<CalendarBooking | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 12 },
+    }),
+  );
+
+  const { setDraggingSchedule } = useCalendarScheduleDnD();
 
   const year = anchor.getFullYear();
   const month = anchor.getMonth();
@@ -280,6 +303,31 @@ export default function SalesSmartCalendar() {
     setRescheduleData({ booking, targetDate });
   }, []);
 
+  /** Close day panel + blur as soon as drag starts; DragOverlay keeps the drag alive after unmount. */
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const booking = event.active.data.current?.booking as CalendarBooking | undefined;
+    if (!booking) return;
+    flushSync(() => {
+      setDragOverlayBooking(booking);
+      setDraggingSchedule(true);
+    });
+    setSelectedDate(null);
+  }, [setDraggingSchedule]);
+
+  const handleDragCancel = useCallback(() => {
+    setDragOverlayBooking(null);
+    setDraggingSchedule(false);
+  }, [setDraggingSchedule]);
+
+  const handleDragEndWrapped = useCallback(
+    (event: DragEndEvent) => {
+      setDragOverlayBooking(null);
+      setDraggingSchedule(false);
+      handleDragEnd(event);
+    },
+    [handleDragEnd, setDraggingSchedule],
+  );
+
   const handleRescheduleConfirm = async (bookingId: string, newDate: string, newTime: string) => {
     try {
       const token = localStorage.getItem('autospf_token') || sessionStorage.getItem('autospf_token') || localStorage.getItem('token') || sessionStorage.getItem('token') || '';
@@ -310,8 +358,13 @@ export default function SalesSmartCalendar() {
   };
 
   return (
-    <DndContext onDragEnd={handleDragEnd}>
-    <div className="flex h-full min-h-0 flex-col rounded-2xl bg-slate-50/90">
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragCancel={handleDragCancel}
+      onDragEnd={handleDragEndWrapped}
+    >
+    <div className="flex h-full min-h-0 flex-col rounded-2xl bg-white">
 
       {/* KPI strip */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -431,9 +484,7 @@ export default function SalesSmartCalendar() {
       </div>
 
       {/* Calendar grid */}
-      <div
-        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-white shadow-[0_24px_70px_-28px_rgba(15,23,42,0.13),0_10px_36px_-16px_rgba(15,23,42,0.08)]"
-      >
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-white shadow-[0_24px_70px_-28px_rgba(15,23,42,0.13),0_10px_36px_-16px_rgba(15,23,42,0.08)]">
 
         {/* Day-name header — no divider line; tint only */}
         <div className="grid flex-shrink-0 grid-cols-7 bg-slate-50/70">
@@ -514,6 +565,36 @@ export default function SalesSmartCalendar() {
           onRefresh={handlePanelRefresh}
         />
       )}
+
+      <DragOverlay zIndex={420} dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.16,1,0.3,1)' }}>
+        {dragOverlayBooking ? (
+          <div className="pointer-events-none w-[min(92vw,360px)] cursor-grabbing rounded-2xl bg-white p-4 shadow-[0_28px_60px_-15px_rgba(15,23,42,0.45)] ring-2 ring-blue-500/35">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-sm font-bold text-white shadow-md">
+                {(dragOverlayBooking.customerName || 'C').charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <GripVertical className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
+                  <p className="truncate text-[15px] font-bold text-slate-900">{dragOverlayBooking.customerName}</p>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[12px] font-medium text-slate-600">
+                  {dragOverlayBooking.bookingTime ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Clock size={13} className="text-slate-400" />
+                      {dragOverlayBooking.bookingTime}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 truncate text-xs font-semibold text-slate-500">
+                  {dragOverlayBooking.serviceName || dragOverlayBooking.serviceType || 'Booking'}
+                </p>
+              </div>
+            </div>
+            <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-blue-600">Drop on a date</p>
+          </div>
+        ) : null}
+      </DragOverlay>
 
       {/* Reschedule Modal */}
       {rescheduleData && (

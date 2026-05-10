@@ -130,6 +130,8 @@ export interface Booking {
     vehicleModel?: string;
     vehicleColor?: string;
     vehiclePlate?: string;
+    /** API omits plate text when decrypt fails; UI can show a fallback when this is true */
+    vehiclePlateDecryptFailed?: boolean;
     bookingDate?: string;
     bookingTime?: string;
     createdAt: string;

@@ -24,7 +24,10 @@ import {
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { decrypt } from '../utils/encryption.utils.js';
-import { validateSlotAvailability } from '../services/slot.service.js';
+import {
+  getDateAvailabilitySnapshot,
+  validateSlotAvailability,
+} from '../services/slot.service.js';
 
 const DEFAULT_SERVICE_STEPS = [
   { name: 'Initial Wash & Prep', status: 'pending' },
@@ -193,6 +196,14 @@ const formatBookingDto = (orderDoc) => {
   const decryptedNotes = safeDecrypt(order.notes);
   const decryptedPlate = safeDecrypt(order.vehiclePlate);
 
+  const encBlobPattern = /^[0-9a-f]{32}:[0-9a-f]+$/i;
+  // decrypt() returns ciphertext unchanged when keys cannot decode (legacy DB rows).
+  // Never expose that blob as a human-readable plate in API responses.
+  const couldNotDecryptPlate = encBlobPattern.test(String(decryptedPlate || ''));
+  const vehiclePlateOut = couldNotDecryptPlate
+    ? ''
+    : (decryptedPlate || '');
+
   const vehicleInfo =
     order.vehicleInfo
     || [order.vehicleYear, order.vehicleMake, order.vehicleModel].filter(Boolean).join(' ').trim();
@@ -224,7 +235,9 @@ const formatBookingDto = (orderDoc) => {
     date: order.date || order.bookingDate || '',
     time: order.time || order.bookingTime || '',
     vehicleInfo: vehicleInfo || '',
-    vehiclePlate: decryptedPlate || '',
+    vehiclePlate: vehiclePlateOut,
+    /** True when ciphertext remains undecryptable with ENCRYPTION_KEY / LEGACY_ENCRYPTION_KEY */
+    vehiclePlateDecryptFailed: couldNotDecryptPlate,
     customerName,
     customerPhone,
     customerAvatar,
@@ -338,21 +351,35 @@ export const getAvailableSlots = async (req, res, next) => {
       });
     }
 
-    // Find all bookings on that date that block the slot.
-    // Rejected + cancelled bookings free up the slot.
-    const bookings = await Order.find({
-      bookingDate: date,
-      status: { $nin: ['cancelled', 'failed', 'rejected'] }
-    }).select('bookingTime status').lean();
+    const snapshot = await getDateAvailabilitySnapshot(date);
+    if (snapshot.errorCode === 'INVALID_DATE') {
+      return res.status(400).json({
+        success: false,
+        message: snapshot.message,
+        error: snapshot.error,
+      });
+    }
 
-    // Extract just the time slots that are taken
-    const bookedSlots = bookings
-      .filter(b => b.bookingTime)
-      .map(b => b.bookingTime);
+    const LEGACY_FULL_DAY_SLOT_LIST = [
+      '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM',
+      '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM',
+      '4:00 PM', '5:00 PM',
+    ];
 
-    res.json({
+    const bookedSlots = snapshot.unavailable
+      ? LEGACY_FULL_DAY_SLOT_LIST
+      : (Array.isArray(snapshot.bookedTimes) ? snapshot.bookedTimes : []);
+
+    return res.json({
       success: true,
-      bookedSlots // Returning booked slots is usually easier for the frontend to filter against
+      bookedSlots, // Kept for legacy clients that only understand booked slot arrays
+      unavailable: !!snapshot.unavailable,
+      errorCode: snapshot.errorCode || null,
+      message: snapshot.message || null,
+      error: snapshot.error || null,
+      bookedCount: snapshot.bookedCount ?? bookedSlots.length,
+      slotsLimit: snapshot.slotsLimit ?? null,
+      remaining: snapshot.remaining ?? null,
     });
   } catch (error) {
     next(error);
@@ -678,7 +705,7 @@ export const createOrder = async (req, res, next) => {
     const initialStatus = 'pending_confirmation';
     const resolvedCustomerPhone = (typeof customerPhoneInput === 'string' && customerPhoneInput.trim()) || '';
 
-    // ── Slot Availability Check (dynamic — reads BusinessSettings capacity) ─
+    // ── Slot availability check (dynamic — reads current availability rules) ─
     if (bookingDate && bookingTime) {
       const slotCheck = await validateSlotAvailability(bookingDate, bookingTime);
       if (!slotCheck.ok) {
@@ -686,6 +713,7 @@ export const createOrder = async (req, res, next) => {
           success: false,
           errorCode: slotCheck.errorCode,
           message: slotCheck.message,
+          error: slotCheck.error || slotCheck.message,
         });
       }
     }
@@ -1028,17 +1056,13 @@ export const updateOrder = async (req, res, next) => {
     const newTime = req.body.bookingTime || order.bookingTime;
 
     if (newDate && newTime && (req.body.bookingDate || req.body.bookingTime)) {
-      const existingBooking = await Order.findOne({
-        _id: { $ne: order._id },
-        bookingDate: newDate,
-        bookingTime: newTime,
-        status: { $nin: ['cancelled', 'failed'] }
-      });
-
-      if (existingBooking) {
-        return res.status(400).json({
+      const slotCheck = await validateSlotAvailability(newDate, newTime, order._id);
+      if (!slotCheck.ok) {
+        return res.status(409).json({
           success: false,
-          message: 'This time slot is already booked by another customer. Please select another time.'
+          errorCode: slotCheck.errorCode || 'DATE_UNAVAILABLE',
+          message: slotCheck.message || 'Slot is no longer available.',
+          error: slotCheck.error || slotCheck.message || 'Slot is no longer available.',
         });
       }
     }
@@ -2735,6 +2759,7 @@ export const approveBooking = async (req, res, next) => {
           success: false,
           errorCode: slotCheck.errorCode || 'SLOT_FULL',
           message: slotCheck.message || 'Slot is no longer available.',
+          error: slotCheck.error || slotCheck.message || 'Slot is no longer available.',
         });
       }
     }
@@ -2917,6 +2942,7 @@ export const rescheduleBooking = async (req, res, next) => {
         success: false,
         errorCode: slotCheck.errorCode || 'SLOT_FULL',
         message: slotCheck.message || 'Slot is no longer available.',
+        error: slotCheck.error || slotCheck.message || 'Slot is no longer available.',
       });
     }
 

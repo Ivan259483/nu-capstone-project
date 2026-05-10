@@ -1,21 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './inventory.css';
+import type { LucideIcon } from 'lucide-react';
 import {
-  LayoutDashboard, Package, Truck, ChevronLeft, ChevronRight,
+  Package, Truck, ChevronLeft, ChevronRight,
   LogOut, Droplets, Activity, Mic, Bell, X,
 } from 'lucide-react';
 import { InventoryProvider, useInventory } from './InventoryContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { NotificationService } from '@/lib/notification-service';
-
-// Dashboard sub-page components
-import KPIBentoGrid from './dashboard/KPIBentoGrid';
-import LowStockAlertBanner from './dashboard/LowStockAlertBanner';
-import StatusDistributionChart from './dashboard/StatusDistributionChart';
-import StockByCategoryChart from './dashboard/StockByCategoryChart';
-import StockValueTrendChart from './dashboard/StockValueTrendChart';
-import RecentActivityFeed from './dashboard/RecentActivityFeed';
 
 // Items page
 import InventoryItemsContent from './items/InventoryItemsContent';
@@ -30,7 +23,7 @@ import SupplierManagementContent from './suppliers/SupplierManagementContent';
 type NavItem = {
   id: string;
   label: string;
-  icon: typeof LayoutDashboard;
+  icon: LucideIcon;
   section: string;
   disabled?: boolean;
   /** Right pill like customer sidebar (e.g. AI Inspection History → Soon) */
@@ -38,7 +31,6 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard, section: 'Main Menu' },
   { id: 'items', label: 'Inventory Items', icon: Package, section: 'Main Menu' },
   { id: 'suppliers', label: 'Supplier Management', icon: Truck, section: 'Main Menu' },
   { id: 'stock-monitor', label: 'Stock Monitor', icon: Activity, section: 'Operations' },
@@ -48,27 +40,6 @@ const NAV_ITEMS: NavItem[] = [
 // ═══════════════════════════════════════════════════════════════════════
 // Sub-Pages
 // ═══════════════════════════════════════════════════════════════════════
-
-function InventoryDashboardPage({ onNavigateItems }: { onNavigateItems: () => void }) {
-  return (
-    <div className="page-enter space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Inventory Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-1">Real-time stock overview and analytics</p>
-      </div>
-      <LowStockAlertBanner onNavigateItems={onNavigateItems} />
-      <KPIBentoGrid />
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2"><StockValueTrendChart /></div>
-        <StatusDistributionChart />
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" style={{ maxHeight: 380 }}>
-        <div className="lg:col-span-2" style={{ maxHeight: 380 }}><StockByCategoryChart /></div>
-        <div style={{ maxHeight: 380 }}><RecentActivityFeed /></div>
-      </div>
-    </div>
-  );
-}
 
 function StockMonitorPage() {
   const { items } = useInventory();
@@ -223,7 +194,7 @@ function NotificationsPage() {
 // ═══════════════════════════════════════════════════════════════════════
 
 function InventoryPanelInner({ embedded = false }: { embedded?: boolean }) {
-  const [activePage, setActivePage] = useState('dashboard');
+  const [activePage, setActivePage] = useState('items');
   const [collapsed, setCollapsed] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -238,9 +209,9 @@ function InventoryPanelInner({ embedded = false }: { embedded?: boolean }) {
       .catch(() => {});
   }, []); // intentionally run once — bell count refreshes when user visits Notifications page
 
-  // Voice Log is disabled (Soon) — avoid staying on that page if state was restored
+  // Voice Log disabled / removed routes — avoid blank screen if old tab id persisted
   useEffect(() => {
-    setActivePage(p => (p === 'voice-log' ? 'dashboard' : p));
+    setActivePage(p => (p === 'voice-log' || p === 'location' ? 'items' : p));
   }, []);
 
   const handleLogout = () => { logout(); navigate('/'); };
@@ -265,7 +236,6 @@ function InventoryPanelInner({ embedded = false }: { embedded?: boolean }) {
 
   const pageBody = (
     <>
-      {activePage === 'dashboard' && <InventoryDashboardPage onNavigateItems={() => setActivePage('items')} />}
       {activePage === 'items' && <InventoryItemsContent />}
       {activePage === 'suppliers' && <SupplierManagementContent />}
       {activePage === 'stock-monitor' && <StockMonitorPage />}
@@ -281,7 +251,7 @@ function InventoryPanelInner({ embedded = false }: { embedded?: boolean }) {
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', height: 64, padding: '0 12px', borderBottom: '1px solid rgba(37,99,235,0.08)', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 12, background: 'linear-gradient(135deg, #2563eb, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 12px rgba(37,99,235,0.3)' }}>
+            <div style={{ width: 36, height: 36, borderRadius: 12, background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 12px rgba(37,99,235,0.3)' }}>
               <Droplets size={18} color="#fff" />
             </div>
             {!collapsed && (
@@ -355,7 +325,7 @@ function InventoryPanelInner({ embedded = false }: { embedded?: boolean }) {
         <div style={{ borderTop: '1px solid rgba(37,99,235,0.08)', padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
           {/* User card */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px', borderRadius: 8, background: '#f8fafc', border: '1px solid #f1f5f9', overflow: 'hidden', justifyContent: collapsed ? 'center' : 'flex-start' }}>
-            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #2563eb, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{initials}</div>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{initials}</div>
             {!collapsed && (
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{user?.name || 'Inventory User'}</p>

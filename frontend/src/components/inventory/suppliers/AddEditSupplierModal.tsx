@@ -67,7 +67,7 @@ export default function AddEditSupplierModal({ open, supplier, onClose, onSave }
           </div>
           <div className="border-t border-gray-100" />
           <div>
-            <div className="flex items-center gap-2 mb-3"><div className="w-6 h-6 rounded-lg bg-purple-500 flex items-center justify-center"><span className="text-white text-[10px] font-bold">C</span></div><h3 className="text-sm font-bold text-gray-800">Product Categories Supplied</h3></div>
+            <div className="flex items-center gap-2 mb-3"><div className="w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center"><span className="text-white text-[10px] font-bold">C</span></div><h3 className="text-sm font-bold text-gray-800">Product Categories Supplied</h3></div>
             <p className="text-xs text-gray-400 mb-3">Select all categories this supplier provides</p>
             <div className="flex flex-wrap gap-2">{ALL_CATEGORIES.map(cat => { const sel = (watchedCategories ?? []).includes(cat); return (<button key={cat} type="button" onClick={() => toggleCategory(cat)} className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-150 active:scale-95 ${sel ? `${categoryColors[cat]} shadow-sm` : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}>{sel && <span className="mr-1">✓</span>}{cat}</button>); })}</div>
             {(watchedCategories ?? []).length === 0 && <p className="text-xs text-amber-500 font-medium mt-2">Select at least one category</p>}

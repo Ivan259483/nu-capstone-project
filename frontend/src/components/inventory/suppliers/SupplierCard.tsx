@@ -19,7 +19,7 @@ export default function SupplierCard({ supplier, linkedItems, delay = 0, onEdit,
   const [showItems, setShowItems] = useState(false);
   const status = statusConfig[supplier.status];
   const initials = supplier.name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
-  const avatarGradients = ['from-blue-500 to-purple-600','from-emerald-500 to-teal-600','from-amber-500 to-orange-600','from-pink-500 to-rose-600','from-cyan-500 to-blue-600','from-violet-500 to-purple-600'];
+  const avatarGradients = ['from-blue-600 to-blue-700','from-emerald-500 to-teal-600','from-amber-500 to-orange-600','from-pink-500 to-rose-600','from-cyan-500 to-blue-600','from-sky-500 to-blue-700'];
   const avatarGradient = avatarGradients[supplier.id.charCodeAt(supplier.id.length - 1) % avatarGradients.length];
 
   return (

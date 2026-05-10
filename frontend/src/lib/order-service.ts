@@ -4,6 +4,26 @@ import type { Booking } from '@/types';
 import { db } from '@/config/firebase';
 import { collection, query, where, onSnapshot, orderBy, doc, setDoc } from 'firebase/firestore';
 
+export type OrderAvailabilityErrorCode =
+    | 'EMERGENCY_CLOSED'
+    | 'CLOSED_BY_SCHEDULED_CLOSURE'
+    | 'CLOSED_BY_RECURRING_DAY'
+    | 'DATE_FULL'
+    | 'INVALID_DATE'
+    | string;
+
+export interface AvailableSlotsResponse {
+    success: boolean;
+    bookedSlots: string[];
+    unavailable?: boolean;
+    errorCode?: OrderAvailabilityErrorCode | null;
+    message?: string | null;
+    error?: string | null;
+    remaining?: number | null;
+    slotsLimit?: number | null;
+    bookedCount?: number | null;
+}
+
 export const normalizeBooking = (raw: any): Booking => {
     const id = raw?.id || raw?._id || '';
     const customerId =
@@ -168,7 +188,9 @@ export const OrderService = {
      * @returns {Promise<{success: boolean, data: Booking}>}
      */
     async createOrder(orderData: any) {
-        const response = await api.post('/bookings', orderData);
+        const response = await api.post('/bookings', orderData, {
+            meta: { suppressErrorToast: true } as any,
+        } as any);
 
         if (!response.data.success) {
             throw new Error(response.data.message || 'Failed to create booking');
@@ -402,13 +424,23 @@ export const OrderService = {
      * Fetch occupied time slots for a specific date
      * @param {string} date - The date to check (YYYY-MM-DD)
      */
-    async getAvailableSlots(date: string) {
-        const data = await cachedGet(
+    async getAvailableSlots(date: string): Promise<AvailableSlotsResponse> {
+        const data = await cachedGet<AvailableSlotsResponse>(
             `/orders/available-slots?date=${date}`,
             undefined,
             TTL.MEDIUM
         );
-        return data;
+        return {
+            success: !!data?.success,
+            bookedSlots: Array.isArray(data?.bookedSlots) ? data.bookedSlots : [],
+            unavailable: !!data?.unavailable,
+            errorCode: data?.errorCode ?? null,
+            message: data?.message ?? null,
+            error: data?.error ?? null,
+            remaining: typeof data?.remaining === 'number' ? data.remaining : null,
+            slotsLimit: typeof data?.slotsLimit === 'number' ? data.slotsLimit : null,
+            bookedCount: typeof data?.bookedCount === 'number' ? data.bookedCount : null,
+        };
     },
 
     /**

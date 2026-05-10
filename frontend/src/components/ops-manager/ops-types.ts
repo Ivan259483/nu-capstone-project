@@ -18,6 +18,10 @@ export interface OpsJob {
   technicianId: string | null;
   area: string;
   address: string;
+  /** Plain plate for display, or empty */
+  plateLabel: string;
+  /** Stored plate cannot be decrypted (wrong/missing LEGACY_ENCRYPTION_KEY) */
+  plateLocked: boolean;
   scheduledAt: string;
   eta: string;
   slaDeadline: string;
@@ -160,6 +164,15 @@ function formatScheduledTime(dateStr?: string, timeStr?: string): string {
   return 'Unscheduled';
 }
 
+/** Encrypted plate blob (iv:ciphertext hex) — never show as plate text if decrypt failed upstream */
+const VEHICLE_PLATE_CIPHER_PATTERN = /^[0-9a-f]{32}:[0-9a-f]+$/i;
+
+function displayableVehiclePlate(plate: string | undefined): string {
+  const p = String(plate ?? '').trim();
+  if (!p || VEHICLE_PLATE_CIPHER_PATTERN.test(p)) return '';
+  return p;
+}
+
 /** Format a date string into a short display like "Apr 27" */
 function formatScheduledDate(dateStr?: string): string {
   if (!dateStr) return '';
@@ -195,6 +208,9 @@ export function mapBookingToJob(b: Booking, index: number): OpsJob {
   const scheduledTime = formatScheduledTime(b.date, b.time);
   const scheduledDate = formatScheduledDate(b.date);
 
+  const plateForUi = displayableVehiclePlate(b.vehiclePlate);
+  const plateLocked = Boolean(b.vehiclePlateDecryptFailed);
+
   return {
     id: b.id,
     jobNumber: b.orderNumber || `JOB-${String(index + 1).padStart(4, '0')}`,
@@ -205,7 +221,13 @@ export function mapBookingToJob(b: Booking, index: number): OpsJob {
     status,
     technicianId: detailerId,
     area: b.vehicleInfo || 'On-site',
-    address: b.vehiclePlate ? `Plate: ${b.vehiclePlate}` : (b.vehicleInfo || ''),
+    plateLabel: plateForUi,
+    plateLocked,
+    address: plateForUi
+      ? `Plate: ${plateForUi}`
+      : plateLocked
+        ? 'Plate: unavailable (encryption key)'
+        : '',
     scheduledAt: scheduledDate ? `${scheduledDate} ${scheduledTime}`.trim() : scheduledTime,
     eta: status === 'Completed' ? 'Done' : (status === 'Delayed' ? 'Overdue' : scheduledTime),
     slaDeadline: scheduledTime,

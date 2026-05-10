@@ -40,7 +40,8 @@
   display: flex;
   flex-direction: column;
   background: #fff;
-  border-right: 1px solid #e2e8f0;
+  border-right: none;
+  box-shadow: 16px 0 48px -32px rgba(15, 23, 42, 0.16), 6px 0 28px -20px rgba(15, 23, 42, 0.08);
   transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
 }
@@ -281,3 +282,14 @@
 
 /* ── Tabular nums ────────────────────────────────────── */
 .adminhub-root .tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* ── Calendar drag (reschedule): full-width main, no blur bleed, white canvas ─ */
+.adminhub-root.ah-schedule-dragging {
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.adminhub-root.ah-schedule-dragging .ah-sidebar {
+  /* inline width/opacity also applied in AdminHubPanel */
+  box-shadow: none !important;
+}
