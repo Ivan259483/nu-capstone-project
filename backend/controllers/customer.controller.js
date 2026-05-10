@@ -1,8 +1,48 @@
 import Customer from '../models/customer.model.js';
 import Vehicle from '../models/vehicle.model.js';
+import User from '../models/user.model.js';
 import { normalizePlateNumber, findVehicleByNormalizedPlate } from '../utils/plate.utils.js';
 
-import { isFullAdminRole, isUserManagementRole } from '../constants/roles.js';
+import {
+  isFullAdminRole,
+  isUserManagementRole,
+  canManageCustomerGarage,
+  isCustomerRole,
+} from '../constants/roles.js';
+
+/** Resolve which User id owns the vehicle operation (self or staff-assist target). */
+async function resolveVehicleOwnerUserId(req, bodyCustomerUserId, queryForUserId) {
+  const raw =
+    (typeof bodyCustomerUserId === 'string' && bodyCustomerUserId.trim()) ||
+    (typeof queryForUserId === 'string' && queryForUserId.trim()) ||
+    '';
+
+  if (!raw) {
+    return { ok: true, status: 200, customerUserId: req.user.id };
+  }
+
+  if (!canManageCustomerGarage(req.user.role)) {
+    return {
+      ok: false,
+      status: 403,
+      message: 'Access denied: cannot manage vehicles for other users',
+    };
+  }
+
+  const targetUser = await User.findById(raw).select('role').lean();
+  if (!targetUser) {
+    return { ok: false, status: 404, message: 'Customer user not found' };
+  }
+  if (!isCustomerRole(targetUser.role)) {
+    return {
+      ok: false,
+      status: 400,
+      message: 'Target user must be a customer account',
+    };
+  }
+
+  return { ok: true, status: 200, customerUserId: String(targetUser._id) };
+}
 
 /**
  * Get all customers
@@ -212,8 +252,13 @@ export const addVehicle = async (req, res, next) => {
       });
     }
 
-    const { year, make, model, color, plateNumber, vehicleType, transmission, fuelType } = req.body;
-    const customerId = req.user.id; // From authenticate middleware
+    const { year, make, model, color, plateNumber, vehicleType, transmission, fuelType, customerUserId } = req.body;
+
+    const resolved = await resolveVehicleOwnerUserId(req, customerUserId, undefined);
+    if (!resolved.ok) {
+      return res.status(resolved.status).json({ success: false, message: resolved.message });
+    }
+    const customerId = resolved.customerUserId;
     const normalizedPlate = normalizePlateNumber(typeof plateNumber === 'string' ? plateNumber : '');
     const platePattern = /^[A-Z0-9]{4,9}$/;
 
@@ -301,7 +346,22 @@ export const getVehicles = async (req, res, next) => {
       });
     }
 
-    const vehicles = await Vehicle.find({ customer: req.user.id })
+    const forUserId = typeof req.query.forUserId === 'string' ? req.query.forUserId.trim() : '';
+    let ownerId = req.user.id;
+
+    if (forUserId) {
+      if (forUserId === req.user.id) {
+        ownerId = req.user.id;
+      } else {
+        const resolved = await resolveVehicleOwnerUserId(req, undefined, forUserId);
+        if (!resolved.ok) {
+          return res.status(resolved.status).json({ success: false, message: resolved.message });
+        }
+        ownerId = resolved.customerUserId;
+      }
+    }
+
+    const vehicles = await Vehicle.find({ customer: ownerId })
       .select('year make model color plateNumber vehicleType transmission fuelType customer')
       .lean();
 
@@ -343,7 +403,11 @@ export const updateVehicle = async (req, res, next) => {
     }
 
     // Verify ownership
-    if (vehicle.customer.toString() !== req.user.id && !isFullAdminRole(req.user.role)) {
+    if (
+      vehicle.customer.toString() !== req.user.id &&
+      !isFullAdminRole(req.user.role) &&
+      !canManageCustomerGarage(req.user.role)
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Access denied: You can only update your own vehicles',
@@ -404,6 +468,13 @@ export const updateVehicle = async (req, res, next) => {
  */
 export const deleteVehicle = async (req, res, next) => {
   try {
+    if (!req.user || !req.user.id || !req.user.role) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized - Invalid or missing user session',
+      });
+    }
+
     const vehicle = await Vehicle.findById(req.params.id);
 
     if (!vehicle) {
@@ -413,7 +484,11 @@ export const deleteVehicle = async (req, res, next) => {
       });
     }
 
-    if (vehicle.customer.toString() !== req.user.id && !isFullAdminRole(req.user.role)) {
+    if (
+      vehicle.customer.toString() !== req.user.id &&
+      !isFullAdminRole(req.user.role) &&
+      !canManageCustomerGarage(req.user.role)
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Access denied: You can only delete your own vehicles',

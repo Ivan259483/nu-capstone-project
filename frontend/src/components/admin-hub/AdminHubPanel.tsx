@@ -1,17 +1,21 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import './admin-hub.css';
 import { UserService } from '@/lib/user-service';
 import { ActivityService } from '@/lib/activity-service-api';
 import { NotificationService } from '@/lib/notification-service';
-import { LayoutDashboard, Users, ShieldCheck, ScrollText, ChevronLeft, ChevronRight, ArrowLeft, Bell, X, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, ShieldCheck, ScrollText, ChevronLeft, ChevronRight, ArrowLeft, Bell, X, LogOut, Radio, PhilippinePeso, Calendar, Package } from 'lucide-react';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import AdminUserManagement from './pages/AdminUserManagement';
 import AdminActivityLogs from './pages/AdminActivityLogs';
 import AdminRoleManagement from './pages/AdminRoleManagement';
-
+import AdminAppointmentsPage from './pages/AdminAppointmentsPage';
+import CustomerTrackerPanel from '@/components/ops-manager/CustomerTrackerPanel';
+import { ServicesPricing } from '@/components/admin/ServicesPricing';
+import InventoryPanel from '@/components/inventory/InventoryPanel';
 
 import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { getSafeUserRole, isServiceCatalogRole } from '@/lib/roles';
 
 interface Props {
   currentUser?: any;
@@ -42,7 +46,15 @@ const NAV_ITEMS_CORE = [
   { id: 'logs', label: 'Activity Logs', icon: ScrollText, section: 'Main Menu' },
 ];
 
-// Operations modules removed for now — kept in legacy AdminDashboard for other roles
+const ADMIN_NAV = [
+  { id: 'pricing', label: 'Services', icon: PhilippinePeso, section: 'Catalog' },
+  { id: 'inventory', label: 'Inventory', icon: Package, section: 'Catalog' },
+];
+
+const OPS_NAV = [
+  { id: 'scheduling', label: 'Appointments', icon: Calendar, section: 'Operation' },
+  { id: 'live_tracking', label: 'Live Tracking', icon: Radio, section: 'Operation' },
+];
 
 export default function AdminHubPanel({
   currentUser, onClose,
@@ -51,7 +63,22 @@ export default function AdminHubPanel({
   onSaveSettings, onExportData, onBackupDB, onClearCache, onResetSystem,
   fullMode = false,
 }: Props) {
-  const [activePage, setActivePage] = useState('dashboard');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [activePage, setActivePage] = useState(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const tab = new URLSearchParams(window.location.search).get('tab');
+        if (tab === 'live_tracking') return 'live_tracking';
+        if (tab === 'pricing') return 'pricing';
+        if (tab === 'scheduling') return 'scheduling';
+        if (tab === 'inventory') return 'inventory';
+      }
+    } catch {
+      /* ignore */
+    }
+    return 'dashboard';
+  });
   const [collapsed, setCollapsed] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
@@ -61,6 +88,21 @@ export default function AdminHubPanel({
 
   const { logout } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (getSafeUserRole(currentUser?.role) !== 'staff_quality_checker') return;
+    const tab = searchParams.get('tab');
+    if (tab === 'live_tracking' || tab === 'pricing') return;
+    setActivePage('live_tracking');
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', 'live_tracking');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [currentUser?.role, currentUser?.id, searchParams, setSearchParams]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -84,10 +126,49 @@ export default function AdminHubPanel({
 
   useEffect(() => { fetchData(); fetchNotifications(); }, [fetchData, fetchNotifications]);
 
-  // Build nav items
-  const navItems = NAV_ITEMS_CORE;
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'live_tracking' || tab === 'pricing' || tab === 'scheduling' || tab === 'inventory') setActivePage(tab);
+  }, [searchParams]);
+
+  const selectNavPage = useCallback(
+    (id: string) => {
+      setActivePage(id);
+      setSearchParams(
+        prev => {
+          const next = new URLSearchParams(prev);
+          if (id === 'live_tracking' || id === 'pricing' || id === 'scheduling' || id === 'inventory') next.set('tab', id);
+          else next.delete('tab');
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  // Office Admin inherits operational manager duties — surface live customer tracking here
+  const navItems = useMemo(() => {
+    const role = getSafeUserRole(currentUser?.role);
+    if (role === 'administrator') {
+      return [...NAV_ITEMS_CORE, ...ADMIN_NAV, ...OPS_NAV];
+    }
+    if (role === 'office_admin') {
+      return [...NAV_ITEMS_CORE, ...ADMIN_NAV, ...OPS_NAV];
+    }
+    if (role === 'staff_quality_checker') {
+      return [...OPS_NAV];
+    }
+    return NAV_ITEMS_CORE;
+  }, [currentUser?.role]);
 
   const sidebarW = collapsed ? 64 : 240;
+  const userRoleLower = (currentUser?.role || '').toLowerCase();
+  const prefetchCustomerTracker =
+    userRoleLower === 'office_admin' ||
+    userRoleLower === 'administrator' ||
+    userRoleLower === 'staff_quality_checker';
+
   const initials = currentUser?.name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() || 'OA';
 
   const handleLogout = () => {
@@ -113,7 +194,7 @@ export default function AdminHubPanel({
         <div style={{ display: 'flex', alignItems: 'center', height: 64, padding: '0 12px', borderBottom: '1px solid #f1f5f9', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>A</div>
-            {!collapsed && <span style={{ fontWeight: 600, color: '#0f172a', fontSize: 16, whiteSpace: 'nowrap' }}>AdminHub</span>}
+            {!collapsed && <span style={{ fontWeight: 600, color: '#0f172a', fontSize: 15, lineHeight: 1.2, minWidth: 0 }}>Administrator</span>}
           </div>
         </div>
 
@@ -121,16 +202,20 @@ export default function AdminHubPanel({
         <nav style={{ flex: 1, padding: '16px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
           {Object.entries(sections).map(([sectionName, items]) => (
             <React.Fragment key={sectionName}>
-              {!collapsed && <p style={{ padding: '12px 12px 8px', fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>{sectionName}</p>}
+              {!collapsed && <p style={{ padding: '12px 12px 8px', fontSize: 10, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', margin: 0 }}>{sectionName}</p>}
               {items.map(item => {
                 const Icon = item.icon;
                 const isActive = activePage === item.id;
-                const handleClick = () => {
-                  if ((item as any).route) { navigate((item as any).route); return; }
-                  setActivePage(item.id);
-                };
+
                 return (
-                  <button key={item.id} className={`ah-nav-item ${isActive ? 'active' : ''}`} onClick={handleClick} title={collapsed ? item.label : undefined} style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : undefined}>
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`ah-nav-item ${isActive ? 'active' : ''}`}
+                    onClick={() => selectNavPage(item.id)}
+                    title={collapsed ? item.label : undefined}
+                    style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : undefined}
+                  >
                     <Icon size={18} style={{ flexShrink: 0 }} />
                     {!collapsed && <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>}
                   </button>
@@ -143,7 +228,7 @@ export default function AdminHubPanel({
         {/* Bottom */}
         <div style={{ borderTop: '1px solid #f1f5f9', padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
           {/* Notifications */}
-          <button className="ah-nav-item" onClick={() => setShowNotifPanel(p => !p)} style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : undefined}>
+          <button type="button" className="ah-nav-item" onClick={() => setShowNotifPanel(p => !p)} style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : undefined}>
             <div style={{ position: 'relative', flexShrink: 0 }}>
               <Bell size={18} />
               {notifications.length > 0 && <span style={{ position: 'absolute', top: -2, right: -2, width: 8, height: 8, background: '#ef4444', borderRadius: '50%' }} />}
@@ -166,7 +251,7 @@ export default function AdminHubPanel({
 
           {/* Logout button (full mode) */}
           {fullMode && (
-            <button className="ah-nav-item" onClick={handleLogout} style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : { color: '#dc2626' }}>
+            <button type="button" className="ah-nav-item" onClick={handleLogout} style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : { color: '#dc2626' }}>
               <LogOut size={18} style={{ flexShrink: 0 }} />
               {!collapsed && <span style={{ fontSize: 14 }}>Log Out</span>}
             </button>
@@ -174,14 +259,14 @@ export default function AdminHubPanel({
 
           {/* Back button (overlay mode only) */}
           {!fullMode && onClose && (
-            <button className="ah-nav-item" onClick={onClose} style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : undefined}>
+            <button type="button" className="ah-nav-item" onClick={onClose} style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : undefined}>
               <ArrowLeft size={18} style={{ flexShrink: 0 }} />
               {!collapsed && <span style={{ fontSize: 14 }}>Back</span>}
             </button>
           )}
 
           {/* Collapse */}
-          <button onClick={() => setCollapsed(c => !c)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '8px 12px', fontSize: 12, color: '#64748b', background: 'transparent', border: 'none', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s' }}>
+          <button type="button" onClick={() => setCollapsed(c => !c)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '8px 12px', fontSize: 12, color: '#64748b', background: 'transparent', border: 'none', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s' }}>
             {collapsed ? <ChevronRight size={16} /> : <><ChevronLeft size={16} /><span>Collapse</span></>}
           </button>
         </div>
@@ -189,8 +274,13 @@ export default function AdminHubPanel({
 
       {/* ── Main Content ── */}
       <main style={{ flex: 1, minHeight: '100vh', overflow: 'auto', transition: 'margin-left 0.3s cubic-bezier(0.16,1,0.3,1)', marginLeft: sidebarW, background: '#f8fafc' }}>
-        <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px' }}>
-          {activePage === 'dashboard' && <AdminDashboardPage users={users} activityLogs={activityLogs} loading={loading} onNavigate={setActivePage} />}
+        <div style={{ maxWidth: activePage === 'live_tracking' || activePage === 'scheduling' || activePage === 'inventory' ? 1560 : 1400, margin: '0 auto', padding: '32px 24px' }}>
+          {activePage === 'dashboard' && (
+            <AdminDashboardPage users={users} activityLogs={activityLogs} loading={loading} onNavigate={selectNavPage} />
+          )}
+          {activePage === 'scheduling' && (
+            <AdminAppointmentsPage onNavigate={selectNavPage} />
+          )}
           {activePage === 'users' && (
             <AdminUserManagement
               users={users}
@@ -203,10 +293,20 @@ export default function AdminHubPanel({
           )}
           {activePage === 'roles' && <AdminRoleManagement users={users} />}
           {activePage === 'logs' && <AdminActivityLogs activityLogs={activityLogs} loading={loading} />}
+          {activePage === 'pricing' && isServiceCatalogRole(currentUser?.role) && (
+            <ServicesPricing services={services} onRefresh={onLoadData || (() => undefined)} />
+          )}
+          {activePage === 'inventory' && <InventoryPanel embedded />}
 
-          {/* Operations modules removed for now */}
-
-
+          {prefetchCustomerTracker && (
+            <div style={{ display: activePage === 'live_tracking' ? 'block' : 'none' }}>
+              <div style={{ marginBottom: 24 }}>
+                <h1 style={{ fontSize: 22, fontWeight: 600, color: '#0f172a', margin: 0 }}>Customer Tracker</h1>
+                <p style={{ fontSize: 14, color: '#64748b', margin: '8px 0 0' }}>Live job status and customer tracking updates across all customers</p>
+              </div>
+              <CustomerTrackerPanel embedded />
+            </div>
+          )}
         </div>
       </main>
 

@@ -3,25 +3,20 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Search, Plus, Edit3, Trash2, Users, X, Activity, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { UserService } from '@/lib/user-service';
-import { getSafeUserRole, canManageUserRole, CUSTOMER_ROLE } from '@/lib/roles';
+import { getSafeUserRole, canManageUserRole, CUSTOMER_ROLE, getRoleLabel, USER_ROLE_OPTIONS } from '@/lib/roles';
 
 // ── Role badge config ──────────────────────────────────────────────
 const ROLE_BADGE: Record<string, { bg: string; text: string }> = {
   administrator: { bg: '#ede9fe', text: '#6d28d9' },
-  office_admin: { bg: '#ede9fe', text: '#6d28d9' },
-  hr: { bg: '#eff6ff', text: '#1d4ed8' },
-  operation_manager: { bg: '#e0e7ff', text: '#4338ca' },
-  technician: { bg: '#ecfeff', text: '#0e7490' },
+  office_admin: { bg: '#fff7ed', text: '#c2410c' },
   sales: { bg: '#ecfdf5', text: '#065f46' },
-  service_staff: { bg: '#f0fdf4', text: '#15803d' },
-  staff_inventory: { bg: '#fefce8', text: '#a16207' },
-  staff_quality_checker: { bg: '#fef3c7', text: '#92400e' },
+  staff_quality_checker: { bg: '#eef2ff', text: '#4338ca' },
   customer: { bg: '#f1f5f9', text: '#475569' },
 };
 
 function RoleBadge({ role }: { role: string }) {
-  const cfg = ROLE_BADGE[role] ?? ROLE_BADGE.customer;
-  const label = role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const cfg = ROLE_BADGE[getSafeUserRole(role, CUSTOMER_ROLE)] ?? ROLE_BADGE.customer;
+  const label = getRoleLabel(role);
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: 6, fontSize: 12, fontWeight: 500, background: cfg.bg, color: cfg.text }}>
       {label}
@@ -55,16 +50,7 @@ const inputStyle: React.CSSProperties = {
   border: '1px solid #d1d5db', fontSize: 14, background: '#fff', color: '#111827', outline: 'none',
 };
 
-const ROLE_OPTIONS = [
-  { value: 'office_admin', label: 'Office Admin' },
-  { value: 'operation_manager', label: 'Operation Manager' },
-  { value: 'hr', label: 'HR' },
-  { value: 'sales', label: 'Sales' },
-  { value: 'service_staff', label: 'Service Staff' },
-  { value: 'staff_quality_checker', label: 'Quality Checker' },
-  { value: 'staff_inventory', label: 'Inventory Staff' },
-  { value: 'technician', label: 'Technician' },
-];
+const ROLE_OPTIONS = USER_ROLE_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
 
 // ── Component ──────────────────────────────────────────────────────
 export default function HRStaffList({
@@ -81,7 +67,7 @@ export default function HRStaffList({
   const [formName, setFormName] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formPassword, setFormPassword] = useState('');
-  const [formRole, setFormRole] = useState('service_staff');
+  const [formRole, setFormRole] = useState('office_admin');
   const [formStatus, setFormStatus] = useState('active');
   const [saving, setSaving] = useState(false);
 
@@ -92,7 +78,7 @@ export default function HRStaffList({
     setFormName('');
     setFormEmail('');
     setFormPassword('');
-    setFormRole('service_staff');
+    setFormRole('office_admin');
     setFormStatus('active');
     setShowModal(true);
   }, []);
@@ -104,7 +90,7 @@ export default function HRStaffList({
     setFormName(u.name || '');
     setFormEmail(u.email || '');
     setFormPassword('');
-    setFormRole(u.role || 'service_staff');
+      setFormRole(u.role || 'office_admin');
     setFormStatus(u.status || (u.isActive ? 'active' : 'pending'));
     setShowModal(true);
   }, []);

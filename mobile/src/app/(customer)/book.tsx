@@ -63,6 +63,11 @@ import {
   BOOKING_TERMS_INTRO,
   BOOKING_TERMS_SECTIONS,
 } from '@/constants/bookingTerms';
+import {
+  SPF_BASE_PRICES,
+  SPF_TINT_PRICES,
+  type VehicleTypeKey,
+} from '@/constants/spfPricing';
 
 // ─── Kinetic Gallery Design Tokens ───────────────────────────────────────────
 
@@ -96,8 +101,6 @@ const TIME_SLOTS = [
 ];
 
 // ─── SPF Package Definitions — mirrors Services.tsx exactly ──────────────────
-type VehicleTypeKey = 'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largesuv' | 'highend';
-
 interface SPFPackage {
   key: string;
   label: string;
@@ -124,8 +127,8 @@ const SPF_PACKAGES: SPFPackage[] = [
     tier: 'Essential',
     description:
       'Give your car the protection it deserves with our essential ceramic coating package. We apply a high-quality protective layer that helps shield your paint from scratches, UV rays, dirt, and water so your vehicle stays glossier and easier to wash between visits.',
-    prices:     { hatchback: 7499, sedan: 7999, midsized: 7999, suv: 8999, pickup: 8499, largesuv: 12999, highend: null },
-    tintPrices: { hatchback: 13499, sedan: 13499, midsized: 14499, suv: 15999, pickup: 14499, largesuv: 20999, highend: null },
+    prices: SPF_BASE_PRICES.spf80,
+    tintPrices: SPF_TINT_PRICES.spf80,
     features: [
       '3 Layers Graphene Ceramic Coating (Canada)',
       'Graphene Sealant',
@@ -143,8 +146,8 @@ const SPF_PACKAGES: SPFPackage[] = [
     tier: 'Advanced',
     description:
       'Step up to a deeper, longer-lasting ceramic stack built for daily drivers. Multiple graphene-rich layers add stronger UV and chemical resistance while keeping water beading tight—so your paint looks richer and stays protected through sun, rain, and road grime.',
-    prices:     { hatchback: 8999, sedan: 9999, midsized: 10999, suv: 11999, pickup: 10999, largesuv: 14999, highend: 17999 },
-    tintPrices: { hatchback: 14999, sedan: 15999, midsized: 17499, suv: 18999, pickup: 17499, largesuv: 22999, highend: 23999 },
+    prices: SPF_BASE_PRICES.spf89,
+    tintPrices: SPF_TINT_PRICES.spf89,
     features: [
       '4 Layers Graphene Ceramic Coating (Canada)',
       'Graphene Sealant',
@@ -162,8 +165,8 @@ const SPF_PACKAGES: SPFPackage[] = [
     tier: 'Premium',
     description:
       'Our premium coating program uses professional-grade SONAX Profiline layers for exceptional gloss and durability. Ideal if you want showroom depth, easier maintenance, and a documented maintenance path—including scheduled reboost visits to keep the film chemistry performing year after year.',
-    prices:     { hatchback: 13999, sedan: 13999, midsized: 15999, suv: 16999, pickup: 15999, largesuv: 19999, highend: 22999 },
-    tintPrices: { hatchback: 19999, sedan: 19999, midsized: 22499, suv: 23999, pickup: 22499, largesuv: 27999, highend: 28999 },
+    prices: SPF_BASE_PRICES.spf99,
+    tintPrices: SPF_TINT_PRICES.spf99,
     features: [
       '4 Layers SONAX Profiline CC EVO (Germany)',
       'FREE Full Recoat After 5 Years',
@@ -181,14 +184,15 @@ const SPF_PACKAGES: SPFPackage[] = [
     tier: 'Flagship',
     description:
       'The ultimate AutoSPF+ experience: strategic PPF coverage for high-impact areas, flagship ceramic coating, full nano-ceramic tint, and bundled maintenance so your vehicle leaves protected from bumper to glass. Built for owners who want maximum resale appeal and peace of mind in one appointment.',
-    prices:     { hatchback: 39999, sedan: 39999, midsized: 46999, suv: 46999, pickup: 46999, largesuv: 49999, highend: 49999 },
-    tintPrices: { hatchback: null, sedan: null, midsized: null, suv: null, pickup: null, largesuv: null, highend: null },
+    prices: SPF_BASE_PRICES.spf101,
+    tintPrices: SPF_TINT_PRICES.spf101,
     features: [
-      'Paint Protection Film PPF (Hood, Bumper, Mirrors & More)',
+      'PPF Coverage (Hood, Stepsils, Side Mirrors, Front Bumper, Door Bowls, Headlights & Taillights)',
       '4 Layers SONAX Profiline CC EVO (Germany)',
       'FREE 5 visits Reboost/Maintenance (save ₱7,500)',
       'FREE Full Recoat After 5 Years',
       'Nano Ceramic Window Tint (Full Wrap — Any Shade)',
+      'FREE Undercoating (Rust Proofing) (value ₱14,000)',
     ],
     popular: false,
     flagship: true,

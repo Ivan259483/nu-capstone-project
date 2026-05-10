@@ -12,7 +12,6 @@ const ROLE_BADGE: Record<string, { bg: string; text: string }> = {
   administrator: { bg: '#ede9fe', text: '#6d28d9' },
   office_admin:  { bg: '#ede9fe', text: '#6d28d9' },
   hr:            { bg: '#eff6ff', text: '#1d4ed8' },
-  operation_manager: { bg: '#e0e7ff', text: '#4338ca' },
   technician:    { bg: '#ecfeff', text: '#0e7490' },
   sales:         { bg: '#ecfdf5', text: '#065f46' },
   service_staff: { bg: '#f0fdf4', text: '#15803d' },

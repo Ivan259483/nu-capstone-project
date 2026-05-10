@@ -2746,7 +2746,7 @@ export const approveBooking = async (req, res, next) => {
     if (!detailerId) {
       // Priority: staff_quality_checker (Technician - Quality Checker) → technician → service_staff
       // This matches the business flow: Quality Checker handles bookings from Live Tracker
-      const ASSIGNABLE_ROLES = ['staff_quality_checker', 'technician', 'service_staff'];
+      const ASSIGNABLE_ROLES = ['staff_quality_checker'];
       let detailers = [];
       for (const role of ASSIGNABLE_ROLES) {
         detailers = await User.find({ role, isActive: true }).select('_id name role');

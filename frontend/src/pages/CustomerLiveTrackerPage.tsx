@@ -29,6 +29,7 @@ import {
   type LiveTrackerStepId,
 } from '@/lib/customer-tracker-stage-media';
 import { isNonNavigableImageSrc } from '@/lib/non-navigable-image-url';
+import { getLiveTrackerStepIndex } from '@/lib/customer-live-tracker-step';
 
 const BRAND_ORANGE = '#E8650A';
 const LUXURY_EASE = [0.22, 1, 0.36, 1] as const;
@@ -257,34 +258,6 @@ function getLatestStaffNote(booking: Booking | null) {
   return sortedNotes[0]?.content || booking.notes || '';
 }
 
-function getCurrentStepIndex(booking: Booking | null) {
-  if (!booking) return 0;
-
-  const trackingStage = (booking as any)?.serviceTrackingStage;
-  if (trackingStage && typeof trackingStage === 'string') {
-    const stageMap: Record<string, number> = {
-      confirmed: 1,
-      received: 2,
-      in_progress: 3,
-      quality_check: 4,
-      ready_pickup: 5,
-      completed: 5,
-    };
-    if (stageMap[trackingStage] !== undefined) return stageMap[trackingStage];
-  }
-
-  const status = String(booking.status || '').toLowerCase();
-  const customerStatus = String(booking.customerStatus || '').toLowerCase();
-
-  if (status === 'paid' || customerStatus === 'ready') return 5;
-  if (status === 'completed' || customerStatus === 'finishing') return 4;
-  if (status === 'in_progress' || status === 'in-progress' || customerStatus === 'washing' || customerStatus === 'detailing' || customerStatus === 'in-progress') return 3;
-  if (status === 'received') return 2;
-  if (status === 'confirmed' || status === 'assigned') return 1;
-  // approved — waiting for vehicle
-  return 0;
-}
-
 function getStepTimestamps(booking: Booking | null) {
   if (!booking) {
     return {
@@ -314,7 +287,7 @@ function getStepTimestamps(booking: Booking | null) {
 }
 
 function getResolvedSteps(booking: Booking | null, estimatedCompletion?: string | null) {
-  const currentIndex = getCurrentStepIndex(booking);
+  const currentIndex = getLiveTrackerStepIndex(booking);
   const timestamps = getStepTimestamps(booking);
   const bookingBaseDate = booking?.bookingDate || booking?.date;
 
@@ -576,7 +549,7 @@ export default function CustomerLiveTrackerPage() {
   const vehicleLabel = getVehicleLabel(activeBooking);
   const bayAssignment = getBayAssignment(activeBooking);
   const currentStageTitle = resolvedSteps.find((step) => step.state === 'active')?.title || TRACKER_STEPS[0].title;
-  const trackerProgress = activeBooking ? ((getCurrentStepIndex(activeBooking) + 1) / TRACKER_STEPS.length) * 100 : 0;
+  const trackerProgress = activeBooking ? ((getLiveTrackerStepIndex(activeBooking) + 1) / TRACKER_STEPS.length) * 100 : 0;
   const isAwaitingVehicle = activeBooking && ['approved', 'confirmed', 'assigned'].includes(String(activeBooking.status || '').toLowerCase());
   const liveStatusMeta = isLoading
     ? {

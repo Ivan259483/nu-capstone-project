@@ -18,7 +18,7 @@ const router = express.Router();
 router.use(authenticate);
 
 // QC role + admin can access these endpoints
-const QC_ALLOWED_ROLES = ['staff_quality_checker', 'administrator', 'operation_manager', 'office_admin', 'hr'];
+const QC_ALLOWED_ROLES = ['staff_quality_checker', 'administrator', 'office_admin'];
 
 /**
  * @route   GET /api/qc/jobs

@@ -1,46 +1,66 @@
-import React, { useState, useMemo } from 'react';
-import { Search, X, Eye, Phone, AlertTriangle, ChevronUp, ChevronDown, CheckCircle2, Clock, Users } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Search, X, Eye, Phone, AlertTriangle, ChevronUp, ChevronDown, CheckCircle2, Clock, Users, SlidersHorizontal } from 'lucide-react';
 import type { OpsJob, OpsTechnician } from '../ops-types';
 import { OpsStatusBadge } from '../ui/OpsUIKit';
 import type { JobStatus } from '../ui/OpsUIKit';
+import { getLiveTrackerStepIndex, LIVE_TRACKER_PROGRESS_LABELS } from '@/lib/customer-live-tracker-step';
 
 const STATUS_FILTERS: (JobStatus | 'All')[] = ['All', 'Queued', 'Assigned', 'En Route', 'Ongoing', 'Completed', 'Delayed'];
 
-const PROGRESS_STEPS = ['Queued', 'Assigned', 'En Route', 'Ongoing', 'Completed'] as const;
-
-function getProgressStep(status: JobStatus): number {
-  const map: Record<string, number> = {
-    Queued: 0, Assigned: 1, 'En Route': 2, Ongoing: 3, Completed: 4, Delayed: 3, Cancelled: 0,
-  };
-  return map[status] ?? 0;
+/** When `_booking` is missing, approximate customer tracker index from coarse ops status */
+function fallbackLiveStepFromOpsStatus(status: JobStatus): number {
+  switch (status) {
+    case 'Queued':
+      return 0;
+    case 'Assigned':
+      return 1;
+    case 'En Route':
+      return 2;
+    case 'Ongoing':
+      return 3;
+    case 'Completed':
+      return 5;
+    case 'Delayed':
+      return 3;
+    case 'Cancelled':
+      return 0;
+    default:
+      return 0;
+  }
 }
 
-function ProgressTracker({ status }: { status: JobStatus }) {
-  const current = getProgressStep(status);
-  const isDelayed = status === 'Delayed';
-  const isCancelled = status === 'Cancelled';
+function ProgressTracker({ job }: { job: OpsJob }) {
+  const current = job._booking
+    ? getLiveTrackerStepIndex(job._booking)
+    : fallbackLiveStepFromOpsStatus(job.status);
+  const isDelayed = job.status === 'Delayed';
+  const isCancelled = job.status === 'Cancelled';
 
   return (
-    <div className="flex items-center gap-0 min-w-[200px]">
-      {PROGRESS_STEPS.map((step, i) => {
+    <div className="flex min-w-[220px] max-w-[min(100%,320px)] items-center gap-0">
+      {LIVE_TRACKER_PROGRESS_LABELS.map((step, i) => {
         const isComplete = current > i;
         const isActive = current === i;
-        const isLast = i === PROGRESS_STEPS.length - 1;
-        const dotColor = isCancelled ? 'bg-gray-200'
+        const isLast = i === LIVE_TRACKER_PROGRESS_LABELS.length - 1;
+        const dotColor = isCancelled ? 'bg-slate-200'
           : isDelayed && isActive ? 'bg-red-500'
-          : isComplete || isActive ? 'bg-indigo-600' : 'bg-gray-200';
-        const lineColor = isComplete ? 'bg-indigo-600' : 'bg-gray-200';
+          : isComplete || isActive ? 'bg-slate-800' : 'bg-slate-200';
+        const lineColor = isComplete ? 'bg-slate-800' : 'bg-slate-200';
 
         return (
           <React.Fragment key={`prog-${step}`}>
-            <div className="relative group/step flex-shrink-0">
-              <div className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${dotColor} ${isActive && !isCancelled ? 'ring-2 ring-indigo-200 ring-offset-1' : ''}`} />
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 bg-gray-900 text-white text-[10px] px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover/step:opacity-100 transition-opacity duration-150 pointer-events-none z-10">
-                {step}{isActive && isDelayed ? ' (Delayed)' : ''}
+            <div className="group/step relative flex-shrink-0">
+              <div
+                className={`h-2 w-2 rounded-full transition-all duration-300 ${dotColor} ${
+                  isActive && !isCancelled ? 'ring-2 ring-slate-300 ring-offset-1' : ''
+                }`}
+              />
+              <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/step:opacity-100">
+                {step}{isActive && isDelayed ? ' (delayed)' : ''}
               </div>
             </div>
             {!isLast && (
-              <div className={`flex-1 h-0.5 transition-all duration-300 ${lineColor} min-w-[16px]`} />
+              <div className={`h-px min-w-[8px] flex-1 transition-all duration-300 ${lineColor}`} />
             )}
           </React.Fragment>
         );
@@ -59,10 +79,12 @@ interface Props {
 }
 
 const priorityOrder: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+type SlaFilter = 'All' | 'On Track' | 'At Risk' | 'Breached';
 
 export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onStatusChange }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<JobStatus | 'All'>('All');
+  const [slaFilter, setSlaFilter] = useState<SlaFilter>('All');
   const [sortKey, setSortKey] = useState<SortKey>('priority');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
@@ -74,12 +96,14 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(j =>
-        j.jobNumber.toLowerCase().includes(q) ||
-        j.customer.toLowerCase().includes(q) ||
-        j.serviceType.toLowerCase().includes(q)
+          j.jobNumber.toLowerCase().includes(q) ||
+          j.customer.toLowerCase().includes(q) ||
+          j.serviceType.toLowerCase().includes(q) ||
+          j.customerPhone.toLowerCase().includes(q)
       );
     }
     if (statusFilter !== 'All') result = result.filter(j => j.status === statusFilter);
+    if (slaFilter !== 'All') result = result.filter(j => j.slaStatus === slaFilter);
 
     result.sort((a, b) => {
       let aVal: string | number = '';
@@ -97,10 +121,14 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
     });
 
     return result;
-  }, [jobs, search, statusFilter, sortKey, sortDir]);
+  }, [jobs, search, slaFilter, statusFilter, sortKey, sortDir]);
 
-  const totalPages = Math.ceil(filtered.length / perPage);
-  const paginated = filtered.slice((page - 1) * perPage, page * perPage);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
+  const paginated = filtered.slice((page - 1) * perPage, perPage * page);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
@@ -108,77 +136,125 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
   };
 
   const SortIcon = ({ col }: { col: SortKey }) => {
-    if (sortKey !== col) return <ChevronUp size={12} className="text-gray-300" />;
+    if (sortKey !== col) return <ChevronUp size={12} className="text-slate-300" />;
     return sortDir === 'asc'
-      ? <ChevronUp size={12} className="text-indigo-500" />
-      : <ChevronDown size={12} className="text-indigo-500" />;
+      ? <ChevronUp size={12} className="text-slate-700" />
+      : <ChevronDown size={12} className="text-slate-700" />;
   };
 
   const getTech = (id: string | null) => technicians.find(t => t.id === id) ?? null;
+  const hasExtraFilters = search || statusFilter !== 'All' || slaFilter !== 'All';
 
   const slaChip = (sla: string) => {
-    if (sla === 'Breached') return <span className="ops-badge bg-red-50 text-red-700 text-[10.5px]"><AlertTriangle size={9} />Breached</span>;
-    if (sla === 'At Risk') return <span className="ops-badge bg-amber-50 text-amber-700 text-[10.5px]"><Clock size={9} />At Risk</span>;
-    return <span className="ops-badge bg-green-50 text-green-700 text-[10.5px]"><CheckCircle2 size={9} />On Track</span>;
+    if (sla === 'Breached') return <span className="ops-badge bg-red-50 text-red-800 text-[10.5px] shadow-[0_2px_8px_-2px_rgba(220,38,38,0.2)]"><AlertTriangle size={9} />Breached</span>;
+    if (sla === 'At Risk') return <span className="ops-badge bg-amber-50 text-amber-900 text-[10.5px] shadow-[0_2px_8px_-2px_rgba(217,119,6,0.18)]"><Clock size={9} />At risk</span>;
+    return <span className="ops-badge bg-emerald-50 text-emerald-800 text-[10.5px] shadow-[0_2px_8px_-2px_rgba(5,150,105,0.16)]"><CheckCircle2 size={9} />On track</span>;
   };
 
   return (
-    <div className="ops-card overflow-hidden">
-      {/* Header */}
-      <div className="px-5 py-4 border-b border-gray-100">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
-          <div className="flex-1">
-            <h3 className="text-[14px] font-semibold text-gray-900">Customer Job Tracker</h3>
-            <p className="text-[12px] text-gray-400 mt-0.5">{filtered.length} jobs across all customers</p>
+      <div className="ct-job-shell ops-card overflow-hidden rounded-[28px]">
+      {/* Toolbar */}
+      <div className="bg-gradient-to-b from-slate-50/90 to-white px-4 py-4 shadow-[inset_0_-1px_0_0_rgba(15,23,42,0.04)] sm:px-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-50/95 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-700 shadow-[0_4px_14px_-4px_rgba(37,99,235,0.22)]">
+              <Users size={12} />
+              Customer live board
+            </div>
+            <h3 className="mt-2 text-[16px] font-semibold tracking-tight text-slate-900">Customer job tracker</h3>
+            <p className="mt-0.5 text-[12px] text-slate-500">
+              <span className="font-medium tabular-nums text-slate-700">{filtered.length}</span> jobs across all customer users
+            </p>
           </div>
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <div className="relative w-full min-w-0 lg:max-w-md lg:flex-shrink-0">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-slate-400" />
             <input
-              type="text"
-              placeholder="Search customer or job…"
+              type="search"
+              placeholder="Search customer, job ID, service, or phone..."
               value={search}
               onChange={e => { setSearch(e.target.value); setPage(1); }}
-              className="ops-input pl-9 !w-56"
+              className="ct-search-input h-10 w-full rounded-xl border-0 bg-slate-50/90 pl-10 pr-9 text-[13px] text-slate-800 shadow-[0_4px_16px_-6px_rgba(15,23,42,0.08),0_1px_4px_rgba(15,23,42,0.04)] outline-none transition placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-slate-900/10"
+              autoComplete="off"
             />
             {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                <X size={12} />
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Clear search"
+              >
+                <X size={14} />
               </button>
             )}
           </div>
         </div>
 
-        {/* Status filter chips */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {STATUS_FILTERS.map(s => {
-            const count = s === 'All' ? jobs.length : jobs.filter(j => j.status === s).length;
-            return (
-              <button
-                key={`ctf-${s}`}
-                onClick={() => { setStatusFilter(s); setPage(1); }}
-                className={`flex items-center gap-1.5 text-[11.5px] px-3 py-1.5 rounded-full font-medium transition-all duration-150 ${
-                  statusFilter === s
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
+        <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+          <div className="flex flex-wrap gap-1.5 rounded-xl bg-slate-100/80 p-1.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.65)] sm:gap-1">
+            {STATUS_FILTERS.map(s => {
+              const count = s === 'All' ? jobs.length : jobs.filter(j => j.status === s).length;
+              const active = statusFilter === s;
+              return (
+                <button
+                  key={`ctf-${s}`}
+                  type="button"
+                  onClick={() => { setStatusFilter(s); setPage(1); }}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11.5px] font-medium transition-all ${
+                    active
+                      ? 'bg-white text-slate-900 shadow-[0_6px_20px_-6px_rgba(15,23,42,0.12),0_2px_6px_rgba(15,23,42,0.05)]'
+                      : 'text-slate-600 hover:bg-white/80 hover:text-slate-900'
+                  }`}
+                >
+                  {s}
+                  <span
+                    className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
+                      active ? 'bg-slate-100 text-slate-700' : 'bg-slate-200/60 text-slate-600'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="ct-filter-select">
+              <span>SLA</span>
+              <select
+                value={slaFilter}
+                onChange={event => { setSlaFilter(event.target.value as SlaFilter); setPage(1); }}
               >
-                {s}
-                <span className={`text-[10px] px-1 py-0.5 rounded-full tabular-nums ${
-                  statusFilter === s ? 'bg-white/20 text-white' : 'bg-white text-gray-500'
-                }`}>
-                  {count}
-                </span>
+                <option value="All">All SLA</option>
+                <option value="On Track">On track</option>
+                <option value="At Risk">At risk</option>
+                <option value="Breached">Breached</option>
+              </select>
+            </label>
+
+            {hasExtraFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setStatusFilter('All');
+                  setSlaFilter('All');
+                  setPage(1);
+                }}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border-0 bg-white px-3 text-[12px] font-medium text-slate-600 shadow-[0_6px_20px_-6px_rgba(15,23,42,0.1),0_2px_6px_rgba(15,23,42,0.04)] transition hover:bg-slate-50/90 hover:text-slate-900"
+              >
+                <SlidersHorizontal size={14} />
+                Reset
               </button>
-            );
-          })}
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Table */}
       <div className="overflow-x-auto ops-scrollbar-thin">
-        <table className="w-full min-w-[960px]">
+        <table className="w-full min-w-[980px] border-collapse">
           <thead>
-            <tr className="border-b border-gray-100">
+            <tr className="bg-slate-50/85 shadow-[inset_0_-1px_0_0_rgba(15,23,42,0.05)]">
               {[
                 { key: 'jobNumber' as SortKey, label: 'Job ID' },
                 { key: 'customer' as SortKey, label: 'Customer' },
@@ -189,22 +265,22 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
                 { key: 'scheduledAt' as SortKey, label: 'Scheduled' },
                 { key: null, label: 'ETA' },
                 { key: 'slaStatus' as SortKey, label: 'SLA' },
-                { key: null, label: 'Last Update' },
+                { key: null, label: 'Last update' },
               ].map(({ key, label }) => (
                 <th
                   key={`ctth-${label}`}
-                  className={`text-left py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-gray-400 whitespace-nowrap ${
-                    key ? 'cursor-pointer hover:text-gray-600 select-none' : ''
+                  className={`whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${
+                    key ? 'cursor-pointer select-none hover:text-slate-700' : ''
                   }`}
                   onClick={key ? () => toggleSort(key) : undefined}
                 >
-                  <span className="flex items-center gap-1">
+                  <span className="inline-flex items-center gap-1">
                     {label}
                     {key && <SortIcon col={key} />}
                   </span>
                 </th>
               ))}
-              <th className="py-3 pr-5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+              <th className="whitespace-nowrap py-2.5 pr-4 text-right text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 Actions
               </th>
             </tr>
@@ -212,18 +288,24 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
           <tbody>
             {paginated.length === 0 && (
               <tr>
-                <td colSpan={11} className="py-16 text-center">
+                <td colSpan={11} className="py-14 text-center">
                   <div className="flex flex-col items-center gap-2">
-                    <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center">
-                      <Users size={18} className="text-gray-400" />
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100">
+                      <Users size={20} className="text-slate-400" />
                     </div>
-                    <p className="text-[14px] font-medium text-gray-700">No customer jobs found</p>
-                    <p className="text-[12px] text-gray-400">Try adjusting your search or status filter</p>
+                    <p className="text-[14px] font-medium text-slate-800">No jobs match your filters</p>
+                    <p className="max-w-sm text-[12px] text-slate-500">Try clearing search or choosing a different status.</p>
                     <button
-                      onClick={() => { setStatusFilter('All'); setSearch(''); }}
-                      className="mt-2 text-[12px] text-indigo-600 hover:text-indigo-700 font-medium"
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter('All');
+                        setSearch('');
+                        setSlaFilter('All');
+                        setPage(1);
+                      }}
+                      className="mt-1 text-[12px] font-medium text-slate-800 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-500"
                     >
-                      Clear filters
+                      Reset filters
                     </button>
                   </div>
                 </td>
@@ -237,46 +319,60 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
               return (
                 <tr
                   key={job.id}
-                  className={`transition-colors duration-150 group ${
-                    isBreached ? 'bg-red-50/30 hover:bg-red-50/50' : isDelayed ? 'bg-amber-50/20 hover:bg-amber-50/40' : 'hover:bg-gray-50/60'
+                  className={`transition-colors ${
+                    isBreached
+                      ? 'bg-red-50/40 hover:bg-red-50/65'
+                      : isDelayed
+                        ? 'bg-amber-50/25 hover:bg-amber-50/50'
+                        : 'even:bg-slate-50/30 hover:bg-slate-50/75'
                   }`}
                 >
-                  <td className="py-4 pl-4 pr-4">
-                    <span className="font-mono text-[12px] font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
-                      {job.jobNumber}
-                    </span>
-                  </td>
-                  <td className="py-4 pr-4">
-                    <div>
-                      <p className="text-[13px] font-semibold text-gray-900 truncate max-w-[150px]">{job.customer}</p>
-                      {job.customerPhone && (
-                        <a href={`tel:${job.customerPhone}`} className="text-[11px] text-gray-400 hover:text-indigo-600 flex items-center gap-1 mt-0.5 transition-colors">
-                          <Phone size={9} />
-                          {job.customerPhone}
-                        </a>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-4 pr-4">
-                    <p className="text-[12.5px] text-gray-600 whitespace-nowrap">{job.serviceType}</p>
-                    <p className="text-[11px] text-gray-400 mt-0.5">{job.area}</p>
-                  </td>
-                  <td className="py-4 pr-4 relative">
+                  <td className="px-3 py-2.5 align-middle">
                     <button
+                      type="button"
+                      onClick={() => onJobClick(job)}
+                      className="inline-flex rounded-lg bg-slate-100/90 px-2 py-1 font-mono text-[11px] font-semibold text-slate-800 shadow-[0_2px_8px_-2px_rgba(15,23,42,0.08)] transition hover:bg-slate-200/70 hover:shadow-[0_4px_12px_-2px_rgba(15,23,42,0.1)]"
+                    >
+                      {job.jobNumber}
+                    </button>
+                  </td>
+                  <td className="max-w-[160px] px-3 py-2.5 align-middle">
+                    <p className="truncate text-[13px] font-semibold text-slate-900">{job.customer}</p>
+                    {job.customerPhone && (
+                      <a
+                        href={`tel:${job.customerPhone}`}
+                        className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500 transition-colors hover:text-slate-800"
+                      >
+                        <Phone size={10} className="shrink-0 opacity-70" />
+                        {job.customerPhone}
+                      </a>
+                    )}
+                  </td>
+                  <td className="min-w-[140px] px-3 py-2.5 align-middle">
+                    <p className="text-[12.5px] font-medium text-slate-800">{job.serviceType}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-slate-500">{job.area}</p>
+                  </td>
+                  <td className="relative px-3 py-2.5 align-middle">
+                    <button
+                      type="button"
                       onClick={() => setStatusDropdown(statusDropdown === job.id ? null : job.id)}
-                      className="hover:opacity-80 transition-opacity"
-                      title="Click to change status"
+                      className="rounded-md outline-none ring-slate-900/0 transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-slate-400"
+                      title="Change status"
                     >
                       <OpsStatusBadge status={job.status} />
                     </button>
                     {statusDropdown === job.id && (
-                      <div className="absolute left-0 top-full mt-1 z-30 bg-white rounded-xl py-1 min-w-[150px] ops-animate-scale-in" style={{ boxShadow: '0 0 0 1px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.10)' }}>
-                        <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Change Status</p>
+                      <div
+                        className="absolute left-2 top-full z-30 mt-1 min-w-[168px] rounded-xl bg-white py-1 ops-animate-scale-in"
+                        style={{ boxShadow: '0 0 0 1px rgba(15,23,42,0.06), 0 12px 32px rgba(15,23,42,0.12)' }}
+                      >
+                        <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Set status</p>
                         {(['Queued', 'Assigned', 'En Route', 'Ongoing', 'Completed', 'Delayed'] as JobStatus[]).map(s => (
                           <button
                             key={`ctsd-${s}`}
+                            type="button"
                             onClick={() => { onStatusChange(job.id, s); setStatusDropdown(null); }}
-                            className="w-full text-left px-3 py-2 text-[12px] hover:bg-gray-50 flex items-center gap-2"
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] hover:bg-slate-50"
                           >
                             <OpsStatusBadge status={s} />
                           </button>
@@ -284,40 +380,40 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
                       </div>
                     )}
                   </td>
-                  <td className="py-4 pr-6">
-                    <ProgressTracker status={job.status} />
+                  <td className="px-3 py-2.5 align-middle">
+                    <ProgressTracker job={job} />
                   </td>
-                  <td className="py-4 pr-4">
+                  <td className="px-3 py-2.5 align-middle">
                     {tech ? (
                       <div className="flex items-center gap-2">
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-semibold flex-shrink-0 ${tech.avatar}`}>
+                        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold ${tech.avatar}`}>
                           {tech.initials}
                         </div>
-                        <div>
-                          <p className="text-[12px] font-medium text-gray-800 whitespace-nowrap">{tech.name}</p>
-                          <p className="text-[10.5px] text-gray-400">{tech.specialty}</p>
+                        <div className="min-w-0">
+                          <p className="truncate text-[12px] font-medium text-slate-800">{tech.name}</p>
+                          <p className="truncate text-[10px] text-slate-500">{tech.specialty}</p>
                         </div>
                       </div>
                     ) : (
-                      <span className="text-[12px] text-gray-400 italic">Unassigned</span>
+                      <span className="text-[12px] text-slate-400">Unassigned</span>
                     )}
                   </td>
-                  <td className="py-4 pr-4">
-                    <span className="text-[12.5px] text-gray-600 tabular-nums whitespace-nowrap">{job.scheduledAt}</span>
+                  <td className="px-3 py-2.5 align-middle">
+                    <span className="whitespace-nowrap text-[12px] tabular-nums text-slate-700">{job.scheduledAt}</span>
                   </td>
-                  <td className="py-4 pr-4">
-                    <span className={`text-[12.5px] tabular-nums whitespace-nowrap ${
-                      job.status === 'Delayed' ? 'text-red-600 font-semibold' :
-                      job.status === 'Completed' ? 'text-green-600' : 'text-gray-600'
-                    }`}>
+                  <td className="px-3 py-2.5 align-middle">
+                    <span
+                      className={`whitespace-nowrap text-[12px] tabular-nums ${
+                        job.status === 'Delayed' ? 'font-semibold text-red-700' :
+                        job.status === 'Completed' ? 'font-medium text-emerald-700' : 'text-slate-700'
+                      }`}
+                    >
                       {job.eta}
                     </span>
                   </td>
-                  <td className="py-4 pr-4">
-                    {slaChip(job.slaStatus)}
-                  </td>
-                  <td className="py-4 pr-4">
-                    <p className="text-[11.5px] text-gray-400 whitespace-nowrap tabular-nums">
+                  <td className="px-3 py-2.5 align-middle">{slaChip(job.slaStatus)}</td>
+                  <td className="px-3 py-2.5 align-middle">
+                    <p className="whitespace-nowrap text-[11px] tabular-nums text-slate-500">
                       {(() => {
                         try {
                           const d = new Date(job.updatedAt);
@@ -326,31 +422,29 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
                       })()}
                     </p>
                   </td>
-                  <td className="py-4 pr-5">
-                    <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                  <td className="px-3 py-2.5 align-middle">
+                    <div className="flex items-center justify-end gap-0.5">
                       <button
+                        type="button"
                         onClick={() => onJobClick(job)}
-                        title="View full job detail"
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all duration-150"
+                        title="Details"
+                        className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
                       >
-                        <Eye size={14} />
+                        <Eye size={15} />
                       </button>
                       {job.customerPhone && (
                         <a
                           href={`tel:${job.customerPhone}`}
-                          title="Call customer"
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-all duration-150"
+                          title="Call"
+                          className="rounded-lg p-1.5 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-700"
                         >
-                          <Phone size={14} />
+                          <Phone size={15} />
                         </a>
                       )}
                       {(isDelayed || isBreached) && (
-                        <button
-                          title="Flag for escalation"
-                          className="p-1.5 rounded-lg text-amber-400 hover:text-amber-600 hover:bg-amber-50 transition-all duration-150"
-                        >
-                          <AlertTriangle size={14} />
-                        </button>
+                        <span title="Attention" className="rounded-lg p-1.5 text-amber-500">
+                          <AlertTriangle size={15} />
+                        </span>
                       )}
                     </div>
                   </td>
@@ -361,34 +455,42 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
         </table>
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between px-5 py-3.5 border-t border-gray-100">
-        <span className="text-[12px] text-gray-400">
-          Showing {Math.min((page - 1) * perPage + 1, filtered.length)}–{Math.min(page * perPage, filtered.length)} of {filtered.length} jobs
+      <div className="flex flex-col gap-3 bg-slate-50/45 px-4 py-3 shadow-[inset_0_1px_0_0_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <span className="text-[12px] text-slate-500">
+          Showing{' '}
+          <span className="font-medium text-slate-700 tabular-nums">
+            {Math.min((page - 1) * perPage + 1, filtered.length)}–{Math.min(page * perPage, filtered.length)}
+          </span>{' '}
+          of <span className="tabular-nums">{filtered.length}</span>
         </span>
         <div className="flex items-center gap-1">
           <button
+            type="button"
             onClick={() => setPage(p => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="px-3 py-1.5 text-[12px] font-medium text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="rounded-xl px-3 py-1.5 text-[12px] font-medium text-slate-600 transition hover:bg-white hover:shadow-[0_6px_16px_-6px_rgba(15,23,42,0.1)] disabled:cursor-not-allowed disabled:opacity-40"
           >
             Previous
           </button>
           {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => i + 1).map(p => (
             <button
               key={`ctpage-${p}`}
+              type="button"
               onClick={() => setPage(p)}
-              className={`w-7 h-7 text-[12px] font-medium rounded-lg transition-colors ${
-                page === p ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+              className={`h-8 min-w-[2rem] rounded-xl text-[12px] font-medium transition ${
+                page === p
+                  ? 'bg-slate-900 text-white shadow-[0_8px_24px_-6px_rgba(15,23,42,0.35)]'
+                  : 'text-slate-600 hover:bg-white hover:shadow-[0_6px_16px_-6px_rgba(15,23,42,0.1)]'
               }`}
             >
               {p}
             </button>
           ))}
           <button
+            type="button"
             onClick={() => setPage(p => Math.min(totalPages, p + 1))}
             disabled={page === totalPages || totalPages === 0}
-            className="px-3 py-1.5 text-[12px] font-medium text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="rounded-xl px-3 py-1.5 text-[12px] font-medium text-slate-600 transition hover:bg-white hover:shadow-[0_6px_16px_-6px_rgba(15,23,42,0.1)] disabled:cursor-not-allowed disabled:opacity-40"
           >
             Next
           </button>

@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { config } from '../config/environment.js';
 import { sendOtpEmail, sendWelcomeEmail, sendPasswordResetEmail } from '../utils/mail.utils.js'; // Resend mailer
 import mockOtpStore from '../utils/mockOtpStore.utils.js';
-import { getInvalidUserRoleMessage, isValidUserRole } from '../constants/roles.js';
+import { getInvalidUserRoleMessage, isValidUserRole, STAFF_ASSIGNABLE_ROLES } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { admin } from '../config/firebaseAdmin.js';
 import { parseRegisterPhone } from '../utils/phone.utils.js';
@@ -54,6 +54,13 @@ function attachPhoneForClient(userDoc, userPayload) {
     console.error('[Phone] Decrypt error:', err);
     userPayload.phone = '';
   }
+}
+
+/** Updates lastSeenAt on successful auth (admin User Management “presence”). */
+async function saveLastSeen(userDoc) {
+  if (!userDoc || typeof userDoc.save !== 'function') return;
+  userDoc.lastSeenAt = new Date();
+  await userDoc.save();
 }
 
 /**
@@ -815,6 +822,7 @@ export const login = async (req, res, next) => {
           config.jwtSecret,
           { expiresIn: '7d' }
         );
+        await saveLastSeen(user);
         const userObject = user.toObject({ virtuals: true });
         delete userObject.password;
         delete userObject._id;
@@ -897,6 +905,8 @@ export const login = async (req, res, next) => {
       config.jwtSecret,
       { expiresIn: '7d' }
     );
+
+    await saveLastSeen(user);
 
     const userObject = user.toObject({ virtuals: true });
     delete userObject.password;
@@ -1073,6 +1083,8 @@ export const socialLogin = async (req, res, next) => {
       if (req.body.photoURL) user.avatar = req.body.photoURL;
       await user.save();
     }
+
+    await saveLastSeen(user);
 
     // Generate token
     const token = jwt.sign(
@@ -1356,6 +1368,8 @@ export const verifyLoginOtp = async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    await saveLastSeen(user);
+
     const userObject = user.toObject({ virtuals: true });
     delete userObject.password;
     delete userObject._id;
@@ -1467,9 +1481,8 @@ export const createStaff = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Name, email, role, and password are required.' });
     }
 
-    const STAFF_ROLES = ['administrator', 'office_admin', 'operation_manager', 'hr', 'inventory', 'sales', 'service_staff', 'staff_quality_checker', 'staff_inventory', 'technician'];
-    if (!STAFF_ROLES.includes(role)) {
-      return res.status(400).json({ success: false, message: `Invalid role. Allowed staff roles: ${STAFF_ROLES.join(', ')}` });
+    if (!STAFF_ASSIGNABLE_ROLES.includes(role)) {
+      return res.status(400).json({ success: false, message: `Invalid role. Allowed staff roles: ${STAFF_ASSIGNABLE_ROLES.join(', ')}` });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

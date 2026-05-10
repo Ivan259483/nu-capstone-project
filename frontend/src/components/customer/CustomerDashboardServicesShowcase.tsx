@@ -15,20 +15,22 @@ import { Link } from "react-router-dom";
 import { ArrowRight, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-    RAW_SPF_PACKAGES,
     HOMEPAGE_SERVICE_MENU,
     CUSTOMER_BOOKING_PRICE_TIERS,
+    type BookingPackage,
     type VehiclePriceKey,
 } from "@/lib/customer-booking-catalog";
 
 export type CustomerDashboardServicesShowcaseProps = {
     vehicles: any[];
+    packages: BookingPackage[];
     getVehiclePriceKey: (type: string) => string;
     onOpenBooking: (opts?: { presetPackageId?: string }) => void;
 };
 
 export function CustomerDashboardServicesShowcase({
     vehicles,
+    packages,
     getVehiclePriceKey,
     onOpenBooking,
 }: CustomerDashboardServicesShowcaseProps) {
@@ -93,8 +95,9 @@ export function CustomerDashboardServicesShowcase({
                 </header>
 
                 <div className="divide-y divide-slate-100">
-                    {RAW_SPF_PACKAGES.map((pkg) => {
-                        const price = pkg.prices[priceTier] ?? 0;
+                    {packages.map((pkg) => {
+                        const price = pkg.prices[priceTier] ?? null;
+                        const isUnavailable = price === null;
                         const isFlagship = pkg.id === "spf101";
                         return (
                             <div
@@ -138,22 +141,23 @@ export function CustomerDashboardServicesShowcase({
                                                 From
                                             </p>
                                             <p className="mt-0.5 text-2xl font-semibold tabular-nums tracking-tight text-slate-900">
-                                                ₱{price.toLocaleString()}
+                                                {isUnavailable ? "N/A" : `₱${price.toLocaleString()}`}
                                             </p>
                                             <p className="mt-1 text-[11px] leading-snug text-slate-500">Selected vehicle class</p>
                                         </div>
                                         <button
                                             type="button"
                                             onClick={() => onOpenBooking({ presetPackageId: pkg.id })}
+                                            disabled={isUnavailable}
                                             className={cn(
                                                 "inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-2.5",
                                                 "text-sm font-semibold text-white transition-colors",
-                                                "bg-orange-600 hover:bg-orange-700",
-                                                "shadow-sm shadow-orange-600/25",
+                                                isUnavailable ? "cursor-not-allowed bg-slate-300 text-slate-500" : "bg-orange-600 hover:bg-orange-700",
+                                                !isUnavailable && "shadow-sm shadow-orange-600/25",
                                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/40 focus-visible:ring-offset-2"
                                             )}
                                         >
-                                            Book
+                                            {isUnavailable ? "Unavailable" : "Book"}
                                             <ChevronRight className="h-4 w-4 opacity-90" strokeWidth={2} />
                                         </button>
                                     </div>

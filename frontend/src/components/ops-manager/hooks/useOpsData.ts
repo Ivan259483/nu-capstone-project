@@ -1,12 +1,14 @@
 /**
  * useOpsData — Fetches real bookings & staff from the backend
  * and maps them to the Ops Manager dashboard shapes.
- * 
- * Fetches bookings and users independently so one 403 doesn't block the other.
+ *
+ * Bookings and users load in parallel so slow Mongo queries don't serialize wait times.
  * Auto-refreshes every 30 seconds for live updates.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
+import api from '@/lib/api';
 import { OrderService } from '@/lib/order-service';
+import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { mapBookingToJob, mapUserToTechnician } from '../ops-types';
 import type { OpsJob, OpsTechnician } from '../ops-types';
 import type { Booking, User } from '@/types';
@@ -28,73 +30,91 @@ export function useOpsData(): OpsData {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const isMounted = useRef(true);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent);
     try {
-      setLoading(true);
-      setError(null);
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
 
-      // Fetch bookings and users independently — one failing shouldn't block both
       let bookings: Booking[] = [];
       let allUsers: User[] = [];
-      const errors: string[] = [];
+      const errorParts: string[] = [];
 
-      // Fetch bookings
-      try {
-        const ordersRes = await OrderService.getAllOrders({ suppressErrorToast: true });
-        if (ordersRes?.success && Array.isArray(ordersRes.data)) {
-          bookings = ordersRes.data;
-        } else if (Array.isArray(ordersRes?.data)) {
-          bookings = ordersRes.data;
+      const loadOrders = async (): Promise<Booking[]> => {
+        try {
+          const ordersRes = await OrderService.getAllOrders({ suppressErrorToast: true });
+          if (ordersRes?.success && Array.isArray(ordersRes.data)) {
+            return ordersRes.data;
+          }
+          if (Array.isArray(ordersRes?.data)) {
+            return ordersRes.data;
+          }
+          return [];
+        } catch (err: unknown) {
+          const e = err as { response?: { status?: number }; message?: string };
+          console.warn('[OpsData] Failed to fetch bookings:', e?.message);
+          errorParts.push(
+            `Bookings: ${e?.response?.status === 403 ? 'Access denied — check role permissions' : e?.message || 'failed'}`,
+          );
+          return [];
         }
-      } catch (err: any) {
-        console.warn('[OpsData] Failed to fetch bookings:', err?.message);
-        errors.push(`Bookings: ${err?.response?.status === 403 ? 'Access denied — check role permissions' : (err?.message || 'failed')}`);
-      }
+      };
 
-      // Fetch users (suppress toast — we handle errors in the UI)
-      try {
-        // Use direct api call with suppressErrorToast to avoid duplicate error toast
-        const { default: api } = await import('@/lib/api');
-        const usersResponse = await api.get('/users', {
-          meta: { suppressErrorToast: true },
-        } as any);
-        const usersRes = usersResponse.data;
-        if (usersRes?.success && Array.isArray(usersRes.data)) {
-          allUsers = usersRes.data.map((u: any) => ({ ...u, id: u._id || u.id }));
-        } else if (Array.isArray(usersRes?.data)) {
-          allUsers = usersRes.data.map((u: any) => ({ ...u, id: u._id || u.id }));
+      const loadUsers = async (): Promise<User[]> => {
+        try {
+          const usersResponse = await api.get('/users', {
+            meta: { suppressErrorToast: true },
+          } as any);
+          const usersRes = usersResponse.data;
+          if (usersRes?.success && Array.isArray(usersRes.data)) {
+            return usersRes.data.map((u: any) => ({ ...u, id: u._id || u.id }));
+          }
+          if (Array.isArray(usersRes?.data)) {
+            return usersRes.data.map((u: any) => ({ ...u, id: u._id || u.id }));
+          }
+          return [];
+        } catch (err: unknown) {
+          const e = err as { response?: { status?: number }; message?: string };
+          console.warn('[OpsData] Failed to fetch users:', e?.message);
+          errorParts.push(
+            `Users: ${e?.response?.status === 403 ? 'Access denied — check role permissions' : e?.message || 'failed'}`,
+          );
+          return [];
         }
-      } catch (err: any) {
-        console.warn('[OpsData] Failed to fetch users:', err?.message);
-        errors.push(`Users: ${err?.response?.status === 403 ? 'Access denied — check role permissions' : (err?.message || 'failed')}`);
-      }
+      };
+
+      const [ordersResult, usersResult] = await Promise.all([loadOrders(), loadUsers()]);
+      bookings = ordersResult;
+      allUsers = usersResult;
 
       if (!isMounted.current) return;
 
-      // Map bookings → jobs
       const mappedJobs = bookings.map((b, i) => mapBookingToJob(b, i));
 
-      // Filter users to get only staff/technician roles
-      const staffRoles = ['technician', 'service_staff', 'staff_quality_checker', 'staff_inventory'];
-      const staffUsers = allUsers.filter(u => staffRoles.includes(u.role));
+      const staffRoles = ['staff_quality_checker', 'office_admin', 'sales'];
+      const staffUsers = allUsers.filter((u) => staffRoles.includes(u.role));
       const mappedTechs = staffUsers.map((u, i) => mapUserToTechnician(u, mappedJobs, i));
 
       setJobs(mappedJobs);
       setTechnicians(mappedTechs);
       setLastRefreshed(new Date());
 
-      // Only show error if BOTH failed
-      if (errors.length > 0 && bookings.length === 0 && allUsers.length === 0) {
-        setError(errors.join(' | '));
+      if (errorParts.length > 0 && bookings.length === 0 && allUsers.length === 0) {
+        setError(errorParts.join(' | '));
+      } else if (errorParts.length > 0 && bookings.length === 0) {
+        setError(`${errorParts.join(' | ')} — job list may be empty until this is fixed.`);
       } else {
         setError(null);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const e = err as { message?: string };
       if (isMounted.current) {
-        setError(err.message || 'Failed to load operations data');
+        setError(e.message || 'Failed to load operations data');
       }
     } finally {
-      if (isMounted.current) {
+      if (!silent && isMounted.current) {
         setLoading(false);
       }
     }
@@ -103,11 +123,39 @@ export function useOpsData(): OpsData {
   useEffect(() => {
     isMounted.current = true;
     fetchData();
-    // Auto-refresh every 30s for live data
-    const interval = setInterval(fetchData, 30000);
+    const interval = setInterval(() => fetchData({ silent: true }), 30000);
     return () => {
       isMounted.current = false;
       clearInterval(interval);
+    };
+  }, [fetchData]);
+
+  useEffect(() => {
+    const socket = getSharedSocket();
+    let t: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleRefresh = () => {
+      if (t) clearTimeout(t);
+      t = setTimeout(() => {
+        fetchData({ silent: true });
+      }, 350);
+    };
+
+    const onDbChange = (payload: { collection?: string }) => {
+      if (payload?.collection === 'orders') scheduleRefresh();
+    };
+    const onBookingStatus = () => scheduleRefresh();
+    const onOrderUpdated = () => scheduleRefresh();
+
+    socket.on('db_change', onDbChange);
+    socket.on('booking:status', onBookingStatus);
+    socket.on('orderUpdated', onOrderUpdated);
+
+    return () => {
+      if (t) clearTimeout(t);
+      socket.off('db_change', onDbChange);
+      socket.off('booking:status', onBookingStatus);
+      socket.off('orderUpdated', onOrderUpdated);
     };
   }, [fetchData]);
 

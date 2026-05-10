@@ -1,26 +1,23 @@
 // @module HRStaffActivity
 import React, { useState, useMemo } from 'react';
 import { Search, Download, X, Filter, Activity } from 'lucide-react';
-import { getSafeUserRole, CUSTOMER_ROLE } from '@/lib/roles';
+import { getSafeUserRole, CUSTOMER_ROLE, getRoleLabel } from '@/lib/roles';
 
 // ── Badge helpers ────────────────────────────────────────────────
 
 const ROLE_BADGE: Record<string, { bg: string; text: string }> = {
   administrator: { bg: '#ede9fe', text: '#6d28d9' },
-  office_admin:  { bg: '#ede9fe', text: '#6d28d9' },
-  hr:            { bg: '#eff6ff', text: '#1d4ed8' },
-  operation_manager: { bg: '#e0e7ff', text: '#4338ca' },
-  technician:    { bg: '#ecfeff', text: '#0e7490' },
-  sales:         { bg: '#ecfdf5', text: '#065f46' },
-  service_staff: { bg: '#f0fdf4', text: '#15803d' },
-  inventory:     { bg: '#fefce8', text: '#a16207' },
-  customer:      { bg: '#f1f5f9', text: '#475569' },
-  system:        { bg: '#f1f5f9', text: '#475569' },
+  office_admin: { bg: '#fff7ed', text: '#c2410c' },
+  sales: { bg: '#ecfdf5', text: '#065f46' },
+  staff_quality_checker: { bg: '#eef2ff', text: '#4338ca' },
+  customer: { bg: '#f1f5f9', text: '#475569' },
+  system: { bg: '#f1f5f9', text: '#475569' },
 };
 
 function RoleBadge({ role }: { role: string }) {
-  const cfg = ROLE_BADGE[role] ?? ROLE_BADGE.customer;
-  const label = role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const canonical = getSafeUserRole(role, CUSTOMER_ROLE);
+  const cfg = ROLE_BADGE[canonical] ?? ROLE_BADGE.customer;
+  const label = getRoleLabel(role);
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: 6, fontSize: 12, fontWeight: 500, background: cfg.bg, color: cfg.text }}>
       {label}
@@ -50,8 +47,8 @@ const inputStyle: React.CSSProperties = {
 
 // ── Component ─────────────────────────────────────────────────────
 
-// Staff-only roles — exclude admin-level and customer roles
-const STAFF_ROLES = ['hr', 'operation_manager', 'sales', 'service_staff', 'technician', 'staff_quality_checker', 'staff_inventory'];
+// Staff-facing roles for activity filters (canonical roles only)
+const STAFF_ROLES = ['office_admin', 'sales', 'staff_quality_checker'];
 
 export default function HRStaffActivity({ activityLogs, localUsers }: any) {
   const [search, setSearch] = useState('');
@@ -75,7 +72,7 @@ export default function HRStaffActivity({ activityLogs, localUsers }: any) {
           dateTime: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(ts),
         };
       })
-      // Only show staff-level activity — exclude administrator, office_admin, customer, system
+      // Only show activity from assignable staff roles (excludes customer / pure system)
       .filter((r: any) => STAFF_ROLES.includes(r.role));
   }, [activityLogs, localUsers]);
 
@@ -139,13 +136,9 @@ export default function HRStaffActivity({ activityLogs, localUsers }: any) {
           </div>
           <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ ...inputStyle, width: 'auto', minWidth: 130 }}>
             <option value="">All Staff Roles</option>
-            <option value="hr">HR</option>
-            <option value="operation_manager">Operation Manager</option>
+            <option value="office_admin">Office Admin</option>
             <option value="sales">Sales</option>
-            <option value="service_staff">Service Staff</option>
-            <option value="technician">Technician</option>
-            <option value="staff_quality_checker">Quality Checker</option>
-            <option value="staff_inventory">Inventory Staff</option>
+            <option value="staff_quality_checker">Quality Checker - Technician</option>
           </select>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}

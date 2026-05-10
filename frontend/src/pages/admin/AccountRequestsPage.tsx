@@ -1,10 +1,7 @@
 /**
  * AccountRequestsPage
  *
- * HR can SUBMIT a request to create a new staff account.
- * They cannot create accounts directly — that requires office_admin approval.
- *
- * Accessible to: hr, administrator (for review purposes)
+ * Office admins can submit or review staff account requests.
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -26,22 +23,11 @@ interface AccountRequest {
 
 const ROLE_LABELS: Record<string, string> = {
   office_admin: 'Office Admin',
-  operation_manager: 'Operation Manager',
-  hr: 'HR',
-  inventory: 'Inventory',
   sales: 'Sales',
-  staff_quality_checker: 'Staff - Quality Checker',
-  staff_inventory: 'Staff - Inventory',
-  technician: 'Technician',
+  staff_quality_checker: 'Quality Checker - Technician',
 };
 
-const HR_REQUESTABLE_ROLES = [
-  'staff_quality_checker',
-  'staff_inventory',
-  'technician',
-  'sales',
-  'inventory',
-];
+const HR_REQUESTABLE_ROLES = ['office_admin', 'sales', 'staff_quality_checker'];
 
 function AccountRequestsForm() {
   const navigate = useNavigate();
@@ -368,7 +354,7 @@ function AccountRequestsForm() {
 
 export default function AccountRequestsPage() {
   return (
-    <ProtectedRoute allowedRoles={['hr', 'administrator', 'office_admin']}>
+    <ProtectedRoute allowedRoles={['administrator', 'office_admin']}>
       <AccountRequestsForm />
     </ProtectedRoute>
   );

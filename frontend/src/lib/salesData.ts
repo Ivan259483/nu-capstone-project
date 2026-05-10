@@ -37,6 +37,10 @@ export interface Customer {
   memberSince: string;
   notes: string;
   tier: 'bronze' | 'silver' | 'gold' | 'platinum';
+  /** Plates from garage (for POS / staff search before vehicles are loaded client-side) */
+  garagePlateHints?: string[];
+  /** Built from booking/order snapshot — garage APIs use logged-in staff only on real user ids */
+  isSynthetic?: boolean;
 }
 
 export interface Transaction {
@@ -87,9 +91,6 @@ export const SERVICE_CATALOG: ServiceItem[] = [
   { id: 'svc-014', name: 'Wheel & Tire Detailing', category: 'Detailing', price: 600, duration: '45 min', description: 'Wheel clean, tire dressing, brake dust removal' },
   { id: 'svc-015', name: 'Dashboard Wrap', category: 'Interior', price: 3200, duration: '3 hrs', description: 'Vinyl wrap for dashboard trim pieces' },
 ];
-
-// TODO: Replace with API call → GET /api/customers
-export const CUSTOMERS: Customer[] = [];
 
 // TODO: Replace with API call → GET /api/transactions
 export const TRANSACTIONS: Transaction[] = [];

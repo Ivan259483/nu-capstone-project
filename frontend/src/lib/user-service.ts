@@ -51,6 +51,12 @@ export const UserService = {
         return response.data;
     },
 
+    /** Heartbeat so admin User Management can show “Active now” / last seen */
+    async touchActivity() {
+        const response = await api.patch('/users/me/activity');
+        return response.data;
+    },
+
     async changePassword(
         currentPassword: string,
         newPassword: string,

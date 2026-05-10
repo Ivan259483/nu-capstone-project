@@ -21,6 +21,7 @@ import {
     STAFF_ROLES,
     getDashboardPathForRole,
 } from "@/lib/roles";
+import { useActivityHeartbeat } from "@/hooks/useActivityHeartbeat";
 
 const Gallery = lazy(() => import("./pages/Gallery"));
 const Services = lazy(() => import("./pages/Services"));
@@ -30,7 +31,6 @@ const DetailerDashboard = lazy(() => import("./pages/DetailerDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const SalesDashboard = lazy(() => import("./pages/SalesDashboard"));
 const InventoryPanel = lazy(() => import("./components/inventory/InventoryPanel"));
-const OpsManagerDashboard = lazy(() => import("./components/ops-manager/OpsManagerDashboard"));
 const CreateStaffAccountPage = lazy(() => import("./pages/admin/CreateStaffAccountPage"));
 const AccountRequestsPage = lazy(() => import("./pages/admin/AccountRequestsPage"));
 const AIEstimatorPage = lazy(() => import("./pages/AIEstimatorPage"));
@@ -124,6 +124,16 @@ function ScrollToTop() {
     return null;
 }
 
+/** Legacy /ops/dashboard → Admin Hub live customer tracking tab */
+function OpsDashboardRedirect() {
+    return <Navigate to="/admin/dashboard?tab=live_tracking" replace />;
+}
+
+function ActivityHeartbeatHost() {
+    useActivityHeartbeat();
+    return null;
+}
+
 function AppRoutes() {
     // NOTE: Role-based redirect after login is handled by AuthContext + Login.tsx useEffect.
     // Do NOT add a separate auth.onAuthStateChanged here — it causes race conditions and
@@ -137,6 +147,7 @@ function AppRoutes() {
     return (
         <ErrorBoundary>
             <ScrollToTop />
+            <ActivityHeartbeatHost />
             {!isDashboardRoute && !isStandaloneRoute && <Navbar />}
             <Suspense fallback={<RoutePageSkeleton />}>
                 <Routes>
@@ -194,7 +205,7 @@ function AppRoutes() {
                     <Route
                         path="/sales/dashboard"
                         element={
-                            <ProtectedRoute allowedRoles={['administrator', 'sales', 'operation_manager']}>
+                            <ProtectedRoute allowedRoles={['administrator', 'sales', 'office_admin']}>
                                 <SalesDashboard />
                             </ProtectedRoute>
                         }
@@ -208,13 +219,14 @@ function AppRoutes() {
                         }
                     />
                     <Route
-                        path="/ops/dashboard"
+                        path="/admin/live-tracking"
                         element={
-                            <ProtectedRoute allowedRoles={['administrator', 'operation_manager']}>
-                                <OpsManagerDashboard />
+                            <ProtectedRoute allowedRoles={['administrator', 'office_admin']}>
+                                <Navigate to="/admin/dashboard?tab=live_tracking" replace />
                             </ProtectedRoute>
                         }
                     />
+                    <Route path="/ops/dashboard" element={<OpsDashboardRedirect />} />
                     {/* Backward compatibility for old routes */}
                     <Route path="/customer" element={<Navigate to="/customer/dashboard" replace />} />
                     <Route path="/detailer" element={<Navigate to="/detailer/dashboard" replace />} />

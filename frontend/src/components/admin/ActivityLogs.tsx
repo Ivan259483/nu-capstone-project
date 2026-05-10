@@ -40,11 +40,11 @@ const getRoleLabel = (role: string): string => {
     const map: Record<string, string> = {
         administrator: 'Administrator',
         office_admin: 'Office Admin',
-        operation_manager: 'Ops Manager',
         hr: 'HR',
         inventory: 'Inventory',
         sales: 'Sales',
         service_staff: 'Detailer',
+        staff_quality_checker: 'Quality Checker - Technician',
         customer: 'Customer',
         system: 'System',
     };
@@ -148,7 +148,7 @@ function generateFallbackLogs(): EnrichedActivityLog[] {
         { id: 's3',  type: 'pos_transaction',   title: 'POS Sale',              description: 'Ana Rivera processed POS sale — ₱2,500.00 (Wax + Polish).',   userName: 'Ana Rivera',  userRole: 'sales',            module: 'POS',       action: 'POS Transaction',     status: 'success', createdAt: ago(18),   userId: '' },
         { id: 's4',  type: 'inventory_update',  title: 'Stock Restocked',       description: 'Luis Garcia restocked Carnauba Wax: +50 units.',              userName: 'Luis Garcia', userRole: 'inventory',         module: 'Inventory', action: 'Stock Updated',       status: 'success', createdAt: ago(25),   userId: '' },
         { id: 's5',  type: 'low_stock',         title: 'Low Stock Alert',       description: 'Microfiber Cloth below minimum level — 3 remaining.',         userName: 'System',      userRole: 'system',           module: 'Inventory', action: 'Low Stock Alert',     status: 'warning', createdAt: ago(33),   userId: '' },
-        { id: 's6',  type: 'booking_created',   title: 'Booking Created',       description: 'Jake Torres created APT-4822 for Sophia Cruz — Full Interior.',userName: 'Jake Torres', userRole: 'operation_manager', module: 'Booking',   action: 'Booking Created',     status: 'success', createdAt: ago(47),   userId: '' },
+        { id: 's6',  type: 'booking_created',   title: 'Booking Created',       description: 'Jake Torres created APT-4822 for Sophia Cruz — Full Interior.',userName: 'Jake Torres', userRole: 'office_admin', module: 'Booking',   action: 'Booking Created',     status: 'success', createdAt: ago(47),   userId: '' },
         { id: 's7',  type: 'user_created',      title: 'New User Added',        description: 'Maria Santos created account for Kevin Tan (Service Staff).', userName: 'Maria Santos',userRole: 'office_admin',      module: 'User',      action: 'User Created',        status: 'success', createdAt: ago(52),   userId: '' },
         { id: 's8',  type: 'settings',          title: 'Settings Updated',      description: 'Carl Reyes updated membership discount rate to 10%.',         userName: 'Carl Reyes',  userRole: 'administrator',    module: 'Settings',  action: 'Settings Updated',    status: 'success', createdAt: ago(68),   userId: '' },
         { id: 's9',  type: 'payment_completed', title: 'Payment Received',      description: 'Ana Rivera confirmed payment of ₱3,800.00 for APT-4815.',    userName: 'Ana Rivera',  userRole: 'sales',            module: 'POS',       action: 'Payment Completed',   status: 'success', createdAt: ago(90),   userId: '' },
@@ -156,14 +156,14 @@ function generateFallbackLogs(): EnrichedActivityLog[] {
         { id: 's11', type: 'started_job',       title: 'Job Started',           description: 'Kevin Tan started detailing APT-4820 — Full Package.',        userName: 'Kevin Tan',   userRole: 'service_staff',    module: 'Booking',   action: 'Job Started',         status: 'success', createdAt: ago(118),  userId: '' },
         { id: 's12', type: 'role_changed',      title: 'Role Updated',          description: 'Maria Santos changed Luis Garcia\'s role to Office Admin.',   userName: 'Maria Santos',userRole: 'office_admin',      module: 'User',      action: 'Role Changed',        status: 'warning', createdAt: ago(130),  userId: '' },
         { id: 's13', type: 'inventory_deduction',title: 'Inventory Used',       description: 'Luis Garcia deducted 5 units of Carnauba Wax for APT-4818.', userName: 'Luis Garcia', userRole: 'inventory',         module: 'Inventory', action: 'Stock Deducted',      status: 'warning', createdAt: ago(145),  userId: '' },
-        { id: 's14', type: 'booking_updated',   title: 'Booking Rescheduled',   description: 'Jake Torres rescheduled APT-4817 to 2:00 PM.',               userName: 'Jake Torres', userRole: 'operation_manager', module: 'Booking',   action: 'Booking Updated',     status: 'info',    createdAt: ago(162),  userId: '' },
+        { id: 's14', type: 'booking_updated',   title: 'Booking Rescheduled',   description: 'Jake Torres rescheduled APT-4817 to 2:00 PM.',               userName: 'Jake Torres', userRole: 'office_admin', module: 'Booking',   action: 'Booking Updated',     status: 'info',    createdAt: ago(162),  userId: '' },
         { id: 's15', type: 'logout',            title: 'Admin Logout',          description: 'Carl Reyes ended morning session.',                           userName: 'Carl Reyes',  userRole: 'administrator',    module: 'Auth',      action: 'User Logout',         status: 'info',    createdAt: ago(180),  userId: '' },
         // Yesterday
         { id: 's16', type: 'pos_transaction',   title: 'POS Sale',              description: 'Ana Rivera completed POS transaction — ₱1,200.00.',           userName: 'Ana Rivera',  userRole: 'sales',            module: 'POS',       action: 'POS Transaction',     status: 'success', createdAt: ago(1500), userId: '' },
         { id: 's17', type: 'completed_job',     title: 'Job Completed',         description: 'Kevin Tan completed Premium Wash for APT-4810.',              userName: 'Kevin Tan',   userRole: 'service_staff',    module: 'Booking',   action: 'Job Completed',       status: 'success', createdAt: ago(1520), userId: '' },
         { id: 's18', type: 'system_error',      title: 'System Error',          description: 'Email notification failed: SMTP connection timeout.',          userName: 'System',      userRole: 'system',           module: 'System',    action: 'System Error',        status: 'error',   createdAt: ago(1560), userId: '' },
         { id: 's19', type: 'inventory_update',  title: 'Inventory Received',    description: 'Luis Garcia received 100 units of Microfiber Cloth.',         userName: 'Luis Garcia', userRole: 'inventory',         module: 'Inventory', action: 'Stock Updated',       status: 'success', createdAt: ago(1580), userId: '' },
-        { id: 's20', type: 'booking_cancelled', title: 'Booking Cancelled',     description: 'Jake Torres cancelled APT-4808 — customer no-show.',         userName: 'Jake Torres', userRole: 'operation_manager', module: 'Booking',   action: 'Booking Cancelled',   status: 'warning', createdAt: ago(1620), userId: '' },
+        { id: 's20', type: 'booking_cancelled', title: 'Booking Cancelled',     description: 'Jake Torres cancelled APT-4808 — customer no-show.',         userName: 'Jake Torres', userRole: 'office_admin', module: 'Booking',   action: 'Booking Cancelled',   status: 'warning', createdAt: ago(1620), userId: '' },
         // 2 days ago
         { id: 's21', type: 'price_override',    title: 'Price Override',        description: 'Ana Rivera applied manual discount — ₱500 off loyal customer.',userName: 'Ana Rivera',  userRole: 'sales',            module: 'POS',       action: 'Price Override',      status: 'warning', createdAt: ago(2900), userId: '' },
         { id: 's22', type: 'maintenance',       title: 'Database Backup',       description: 'Automated database backup completed successfully.',            userName: 'System',      userRole: 'system',           module: 'System',    action: 'Maintenance Task',    status: 'success', createdAt: ago(2960), userId: '' },

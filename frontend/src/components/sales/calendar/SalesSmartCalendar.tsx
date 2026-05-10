@@ -9,7 +9,17 @@
  */
 
 import React, { useMemo, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, RefreshCw, Loader2, CalendarDays } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  Loader2,
+  CalendarDays,
+  Activity,
+  ClipboardClock,
+  Layers,
+  CalendarX,
+} from 'lucide-react';
 import { DndContext as _DndContext, DragEndEvent } from '@dnd-kit/core';
 // Workaround: @dnd-kit/core v6 ships types that conflict with @types/react >=18.3
 // (bigint added to ReactNode). Cast to ComponentType<any> until dnd-kit ships a fix.
@@ -30,12 +40,32 @@ function startOfWeek(d: Date): Date {
 }
 function addDays(d: Date, n: number): Date { const c = new Date(d); c.setDate(c.getDate() + n); return c; }
 
-// ── Status → visual config ────────────────────────────────────────────────────
+// ── Status → visual config (stronger contrast for scanability) ───────────────
 const STATUS_VISUAL: Record<DayStatus, { dot: string; label: string; ring: string; cellBg: string }> = {
-  available:   { dot: '#22c55e', label: 'Open',        ring: '#bbf7d0', cellBg: '#f0fdf4' },
-  almost_full: { dot: '#eab308', label: 'Almost Full', ring: '#fef08a', cellBg: '#fefce8' },
-  full:        { dot: '#ef4444', label: 'Full',        ring: '#fecaca', cellBg: '#fff1f2' },
-  closed:      { dot: '#f97316', label: 'Closed',      ring: '#fed7aa', cellBg: '#fff7ed' },
+  available: {
+    dot: '#16a34a',
+    label: 'Open',
+    ring: '#86efac',
+    cellBg: '#ecfdf5',
+  },
+  almost_full: {
+    dot: '#ca8a04',
+    label: 'Almost full',
+    ring: '#fde047',
+    cellBg: '#fefce8',
+  },
+  full: {
+    dot: '#dc2626',
+    label: 'Full',
+    ring: '#fca5a5',
+    cellBg: '#fef2f2',
+  },
+  closed: {
+    dot: '#ea580c',
+    label: 'Closed',
+    ring: '#fdba74',
+    cellBg: '#ffedd5',
+  },
 };
 
 type CalView = 'month' | 'week';
@@ -51,61 +81,108 @@ function DayCell({
   isSelected: boolean;
   onClick: () => void;
 }) {
-  const status: DayStatus = info?.status ?? 'available';
+  const rawStatus: DayStatus = info?.status ?? 'available';
+  const status: DayStatus = info?.isClosed ? 'closed' : rawStatus;
   const vis = STATUS_VISUAL[status];
   const hasPending = (info?.pendingCount ?? 0) > 0;
   const bookingCount = info?.bookedSlots ?? 0;
   const slotsLeft = info ? Math.max(0, info.totalSlots - info.bookedSlots) : null;
 
+  const statusLine = info?.isClosed
+    ? 'Closed'
+    : slotsLeft !== null
+      ? `${slotsLeft} slot${slotsLeft === 1 ? '' : 's'}`
+      : vis.label;
+
+  let bg = !info ? '#ffffff' : vis.cellBg;
+  /** No stroke borders — depth from shadow only */
+  let shadow =
+    '0 6px 22px rgba(15,23,42,0.07), 0 2px 8px rgba(15,23,42,0.04)';
+
+  if (isSelected) {
+    bg = '#eff6ff';
+    shadow =
+      '0 14px 44px rgba(37,99,235,0.2), 0 6px 20px rgba(37,99,235,0.12), 0 2px 6px rgba(37,99,235,0.08)';
+  } else if (isToday && !isPast) {
+    shadow =
+      '0 12px 38px rgba(59,130,246,0.18), 0 5px 18px rgba(59,130,246,0.12), 0 2px 6px rgba(59,130,246,0.08)';
+  }
+
+  if (isPast && !isToday) {
+    bg = '#f8fafc';
+  }
+
   return (
     <DroppableSlot id={`day-${dateKey(date)}`} targetDate={dateKey(date)} status={status}>
       <div
         onClick={onClick}
-      className="min-h-[110px] p-2.5 cursor-pointer transition-all duration-150 select-none"
-      style={{
-        background: isSelected ? '#eff6ff' : isPast ? '#fafafa' : info ? vis.cellBg : '#fff',
-        border: `1.5px solid ${isSelected ? '#3b82f6' : isToday ? '#93c5fd' : info ? vis.ring : '#e2e8f0'}`,
-        borderRadius: 14,
-        opacity: isPast ? 0.6 : 1,
-        boxShadow: isSelected ? '0 0 0 2px #bfdbfe' : isToday ? '0 0 0 2px #dbeafe' : 'none',
-      }}>
+        className="relative flex min-h-[118px] cursor-pointer select-none flex-col p-2.5 transition-all duration-150"
+        style={{
+          background: bg,
+          border: 'none',
+          borderRadius: 16,
+          opacity: isPast && !isToday ? 0.62 : 1,
+          boxShadow: shadow,
+        }}
+      >
 
-      {/* Row 1: date number + booking badge */}
-      <div className="flex items-start justify-between mb-2">
-        <span
-          className="w-7 h-7 flex items-center justify-center rounded-full text-xs font-bold transition-colors"
-          style={isToday
-            ? { background: '#2563eb', color: '#fff' }
-            : { color: isPast ? '#94a3b8' : '#1e293b' }}>
-          {date.getDate()}
-        </span>
-        {bookingCount > 0 && (
+        {/* Row 1: date number + booking count */}
+        <div className="mb-2 flex items-start justify-between gap-1">
           <span
-            className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-            style={{ background: vis.dot + '22', color: vis.dot }}>
-            {bookingCount}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[13px] font-bold tabular-nums transition-colors"
+            style={
+              isToday
+                ? { background: '#2563eb', color: '#fff', boxShadow: '0 4px 14px rgba(37,99,235,0.35)' }
+                : isSelected
+                  ? { background: '#1d4ed8', color: '#fff', boxShadow: '0 4px 14px rgba(29,78,216,0.25)' }
+                  : {
+                      background: '#fff',
+                      color: isPast ? '#94a3b8' : '#0f172a',
+                      boxShadow: '0 2px 10px rgba(15,23,42,0.08)',
+                    }
+            }
+          >
+            {date.getDate()}
+          </span>
+          {bookingCount > 0 && (
+            <span
+              className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white shadow-sm"
+              style={{ background: isSelected ? '#1e40af' : '#15803d' }}
+              title={`${bookingCount} booking${bookingCount === 1 ? '' : 's'}`}
+            >
+              {bookingCount}
+            </span>
+          )}
+        </div>
+
+        {/* Row 2: status dot + label */}
+        <div className="mb-1 flex min-h-[2rem] flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-2 shrink-0 rounded-full ring-2 ring-white" style={{ background: vis.dot }} />
+            <span className={`text-[11px] font-semibold leading-tight ${info?.isClosed ? 'text-orange-900' : 'text-slate-700'}`}>
+              {statusLine}
+            </span>
+          </div>
+          {isToday && !isSelected && (
+            <span className="inline-flex w-fit rounded-md bg-blue-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+              Today
+            </span>
+          )}
+          {isSelected && (
+            <span className="inline-flex w-fit rounded-md bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-800 shadow-[0_2px_8px_rgba(37,99,235,0.15)]">
+              Selected
+            </span>
+          )}
+        </div>
+
+        {hasPending && (
+          <span
+            className="mt-auto inline-flex w-fit rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-900 shadow-[0_2px_8px_rgba(146,64,14,0.12)]"
+          >
+            {info!.pendingCount} pending
           </span>
         )}
       </div>
-
-      {/* Row 2: availability indicator */}
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: vis.dot }} />
-        <span className="text-[10px] font-medium text-slate-500">
-          {info?.isClosed ? 'Closed' : slotsLeft !== null ? `${slotsLeft} left` : vis.label}
-        </span>
-      </div>
-
-      {/* Row 3: pending badge */}
-      {hasPending && (
-        <span
-          className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full mb-1"
-          style={{ background: '#fffbeb', color: '#92400e', border: '1px solid #fde68a' }}>
-          {info!.pendingCount} pending
-        </span>
-      )}
-
-    </div>
     </DroppableSlot>
   );
 }
@@ -234,57 +311,107 @@ export default function SalesSmartCalendar() {
 
   return (
     <DndContext onDragEnd={handleDragEnd}>
-    <div className="flex flex-col h-full min-h-0" style={{ background: '#f8fafc' }}>
+    <div className="flex h-full min-h-0 flex-col rounded-2xl bg-slate-50/90">
 
       {/* KPI strip */}
-      <div className="grid grid-cols-4 gap-3 mb-4 flex-shrink-0">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {([
-          { label: "Today's Active", value: kpis.todayActive, color: '#2563eb', bg: '#eff6ff' },
-          { label: 'Pending Review', value: kpis.pending,     color: '#d97706', bg: '#fffbeb' },
-          { label: 'Month Bookings', value: kpis.monthTotal,  color: '#7c3aed', bg: '#f5f3ff' },
-          { label: 'Full Days',      value: kpis.fullDays,    color: '#dc2626', bg: '#fff1f2' },
-        ] as const).map(k => (
-          <div key={k.label} className="rounded-2xl p-4"
-            style={{ background: '#fff', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-            <div className="text-2xl font-black" style={{ color: k.color }}>{k.value}</div>
-            <div className="text-[11px] text-slate-500 mt-1 font-medium">{k.label}</div>
+          {
+            label: "Today's active",
+            sub: 'Bookings scheduled today',
+            value: kpis.todayActive,
+            accent: '#2563eb',
+            iconBg: '#dbeafe',
+            Icon: Activity,
+          },
+          {
+            label: 'Pending review',
+            sub: 'Awaiting approval',
+            value: kpis.pending,
+            accent: '#d97706',
+            iconBg: '#ffedd5',
+            Icon: ClipboardClock,
+          },
+          {
+            label: 'Month bookings',
+            sub: 'Slots booked this month',
+            value: kpis.monthTotal,
+            accent: '#7c3aed',
+            iconBg: '#ede9fe',
+            Icon: Layers,
+          },
+          {
+            label: 'Full days',
+            sub: 'No availability left',
+            value: kpis.fullDays,
+            accent: '#dc2626',
+            iconBg: '#ffe4e6',
+            Icon: CalendarX,
+          },
+        ] as const).map((k) => (
+          <div
+            key={k.label}
+            className="relative overflow-hidden rounded-2xl bg-white p-4 shadow-[0_10px_40px_-12px_rgba(15,23,42,0.12),0_4px_14px_-4px_rgba(15,23,42,0.06)] transition-shadow hover:shadow-[0_18px_48px_-14px_rgba(15,23,42,0.14)]"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+                style={{ background: k.iconBg, color: k.accent }}
+              >
+                <k.Icon size={22} strokeWidth={2} aria-hidden />
+              </div>
+              <div className="min-w-0 flex-1 text-right">
+                <p className="text-3xl font-black tabular-nums tracking-tight" style={{ color: k.accent }}>
+                  {k.value}
+                </p>
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">{k.label}</p>
+            <p className="mt-0.5 text-xs font-medium leading-snug text-slate-400">{k.sub}</p>
           </div>
         ))}
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-2.5 mb-4 flex-shrink-0 flex-wrap">
-        {/* Nav arrows + label */}
-        <div className="flex items-center gap-1 rounded-xl p-1" style={{ background: '#f1f5f9' }}>
-          <button onClick={() => navigate(-1)}
-            className="p-1.5 rounded-lg hover:bg-white text-slate-600 transition-colors">
-            <ChevronLeft size={16} />
+      <div className="mb-4 flex flex-shrink-0 flex-wrap items-center gap-2.5">
+        <div className="flex items-center gap-1 rounded-2xl bg-white/95 p-1 shadow-[0_8px_28px_-8px_rgba(15,23,42,0.12),0_2px_8px_rgba(15,23,42,0.05)]">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100"
+            aria-label="Previous month"
+          >
+            <ChevronLeft size={18} />
           </button>
-          <span className="text-sm font-bold text-slate-800 min-w-[170px] text-center px-1">
-            {navLabel}
-          </span>
-          <button onClick={() => navigate(1)}
-            className="p-1.5 rounded-lg hover:bg-white text-slate-600 transition-colors">
-            <ChevronRight size={16} />
+          <span className="min-w-[180px] px-2 text-center text-sm font-bold tracking-tight text-slate-900">{navLabel}</span>
+          <button
+            type="button"
+            onClick={() => navigate(1)}
+            className="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100"
+            aria-label="Next month"
+          >
+            <ChevronRight size={18} />
           </button>
         </div>
 
-        {/* Today */}
-        <button onClick={goToday}
-          className="text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors"
-          style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}>
+        <button
+          type="button"
+          onClick={goToday}
+          className="rounded-2xl bg-blue-50/95 px-3.5 py-2 text-xs font-bold text-blue-800 shadow-[0_8px_24px_-6px_rgba(37,99,235,0.22)] transition-colors hover:bg-blue-100"
+        >
           Today
         </button>
 
-        {/* View toggle */}
-        <div className="flex rounded-xl overflow-hidden" style={{ border: '1px solid #e2e8f0' }}>
-          {(['month', 'week'] as CalView[]).map(v => (
-            <button key={v} onClick={() => setView(v)}
-              className="px-3 py-1.5 text-xs font-semibold capitalize transition-colors"
-              style={{
-                background: view === v ? '#1d4ed8' : '#fff',
-                color: view === v ? '#fff' : '#64748b',
-              }}>
+        <div className="flex overflow-hidden rounded-2xl bg-white shadow-[0_8px_28px_-8px_rgba(15,23,42,0.12),0_2px_8px_rgba(15,23,42,0.05)]">
+          {(['month', 'week'] as CalView[]).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={`px-4 py-2 text-xs font-bold capitalize transition-colors ${
+                view === v ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'
+              }`}
+            >
               {v}
             </button>
           ))}
@@ -292,25 +419,29 @@ export default function SalesSmartCalendar() {
 
         <div className="flex-1" />
 
-        {/* Refresh */}
-        <button onClick={refresh} disabled={slotsLoading}
-          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors"
-          style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' }}>
-          <RefreshCw size={12} className={slotsLoading ? 'animate-spin' : ''} />
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={slotsLoading}
+          className="inline-flex items-center gap-2 rounded-2xl bg-white px-3.5 py-2 text-xs font-bold text-slate-600 shadow-[0_8px_28px_-8px_rgba(15,23,42,0.1),0_2px_8px_rgba(15,23,42,0.05)] transition-colors hover:bg-slate-50 disabled:opacity-60"
+        >
+          <RefreshCw size={14} className={slotsLoading ? 'animate-spin' : ''} />
           {slotsLoading ? 'Syncing…' : 'Refresh'}
         </button>
       </div>
 
       {/* Calendar grid */}
-      <div className="flex-1 min-h-0 rounded-2xl overflow-hidden flex flex-col"
-        style={{ background: '#fff', border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-white shadow-[0_24px_70px_-28px_rgba(15,23,42,0.13),0_10px_36px_-16px_rgba(15,23,42,0.08)]"
+      >
 
-        {/* Day-name header */}
-        <div className="grid grid-cols-7 flex-shrink-0"
-          style={{ borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-            <div key={d}
-              className="py-3 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+        {/* Day-name header — no divider line; tint only */}
+        <div className="grid flex-shrink-0 grid-cols-7 bg-slate-50/70">
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+            <div
+              key={d}
+              className="py-3.5 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500"
+            >
               {d}
             </div>
           ))}
@@ -318,17 +449,16 @@ export default function SalesSmartCalendar() {
 
         {/* Cells */}
         {slotsLoading && dayMap.size === 0 ? (
-          <div className="flex-1 flex items-center justify-center gap-2 text-slate-400">
+          <div className="flex flex-1 items-center justify-center gap-2 text-slate-400">
             <Loader2 size={20} className="animate-spin" />
-            <span className="text-sm">Loading calendar…</span>
+            <span className="text-sm font-medium">Loading calendar…</span>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto p-2">
-            <div className="grid grid-cols-7 gap-1.5">
+          <div className="min-h-0 flex-1 overflow-y-auto p-2.5 sm:p-3.5">
+            <div className="grid grid-cols-7 gap-3">
               {cells.map((d, i) => {
                 if (!d) return (
-                  <div key={`e${i}`} className="min-h-[110px] rounded-xl"
-                    style={{ background: '#fafafa', border: '1px solid #f1f5f9' }} />
+                  <div key={`e${i}`} className="min-h-[118px] rounded-2xl bg-slate-50/80 shadow-[0_6px_20px_rgba(15,23,42,0.05)]" />
                 );
                 const dk = dateKey(d);
                 const info = dayMap.get(dk);
@@ -349,19 +479,28 @@ export default function SalesSmartCalendar() {
         )}
 
         {/* Legend */}
-        <div className="flex items-center gap-5 px-4 py-3 flex-shrink-0"
-          style={{ borderTop: '1px solid #f1f5f9', background: '#fafafa' }}>
-          <div className="flex items-center gap-1.5">
-            <CalendarDays size={12} className="text-slate-400" />
-            <span className="text-[10px] text-slate-400 font-medium">Real-time · auto-updates</span>
+        <div className="flex flex-shrink-0 flex-wrap items-center gap-x-6 gap-y-2 bg-slate-50/60 px-4 py-3.5">
+          <div className="flex items-center gap-2">
+            <CalendarDays size={14} className="text-slate-400" />
+            <span className="text-[11px] font-semibold text-slate-500">Live sync · auto-updates</span>
           </div>
-          <div className="w-px h-4" style={{ background: '#e2e8f0' }} />
-          {(Object.entries(STATUS_VISUAL) as [DayStatus, typeof STATUS_VISUAL[DayStatus]][]).map(([, vis]) => (
-            <div key={vis.label} className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: vis.dot }} />
-              <span className="text-[10px] text-slate-500 font-medium">{vis.label}</span>
+          <div className="hidden text-slate-300 sm:block" aria-hidden>·</div>
+          {(Object.entries(STATUS_VISUAL) as [DayStatus, (typeof STATUS_VISUAL)[DayStatus]][]).map(([, vis]) => (
+            <div key={vis.label} className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white" style={{ background: vis.dot }} />
+              <span className="text-[11px] font-semibold text-slate-600">{vis.label}</span>
             </div>
           ))}
+          <div className="flex items-center gap-2">
+            <span className="rounded-md bg-blue-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">Today</span>
+            <span className="text-[11px] font-medium text-slate-500">Current date</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-md bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-800 ring-1 ring-blue-200">
+              Selected
+            </span>
+            <span className="text-[11px] font-medium text-slate-500">Focused day</span>
+          </div>
         </div>
       </div>
 

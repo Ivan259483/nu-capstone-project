@@ -30,14 +30,14 @@ const TEST_PASSWORD = 'AutoSPF@2026';
 
 // ─── Test accounts to create (from MongoDB users collection) ───
 const TEST_ACCOUNTS = [
-  { email: 'mike@detailshop.com',          name: 'Mike',               role: 'service_staff' },
+  { email: 'mike@detailshop.com',          name: 'Mike',               role: 'staff_quality_checker' },
   { email: 'customer@test.com',            name: 'John',              role: 'customer' },
   { email: 'test.office@autospf.com',      name: 'OFFICE ADMIN',      role: 'office_admin' },
   { email: 'test.ops@autospf.com',         name: 'OPERATION MANAGER', role: 'customer' },
-  { email: 'test.hr@autospf.com',          name: 'HR',                role: 'hr' },
-  { email: 'test.inventory@autospf.com',   name: 'INVENTORY',         role: 'inventory' },
+  { email: 'test.hr@autospf.com',          name: 'HR',                role: 'office_admin' },
+  { email: 'test.inventory@autospf.com',   name: 'INVENTORY',         role: 'office_admin' },
   { email: 'test.sales@autospf.com',       name: 'SALES',             role: 'sales' },
-  { email: 'test.staff@autospf.com',       name: 'SERVICE STAFF',     role: 'service_staff' },
+  { email: 'test.staff@autospf.com',       name: 'SERVICE STAFF',     role: 'staff_quality_checker' },
   { email: 'test.customer@autospf.com',    name: 'IVAN CUSTOMER - TEST', role: 'customer' },
 ];
 

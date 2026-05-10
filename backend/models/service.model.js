@@ -1,5 +1,39 @@
 import mongoose from 'mongoose';
 
+const priceBreakdownSchema = new mongoose.Schema(
+  {
+    base: { type: Number, default: null },
+    original: { type: Number, default: null },
+    addon: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
+/** Public /services page SPF card overrides (optional; falls back to app defaults) */
+const catalogCardSchema = new mongoose.Schema(
+  {
+    badge: String,
+    warrantyLabel: String,
+    tagline: String,
+    tierLabel: String,
+    features: [{ type: String }],
+    highlighted: [{ type: String }],
+    addonLabel: String,
+    discountBadge: String,
+    iconKey: {
+      type: String,
+      enum: ['sparkles', 'shield', 'star', 'crown', 'zap'],
+    },
+    accentFrom: String,
+    accentTo: String,
+    accentMid: String,
+    popular: Boolean,
+    flagship: Boolean,
+    originalPriceMultiplier: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
 const serviceSchema = new mongoose.Schema(
   {
     name: {
@@ -31,6 +65,15 @@ const serviceSchema = new mongoose.Schema(
       pickup: { type: Number, default: null },
       largesuv: { type: Number, default: null },
       highend: { type: Number, default: null },
+    },
+    pricing: {
+      hatchback: { type: priceBreakdownSchema, default: () => ({}) },
+      sedan: { type: priceBreakdownSchema, default: () => ({}) },
+      midsized: { type: priceBreakdownSchema, default: () => ({}) },
+      suv: { type: priceBreakdownSchema, default: () => ({}) },
+      pickup: { type: priceBreakdownSchema, default: () => ({}) },
+      largeSuv: { type: priceBreakdownSchema, default: () => ({}) },
+      highend: { type: priceBreakdownSchema, default: () => ({}) },
     },
     memberPrice: {
       type: Number,
@@ -73,6 +116,10 @@ const serviceSchema = new mongoose.Schema(
     lastUpdatedAt: {
       type: Date,
       default: null,
+    },
+    catalogCard: {
+      type: catalogCardSchema,
+      default: undefined,
     },
   },
   { timestamps: true }

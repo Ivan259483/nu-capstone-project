@@ -66,7 +66,7 @@ export default function AdminActivityLogs({ activityLogs, loading }: Props) {
           { label: 'Errors', value: activityLogs.filter(l => l.status === 'error').length, color: '#dc2626' },
         ].map(s => (
           <div key={s.label} className="ah-kpi-card" style={{ padding: 14 }}>
-            <p style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{s.label}</p>
+            <p style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.02em', margin: 0 }}>{s.label}</p>
             <p className="tabular-nums" style={{ fontSize: 24, fontWeight: 700, color: s.color, margin: '4px 0 0' }}>{s.value}</p>
           </div>
         ))}

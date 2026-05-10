@@ -54,12 +54,12 @@ router.post('/change-password', authenticate, authController.changePassword);
 /**
  * @route POST /api/auth/create-staff
  * @desc Admin creates a new staff account
- * @access Private — administrator, office_admin, operation_manager, hr only
+ * @access Private — administrator, office_admin
  */
 router.post(
   '/create-staff',
   authenticate,
-  authorize('administrator', 'office_admin', 'operation_manager', 'hr'),
+  authorize('administrator', 'office_admin'),
   authController.createStaff
 );
 

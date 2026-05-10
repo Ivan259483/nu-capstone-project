@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { CartItem, formatPeso } from '@/lib/salesData';
 import { BackendService, VehicleType, getEffectivePrice } from '@/hooks/useServices';
+import { DEFAULT_SPF_ADDON_PRICES } from '@/lib/service-pricing';
 
 // ── Vehicle type tab config ───────────────────────────────────────────────────
 type VehicleTab = { key: VehicleType; label: string };
@@ -26,7 +27,7 @@ interface SPFMeta {
   badgeColor: string;
   tagline: string;
   warranty: string;
-  tintPrices: Partial<Record<VehicleType, number>>;
+  tintPrices: Partial<Record<VehicleType, number | null>>;
 }
 
 const SPF_META: { match: string; meta: SPFMeta }[] = [
@@ -37,7 +38,7 @@ const SPF_META: { match: string; meta: SPFMeta }[] = [
       badgeColor: 'bg-sky-100 text-sky-700 border-sky-200',
       tagline: 'Perfect entry-level protection',
       warranty: '3 Years',
-      tintPrices: { hatchback: 13499, sedan: 13499, midsized: 14499, suv: 15999, pickup: 14499, largesuv: 20999, highend: 22999 },
+      tintPrices: DEFAULT_SPF_ADDON_PRICES.spf80,
     },
   },
   {
@@ -47,7 +48,7 @@ const SPF_META: { match: string; meta: SPFMeta }[] = [
       badgeColor: 'bg-emerald-100 text-emerald-700 border-emerald-200',
       tagline: 'Our most chosen package',
       warranty: '5 Years',
-      tintPrices: { hatchback: 14999, sedan: 15999, midsized: 17499, suv: 18999, pickup: 17499, largesuv: 22999, highend: 23999 },
+      tintPrices: DEFAULT_SPF_ADDON_PRICES.spf89,
     },
   },
   {
@@ -57,7 +58,7 @@ const SPF_META: { match: string; meta: SPFMeta }[] = [
       badgeColor: 'bg-amber-100 text-amber-700 border-amber-200',
       tagline: 'Maximum protection, best price-to-value',
       warranty: '10 Years',
-      tintPrices: { hatchback: 19999, sedan: 19999, midsized: 22499, suv: 23999, pickup: 22499, largesuv: 27999, highend: 28999 },
+      tintPrices: DEFAULT_SPF_ADDON_PRICES.spf99,
     },
   },
   {

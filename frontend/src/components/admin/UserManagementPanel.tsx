@@ -78,7 +78,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userPassword, setUserPassword] = useState('');
-  const [userRole, setUserRole] = useState('service_staff');
+  const [userRole, setUserRole] = useState('office_admin');
   const [userStatus, setUserStatus] = useState('active');
 
   // Polling
@@ -154,14 +154,14 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
       setEditingUserId(u.id || u._id);
       setUserName(u.name || '');
       setUserEmail(u.email || '');
-      setUserRole(u.role || USER_ROLE_OPTIONS[0]?.value || 'service_staff');
+      setUserRole(u.role || USER_ROLE_OPTIONS[0]?.value || 'office_admin');
       setUserStatus(u.status || (u.isActive ? 'active' : 'pending'));
     } else {
       // Creating new user (u is null, or u._isNew with pre-selected role)
       setIsEditingUser(false);
       setEditingUserId(null);
       setUserName(''); setUserEmail(''); setUserPassword('');
-      setUserRole(u?.role || USER_ROLE_OPTIONS[0]?.value || 'service_staff');
+      setUserRole(u?.role || USER_ROLE_OPTIONS[0]?.value || 'office_admin');
       setUserStatus('active');
     }
     setShowUserModal(true);

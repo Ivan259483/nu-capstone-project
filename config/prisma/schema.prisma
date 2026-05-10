@@ -10,11 +10,8 @@ datasource db {
 enum UserRole {
   administrator
   office_admin
-  operation_manager
-  hr
-  inventory
   sales
-  service_staff
+  staff_quality_checker
   customer
 }
 

@@ -14,11 +14,7 @@ const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_c
 const INLINE_STAGE_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
 const INLINE_STAGE_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 
-export const TRACKER_STAGE_MEDIA_ROLES = [
-  ...SERVICE_OPERATION_ROLES,
-  'office_admin',
-  'hr',
-];
+export const TRACKER_STAGE_MEDIA_ROLES = [...SERVICE_OPERATION_ROLES];
 
 function isHttpsUrl(s) {
   return typeof s === 'string' && /^https:\/\//i.test(s.trim()) && s.length < 4096;

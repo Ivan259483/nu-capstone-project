@@ -5,11 +5,12 @@ import PaymentSummaryPanel from './PaymentSummaryPanel';
 import ReceiptModal from './ReceiptModal';
 import BillingWorkspace from '@/components/sales/billing/BillingWorkspace';
 import InvoiceA4, { type InvoiceA4Snapshot } from '@/components/sales/billing/InvoiceA4';
-import { CUSTOMERS, Customer, Vehicle, CartItem } from '@/lib/salesData';
+import { Customer, Vehicle, CartItem } from '@/lib/salesData';
 import { useServices, VehicleType, getEffectivePrice } from '@/hooks/useServices';
 import { BillingService } from '@/lib/billing-service';
 import { toast } from 'sonner';
 import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
+import { DEFAULT_SPF_ADDON_PRICES } from '@/lib/service-pricing';
 
 // Map vehicle.type string → VehicleType key
 const VEHICLE_TYPE_MAP: Record<string, VehicleType> = {
@@ -36,10 +37,10 @@ function resolveVehicleType(vehicleTypeStr: string): VehicleType {
   return VEHICLE_TYPE_MAP[normalized] ?? 'sedan';
 }
 
-const TINT_PRICES: Record<string, Partial<Record<VehicleType, number>>> = {
-  'SPF 80': { hatchback: 13499, sedan: 13499, midsized: 14499, suv: 15999, pickup: 14499, largesuv: 20999, highend: 22999 },
-  'SPF 89': { hatchback: 14999, sedan: 15999, midsized: 17499, suv: 18999, pickup: 17499, largesuv: 22999, highend: 23999 },
-  'SPF 99': { hatchback: 19999, sedan: 19999, midsized: 22499, suv: 23999, pickup: 22499, largesuv: 27999, highend: 28999 },
+const TINT_PRICES: Record<string, Partial<Record<VehicleType, number | null>>> = {
+  'SPF 80': DEFAULT_SPF_ADDON_PRICES.spf80,
+  'SPF 89': DEFAULT_SPF_ADDON_PRICES.spf89,
+  'SPF 99': DEFAULT_SPF_ADDON_PRICES.spf99,
 };
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
@@ -431,7 +432,7 @@ export default function POSWorkspace() {
       if (!o) return;
       const cleanPlate = sanitizeVehiclePlate(o.vehiclePlate || '');
       const syntheticCustomer: Customer = {
-        id: o.customer || o._id,
+        id: String(o.customer || o._id || ''),
         name: o.customerName || 'Customer',
         phone: o.customerPhone || '',
         email: o.customerEmail || '',
@@ -441,6 +442,7 @@ export default function POSWorkspace() {
         lastVisit: new Date().toISOString(),
         memberSince: new Date().toISOString(),
         notes: '',
+        isSynthetic: true,
         vehicles: [
           {
             id: cleanPlate
@@ -449,7 +451,10 @@ export default function POSWorkspace() {
             plate: cleanPlate,
             make: o.vehicleMake || '',
             model: o.vehicleModel || '',
-            year: o.vehicleYear || '',
+            year:
+              typeof o.vehicleYear === 'number'
+                ? o.vehicleYear
+                : parseInt(String(o.vehicleYear || '0'), 10) || 0,
             color: o.vehicleColor || '',
             type: o.vehicleType || 'sedan',
           },
@@ -467,7 +472,7 @@ export default function POSWorkspace() {
   const handleSelectBooking = (b: any) => {
     const cleanPlate = sanitizeVehiclePlate(b.vehiclePlate || '');
     const syntheticCustomer: Customer = {
-      id: b.customer || b._id,
+      id: String(b.customer || b._id || ''),
       name: b.customerName || 'Customer',
       phone: b.customerPhone || '',
       email: b.customerEmail || '',
@@ -477,6 +482,7 @@ export default function POSWorkspace() {
       lastVisit: new Date().toISOString(),
       memberSince: new Date().toISOString(),
       notes: '',
+      isSynthetic: true,
       vehicles: [{
         id: cleanPlate
           ? `plate-${String(cleanPlate).replace(/\W/g, '-')}`
@@ -484,7 +490,10 @@ export default function POSWorkspace() {
         plate: cleanPlate,
         make: b.vehicleMake || '',
         model: b.vehicleModel || '',
-        year: b.vehicleYear || '',
+        year:
+          typeof b.vehicleYear === 'number'
+            ? b.vehicleYear
+            : parseInt(String(b.vehicleYear || '0'), 10) || 0,
         color: b.vehicleColor || '',
         type: b.vehicleType || 'sedan',
       }],
@@ -712,7 +721,6 @@ export default function POSWorkspace() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch flex-1 min-h-0">
           <div className="lg:col-span-3 flex flex-col overflow-hidden">
             <CustomerVehiclePanel
-              customers={CUSTOMERS}
               selectedCustomer={selectedCustomer}
               selectedVehicle={selectedVehicle}
               onSelectCustomer={(c) => { setSelectedCustomer(c); setSelectedVehicle(null); setManualVehicleType(null); setLinkedOrderId(null); setPosBillingOrderId(null); setInvoiceSnap(null); }}

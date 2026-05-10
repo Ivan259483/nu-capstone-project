@@ -222,7 +222,7 @@ function NotificationsPage() {
 // Main Panel (Inner)
 // ═══════════════════════════════════════════════════════════════════════
 
-function InventoryPanelInner() {
+function InventoryPanelInner({ embedded = false }: { embedded?: boolean }) {
   const [activePage, setActivePage] = useState('dashboard');
   const [collapsed, setCollapsed] = useState(false);
   const { user, logout } = useAuth();
@@ -255,9 +255,28 @@ function InventoryPanelInner() {
     return acc;
   }, {});
 
+  const mainInnerStyle: React.CSSProperties = embedded
+    ? { maxWidth: 1560, margin: '0 auto', padding: 0 }
+    : { maxWidth: 1400, margin: '0 auto', padding: '32px 24px' };
+
+  const mainSurfaceStyle: React.CSSProperties = embedded
+    ? { flex: 1, minHeight: 0, overflow: 'auto', background: 'transparent' }
+    : { flex: 1, minHeight: '100vh', overflow: 'auto', background: '#f8fafc' };
+
+  const pageBody = (
+    <>
+      {activePage === 'dashboard' && <InventoryDashboardPage onNavigateItems={() => setActivePage('items')} />}
+      {activePage === 'items' && <InventoryItemsContent />}
+      {activePage === 'suppliers' && <SupplierManagementContent />}
+      {activePage === 'stock-monitor' && <StockMonitorPage />}
+      {activePage === 'notifications' && <NotificationsPage />}
+    </>
+  );
+
   return (
-    <div className="inv-root">
-      {/* ── Sidebar ── */}
+    <div className={`inv-root ${embedded ? 'inv-root--embedded' : ''}`}>
+      {/* ── Sidebar (standalone route only) ── */}
+      {!embedded && (
       <aside className="inv-sidebar" style={{ width: sidebarW }}>
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', height: 64, padding: '0 12px', borderBottom: '1px solid rgba(37,99,235,0.08)', overflow: 'hidden' }}>
@@ -357,15 +376,87 @@ function InventoryPanelInner() {
           </button>
         </div>
       </aside>
+      )}
+
+      {embedded && (
+        <div className="inv-embedded-tabs">
+          {Object.entries(sections).map(([sectionName, sectionItems]) => (
+            <div key={sectionName} className="inv-embedded-tab-group">
+              <span className="inv-embedded-tab-section">{sectionName}</span>
+              <div className="inv-embedded-tab-row">
+                {sectionItems.map(item => {
+                  const Icon = item.icon;
+                  const disabled = Boolean(item.disabled);
+                  const isActive = activePage === item.id && !disabled;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`inv-nav-item ${isActive ? 'active' : ''} ${disabled ? 'inv-nav-item--disabled' : ''}`}
+                      disabled={disabled}
+                      onClick={() => { if (!disabled) setActivePage(item.id); }}
+                      title={disabled ? `${item.label} · Coming soon` : undefined}
+                    >
+                      <Icon size={16} className={`shrink-0 ${disabled ? 'opacity-70' : ''}`} />
+                      <span className="flex-1 min-w-0 text-left leading-snug">{item.label}</span>
+                      {item.soon && (
+                        <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-600">Soon</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <div className="inv-embedded-tab-group">
+            <span className="inv-embedded-tab-section">Alerts</span>
+            <div className="inv-embedded-tab-row">
+              <button
+                type="button"
+                className={`inv-nav-item ${activePage === 'notifications' ? 'active' : ''}`}
+                onClick={() => {
+                  setActivePage('notifications');
+                  NotificationService.getNotifications()
+                    .then(res => { if (res?.success) setNotifCount((res.data || []).filter((n: any) => !n.isRead).length); })
+                    .catch(() => {});
+                }}
+              >
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  <Bell size={16} />
+                  {notifCount > 0 && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: -3,
+                        right: -5,
+                        width: 14,
+                        height: 14,
+                        background: '#ef4444',
+                        borderRadius: '50%',
+                        border: '2px solid #fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 8,
+                        color: '#fff',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {notifCount > 9 ? '9+' : notifCount}
+                    </span>
+                  )}
+                </div>
+                <span>Notifications</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Main Content ── */}
-      <main style={{ flex: 1, minHeight: '100vh', overflow: 'auto', background: '#f8fafc' }}>
-        <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px' }}>
-          {activePage === 'dashboard' && <InventoryDashboardPage onNavigateItems={() => setActivePage('items')} />}
-          {activePage === 'items' && <InventoryItemsContent />}
-          {activePage === 'suppliers' && <SupplierManagementContent />}
-          {activePage === 'stock-monitor' && <StockMonitorPage />}
-          {activePage === 'notifications' && <NotificationsPage />}
+      <main style={mainSurfaceStyle}>
+        <div style={mainInnerStyle}>
+          {pageBody}
         </div>
       </main>
     </div>
@@ -376,10 +467,10 @@ function InventoryPanelInner() {
 // Exported wrapper — provides InventoryContext
 // ═══════════════════════════════════════════════════════════════════════
 
-export default function InventoryPanel() {
+export default function InventoryPanel({ embedded }: { embedded?: boolean }) {
   return (
     <InventoryProvider>
-      <InventoryPanelInner />
+      <InventoryPanelInner embedded={embedded} />
     </InventoryProvider>
   );
 }

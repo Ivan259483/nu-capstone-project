@@ -1,15 +1,12 @@
+/**
+ * Canonical roles (matches backend/constants/roles.js).
+ * Staff: office_admin, sales, staff_quality_checker. Plus administrator + customer.
+ */
 export const USER_ROLES = [
   'administrator',
   'office_admin',
-  'operation_manager',
-  'hr',
-  'inventory',
   'sales',
-  'service_staff',
-  // Granular staff / technician roles
   'staff_quality_checker',
-  'staff_inventory',
-  'technician',
   'customer',
 ] as const;
 
@@ -17,180 +14,108 @@ export type UserRole = (typeof USER_ROLES)[number];
 
 export const LEGACY_ROLE_MAP = {
   admin: 'administrator',
-  detailer: 'service_staff',
+  detailer: 'staff_quality_checker',
+  operation_manager: 'office_admin',
+  hr: 'office_admin',
+  inventory: 'office_admin',
+  staff_inventory: 'office_admin',
+  service_staff: 'staff_quality_checker',
+  technician: 'staff_quality_checker',
 } as const;
+
+/** Map any known legacy slug to a current UserRole (best effort). */
+export const normalizeToCanonical = (role: string | null | undefined): UserRole | null => {
+  if (!role) return null;
+  const lowered = role.toLowerCase();
+  const mapped = LEGACY_ROLE_MAP[lowered as keyof typeof LEGACY_ROLE_MAP];
+  if (mapped) return mapped;
+  if (USER_ROLES.includes(lowered as UserRole)) return lowered as UserRole;
+  return null;
+};
 
 export const ADMIN_DASHBOARD_ROLES: UserRole[] = [
   'administrator',
   'office_admin',
-  'hr',
-];
-
-export const FULL_ADMIN_ROLES: UserRole[] = [
-  'administrator',
-];
-
-export const SETTINGS_MANAGER_ROLES: UserRole[] = [
-  'administrator',
-  'office_admin',
-];
-
-export const STAFF_MANAGER_ROLES: UserRole[] = [
-  'administrator',
-  'office_admin',
-  'hr',
-  'sales',    // Cashier can view customer accounts & service history (read-only)
-];
-
-export const REPORTING_ROLES: UserRole[] = [
-  'administrator',
-  'operation_manager',
-  'sales',
-  'hr',           // HR monitors staff activity via activity reports
-];
-
-export const USER_MANAGEMENT_ROLES: UserRole[] = [
-  'administrator',
-  'office_admin',
-  'operation_manager',
-  'hr',
-];
-
-export const INVENTORY_MANAGER_ROLES: UserRole[] = [
-  'administrator',
-  'inventory',
-];
-
-// Roles that get redirected to the standalone Inventory Dashboard
-export const INVENTORY_DASHBOARD_ROLES: UserRole[] = [
-  'inventory',
-  'staff_inventory',
-];
-
-export const SUPPLIER_VIEW_ROLES: UserRole[] = [
-  'administrator',
-  'inventory',
-];
-
-export const SUPPLIER_MANAGER_ROLES: UserRole[] = [
-  'administrator',
-  'inventory',
-];
-
-export const SERVICE_CATALOG_ROLES: UserRole[] = [
-  'administrator',
-];
-
-export const BOOKING_MANAGER_ROLES: UserRole[] = [
-  'administrator',
-  'operation_manager',
-];
-
-export const POS_MANAGER_ROLES: UserRole[] = [
-  'administrator',
-  'sales',
-];
-
-// Roles that can view/manage digital waivers & legal records
-export const WAIVER_ACCESS_ROLES: UserRole[] = [
-  'administrator',
-  'operation_manager',
-];
-
-// Roles that can view the booking appointment calendar (read + manual adjust)
-export const APPOINTMENT_VIEW_ROLES: UserRole[] = [
-  'administrator',
-];
-
-// Roles that can create/register new user accounts
-export const USER_REGISTRATION_ROLES: UserRole[] = [
-  'administrator',
-  'office_admin',
-  'hr',
-];
-
-// Roles that can access the AI Damage Detection & Cost Estimator
-// Per spec: Technicians, Quality Checker, and Operations Manager all use AI damage detection
-export const AI_ESTIMATOR_ROLES: UserRole[] = [
-  'administrator',
-  'operation_manager',
   'staff_quality_checker',
-  'technician',
 ];
 
-// Roles that can access AI Chatbot (admin management + customer-facing staff)
-export const AI_CHATBOT_ROLES: UserRole[] = [
-  'administrator',
-  'sales',
-  'staff_quality_checker',
-  'technician',
-];
+export const FULL_ADMIN_ROLES: UserRole[] = ['administrator'];
 
-export const SERVICE_STAFF_ROLE: UserRole = 'service_staff';
+export const SETTINGS_MANAGER_ROLES: UserRole[] = ['administrator', 'office_admin'];
+
+export const STAFF_MANAGER_ROLES: UserRole[] = ['administrator', 'office_admin'];
+
+export const REPORTING_ROLES: UserRole[] = ['administrator', 'office_admin', 'sales'];
+
+export const USER_MANAGEMENT_ROLES: UserRole[] = ['administrator', 'office_admin'];
+
+export const INVENTORY_MANAGER_ROLES: UserRole[] = ['administrator', 'office_admin'];
+
+export const INVENTORY_DASHBOARD_ROLES: UserRole[] = ['administrator', 'office_admin'];
+
+export const SUPPLIER_VIEW_ROLES: UserRole[] = ['administrator', 'office_admin'];
+
+export const SUPPLIER_MANAGER_ROLES: UserRole[] = ['administrator', 'office_admin'];
+
+export const SERVICE_CATALOG_ROLES: UserRole[] = ['administrator', 'office_admin'];
+
+export const BOOKING_MANAGER_ROLES: UserRole[] = ['administrator', 'office_admin', 'sales'];
+
+export const POS_MANAGER_ROLES: UserRole[] = ['administrator', 'sales'];
+
+export const WAIVER_ACCESS_ROLES: UserRole[] = ['administrator', 'office_admin'];
+
+export const APPOINTMENT_VIEW_ROLES: UserRole[] = ['administrator', 'office_admin', 'sales'];
+
+export const USER_REGISTRATION_ROLES: UserRole[] = ['administrator', 'office_admin'];
+
+export const AI_ESTIMATOR_ROLES: UserRole[] = ['administrator', 'office_admin', 'staff_quality_checker'];
+
+export const AI_CHATBOT_ROLES: UserRole[] = ['administrator', 'office_admin', 'sales', 'staff_quality_checker'];
+
+export const STAFF_QC_ROLE: UserRole = 'staff_quality_checker';
+
+/** Legacy name: assignable “floor” staff for job assignment UIs — maps to QC role. */
+export const SERVICE_STAFF_ROLE: UserRole = 'staff_quality_checker';
+
 export const CUSTOMER_ROLE: UserRole = 'customer';
 
-// ── Granular Staff / Technician role constants ───────────────────────────────
-export const STAFF_QC_ROLE: UserRole = 'staff_quality_checker';
-export const STAFF_INVENTORY_ROLE: UserRole = 'staff_inventory';
-export const TECHNICIAN_ROLE: UserRole = 'technician';
+export const STAFF_ROLES: UserRole[] = ['staff_quality_checker'];
 
-// All roles that are treated as "staff" (redirect to detailer dashboard)
-export const STAFF_ROLES: UserRole[] = [
-  'service_staff',
-  'staff_quality_checker',
-  'technician',
-];
+export const STAFF_QC_ROLES: UserRole[] = ['staff_quality_checker'];
 
-// Modules available to Quality Checker staff
-export const STAFF_QC_ROLES: UserRole[] = [
-  'staff_quality_checker',
-];
-
-// Modules available to Inventory Staff
-export const STAFF_INVENTORY_ROLES: UserRole[] = [
-  'staff_inventory',
-];
-
-// Modules available to Technicians (web + mobile)
-export const TECHNICIAN_ROLES: UserRole[] = [
-  'technician',
-];
+export const TECHNICIAN_ROLES: UserRole[] = [];
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   administrator: 'Administrator',
   office_admin: 'Office Admin',
-  operation_manager: 'Operation Manager',
-  hr: 'HR',
-  inventory: 'Inventory Management',
-  sales: 'Sales / Cashier',
-  service_staff: 'Service Staff',
-  staff_quality_checker: 'Technician - Quality Checker',
-  staff_inventory: 'Staff - Inventory',
-  technician: 'Technician',
+  sales: 'Sales',
+  staff_quality_checker: 'Quality Checker - Technician',
   customer: 'Customer',
 };
 
 export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
-  administrator: 'Full system access.',
-  office_admin: 'Admin dashboard access for users and settings.',
-  operation_manager: 'Bookings, staff coordination, and reports.',
-  hr: 'Users and staff management access.',
-  inventory: 'Inventory module access only.',
-  sales: 'POS, receipts, and sales reports.',
-  service_staff: 'Access to staff dashboard and assignments.',
-  staff_quality_checker: 'QC staff dashboard, job queue, and POS receipts.',
-  staff_inventory: 'Real-time inventory management and stock monitoring.',
-  technician: 'Voice assistant, AI damage detection, AR, and inventory.',
+  administrator: 'Full system access (bootstrap superuser).',
+  office_admin: 'Oversees and controls everything: users, bookings, operations, live tracking access, and settings.',
+  sales: 'Booking appointments, point of sale, and assistance for customer booking.',
+  staff_quality_checker: 'Vehicle live tracking, QC workflows, and job visibility.',
   customer: 'Booking and status tracking access.',
 };
 
+/** Human-friendly labels for Admin Hub “Create user” role dropdown (title case) */
+export const HUB_CREATE_ROLE_LABELS: Record<string, string> = {
+  office_admin: 'Office Admin',
+  sales: 'Sales',
+  staff_quality_checker: 'Quality Checker - Technician',
+};
+
+/** Roles offered in Admin Hub "Create user" — one overseer (OFFICE ADMIN) + sales + QC only */
+export const HUB_CREATE_USER_ROLES: UserRole[] = ['office_admin', 'sales', 'staff_quality_checker'];
+
 export const USER_ROLE_OPTIONS = [
-  // Note: 'administrator' is intentionally omitted — office_admin is the highest assignable role via UI
-  { group: 'Admin Roles', value: 'office_admin', label: 'Office Admin' },
-  { group: 'Operational Roles', value: 'hr', label: 'HR' },
-  { group: 'Operational Roles', value: 'inventory', label: 'Inventory Personnel' },
-  { group: 'Operational Roles', value: 'sales', label: 'Sales' },
-  { group: 'Staff & Technicians', value: 'staff_quality_checker', label: 'Technician - Quality Checker' },
+  { group: 'Staff', value: 'office_admin', label: 'Office Admin' },
+  { group: 'Staff', value: 'sales', label: 'Sales' },
+  { group: 'Staff', value: 'staff_quality_checker', label: 'Quality Checker - Technician' },
 ] as const;
 
 const USER_ROLE_SET = new Set<string>(USER_ROLES);
@@ -207,120 +132,100 @@ const BOOKING_MANAGER_ROLE_SET = new Set<string>(BOOKING_MANAGER_ROLES);
 const POS_MANAGER_ROLE_SET = new Set<string>(POS_MANAGER_ROLES);
 const STAFF_ROLE_SET = new Set<string>(STAFF_ROLES);
 const STAFF_QC_ROLE_SET = new Set<string>(STAFF_QC_ROLES);
-const STAFF_INVENTORY_ROLE_SET = new Set<string>(STAFF_INVENTORY_ROLES);
 const TECHNICIAN_ROLE_SET = new Set<string>(TECHNICIAN_ROLES);
 const WAIVER_ACCESS_ROLE_SET = new Set<string>(WAIVER_ACCESS_ROLES);
 const APPOINTMENT_VIEW_ROLE_SET = new Set<string>(APPOINTMENT_VIEW_ROLES);
 const USER_REGISTRATION_ROLE_SET = new Set<string>(USER_REGISTRATION_ROLES);
 const AI_ESTIMATOR_ROLE_SET = new Set<string>(AI_ESTIMATOR_ROLES);
 const AI_CHATBOT_ROLE_SET = new Set<string>(AI_CHATBOT_ROLES);
-const USER_MANAGEMENT_SCOPE: Record<UserRole, UserRole[]> = {
-  administrator: [
-    'office_admin',
-    'operation_manager',
-    'hr',
-    'inventory',
-    'sales',
-    'staff_quality_checker',
-  ],
-  office_admin: USER_ROLES.filter(role => role !== 'administrator'),
-  // Operations Manager can manage staff & technician schedules/accounts per spec
-  operation_manager: [SERVICE_STAFF_ROLE, STAFF_QC_ROLE, STAFF_INVENTORY_ROLE, TECHNICIAN_ROLE],
-  hr: [SERVICE_STAFF_ROLE, STAFF_QC_ROLE, STAFF_INVENTORY_ROLE, TECHNICIAN_ROLE, 'inventory', 'sales'],
-  inventory: [],
+
+export const USER_MANAGEMENT_SCOPE: Record<UserRole, UserRole[]> = {
+  /** Full directory (create still uses HUB_CREATE_USER_ROLES; edit dropdown filters out `administrator`) */
+  administrator: [...USER_ROLES],
+  office_admin: [...USER_ROLES],
   sales: [],
-  service_staff: [],
   staff_quality_checker: [],
-  staff_inventory: [],
-  technician: [],
   customer: [],
 };
 
 export const isUserRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && USER_ROLE_SET.has(role);
+  normalizeToCanonical(role) !== null;
 
-export const migrateLegacyUserRole = (role: string | null | undefined): UserRole | null => {
-  if (!role) return null;
-  const normalizedRole = role.toLowerCase();
-  if (isUserRole(normalizedRole)) return normalizedRole as UserRole;
-
-  const mappedRole = LEGACY_ROLE_MAP[normalizedRole as keyof typeof LEGACY_ROLE_MAP];
-  return mappedRole || null;
-};
+export const migrateLegacyUserRole = (role: string | null | undefined): UserRole | null =>
+  normalizeToCanonical(role);
 
 export const getSafeUserRole = (
   role: string | null | undefined,
-  fallback: UserRole = CUSTOMER_ROLE
+  fallback: UserRole = CUSTOMER_ROLE,
 ): UserRole => migrateLegacyUserRole(role) || fallback;
 
 export const isAdminDashboardRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && ADMIN_DASHBOARD_ROLE_SET.has(role);
+  typeof role === 'string' && ADMIN_DASHBOARD_ROLE_SET.has(getSafeUserRole(role));
 
 export const isFullAdminRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && FULL_ADMIN_ROLE_SET.has(role);
+  typeof role === 'string' && FULL_ADMIN_ROLE_SET.has(getSafeUserRole(role));
 
 export const isSettingsManagerRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && SETTINGS_MANAGER_ROLE_SET.has(role);
+  typeof role === 'string' && SETTINGS_MANAGER_ROLE_SET.has(getSafeUserRole(role));
 
 export const isStaffManagerRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && STAFF_MANAGER_ROLE_SET.has(role);
+  typeof role === 'string' && STAFF_MANAGER_ROLE_SET.has(getSafeUserRole(role));
 
 export const isReportingRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && REPORTING_ROLE_SET.has(role);
+  typeof role === 'string' && REPORTING_ROLE_SET.has(getSafeUserRole(role));
 
 export const isInventoryManagerRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && INVENTORY_MANAGER_ROLE_SET.has(role);
+  typeof role === 'string' && INVENTORY_MANAGER_ROLE_SET.has(getSafeUserRole(role));
 
 export const isSupplierViewRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && SUPPLIER_VIEW_ROLE_SET.has(role);
+  typeof role === 'string' && SUPPLIER_VIEW_ROLE_SET.has(getSafeUserRole(role));
 
 export const isSupplierManagerRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && SUPPLIER_MANAGER_ROLE_SET.has(role);
+  typeof role === 'string' && SUPPLIER_MANAGER_ROLE_SET.has(getSafeUserRole(role));
 
 export const isServiceCatalogRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && SERVICE_CATALOG_ROLE_SET.has(role);
+  typeof role === 'string' && SERVICE_CATALOG_ROLE_SET.has(getSafeUserRole(role));
 
 export const isBookingManagerRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && BOOKING_MANAGER_ROLE_SET.has(role);
+  typeof role === 'string' && BOOKING_MANAGER_ROLE_SET.has(getSafeUserRole(role));
 
 export const isPosManagerRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && POS_MANAGER_ROLE_SET.has(role);
+  typeof role === 'string' && POS_MANAGER_ROLE_SET.has(getSafeUserRole(role));
 
 export const isServiceStaffRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && STAFF_ROLE_SET.has(role);
+  typeof role === 'string' && STAFF_ROLE_SET.has(getSafeUserRole(role));
 
 export const isStaffQCRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && STAFF_QC_ROLE_SET.has(role);
+  typeof role === 'string' && STAFF_QC_ROLE_SET.has(getSafeUserRole(role));
 
-export const isStaffInventoryRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && STAFF_INVENTORY_ROLE_SET.has(role);
+export const isStaffInventoryRole = (_role: string | null | undefined): _role is UserRole => false;
 
 export const isTechnicianRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && TECHNICIAN_ROLE_SET.has(role);
+  typeof role === 'string' && TECHNICIAN_ROLE_SET.has(getSafeUserRole(role));
 
 export const isWaiverAccessRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && WAIVER_ACCESS_ROLE_SET.has(role);
+  typeof role === 'string' && WAIVER_ACCESS_ROLE_SET.has(getSafeUserRole(role));
 
 export const isAppointmentViewRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && APPOINTMENT_VIEW_ROLE_SET.has(role);
+  typeof role === 'string' && APPOINTMENT_VIEW_ROLE_SET.has(getSafeUserRole(role));
 
 export const isUserRegistrationRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && USER_REGISTRATION_ROLE_SET.has(role);
+  typeof role === 'string' && USER_REGISTRATION_ROLE_SET.has(getSafeUserRole(role));
 
 export const isAIEstimatorRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && AI_ESTIMATOR_ROLE_SET.has(role);
+  typeof role === 'string' && AI_ESTIMATOR_ROLE_SET.has(getSafeUserRole(role));
 
 export const isAIChatbotRole = (role: string | null | undefined): role is UserRole =>
-  typeof role === 'string' && AI_CHATBOT_ROLE_SET.has(role);
+  typeof role === 'string' && AI_CHATBOT_ROLE_SET.has(getSafeUserRole(role));
 
 export const getManageableUserRoles = (role: string | null | undefined): UserRole[] => {
   const safeRole = getSafeUserRole(role);
-  return USER_MANAGEMENT_SCOPE[safeRole];
+  return USER_MANAGEMENT_SCOPE[safeRole] ?? [];
 };
 
 export const canManageUserRole = (
   actorRole: string | null | undefined,
-  targetRole: string | null | undefined
+  targetRole: string | null | undefined,
 ): boolean => {
   const normalizedTargetRole = getSafeUserRole(targetRole);
   return getManageableUserRoles(actorRole).includes(normalizedTargetRole);
@@ -334,28 +239,16 @@ export const getRoleLabel = (role: string | null | undefined): string => {
 export const getDashboardPathForRole = (role: string | null | undefined): string => {
   const safeRole = getSafeUserRole(role);
 
-  // Operation Managers get their own dedicated Ops dashboard
-  if (safeRole === 'operation_manager') {
-    return '/ops/dashboard';
-  }
-
-  // Sales staff get the POS / Sales dashboard
   if (safeRole === 'sales') {
     return '/sales/dashboard';
   }
 
-  // Inventory personnel get their own Inventory dashboard
-  if (safeRole === 'inventory' || safeRole === 'staff_inventory') {
-    return '/inventory/dashboard';
+  if (safeRole === 'staff_quality_checker') {
+    return '/admin/dashboard?tab=live_tracking';
   }
 
   if (isAdminDashboardRole(safeRole)) {
     return '/admin/dashboard';
-  }
-
-  // All staff & technician roles go to the staff/detailer dashboard
-  if (STAFF_ROLE_SET.has(safeRole)) {
-    return '/detailer/dashboard';
   }
 
   return '/customer/dashboard';

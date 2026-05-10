@@ -9,7 +9,6 @@ const ROLE_COLOR_MAP: Record<string, { iconBg: string; iconText: string; border:
   administrator:         { iconBg: '#ede9fe', iconText: '#6d28d9', border: '#ddd6fe' },
   office_admin:          { iconBg: '#ede9fe', iconText: '#6d28d9', border: '#ddd6fe' },
   hr:                    { iconBg: '#dbeafe', iconText: '#1d4ed8', border: '#bfdbfe' },
-  operation_manager:     { iconBg: '#e0e7ff', iconText: '#4338ca', border: '#c7d2fe' },
   technician:            { iconBg: '#cffafe', iconText: '#0e7490', border: '#a5f3fc' },
   sales:                 { iconBg: '#d1fae5', iconText: '#065f46', border: '#a7f3d0' },
   service_staff:         { iconBg: '#f1f5f9', iconText: '#475569', border: '#cbd5e1' },
@@ -24,8 +23,7 @@ const inputStyle: React.CSSProperties = {
 };
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
-  office_admin: 'Full admin access except system-level configuration',
-  operation_manager: 'Staff & technician management, bookings, waivers',
+  office_admin: 'Users, bookings, operations, and office administration',
   hr: 'Staff account management, role assignments, activity monitoring',
   sales: 'POS transactions, receipts, sales tracking',
   service_staff: 'Job assignments and staff dashboard',
@@ -35,11 +33,11 @@ const ROLE_DESCRIPTIONS: Record<string, string> = {
 };
 
 export default function HRRoleAssignment({ localUsers, setLocalUsers }: any) {
-  const staffRoles = USER_ROLE_OPTIONS.filter(r => r.value !== 'customer');
+  const staffRoles = [...USER_ROLE_OPTIONS];
 
   // Permission counts per role (reflects actual system access)
   const PERM_COUNTS: Record<string, number> = {
-    office_admin: 8, operation_manager: 5, hr: 2, sales: 2,
+    office_admin: 13, hr: 2, sales: 2,
     service_staff: 0, staff_quality_checker: 1, staff_inventory: 1, technician: 1,
   };
 

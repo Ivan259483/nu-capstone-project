@@ -30,6 +30,13 @@ router.get('/', requireUserDirectoryAccess, userController.getAllUsers);
 router.patch('/profile', authenticate, userController.updateMyProfile);
 
 /**
+ * @route PATCH /api/users/me/activity
+ * @desc Heartbeat — updates lastSeenAt for presence in admin User Management
+ * @access Private
+ */
+router.patch('/me/activity', authenticate, userController.touchMyActivity);
+
+/**
  * @route GET /api/users/:id
  * @desc Get user by ID
  * @access Private

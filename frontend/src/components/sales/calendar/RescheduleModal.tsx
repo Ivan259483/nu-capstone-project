@@ -48,10 +48,17 @@ export default function RescheduleModal({ booking, targetDate, onClose, onConfir
   });
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4"
-      style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(2px)' }}>
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col"
-        style={{ border: '1px solid #e2e8f0' }}>
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/20 p-4 backdrop-blur-sm"
+      role="presentation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !submitting) onClose();
+      }}
+    >
+      <div
+        className="flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Header */}
         <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid #f1f5f9' }}>

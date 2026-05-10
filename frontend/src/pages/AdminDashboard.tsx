@@ -51,7 +51,7 @@ import { SystemService } from '@/lib/system-service';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
 import { SettingsService } from '@/lib/settings-service';
 import { AdminSettings } from '@/components/admin/AdminSettings';
-// SmartCalendar removed — now owned by Sales Dashboard at /sales (calendar tab)
+import SalesSmartCalendar from '@/components/sales/calendar/SalesSmartCalendar';
 import LandingPageEditor from '@/components/admin/LandingPageEditor';
 // POSSystem removed — staff now use the dedicated Sales Dashboard
 import { ActivityLogs } from '@/components/admin/ActivityLogs';
@@ -2100,29 +2100,16 @@ export default function AdminDashboard() {
 
         switch (safeRole) {
             case 'administrator':
-                // Full access — appointments excluded (SmartCalendar is inside Bookings tab)
-                return allAdminTabs.filter(tab => tab.id !== 'appointments');
+                return allAdminTabs;
 
             case 'office_admin':
-                // System Authority: User Registration + User Management only
-                // (Settings accessible via profile gear icon — no separate tab needed)
-                return allAdminTabs.filter(tab => ['users'].includes(tab.id));
-
-            case 'operation_manager':
-                // Operational Authority: Staff & Technician Dashboard (Bookings/Jobs) +
-                // Customer Status Tracker (Bookings view) + Activity monitoring
                 return allAdminTabs.filter(tab =>
-                    ['bookings', 'activity'].includes(tab.id)
+                    ['users', 'bookings', 'appointments', 'activity'].includes(tab.id)
                 );
 
-            case 'hr':
-                // Domain Authority: User Management + Staff Activity Monitoring
-                // (staff accounts, role assignments + view activity/dashboard reports)
-                return allAdminTabs.filter(tab => ['users', 'activity'].includes(tab.id));
-
-            case 'inventory':
-                // Domain Authority: Inventory Management + Supplier & Item Management
-                return allAdminTabs.filter(tab => ['inventory', 'suppliers'].includes(tab.id));
+            case 'staff_quality_checker':
+                // Uses Admin Hub (live tracking); legacy admin tabs not shown here
+                return [];
 
             case 'sales':
                 // Sales staff use the dedicated Sales Dashboard — no admin tabs needed
@@ -2175,7 +2162,10 @@ export default function AdminDashboard() {
     // Strict check: AdminHub is ONLY for administrator / office_admin
     // HR users get their own separate UserManagementPanel
     const userRoleLower = (user?.role || '').toLowerCase();
-    const isAdminHubRole = userRoleLower === 'administrator' || userRoleLower === 'office_admin';
+    const isAdminHubRole =
+        userRoleLower === 'administrator' ||
+        userRoleLower === 'office_admin' ||
+        userRoleLower === 'staff_quality_checker';
     // Administrator/office_admin ALWAYS uses AdminHub for ALL tabs (full mode)
     const isAdminHubMode = isAdminHubRole;
     const isHROnlyMode = isHRMode && !isAdminHubRole;
@@ -2929,18 +2919,25 @@ export default function AdminDashboard() {
 
 
                         {(canAccessBookings || canAccessAppointments) && (activeTab === 'bookings' || activeTab === 'appointments') && (
-                            <motion.div key="bookings" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="flex flex-col w-full h-[calc(100vh-180px)] min-h-[600px]">
-                                <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
-                                    <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center">
-                                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                                    </div>
-                                    <div>
-                                        <p className="text-lg font-bold text-slate-800">Smart Calendar moved to Sales Dashboard</p>
-                                        <p className="text-sm text-slate-500 mt-1">Access all booking schedules and approvals from the Sales workspace.</p>
-                                    </div>
-                                    <a href="/sales" className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors">
-                                        Go to Sales Dashboard →
-                                    </a>
+                            <motion.div
+                                key={activeTab === 'appointments' ? 'appointments-cal' : 'bookings-cal'}
+                                variants={pageVariants}
+                                initial="initial"
+                                animate="animate"
+                                exit="exit"
+                                className="flex w-full flex-col gap-4 pb-4"
+                            >
+                                <div className="px-1">
+                                    <h2 className="text-lg font-semibold tracking-tight text-slate-900">
+                                        {activeTab === 'appointments' ? 'Appointments & scheduling' : 'Bookings & scheduling'}
+                                    </h2>
+                                    <p className="mt-1 max-w-3xl text-sm text-slate-500">
+                                        Full calendar for all customer bookings. Click a day to review jobs; drag to reschedule when
+                                        permitted — overlapping times are blocked server-side to prevent double booking.
+                                    </p>
+                                </div>
+                                <div className="min-h-[560px] w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                                    <SalesSmartCalendar />
                                 </div>
                             </motion.div>
                         )}

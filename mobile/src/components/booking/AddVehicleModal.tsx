@@ -36,13 +36,14 @@ import {
 import type { Vehicle } from '@/services/api/types';
 import { getApiErrorMessage } from '@/services/api/client';
 import { vehicleService } from '@/services/api/vehicleService';
+import { SPF_BASE_PRICES, formatPesoOrNA } from '@/constants/spfPricing';
 
 // ── SPF package data (mirrors CustomerDashboard.tsx) ──────────────────────────
 const SPF_PACKAGES = [
-  { id: 'spf80',  name: 'SPF 80',  label: 'Essential', prices: { hatchback: 7499,  sedan: 7999,  midsized: 7999,  suv: 8999,  pickup: 8499,  largesuv: 12999, highend: 14999 } },
-  { id: 'spf89',  name: 'SPF 89',  label: 'Advanced',  prices: { hatchback: 8999,  sedan: 9999,  midsized: 10999, suv: 11999, pickup: 10999, largesuv: 14999, highend: 17999 } },
-  { id: 'spf99',  name: 'SPF 99',  label: 'Premium',   prices: { hatchback: 13999, sedan: 13999, midsized: 15999, suv: 16999, pickup: 15999, largesuv: 19999, highend: 22999 } },
-  { id: 'spf101', name: 'SPF 101', label: 'Flagship',  prices: { hatchback: 39999, sedan: 39999, midsized: 46999, suv: 46999, pickup: 46999, largesuv: 49999, highend: 49999 } },
+  { id: 'spf80',  name: 'SPF 80',  label: 'Essential', prices: SPF_BASE_PRICES.spf80 },
+  { id: 'spf89',  name: 'SPF 89',  label: 'Advanced',  prices: SPF_BASE_PRICES.spf89 },
+  { id: 'spf99',  name: 'SPF 99',  label: 'Premium',   prices: SPF_BASE_PRICES.spf99 },
+  { id: 'spf101', name: 'SPF 101', label: 'Flagship',  prices: SPF_BASE_PRICES.spf101 },
 ] as const;
 
 const VEHICLE_TYPE_PRICE_MAP: Record<string, string> = {
@@ -466,7 +467,7 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
                         <Text style={pp.pkgName}>{pkg.name}</Text>
                         <Text style={pp.pkgLabel}>{pkg.label}</Text>
                         <Text style={pp.pkgPrice}>
-                          ₱{pkg.prices[key].toLocaleString()}
+                          {formatPesoOrNA(pkg.prices[key])}
                         </Text>
                       </View>
                     ))}

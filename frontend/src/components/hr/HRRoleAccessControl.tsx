@@ -1,10 +1,9 @@
 // @module HRRoleAccessControl
 import React, { useState } from 'react';
 import {
-  ShieldCheck, Shield, Users, UserCog, Wrench, User,
+  ShieldCheck, Users, UserCog, Wrench,
   Info, Plus, Check, X, Pencil,
 } from 'lucide-react';
-import { USER_ROLE_OPTIONS } from '@/lib/roles';
 import { toast } from 'sonner';
 
 // ── Modules shown in the permission matrix ─────────────────────────────────────
@@ -31,44 +30,36 @@ const ROLE_CONFIG: Record<string, {
   accentColor: string;
 }> = {
   administrator: {
-    label: 'Admin',
+    label: 'Administrator',
     description: 'Full system access. Manages all settings, users, and system configuration.',
     icon: ShieldCheck,
     iconBg: '#ede9fe',
     iconColor: '#7c3aed',
     accentColor: '#7c3aed',
   },
-  hr: {
-    label: 'HR',
-    description: 'Manages personnel and staff records. Can assign roles and monitor activity.',
-    icon: Shield,
-    iconBg: '#dbeafe',
-    iconColor: '#2563eb',
-    accentColor: '#2563eb',
-  },
-  operation_manager: {
-    label: 'Manager',
-    description: 'Oversees bookings, staff coordination, and operational reports.',
+  office_admin: {
+    label: 'Office Admin',
+    description: 'Oversees everything: users, bookings, inventory, live tracking, and settings.',
     icon: UserCog,
-    iconBg: '#e0e7ff',
-    iconColor: '#4338ca',
-    accentColor: '#4338ca',
+    iconBg: '#fff7ed',
+    iconColor: '#ea580c',
+    accentColor: '#ea580c',
   },
-  technician: {
-    label: 'Technician',
-    description: 'Voice assistant, AI damage detection, AR, and limited inventory access.',
+  sales: {
+    label: 'Sales',
+    description: 'Booking appointments, POS, and booking assistance.',
+    icon: Users,
+    iconBg: '#fffbeb',
+    iconColor: '#d97706',
+    accentColor: '#d97706',
+  },
+  staff_quality_checker: {
+    label: 'Quality Checker - Technician',
+    description: 'Vehicle live tracking, QC workflows, and job visibility.',
     icon: Wrench,
-    iconBg: '#cffafe',
-    iconColor: '#0e7490',
-    accentColor: '#0e7490',
-  },
-  service_staff: {
-    label: 'Staff',
-    description: 'Access to staff dashboard and job assignments only.',
-    icon: User,
-    iconBg: '#f1f5f9',
-    iconColor: '#64748b',
-    accentColor: '#64748b',
+    iconBg: '#eef2ff',
+    iconColor: '#6366f1',
+    accentColor: '#6366f1',
   },
 };
 
@@ -77,48 +68,37 @@ const ROLE_CONFIG: Record<string, {
 function buildDefaultPerms(roleId: string): Record<string, boolean> {
   const permsMap: Record<string, Record<string, boolean>> = {
     administrator: Object.fromEntries(SYSTEM_MODULES.map(m => [m, true])),
-    hr: {
+    office_admin: {
       'User Management': true,
-      'Inventory Management': false,
-      'Suppliers': false,
-      'Bookings & Appointments': false,
-      'POS & Sales': false,
-      'Activity & Reports': true,
-      'Waivers & Documents': false,
-      'AI Damage Detection': false,
-      'System Settings': false,
-    },
-    operation_manager: {
-      'User Management': true,
-      'Inventory Management': false,
-      'Suppliers': false,
+      'Inventory Management': true,
+      'Suppliers': true,
       'Bookings & Appointments': true,
       'POS & Sales': false,
       'Activity & Reports': true,
       'Waivers & Documents': true,
       'AI Damage Detection': true,
-      'System Settings': false,
+      'System Settings': true,
     },
-    technician: {
+    sales: {
       'User Management': false,
       'Inventory Management': false,
       'Suppliers': false,
-      'Bookings & Appointments': false,
-      'POS & Sales': false,
-      'Activity & Reports': false,
-      'Waivers & Documents': false,
-      'AI Damage Detection': true,
-      'System Settings': false,
-    },
-    service_staff: {
-      'User Management': false,
-      'Inventory Management': false,
-      'Suppliers': false,
-      'Bookings & Appointments': false,
-      'POS & Sales': false,
-      'Activity & Reports': false,
+      'Bookings & Appointments': true,
+      'POS & Sales': true,
+      'Activity & Reports': true,
       'Waivers & Documents': false,
       'AI Damage Detection': false,
+      'System Settings': false,
+    },
+    staff_quality_checker: {
+      'User Management': false,
+      'Inventory Management': false,
+      'Suppliers': false,
+      'Bookings & Appointments': false,
+      'POS & Sales': false,
+      'Activity & Reports': true,
+      'Waivers & Documents': false,
+      'AI Damage Detection': true,
       'System Settings': false,
     },
   };
@@ -126,11 +106,12 @@ function buildDefaultPerms(roleId: string): Record<string, boolean> {
 }
 
 // ── Displayed roles (subset matching screenshot) ────────────────────────────────
-const DISPLAY_ROLES = ['administrator', 'hr', 'operation_manager', 'technician', 'service_staff'];
+const DISPLAY_ROLES = ['administrator', 'office_admin', 'sales', 'staff_quality_checker'];
 
 export default function HRRoleAccessControl({ localUsers, currentUserRole }: any) {
   const staffUsers: any[] = localUsers ?? [];
-  const isReadOnly = currentUserRole === 'hr'; // HR can view but not modify permissions
+  const r = (currentUserRole || '').toLowerCase();
+  const isReadOnly = r !== 'administrator' && r !== 'office_admin';
 
   const [perms, setPerms] = useState<Record<string, Record<string, boolean>>>(
     () => Object.fromEntries(DISPLAY_ROLES.map(r => [r, buildDefaultPerms(r)]))

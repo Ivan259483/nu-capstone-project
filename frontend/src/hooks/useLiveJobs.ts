@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { OrderService, normalizeBooking } from '@/lib/order-service';
 import type { Booking, User } from '@/types';
-import { isAdminDashboardRole, isServiceStaffRole } from '@/lib/roles';
+import { isAdminDashboardRole, isServiceStaffRole, getSafeUserRole } from '@/lib/roles';
 import { getSharedSocket } from './useRealtimeSync';
 
 // ── Backup polling interval — socket is primary, this is a true last-resort ──
@@ -42,7 +42,10 @@ export function useLiveJobs(
     const fetchJobs = useCallback(async (silent = false) => {
         if (!silent) setIsLoading(true);
         try {
-            if (isServiceStaffRole(user?.role || '')) {
+            if (
+                isServiceStaffRole(user?.role || '') &&
+                getSafeUserRole(user?.role) !== 'staff_quality_checker'
+            ) {
                 const res = await OrderService.getStaffQueue();
                 if (res.success && Array.isArray(res.data)) {
                     setJobs(res.data);
@@ -82,7 +85,12 @@ export function useLiveJobs(
         // Join correct rooms — also fires on reconnect via 'connect' listener
         const joinRoom = () => {
             if (isAdminDashboardRole(user.role)) socket.emit('join_room', 'admin:chat');
-            if (isServiceStaffRole(user.role))  socket.emit('join_room', `staff:${user.id}`);
+            if (
+                isServiceStaffRole(user.role) &&
+                getSafeUserRole(user.role) !== 'staff_quality_checker'
+            ) {
+                socket.emit('join_room', `staff:${user.id}`);
+            }
             socket.emit('join_room', `user:${user.id}`);
             if ((user as any)._id && (user as any)._id !== user.id) {
                 socket.emit('join_room', `user:${(user as any)._id}`);
@@ -131,8 +139,11 @@ export function useLiveJobs(
             const docId = String(fullDocument?._id || documentKey?._id || '');
 
             if (operationType === 'insert') {
-                // For staff roles: only show jobs assigned to them
-                if (isServiceStaffRole(user.role)) {
+                // Legacy staff queue roles: refetch; QC + admins use full-order path below
+                if (
+                    isServiceStaffRole(user.role) &&
+                    getSafeUserRole(user.role) !== 'staff_quality_checker'
+                ) {
                     fetchJobs(true); // can't filter by assignment without fullDocument context
                     return;
                 }
@@ -191,6 +202,7 @@ export function useLiveJobs(
 
                 if (
                     isServiceStaffRole(user.role) &&
+                    getSafeUserRole(user.role) !== 'staff_quality_checker' &&
                     (updatedJob.paymentStatus !== 'paid' || updatedJob.status === 'pending')
                 ) {
                     return validJobs;

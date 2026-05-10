@@ -16,7 +16,9 @@ const api = axios.create({
     baseURL: BACKEND_API_URL,
     headers: {
         'Content-Type': 'application/json'
-    }
+    },
+    /** Prevent indefinite hangs when the API or network stalls */
+    timeout: 45_000,
 });
 
 // Socket connection URL — always use production Railway URL

@@ -1,4 +1,5 @@
 import ActivityLog from '../models/activityLog.model.js';
+import { isServiceStaffRole } from '../constants/roles.js';
 
 /**
  * Map legacy type to module/action/status
@@ -69,7 +70,7 @@ export const getActivityLogs = async (req, res, next) => {
     if (type) query.type = type;
     
     // Module filtering logic (role based scoping)
-    if (req.user?.role === 'service_staff') {
+    if (isServiceStaffRole(req.user?.role)) {
       // Service staff only sees these specific modules. Limit query if none provided, or enforce bounds.
       query.module = { $in: ['Booking', 'Service', 'Inventory'] };
       if (module && ['Booking', 'Service', 'Inventory'].includes(module)) {
@@ -251,7 +252,7 @@ function generateSeedData(forInsert = false) {
   const users = [
     { name: 'Carl Reyes', role: 'administrator' },
     { name: 'Maria Santos', role: 'office_admin' },
-    { name: 'Jake Torres', role: 'operation_manager' },
+    { name: 'Jake Torres', role: 'office_admin' },
     { name: 'Ana Rivera', role: 'sales' },
     { name: 'System', role: 'system' },
     { name: 'Luis Garcia', role: 'inventory' },

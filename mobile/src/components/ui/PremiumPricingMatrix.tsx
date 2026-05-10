@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp, SlideInRight } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { TabBarHeight } from '@/constants/theme';
+import { SPF_BASE_PRICES, formatPesoOrNA, type VehicleTypeKey } from '@/constants/spfPricing';
 
 const VEHICLE_TYPES = [
   { label: 'Hatchback', value: 'hatchback', icon: 'car-sport-outline' },
@@ -19,28 +20,28 @@ const SPF_PACKAGES = [
   {
     id: 'spf80',
     name: 'SPF 80 (3 Years)',
-    prices: { hatchback: '₱7,499', sedan: '₱7,999', midsized: '₱7,999', suv: '₱8,999', pickup: '₱8,499', largesuv: '₱12,999', highend: 'N/A' }
+    prices: SPF_BASE_PRICES.spf80
   },
   {
     id: 'spf89',
     name: 'SPF 89 (5 Years)',
-    prices: { hatchback: '₱8,999', sedan: '₱9,999', midsized: '₱10,999', suv: '₱11,999', pickup: '₱10,999', largesuv: '₱14,999', highend: '₱17,999' }
+    prices: SPF_BASE_PRICES.spf89
   },
   {
     id: 'spf99',
     name: 'SPF 99 (10 Years)',
-    prices: { hatchback: '₱13,999', sedan: '₱14,999', midsized: '₱15,999', suv: '₱16,999', pickup: '₱15,999', largesuv: '₱19,999', highend: '₱22,999' },
+    prices: SPF_BASE_PRICES.spf99,
     isPopular: true
   },
   {
     id: 'spf101',
     name: 'SPF 101 (Flagship ALL-IN)',
-    prices: { hatchback: '₱39,999', sedan: '₱39,999', midsized: '₱46,999', suv: '₱46,999', pickup: '₱46,999', largesuv: '₱49,999', highend: '₱49,999' }
+    prices: SPF_BASE_PRICES.spf101
   }
 ];
 
 export default function PremiumPricingMatrix({ selectedServiceId, onServiceSelect }: any) {
-  const [vehicleType, setVehicleType] = useState('sedan');
+  const [vehicleType, setVehicleType] = useState<VehicleTypeKey>('sedan');
 
   return (
     <View style={styles.container}>
@@ -56,7 +57,7 @@ export default function PremiumPricingMatrix({ selectedServiceId, onServiceSelec
               <Pressable
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setVehicleType(vt.value);
+                  setVehicleType(vt.value as VehicleTypeKey);
                 }}
                 style={[styles.pill, isActive && styles.pillActive]}
               >
@@ -71,15 +72,15 @@ export default function PremiumPricingMatrix({ selectedServiceId, onServiceSelec
       <View style={styles.matrix}>
         {SPF_PACKAGES.map((pkg, i) => {
           const isSelected = selectedServiceId === pkg.id;
-          const price = (pkg.prices as any)[vehicleType];
-          if (price === 'N/A') return null;
+          const price = pkg.prices[vehicleType];
+          if (price === null) return null;
           
           return (
             <Animated.View key={pkg.id} entering={FadeInUp.delay(i * 100).duration(200)}>
               <Pressable
                 onPress={() => {
                   Haptics.selectionAsync();
-                  onServiceSelect({ id: pkg.id, name: pkg.name, price: price });
+                  onServiceSelect({ id: pkg.id, name: pkg.name, price });
                 }}
                 style={[styles.pkgCard, isSelected && styles.pkgCardActive]}
               >
@@ -87,7 +88,7 @@ export default function PremiumPricingMatrix({ selectedServiceId, onServiceSelec
                   {pkg.isPopular && <Text style={styles.popBadge}>POPULAR</Text>}
                   <Text style={[styles.pkgName, isSelected && styles.pkgNameActive]}>{pkg.name}</Text>
                 </View>
-                <Text style={[styles.pkgPrice, isSelected && styles.pkgPriceActive]}>{price}</Text>
+                <Text style={[styles.pkgPrice, isSelected && styles.pkgPriceActive]}>{formatPesoOrNA(price)}</Text>
               </Pressable>
             </Animated.View>
           );

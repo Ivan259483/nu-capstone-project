@@ -1,18 +1,13 @@
 import React, { useMemo } from 'react';
-import { ShieldCheck, Users, Eye, Package, CalendarCheck, Wrench, CreditCard, BarChart3 } from 'lucide-react';
+import { ShieldCheck, CalendarCheck, Wrench, CreditCard } from 'lucide-react';
 
 interface Props { users: any[]; }
 
 const SYSTEM_ROLES = [
-  { id: 'administrator', label: 'Administrator', desc: 'Full system access — manages all modules, users, and settings', icon: ShieldCheck, color: '#dc2626', bg: '#fef2f2', permissions: ['Full Access', 'System Settings', 'All Modules', 'User Management', 'Audit Logs'] },
-  { id: 'office_admin', label: 'Office Admin', desc: 'Administrative operations — manages users, office settings, and daily administration', icon: ShieldCheck, color: '#ea580c', bg: '#fff7ed', permissions: ['User Management', 'Office Settings', 'Admin Dashboard'] },
-  { id: 'hr', label: 'Human Resource', desc: 'Staff management — accounts, roles, and activity monitoring', icon: Users, color: '#7c3aed', bg: '#f5f3ff', permissions: ['Staff Management', 'Role Assignment', 'Activity Monitor'] },
-  { id: 'operation_manager', label: 'Operation Manager', desc: 'Oversees daily operations — services, scheduling, and quality', icon: BarChart3, color: '#059669', bg: '#ecfdf5', permissions: ['Operations Dashboard', 'Service Management', 'Quality Control', 'Scheduling'] },
-  { id: 'inventory', label: 'Inventory Management', desc: 'Controls stock visibility, supplier coordination, and purchasing workflows', icon: Package, color: '#0f766e', bg: '#ecfeff', permissions: ['Stock Monitoring', 'Supplier Visibility', 'Inventory Reports'] },
-  { id: 'sales', label: 'Sales', desc: 'Handles POS transactions, customer interactions, and sales analytics', icon: CreditCard, color: '#d97706', bg: '#fffbeb', permissions: ['POS Access', 'Sales Dashboard', 'Customer Lookup'] },
-  { id: 'staff_quality_checker', label: 'Technician - Quality Checker', desc: 'Reviews completed work — inspections, approvals, and quality checks', icon: Wrench, color: '#6366f1', bg: '#eef2ff', permissions: ['Inspection Queue', 'Quality Reports', 'Approve/Reject', 'Technical Reports'] },
-  { id: 'staff_inventory', label: 'Inventory Staff', desc: 'Manages stock, supplies, and product catalogues', icon: Package, color: '#14b8a6', bg: '#f0fdfa', permissions: ['Inventory CRUD', 'Stock Alerts', 'Supplier Management'] },
-  { id: 'customer', label: 'Customer', desc: 'End-user accounts — can book services and view history', icon: CalendarCheck, color: '#64748b', bg: '#f8fafc', permissions: ['Booking Portal', 'Service History', 'Profile Management'] },
+  { id: 'office_admin', label: 'Office Admin', desc: 'Ang admin ninyo — oversees and controls everything: users, bookings, operations, live tracking, and settings', icon: ShieldCheck, color: '#ea580c', bg: '#fff7ed', permissions: ['User management', 'Bookings & jobs', 'Vehicle live tracking', 'Inventory & suppliers', 'Activity & reports', 'Settings'] },
+  { id: 'sales', label: 'Sales', desc: 'Booking appointments, point of sale, and assistance for customer booking', icon: CreditCard, color: '#d97706', bg: '#fffbeb', permissions: ['POS', 'Sales dashboard', 'Bookings / calendar', 'Customer lookup'] },
+  { id: 'staff_quality_checker', label: 'Quality Checker - Technician', desc: 'Vehicle live tracking, QC workflows, and job visibility', icon: Wrench, color: '#6366f1', bg: '#eef2ff', permissions: ['Live customer tracking', 'QC queue', 'Job read / verify'] },
+  { id: 'customer', label: 'Customer', desc: 'End-user accounts — book services and view their own status', icon: CalendarCheck, color: '#64748b', bg: '#f8fafc', permissions: ['Booking portal', 'Own service history', 'Profile'] },
 ];
 
 export default function AdminRoleManagement({ users }: Props) {
@@ -32,12 +27,11 @@ export default function AdminRoleManagement({ users }: Props) {
       {/* Summary */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
         {[
-          { label: 'Total Roles', value: SYSTEM_ROLES.length, color: '#2563eb' },
-          { label: 'Staff Roles', value: SYSTEM_ROLES.filter(r => !['customer', 'administrator', 'office_admin'].includes(r.id)).length, color: '#059669' },
+          { label: 'Staff roles (assignable)', value: SYSTEM_ROLES.filter(r => ['office_admin', 'sales', 'staff_quality_checker'].includes(r.id)).length, color: '#059669' },
           { label: 'Total Users', value: users.length, color: '#7c3aed' },
         ].map(s => (
           <div key={s.label} className="ah-kpi-card" style={{ padding: 14 }}>
-            <p style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{s.label}</p>
+            <p style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.02em', margin: 0 }}>{s.label}</p>
             <p className="tabular-nums" style={{ fontSize: 24, fontWeight: 700, color: s.color, margin: '4px 0 0' }}>{s.value}</p>
           </div>
         ))}

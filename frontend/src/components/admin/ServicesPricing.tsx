@@ -1,674 +1,886 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useMemo, useState } from 'react';
 import {
-    Search, Plus, Edit, Trash2, LayoutGrid, List, ToggleLeft, ToggleRight,
-    Eye, EyeOff, AlertTriangle, X
+    BadgePercent,
+    CarFront,
+    CheckCircle2,
+    Layers,
+    Loader2,
+    Package,
+    Palette,
+    RefreshCw,
+    Save,
+    Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DetailService } from '@/lib/detail-service-api';
+import {
+    VEHICLE_PRICE_FIELDS,
+    getDefaultAddonPrice,
+    getDefaultBasePrice,
+    getDefaultOriginalPrice,
+    getPackageKeyFromName,
+    getServiceId,
+    getServicePricingEntry,
+    type ApiVehiclePriceKey,
+    type ServiceCatalogCard,
+} from '@/lib/service-pricing';
 import { formatCurrency } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { Service } from '@/types';
 
 interface ServicesPricingProps {
     services: Service[];
-    onRefresh: () => void;
+    onRefresh: () => void | Promise<void>;
 }
 
-type ViewMode = 'table' | 'card';
-type FilterCategory = 'all' | 'Exterior' | 'Interior' | 'Complete' | 'Engine' | 'Premium';
+type DraftField = 'basePrice' | 'originalPrice' | 'addonPrice';
+type PriceDraft = Record<DraftField, string>;
+type DraftsByVehicle = Record<ApiVehiclePriceKey, PriceDraft>;
 
-const CATEGORIES: { id: FilterCategory; label: string }[] = [
-    { id: 'all', label: 'All' },
-    { id: 'Exterior', label: 'Exterior' },
-    { id: 'Interior', label: 'Interior' },
-    { id: 'Complete', label: 'Complete' },
-    { id: 'Engine', label: 'Engine' },
-    { id: 'Premium', label: 'Premium' },
+const SPF_ORDER: Record<string, number> = {
+    spf80: 1,
+    spf89: 2,
+    spf99: 3,
+    spf101: 4,
+};
+
+const blankDraft = (): PriceDraft => ({
+    basePrice: '',
+    originalPrice: '',
+    addonPrice: '',
+});
+
+const emptyDrafts = (): DraftsByVehicle =>
+    VEHICLE_PRICE_FIELDS.reduce((acc, field) => {
+        acc[field.apiKey] = blankDraft();
+        return acc;
+    }, {} as DraftsByVehicle);
+
+type CatalogFormState = {
+    badge: string;
+    warrantyLabel: string;
+    tagline: string;
+    tierLabel: string;
+    addonLabel: string;
+    discountBadge: string;
+    iconKey: string;
+    accentFrom: string;
+    accentTo: string;
+    accentMid: string;
+    featuresText: string;
+    highlightedText: string;
+    popular: boolean;
+    flagship: boolean;
+    originalPriceMultiplier: string;
+};
+
+const emptyCatalogForm = (): CatalogFormState => ({
+    badge: '',
+    warrantyLabel: '',
+    tagline: '',
+    tierLabel: '',
+    addonLabel: '',
+    discountBadge: '',
+    iconKey: '',
+    accentFrom: '',
+    accentTo: '',
+    accentMid: '',
+    featuresText: '',
+    highlightedText: '',
+    popular: false,
+    flagship: false,
+    originalPriceMultiplier: '',
+});
+
+const catalogCardToForm = (card?: ServiceCatalogCard | null): CatalogFormState => {
+    const base = emptyCatalogForm();
+    if (!card) return base;
+    return {
+        badge: card.badge ?? '',
+        warrantyLabel: card.warrantyLabel ?? '',
+        tagline: card.tagline ?? '',
+        tierLabel: card.tierLabel ?? '',
+        addonLabel: card.addonLabel ?? '',
+        discountBadge: card.discountBadge ?? '',
+        iconKey: card.iconKey ?? '',
+        accentFrom: card.accentFrom ?? '',
+        accentTo: card.accentTo ?? '',
+        accentMid: card.accentMid ?? '',
+        featuresText: Array.isArray(card.features) ? card.features.join('\n') : '',
+        highlightedText: Array.isArray(card.highlighted) ? card.highlighted.join('\n') : '',
+        popular: !!card.popular,
+        flagship: !!card.flagship,
+        originalPriceMultiplier:
+            card.originalPriceMultiplier != null && Number.isFinite(card.originalPriceMultiplier)
+                ? String(card.originalPriceMultiplier)
+                : '',
+    };
+};
+
+/** Radix `<SelectItem>` cannot use `value=""` (empty string is reserved for clearing). */
+const ICON_KEY_SELECT_BUILTIN = '__catalog_icon_builtin__';
+
+const ICON_OPTIONS: { value: string; label: string }[] = [
+    { value: ICON_KEY_SELECT_BUILTIN, label: 'Default (built-in for this package)' },
+    { value: 'sparkles', label: 'Sparkles' },
+    { value: 'shield', label: 'Shield' },
+    { value: 'star', label: 'Star' },
+    { value: 'crown', label: 'Crown' },
+    { value: 'zap', label: 'Zap' },
 ];
 
-const VEHICLE_TYPES = [
-    { key: 'hatchback', label: 'Hatchback' },
-    { key: 'sedan', label: 'Sedan' },
-    { key: 'midsized', label: 'Midsized' },
-    { key: 'suv', label: 'SUV' },
-    { key: 'pickup', label: 'Pick Up' },
-    { key: 'largesuv', label: 'Large SUV' },
-    { key: 'highend', label: 'High-end' },
-];
+const toInputValue = (value: number | null | undefined) => (value == null ? '' : String(value));
 
-const getCategoryColor = (cat: string) => {
-    switch (cat) {
-        case 'Exterior': return { bg: 'bg-blue-500/15', text: 'text-blue-400', border: 'border-blue-500/25' };
-        case 'Interior': return { bg: 'bg-emerald-500/15', text: 'text-emerald-400', border: 'border-emerald-500/25' };
-        case 'Complete': return { bg: 'bg-orange-500/15', text: 'text-orange-400', border: 'border-orange-500/25' };
-        case 'Engine': return { bg: 'bg-red-500/15', text: 'text-red-400', border: 'border-red-500/25' };
-        case 'Premium': return { bg: 'bg-purple-500/15', text: 'text-purple-400', border: 'border-purple-500/25' };
-        default: return { bg: 'bg-zinc-500/15', text: 'text-zinc-400', border: 'border-zinc-500/25' };
+const parseMoneyInput = (value: string, label: string, required = false) => {
+    const clean = value.replace(/[₱,\s]/g, '').trim();
+    if (!clean) {
+        if (required) throw new Error(`${label} is required`);
+        return null;
     }
+
+    const numeric = Number(clean);
+    if (!Number.isFinite(numeric) || numeric < 0) {
+        throw new Error(`${label} must be a valid positive amount`);
+    }
+    return Math.round(numeric * 100) / 100;
+};
+
+const buildDraftsFromService = (service: Service | undefined): DraftsByVehicle => {
+    const drafts = emptyDrafts();
+    if (!service) return drafts;
+
+    const packageKey = getPackageKeyFromName(service.name);
+    VEHICLE_PRICE_FIELDS.forEach((field) => {
+        const entry = getServicePricingEntry(service, field.publicKey);
+        const base = entry.base ?? getDefaultBasePrice(packageKey, field.publicKey);
+        const original = entry.original ?? getDefaultOriginalPrice(base, packageKey, field.publicKey);
+        const addon = entry.addon ?? getDefaultAddonPrice(packageKey, field.publicKey);
+
+        drafts[field.apiKey] = {
+            basePrice: toInputValue(base),
+            originalPrice: toInputValue(original),
+            addonPrice: toInputValue(addon),
+        };
+    });
+
+    return drafts;
 };
 
 export function ServicesPricing({ services, onRefresh }: ServicesPricingProps) {
-    const [searchQuery, setSearchQuery] = useState('');
-    const [activeFilter, setActiveFilter] = useState<FilterCategory>('all');
-    const [viewMode, setViewMode] = useState<ViewMode>('table');
+    const [selectedServiceId, setSelectedServiceId] = useState('');
+    const [selectedVehicle, setSelectedVehicle] = useState<ApiVehiclePriceKey>('sedan');
+    const [drafts, setDrafts] = useState<DraftsByVehicle>(() => emptyDrafts());
+    const [savingVehicle, setSavingVehicle] = useState<ApiVehiclePriceKey | null>(null);
+    const [savingAll, setSavingAll] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [catalogForm, setCatalogForm] = useState<CatalogFormState>(emptyCatalogForm);
+    const [savingCatalog, setSavingCatalog] = useState(false);
 
-    // Modal state
-    const [showModal, setShowModal] = useState(false);
-    const [isEditing, setIsEditing] = useState(false);
-    const [editingId, setEditingId] = useState<string | null>(null);
-    const [formName, setFormName] = useState('');
-    const [formCategory, setFormCategory] = useState('Exterior');
-    const [formDuration, setFormDuration] = useState('');
-    const [formPrices, setFormPrices] = useState<Record<string, string>>({
-        hatchback: '', sedan: '', midsized: '', suv: '', pickup: '', largesuv: '', highend: ''
-    });
-    const [formPublished, setFormPublished] = useState(true);
-    const [saving, setSaving] = useState(false);
+    const serviceOptions = useMemo(() => {
+        const spfServices = services.filter((service) => getPackageKeyFromName(service.name));
+        const options = spfServices.length ? spfServices : services;
 
-    // Delete confirmation modal
-    const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-    const [deleting, setDeleting] = useState(false);
-
-    // ─── Filtered services ─────────────────────────────────────────────────────
-    const filteredServices = useMemo(() => {
-        let list = [...services];
-        if (activeFilter !== 'all') {
-            list = list.filter(s => s.category === activeFilter);
-        }
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            list = list.filter(s => s.name.toLowerCase().includes(q));
-        }
-        return list;
-    }, [services, activeFilter, searchQuery]);
-
-    // ─── Stats ─────────────────────────────────────────────────────────────────
-    const stats = useMemo(() => {
-        const active = services.filter(s => s.status === 'Active');
-        const inactive = services.filter(s => s.status === 'Inactive');
-        const categories = new Set(services.map(s => s.category));
-        
-        let validPrices: number[] = [];
-        services.forEach(s => {
-            if (s.prices) {
-                Object.values(s.prices).forEach(p => {
-                    if (p && typeof p === 'number') validPrices.push(p);
-                });
-            } else if (s.basePrice) {
-                 validPrices.push(s.basePrice);
-            }
+        return [...options].sort((a, b) => {
+            const aOrder = SPF_ORDER[getPackageKeyFromName(a.name) || ''] || 99;
+            const bOrder = SPF_ORDER[getPackageKeyFromName(b.name) || ''] || 99;
+            return aOrder - bOrder || a.name.localeCompare(b.name);
         });
-        
-        const avgPrice = validPrices.length > 0
-            ? Math.round(validPrices.reduce((a, b) => a + b, 0) / validPrices.length)
-            : 0;
-            
-        const mostBooked = [...services].sort((a, b) => (b.bookingCount || 0) - (a.bookingCount || 0))[0];
-
-        return {
-            total: services.length,
-            categoriesCount: categories.size,
-            active: active.length,
-            inactive: inactive.length,
-            avgPrice,
-            mostBooked,
-        };
     }, [services]);
 
-    // ─── Handlers ──────────────────────────────────────────────────────────────
-    const resetForm = () => {
-        setFormName('');
-        setFormCategory('Exterior');
-        setFormDuration('');
-        setFormPrices({
-            hatchback: '', sedan: '', midsized: '', suv: '', pickup: '', largesuv: '', highend: ''
-        });
-        setFormPublished(true);
-        setIsEditing(false);
-        setEditingId(null);
-    };
-
-    const openAddModal = () => {
-        resetForm();
-        setShowModal(true);
-    };
-
-    const openEditModal = (s: Service) => {
-        setFormName(s.name);
-        setFormCategory(s.category);
-        setFormDuration(s.duration || '');
-        
-        // Handle potentially missing prices object
-        const prices: Record<string, number> = s.prices || {};
-        setFormPrices({
-            hatchback: prices.hatchback !== undefined && prices.hatchback !== null ? String(prices.hatchback) : '',
-            sedan: prices.sedan !== undefined && prices.sedan !== null ? String(prices.sedan) : '',
-            midsized: prices.midsized !== undefined && prices.midsized !== null ? String(prices.midsized) : '',
-            suv: prices.suv !== undefined && prices.suv !== null ? String(prices.suv) : '',
-            pickup: prices.pickup !== undefined && prices.pickup !== null ? String(prices.pickup) : '',
-            largesuv: prices.largesuv !== undefined && prices.largesuv !== null ? String(prices.largesuv) : '',
-            highend: prices.highend !== undefined && prices.highend !== null ? String(prices.highend) : ''
-        });
-        setFormPublished(s.isPublished !== false);
-        setIsEditing(true);
-        setEditingId(s.id);
-        setShowModal(true);
-    };
-
-    const handlePriceChange = (key: string, value: string) => {
-        setFormPrices(prev => ({ ...prev, [key]: value }));
-    };
-
-    const handleSave = async () => {
-        if (!formName || !formCategory) {
-            toast.error('Please fill in required fields (Name and Category)');
+    useEffect(() => {
+        if (!serviceOptions.length) {
+            setSelectedServiceId('');
             return;
         }
-        setSaving(true);
-        try {
-            // Convert to numbers or null
-            const pricesPayload: any = {};
-            let minPrice = Infinity;
-            
-            VEHICLE_TYPES.forEach(vt => {
-                const val = formPrices[vt.key];
-                if (val && !isNaN(parseFloat(val))) {
-                    const numVal = parseFloat(val);
-                    pricesPayload[vt.key] = numVal;
-                    if (numVal < minPrice) minPrice = numVal;
-                } else {
-                    pricesPayload[vt.key] = null;
-                }
-            });
-            
-            const payload = {
-                name: formName,
-                category: formCategory,
-                duration: formDuration,
-                prices: pricesPayload,
-                basePrice: minPrice !== Infinity ? minPrice : 0, // Keep as fallback
-                isPublished: formPublished,
-                status: 'Active',
-            };
-            
-            let res;
-            if (isEditing && editingId) {
-                res = await DetailService.updateService(editingId, payload);
-            } else {
-                res = await DetailService.createService(payload);
-            }
-            if (res.success) {
-                toast.success(isEditing ? 'Service updated' : 'Service created');
-                setShowModal(false);
-                resetForm();
-                onRefresh();
-            } else {
-                toast.error(res.message || 'Failed to save service');
-            }
-        } catch (err: any) {
-            toast.error(err.message || 'Failed to save');
-        } finally {
-            setSaving(false);
+
+        if (!serviceOptions.some((service) => getServiceId(service) === selectedServiceId)) {
+            setSelectedServiceId(getServiceId(serviceOptions[0]));
         }
-    };
+    }, [selectedServiceId, serviceOptions]);
 
-    const handleToggleStatus = async (s: Service) => {
-        try {
-            const newStatus = s.status === 'Active' ? 'Inactive' : 'Active';
-            const res = await DetailService.updateService(s.id, { status: newStatus });
-            if (res.success) {
-                toast.success(`${s.name} ${newStatus === 'Active' ? 'activated' : 'deactivated'}`);
-                onRefresh();
-            }
-        } catch (err: any) {
-            toast.error('Failed to toggle status');
-        }
-    };
+    const selectedService = useMemo(
+        () => serviceOptions.find((service) => getServiceId(service) === selectedServiceId),
+        [selectedServiceId, serviceOptions],
+    );
 
-    const handleDeleteConfirm = async () => {
-        if (!deleteTarget) return;
-        setDeleting(true);
-        try {
-            const res = await DetailService.deleteService(deleteTarget.id);
-            if (res.success) {
-                toast.success(`"${deleteTarget.name}" deleted`);
-                setDeleteTarget(null);
-                onRefresh();
-            } else {
-                toast.error(res.message || 'Failed to delete');
-            }
-        } catch (err: any) {
-            toast.error('Failed to delete service');
-        } finally {
-            setDeleting(false);
-        }
-    };
+    useEffect(() => {
+        setDrafts(buildDraftsFromService(selectedService));
+    }, [selectedService]);
 
-    const getPriceDisplay = (s: Service, key: string) => {
-        const val = s.prices?.[key as keyof typeof s.prices];
-        return (val !== undefined && val !== null) ? formatCurrency(val) : '—';
-    };
+    useEffect(() => {
+        setCatalogForm(catalogCardToForm(selectedService?.catalogCard));
+    }, [selectedService]);
 
-    const getPriceRange = (s: Service) => {
-        if (!s.prices) return formatCurrency(s.basePrice || 0);
-        
-        const validPrices = Object.values(s.prices).filter(p => p !== null && p !== undefined) as number[];
-        if (validPrices.length === 0) return formatCurrency(s.basePrice || 0);
-        
-        const min = Math.min(...validPrices);
-        const max = Math.max(...validPrices);
+    const selectedVehicleMeta = VEHICLE_PRICE_FIELDS.find((field) => field.apiKey === selectedVehicle) || VEHICLE_PRICE_FIELDS[1];
+    const selectedDraft = drafts[selectedVehicle] || blankDraft();
+    const activeServices = services.filter((service) => service.status === 'Active').length;
+    const publishedServices = services.filter((service) => service.isPublished !== false).length;
+    const selectedRange = useMemo(() => {
+        const values = VEHICLE_PRICE_FIELDS
+            .map((field) => Number((drafts[field.apiKey]?.basePrice || '').replace(/[₱,\s]/g, '')))
+            .filter((value) => Number.isFinite(value) && value > 0);
+
+        if (!values.length) return formatCurrency(selectedService?.basePrice || 0);
+        const min = Math.min(...values);
+        const max = Math.max(...values);
         return min === max ? formatCurrency(min) : `${formatCurrency(min)} - ${formatCurrency(max)}`;
+    }, [drafts, selectedService?.basePrice]);
+
+    const updateDraft = (vehicleKey: ApiVehiclePriceKey, field: DraftField, value: string) => {
+        setDrafts((prev) => ({
+            ...prev,
+            [vehicleKey]: {
+                ...(prev[vehicleKey] || blankDraft()),
+                [field]: value,
+            },
+        }));
     };
+
+    const buildPayload = (vehicleKey: ApiVehiclePriceKey) => {
+        const draft = drafts[vehicleKey] || blankDraft();
+        return {
+            vehicleType: vehicleKey,
+            basePrice: parseMoneyInput(draft.basePrice, 'Base price'),
+            originalPrice: parseMoneyInput(draft.originalPrice, 'Original price'),
+            addonPrice: parseMoneyInput(draft.addonPrice, 'Nano ceramic add-on price'),
+        };
+    };
+
+    const handleRefresh = async () => {
+        setRefreshing(true);
+        try {
+            await onRefresh();
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
+    const saveVehicle = async (vehicleKey: ApiVehiclePriceKey) => {
+        const serviceId = selectedService ? getServiceId(selectedService) : '';
+        if (!serviceId) {
+            toast.error('Select a package first');
+            return;
+        }
+
+        setSavingVehicle(vehicleKey);
+        try {
+            await DetailService.updateServicePricing(serviceId, buildPayload(vehicleKey));
+            toast.success(`${selectedService?.name || 'Service'} ${VEHICLE_PRICE_FIELDS.find((field) => field.apiKey === vehicleKey)?.compactLabel || 'vehicle'} pricing saved`);
+            await onRefresh();
+        } catch (error: any) {
+            toast.error(error?.response?.data?.message || error?.message || 'Failed to save pricing');
+        } finally {
+            setSavingVehicle(null);
+        }
+    };
+
+    const saveAllVehicles = async () => {
+        const serviceId = selectedService ? getServiceId(selectedService) : '';
+        if (!serviceId) {
+            toast.error('Select a package first');
+            return;
+        }
+
+        setSavingAll(true);
+        try {
+            const payloads = VEHICLE_PRICE_FIELDS.map((field) => buildPayload(field.apiKey));
+            for (const payload of payloads) {
+                await DetailService.updateServicePricing(serviceId, payload);
+            }
+            toast.success(`All vehicle pricing saved for ${selectedService?.name || 'selected package'}`);
+            await onRefresh();
+        } catch (error: any) {
+            toast.error(error?.response?.data?.message || error?.message || 'Failed to save all pricing');
+        } finally {
+            setSavingAll(false);
+        }
+    };
+
+    const buildCatalogPayload = (): ServiceCatalogCard | null => {
+        const out: ServiceCatalogCard = {};
+        if (catalogForm.badge.trim()) out.badge = catalogForm.badge.trim();
+        if (catalogForm.warrantyLabel.trim()) out.warrantyLabel = catalogForm.warrantyLabel.trim();
+        if (catalogForm.tagline.trim()) out.tagline = catalogForm.tagline.trim();
+        if (catalogForm.tierLabel.trim()) out.tierLabel = catalogForm.tierLabel.trim();
+        if (catalogForm.addonLabel.trim()) out.addonLabel = catalogForm.addonLabel.trim();
+        if (catalogForm.discountBadge.trim()) out.discountBadge = catalogForm.discountBadge.trim();
+        if (catalogForm.accentFrom.trim()) out.accentFrom = catalogForm.accentFrom.trim();
+        if (catalogForm.accentTo.trim()) out.accentTo = catalogForm.accentTo.trim();
+        if (catalogForm.accentMid.trim()) out.accentMid = catalogForm.accentMid.trim();
+
+        const icon = catalogForm.iconKey.trim();
+        if (icon && ['sparkles', 'shield', 'star', 'crown', 'zap'].includes(icon)) {
+            out.iconKey = icon as ServiceCatalogCard['iconKey'];
+        }
+
+        const lines = catalogForm.featuresText.split('\n').map((s) => s.trim()).filter(Boolean);
+        if (lines.length) out.features = lines;
+
+        const highlights = catalogForm.highlightedText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+        if (highlights.length) out.highlighted = highlights;
+
+        const mult = catalogForm.originalPriceMultiplier.trim();
+        if (mult !== '' && Number.isFinite(Number(mult))) {
+            out.originalPriceMultiplier = Number(mult);
+        }
+
+        const hasStringsOrArrays =
+            !!out.badge
+            || !!out.warrantyLabel
+            || !!out.tagline
+            || !!out.tierLabel
+            || !!out.addonLabel
+            || !!out.discountBadge
+            || !!out.accentFrom
+            || !!out.accentTo
+            || !!out.accentMid
+            || !!out.iconKey
+            || !!out.features?.length
+            || !!out.highlighted?.length
+            || out.originalPriceMultiplier != null;
+
+        if (!hasStringsOrArrays && !catalogForm.popular && !catalogForm.flagship) {
+            return null;
+        }
+
+        out.popular = catalogForm.popular;
+        out.flagship = catalogForm.flagship;
+        return out;
+    };
+
+    const saveCatalogCard = async () => {
+        const serviceId = selectedService ? getServiceId(selectedService) : '';
+        if (!serviceId) {
+            toast.error('Select a package first');
+            return;
+        }
+
+        setSavingCatalog(true);
+        try {
+            const catalogCard = buildCatalogPayload();
+            await DetailService.updateService(serviceId, { catalogCard });
+            toast.success(
+                catalogCard
+                    ? 'Website card saved. Open /services to verify (cache may take a moment).'
+                    : 'Cleared custom card — built-in defaults apply on /services.',
+            );
+            await onRefresh();
+        } catch (error: any) {
+            toast.error(error?.response?.data?.message || error?.message || 'Failed to save website card');
+        } finally {
+            setSavingCatalog(false);
+        }
+    };
+
+    if (!serviceOptions.length) {
+        return (
+            <div className="rounded-[28px] bg-white p-8 text-center shadow-[0_28px_90px_-28px_rgba(15,23,42,0.14),0_12px_40px_-18px_rgba(15,23,42,0.08)]">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                    <Package className="h-6 w-6" />
+                </div>
+                <h1 className="mt-4 text-xl font-bold text-slate-950">Service Pricing Management</h1>
+                <p className="mt-2 text-sm text-slate-500">No service packages are loaded yet.</p>
+                <Button onClick={handleRefresh} className="mt-5 bg-orange-500 text-white hover:bg-orange-600">
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Refresh services
+                </Button>
+            </div>
+        );
+    }
 
     return (
-        <div className="space-y-5">
-            {/* ───── Header ───── */}
-            <div className="flex items-center justify-between">
+        <div className="space-y-6 text-slate-900">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-white">Services & Pricing</h1>
-                    <p className="text-[12px] text-zinc-500 mt-0.5">Manage specific vehicle prices for the catalog</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-600">Services catalog</p>
+                    <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">SPF packages & public pricing</h1>
+                    <p className="mt-1 max-w-2xl text-sm font-medium text-slate-500">
+                        Step 1: edit what visitors see on the Services page. Step 2: set base, original strikethrough, and tint add-on per vehicle size. OFFICE ADMIN has the same access as the bootstrap administrator.
+                    </p>
                 </div>
                 <Button
-                    onClick={openAddModal}
-                    className="h-9 bg-[#E87C2F] hover:bg-[#d06e28] text-white gap-1.5 text-[12px] font-semibold"
+                    variant="outline"
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    className="h-10 border-0 bg-white text-slate-700 shadow-[0_8px_28px_-8px_rgba(15,23,42,0.12),0_2px_8px_rgba(15,23,42,0.05)] hover:bg-slate-50/90"
                 >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Service
+                    {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                    Refresh
                 </Button>
             </div>
 
-            {/* ───── Stats Bar ───── */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid gap-4 md:grid-cols-4">
                 {[
-                    { label: 'TOTAL SERVICES', value: stats.total, sub: `across ${stats.categoriesCount} categories`, color: 'text-white' },
-                    { label: 'ACTIVE SERVICES', value: stats.active, sub: stats.inactive > 0 ? `${stats.inactive} inactive` : 'All active', color: stats.inactive > 0 ? 'text-orange-400' : 'text-emerald-400' },
-                    { label: 'AVG EST. PRICE', value: formatCurrency(stats.avgPrice), sub: 'across all tiers', color: 'text-white', isString: true },
-                    { label: 'MOST BOOKED', value: stats.mostBooked?.name || '—', sub: stats.mostBooked ? `${stats.mostBooked.bookingCount || 0} bookings` : 'No data yet', color: 'text-orange-400', isString: true },
-                ].map((stat, i) => (
-                    <motion.div
-                        key={stat.label}
-                        initial={{ opacity: 0, y: 16 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.06 }}
-                        className="rounded-xl bg-[#161619] border border-zinc-800/60 px-5 py-4"
-                    >
-                        <p className="text-[10px] font-semibold tracking-[1.5px] text-zinc-500 uppercase">{stat.label}</p>
-                        <p className={`${stat.isString ? 'text-xl' : 'text-3xl'} font-bold mt-1 ${stat.color} truncate`}>{stat.value}</p>
-                        <p className={`text-[11px] mt-0.5 ${stat.color === 'text-orange-400' ? 'text-orange-400/60' : 'text-zinc-500'}`}>{stat.sub}</p>
-                    </motion.div>
-                ))}
-            </div>
+                    { label: 'Packages', value: serviceOptions.length, icon: Package, tone: 'blue' },
+                    { label: 'Active services', value: activeServices, icon: CheckCircle2, tone: 'green' },
+                    { label: 'Vehicle types', value: VEHICLE_PRICE_FIELDS.length, icon: CarFront, tone: 'slate' },
+                    { label: 'Published', value: publishedServices, icon: BadgePercent, tone: 'blue' },
+                ].map((item) => {
+                    const Icon = item.icon;
+                    const toneClass =
+                        item.tone === 'green'
+                            ? 'bg-emerald-50 text-emerald-600'
+                            : item.tone === 'blue'
+                                ? 'bg-blue-50 text-blue-600'
+                                : 'bg-slate-100 text-slate-600';
 
-            {/* ───── Search + Filters ───── */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                <div className="relative flex-1 w-full sm:w-auto">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                    <Input
-                        placeholder="Search service name..."
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        className="pl-10 h-10 bg-[#161619] border-zinc-800 text-white placeholder:text-zinc-600 text-sm focus:border-[#E87C2F]/50 focus:ring-1 focus:ring-[#E87C2F]/20"
-                    />
-                </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                    {CATEGORIES.map(cat => (
-                        <button
-                            key={cat.id}
-                            onClick={() => setActiveFilter(cat.id)}
-                            className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${activeFilter === cat.id
-                                ? 'bg-[#E87C2F] text-white shadow-lg shadow-orange-500/20'
-                                : 'bg-[#161619] text-zinc-400 hover:text-zinc-200 border border-zinc-800/60 hover:border-zinc-700'
-                                }`}
+                    return (
+                        <div
+                            key={item.label}
+                            className="rounded-2xl bg-white p-5 shadow-[0_10px_40px_-12px_rgba(15,23,42,0.12),0_4px_14px_-4px_rgba(15,23,42,0.06)] transition-shadow hover:shadow-[0_18px_48px_-14px_rgba(15,23,42,0.14)]"
                         >
-                            {cat.label}
-                        </button>
-                    ))}
-                    <div className="h-6 w-px bg-zinc-800 mx-1" />
-                    <button
-                        onClick={() => setViewMode('table')}
-                        className={`p-2 rounded-lg transition-all ${viewMode === 'table' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                    >
-                        <List className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={() => setViewMode('card')}
-                        className={`p-2 rounded-lg transition-all ${viewMode === 'card' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                    >
-                        <LayoutGrid className="w-4 h-4" />
-                    </button>
-                </div>
+                            <div className="flex items-center gap-3">
+                                <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${toneClass}`}>
+                                    <Icon className="h-5 w-5" />
+                                </span>
+                                <div>
+                                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">{item.label}</p>
+                                    <p className="text-2xl font-bold text-slate-950">{item.value}</p>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
 
-            {/* ───── Table View ───── */}
-            {viewMode === 'table' && (
-                <div className="rounded-xl bg-[#161619] border border-zinc-800/60 overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b border-zinc-800/60">
-                                    <th className="text-left text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5 pl-5">Service</th>
-                                    {VEHICLE_TYPES.map(vt => (
-                                        <th key={vt.key} className="text-center text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5">{vt.label}</th>
-                                    ))}
-                                    <th className="text-center text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5">Status</th>
-                                    <th className="text-center text-[10px] font-semibold uppercase tracking-[1.5px] text-zinc-500 py-3.5 pr-5">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-800/40">
-                                {filteredServices.map((s, idx) => {
-                                    const catColor = getCategoryColor(s.category);
-                                    return (
-                                        <motion.tr
-                                            key={s.id}
-                                            initial={{ opacity: 0, y: 8 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ delay: idx * 0.025 }}
-                                            className="group hover:bg-zinc-800/20 transition-colors"
-                                        >
-                                            {/* Service name + category */}
-                                            <td className="py-3.5 pl-5">
-                                                <div>
-                                                    <span className="text-[13px] font-semibold text-white whitespace-nowrap">{s.name}</span>
-                                                    <div className="mt-1">
-                                                        <Badge className={`text-[9px] font-bold px-2 py-0.5 ${catColor.bg} ${catColor.text} border ${catColor.border} rounded-md`}>
-                                                            {s.category}
-                                                        </Badge>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            
-                                            {/* Vehicle Prices */}
-                                            {VEHICLE_TYPES.map(vt => (
-                                                <td key={vt.key} className="py-3.5 text-center text-[11px] font-medium text-zinc-400">
-                                                    {getPriceDisplay(s, vt.key)}
-                                                </td>
-                                            ))}
-
-                                            {/* Status toggle */}
-                                            <td className="py-3.5 text-center">
-                                                <button
-                                                    onClick={() => handleToggleStatus(s)}
-                                                    className="inline-flex items-center"
-                                                    title={s.status === 'Active' ? 'Click to deactivate' : 'Click to activate'}
-                                                >
-                                                    {s.status === 'Active' ? (
-                                                        <ToggleRight className="w-6 h-6 text-emerald-400" />
-                                                    ) : (
-                                                        <ToggleLeft className="w-6 h-6 text-zinc-600" />
-                                                    )}
-                                                </button>
-                                            </td>
-                                            {/* Actions */}
-                                            <td className="py-3.5 pr-5 text-center">
-                                                <div className="flex items-center justify-center gap-1.5">
-                                                    <button
-                                                        onClick={() => openEditModal(s)}
-                                                        className="p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-700/50 transition-all"
-                                                        title="Edit"
-                                                    >
-                                                        <Edit className="w-3.5 h-3.5" />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setDeleteTarget({ id: s.id, name: s.name })}
-                                                        className="p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
-                                                        title="Delete"
-                                                    >
-                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </motion.tr>
-                                    );
-                                })}
-                                {filteredServices.length === 0 && (
-                                    <tr>
-                                        <td colSpan={10} className="py-12 text-center text-zinc-500 text-sm">
-                                            No services found
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
+            <section className="overflow-hidden rounded-[28px] bg-white shadow-[0_28px_90px_-28px_rgba(15,23,42,0.14),0_12px_40px_-18px_rgba(15,23,42,0.08)]">
+                <div className="bg-gradient-to-b from-white via-white to-slate-50/50 px-5 py-5 shadow-[inset_0_-1px_0_0_rgba(15,23,42,0.04)] sm:px-6">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="min-w-0 max-w-xl flex-1">
+                            <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Package</Label>
+                            <Select value={selectedServiceId} onValueChange={setSelectedServiceId}>
+                                <SelectTrigger className="mt-2 h-11 border-0 bg-slate-50/80 text-sm font-semibold text-slate-900 shadow-sm focus:ring-2 focus:ring-slate-900/10">
+                                    <SelectValue placeholder="Select package" />
+                                </SelectTrigger>
+                                <SelectContent className="border-slate-200 bg-white text-slate-900">
+                                    {serviceOptions
+                                        .filter((service) => getServiceId(service))
+                                        .map((service) => {
+                                            const id = getServiceId(service);
+                                            return (
+                                                <SelectItem key={id} value={id}>
+                                                    {service.name}
+                                                </SelectItem>
+                                            );
+                                        })}
+                                </SelectContent>
+                            </Select>
+                            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                Packages are detected from the name (SPF 80, 89, 99, 101). Pick one, then use the tabs below to edit the marketing card and vehicle prices.
+                            </p>
+                        </div>
                     </div>
                 </div>
-            )}
 
-            {/* ───── Card View ───── */}
-            {viewMode === 'card' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredServices.map((s, idx) => {
-                        const catColor = getCategoryColor(s.category);
-                        return (
-                            <motion.div
-                                key={s.id}
-                                initial={{ opacity: 0, y: 16 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: idx * 0.04 }}
-                                whileHover={{ y: -4 }}
-                                className="rounded-xl bg-[#161619] border border-zinc-800/60 p-5 flex flex-col"
-                            >
-                                <div className="flex items-start justify-between mb-3">
+                <Tabs defaultValue="card" className="w-full">
+                    <div className="bg-slate-50/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(15,23,42,0.04)] sm:px-6">
+                        <TabsList className="grid h-auto w-full max-w-lg grid-cols-2 gap-1 rounded-2xl bg-white/95 p-1 shadow-[0_8px_28px_-8px_rgba(15,23,42,0.1),0_2px_8px_rgba(15,23,42,0.04)] sm:inline-flex sm:w-auto">
+                            <TabsTrigger value="card" className="rounded-xl px-3 py-2 text-xs font-semibold data-[state=active]:shadow-sm sm:text-sm">
+                                1 · Website card
+                            </TabsTrigger>
+                            <TabsTrigger value="prices" className="rounded-xl px-3 py-2 text-xs font-semibold data-[state=active]:shadow-sm sm:text-sm">
+                                2 · Vehicle prices
+                            </TabsTrigger>
+                        </TabsList>
+                    </div>
+
+                    <TabsContent value="card" className="m-0 border-0 p-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0">
+                        <div className="space-y-6 px-5 py-6 sm:px-8 sm:py-8">
+                            <div className="rounded-2xl border border-transparent bg-violet-50/65 p-5 shadow-[0_12px_40px_-12px_rgba(109,40,217,0.14),0_4px_14px_-4px_rgba(15,23,42,0.05)]">
+                                <div className="flex items-start gap-3">
+                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm">
+                                        <Sparkles className="h-5 w-5" />
+                                    </div>
                                     <div>
-                                        <Badge className={`text-[9px] font-bold px-2 py-0.5 ${catColor.bg} ${catColor.text} border ${catColor.border} rounded-md mb-2`}>
-                                            {s.category}
-                                        </Badge>
-                                        <h3 className="text-[15px] font-bold text-white">{s.name}</h3>
-                                        <p className="text-[11px] text-zinc-500 mt-0.5">{s.duration}</p>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                        {s.isPublished !== false ? (
-                                            <Eye className="w-3.5 h-3.5 text-emerald-400" />
-                                        ) : (
-                                            <EyeOff className="w-3.5 h-3.5 text-zinc-600" />
-                                        )}
+                                        <p className="text-sm font-bold text-slate-900">Public Services page</p>
+                                        <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                                            These fields control the luxury SPF cards on <span className="font-mono text-slate-800">/services</span>. Empty fields fall back to the app defaults. Saving with an empty form removes saved overrides for this package (pricing is not affected).
+                                        </p>
                                     </div>
                                 </div>
-
-                                <div className="flex items-end gap-2 mb-4">
-                                    <span className="text-xl font-bold text-white">{getPriceRange(s)}</span>
-                                </div>
-
-                                <div className="flex items-center gap-2 mt-auto pt-3 border-t border-zinc-800/40">
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => openEditModal(s)}
-                                        className="flex-1 h-8 text-[11px] border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800"
-                                    >
-                                        <Edit className="w-3 h-3 mr-1" /> Edit
-                                    </Button>
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => handleToggleStatus(s)}
-                                        className={`h-8 px-3 text-[11px] border-zinc-700 ${s.status === 'Active' ? 'text-emerald-400' : 'text-zinc-500'}`}
-                                    >
-                                        {s.status === 'Active' ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                                    </Button>
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => setDeleteTarget({ id: s.id, name: s.name })}
-                                        className="h-8 px-3 text-[11px] border-zinc-700 text-red-400 hover:bg-red-500/10"
-                                    >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                    </Button>
-                                </div>
-                            </motion.div>
-                        );
-                    })}
-                </div>
-            )}
-
-            {/* ───── Add/Edit Service Modal ───── */}
-            <AnimatePresence>
-                {showModal && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto"
-                        onClick={() => setShowModal(false)}
-                    >
-                        <motion.div
-                            initial={{ scale: 0.95, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.95, opacity: 0 }}
-                            onClick={e => e.stopPropagation()}
-                            className="w-full max-w-2xl bg-[#121214] border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden my-auto"
-                        >
-                            <div className="px-6 pt-6 pb-4 border-b border-zinc-800/60 flex items-center justify-between sticky top-0 bg-[#121214] z-10">
-                                <h3 className="text-lg font-bold text-white">{isEditing ? 'Edit Service & Pricing' : 'Add New Service & Pricing'}</h3>
-                                <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all">
-                                    <X className="w-4 h-4" />
-                                </button>
                             </div>
-                            
-                            <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
-                                {/* Basic Info Section */}
-                                <div className="space-y-4">
-                                    <div>
-                                        <Label className="text-zinc-400 text-[11px] uppercase tracking-wider">Service Name</Label>
-                                        <Input
-                                            value={formName}
-                                            onChange={e => setFormName(e.target.value)}
-                                            className="mt-1.5 bg-zinc-900 border-zinc-800 text-white"
-                                            placeholder="e.g., Full Detailing"
-                                        />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <Label className="text-zinc-400 text-[11px] uppercase tracking-wider">Category</Label>
-                                            <Select value={formCategory} onValueChange={setFormCategory}>
-                                                <SelectTrigger className="mt-1.5 bg-zinc-900 border-zinc-800 text-white">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent className="bg-[#121214] border-zinc-800">
-                                                    {['Exterior', 'Interior', 'Complete', 'Engine', 'Premium'].map(c => (
-                                                        <SelectItem key={c} value={c}>{c}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div>
-                                            <Label className="text-zinc-400 text-[11px] uppercase tracking-wider">Duration</Label>
-                                            <Input
-                                                value={formDuration}
-                                                onChange={e => setFormDuration(e.target.value)}
-                                                className="mt-1.5 bg-zinc-900 border-zinc-800 text-white"
-                                                placeholder="e.g., 2-3 hrs"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div className="h-px bg-zinc-800/60" />
-                                
-                                {/* Pricing Grid Section */}
+
+                            <div className="grid gap-4 md:grid-cols-2">
                                 <div>
-                                    <h4 className="text-[13px] font-semibold text-white mb-1">Per-Vehicle Pricing</h4>
-                                    <p className="text-[11px] text-zinc-500 mb-4">Set prices for specific vehicle categories. Leave blank if not applicable.</p>
-                                    
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                                        {VEHICLE_TYPES.map(vt => (
-                                            <div key={vt.key}>
-                                                <Label className="text-zinc-400 text-[11px] truncate tracking-wider">{vt.label}</Label>
-                                                <div className="relative mt-1.5">
-                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500">₱</span>
-                                                    <Input
-                                                        type="number"
-                                                        step="0.01"
-                                                        value={formPrices[vt.key]}
-                                                        onChange={e => handlePriceChange(vt.key, e.target.value)}
-                                                        className="pl-7 bg-zinc-900 border-zinc-800 text-white font-mono text-xs"
-                                                        placeholder="—"
-                                                    />
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
+                                    <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Badge (top-left)</Label>
+                                    <Input
+                                        className="mt-2 h-10 border-0 bg-slate-50/80 shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        value={catalogForm.badge}
+                                        onChange={(e) => setCatalogForm((f) => ({ ...f, badge: e.target.value }))}
+                                        placeholder="e.g. SPECIAL OFFER"
+                                    />
                                 </div>
-                                
-                                <div className="h-px bg-zinc-800/60" />
-
-                                <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/40">
-                                    <div>
-                                        <p className="text-[12px] font-medium text-white">Published to customers</p>
-                                        <p className="text-[10px] text-zinc-500">Visible in booking page when enabled</p>
-                                    </div>
-                                    <button onClick={() => setFormPublished(!formPublished)}>
-                                        {formPublished ? (
-                                            <ToggleRight className="w-8 h-8 text-emerald-400" />
-                                        ) : (
-                                            <ToggleLeft className="w-8 h-8 text-zinc-600" />
-                                        )}
-                                    </button>
+                                <div>
+                                    <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Warranty line (top-right)</Label>
+                                    <Input
+                                        className="mt-2 h-10 border-0 bg-slate-50/80 shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        value={catalogForm.warrantyLabel}
+                                        onChange={(e) => setCatalogForm((f) => ({ ...f, warrantyLabel: e.target.value }))}
+                                        placeholder="e.g. 3 Years"
+                                    />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Tagline (under package name)</Label>
+                                    <Input
+                                        className="mt-2 h-10 border-0 bg-slate-50/80 shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        value={catalogForm.tagline}
+                                        onChange={(e) => setCatalogForm((f) => ({ ...f, tagline: e.target.value }))}
+                                        placeholder="Short subtitle"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Internal tier label</Label>
+                                    <Input
+                                        className="mt-2 h-10 border-0 bg-slate-50/80 shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        value={catalogForm.tierLabel}
+                                        onChange={(e) => setCatalogForm((f) => ({ ...f, tierLabel: e.target.value }))}
+                                        placeholder="Essential / Advanced…"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Card icon</Label>
+                                    <Select
+                                        value={
+                                            catalogForm.iconKey.trim() === ''
+                                                ? ICON_KEY_SELECT_BUILTIN
+                                                : catalogForm.iconKey
+                                        }
+                                        onValueChange={(value) =>
+                                            setCatalogForm((f) => ({
+                                                ...f,
+                                                iconKey: value === ICON_KEY_SELECT_BUILTIN ? '' : value,
+                                            }))
+                                        }
+                                    >
+                                        <SelectTrigger className="mt-2 h-10 border-0 bg-slate-50/80 shadow-sm focus:ring-2 focus:ring-slate-900/10">
+                                            <SelectValue placeholder="Default" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {ICON_OPTIONS.map((opt) => (
+                                                <SelectItem key={opt.value} value={opt.value}>
+                                                    {opt.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Discount pill text</Label>
+                                    <Input
+                                        className="mt-2 h-10 border-0 bg-slate-50/80 shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        value={catalogForm.discountBadge}
+                                        onChange={(e) => setCatalogForm((f) => ({ ...f, discountBadge: e.target.value }))}
+                                        placeholder="e.g. 50% OFF — or leave empty to auto-calc"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Tint bundle line</Label>
+                                    <Input
+                                        className="mt-2 h-10 border-0 bg-slate-50/80 shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        value={catalogForm.addonLabel}
+                                        onChange={(e) => setCatalogForm((f) => ({ ...f, addonLabel: e.target.value }))}
+                                        placeholder="+ Nano Ceramic Window Tint"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Original price multiplier (fallback)</Label>
+                                    <Input
+                                        className="mt-2 h-10 border-0 bg-slate-50/80 shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        inputMode="decimal"
+                                        value={catalogForm.originalPriceMultiplier}
+                                        onChange={(e) => setCatalogForm((f) => ({ ...f, originalPriceMultiplier: e.target.value }))}
+                                        placeholder="e.g. 2 when no original price set"
+                                    />
                                 </div>
                             </div>
-                            
-                            <div className="px-6 py-4 border-t border-zinc-800/60 bg-[#121214] sticky bottom-0 z-10">
+
+                            <div className="grid gap-4 md:grid-cols-3">
+                                <div>
+                                    <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Accent from (hex)</Label>
+                                    <Input
+                                        className="mt-2 h-10 border-0 bg-slate-50/80 font-mono text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        value={catalogForm.accentFrom}
+                                        onChange={(e) => setCatalogForm((f) => ({ ...f, accentFrom: e.target.value }))}
+                                        placeholder="#38bdf8"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Accent mid</Label>
+                                    <Input
+                                        className="mt-2 h-10 border-0 bg-slate-50/80 font-mono text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        value={catalogForm.accentMid}
+                                        onChange={(e) => setCatalogForm((f) => ({ ...f, accentMid: e.target.value }))}
+                                        placeholder="#0ea5e9"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Accent to</Label>
+                                    <Input
+                                        className="mt-2 h-10 border-0 bg-slate-50/80 font-mono text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        value={catalogForm.accentTo}
+                                        onChange={(e) => setCatalogForm((f) => ({ ...f, accentTo: e.target.value }))}
+                                        placeholder="#0284c7"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">What&apos;s included — one line per bullet</Label>
+                                <Textarea
+                                    className="mt-2 min-h-[140px] border-0 bg-slate-50/80 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                    value={catalogForm.featuresText}
+                                    onChange={(e) => setCatalogForm((f) => ({ ...f, featuresText: e.target.value }))}
+                                    placeholder={'One feature per line, e.g.\n3 Layers Graphene…\nGraphene Sealant'}
+                                />
+                            </div>
+
+                            <div>
+                                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Highlighted phrases (optional)</Label>
+                                <Textarea
+                                    className="mt-2 min-h-[72px] border-0 bg-slate-50/80 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                    value={catalogForm.highlightedText}
+                                    onChange={(e) => setCatalogForm((f) => ({ ...f, highlightedText: e.target.value }))}
+                                    placeholder="Comma or new line — substrings that get brighter styling inside the list"
+                                />
+                            </div>
+
+                            <div className="flex flex-col gap-4 rounded-xl bg-slate-50/70 p-4 shadow-[0_4px_24px_-8px_rgba(15,23,42,0.08),0_1px_4px_-1px_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:gap-8">
+                                <div className="flex items-center gap-2">
+                                    <Checkbox
+                                        id="catalog-popular"
+                                        checked={catalogForm.popular}
+                                        onCheckedChange={(c) => setCatalogForm((f) => ({ ...f, popular: c === true }))}
+                                    />
+                                    <Label htmlFor="catalog-popular" className="cursor-pointer text-sm font-medium text-slate-800">
+                                        Featured layout (recommended style)
+                                    </Label>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Checkbox
+                                        id="catalog-flagship"
+                                        checked={catalogForm.flagship}
+                                        onCheckedChange={(c) => setCatalogForm((f) => ({ ...f, flagship: c === true }))}
+                                    />
+                                    <Label htmlFor="catalog-flagship" className="cursor-pointer text-sm font-medium text-slate-800">
+                                        Flagship layout (crown, strongest glow)
+                                    </Label>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-3">
                                 <Button
-                                    onClick={handleSave}
-                                    disabled={saving}
-                                    className="w-full bg-[#E87C2F] hover:bg-[#d06e28] text-white font-semibold"
+                                    type="button"
+                                    onClick={() => void saveCatalogCard()}
+                                    disabled={savingCatalog}
+                                    className="bg-violet-600 font-bold text-white hover:bg-violet-700"
                                 >
-                                    {saving ? 'Saving...' : isEditing ? 'Update Service' : 'Create Service'}
+                                    {savingCatalog ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Palette className="mr-2 h-4 w-4" />}
+                                    Save website card
                                 </Button>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* ───── Delete Confirmation Modal ───── */}
-            <AnimatePresence>
-                {deleteTarget && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-                        onClick={() => setDeleteTarget(null)}
-                    >
-                        <motion.div
-                            initial={{ scale: 0.95, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.95, opacity: 0 }}
-                            onClick={e => e.stopPropagation()}
-                            className="w-full max-w-sm bg-[#121214] border border-zinc-800 rounded-2xl shadow-2xl p-6 text-center"
-                        >
-                            <div className="w-12 h-12 mx-auto rounded-full bg-red-500/15 flex items-center justify-center mb-4">
-                                <AlertTriangle className="w-6 h-6 text-red-400" />
-                            </div>
-                            <h3 className="text-lg font-bold text-white mb-2">Delete Service</h3>
-                            <p className="text-[13px] text-zinc-400 mb-6">
-                                Are you sure you want to permanently delete <span className="text-white font-semibold">"{deleteTarget.name}"</span>? This action cannot be undone.
-                            </p>
-                            <div className="flex gap-3">
                                 <Button
+                                    type="button"
                                     variant="outline"
-                                    onClick={() => setDeleteTarget(null)}
-                                    className="flex-1 border-zinc-700 text-zinc-400 hover:text-white"
+                                    className="border-0 bg-white shadow-[0_8px_28px_-8px_rgba(15,23,42,0.1),0_2px_8px_rgba(15,23,42,0.04)] hover:bg-slate-50/90"
+                                    disabled={savingCatalog}
+                                    onClick={() => setCatalogForm(catalogCardToForm(selectedService?.catalogCard))}
                                 >
-                                    Cancel
-                                </Button>
-                                <Button
-                                    onClick={handleDeleteConfirm}
-                                    disabled={deleting}
-                                    className="flex-1 bg-red-600 hover:bg-red-700 text-white"
-                                >
-                                    {deleting ? 'Deleting...' : 'Delete'}
+                                    Reload from server
                                 </Button>
                             </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="prices" className="m-0 border-0 p-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0">
+                        <div className="flex flex-col gap-4 bg-white px-5 py-4 shadow-[inset_0_-1px_0_0_rgba(15,23,42,0.04)] sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+                            <div className="min-w-[200px] max-w-xs flex-1">
+                                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Vehicle (quick editor)</Label>
+                                <Select value={selectedVehicle} onValueChange={(value) => setSelectedVehicle(value as ApiVehiclePriceKey)}>
+                                    <SelectTrigger className="mt-2 h-11 border-0 bg-slate-50/80 text-sm font-semibold text-slate-900 shadow-sm focus:ring-2 focus:ring-slate-900/10">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent className="border-slate-200 bg-white text-slate-900">
+                                        {VEHICLE_PRICE_FIELDS.map((field) => (
+                                            <SelectItem key={field.apiKey} value={field.apiKey}>
+                                                {field.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <Badge className="rounded-full border-0 bg-blue-50 px-3 py-1.5 text-blue-700 shadow-[0_2px_8px_-2px_rgba(37,99,235,0.2)] hover:bg-blue-50">
+                                    {selectedRange}
+                                </Badge>
+                                <Badge className="rounded-full border-0 bg-emerald-50 px-3 py-1.5 text-emerald-700 shadow-[0_2px_8px_-2px_rgba(5,150,105,0.18)] hover:bg-emerald-50">
+                                    Live catalog
+                                </Badge>
+                            </div>
+                        </div>
+
+                        <div className="grid gap-6 px-5 py-6 sm:px-6 xl:grid-cols-[0.9fr_1.1fr]">
+                    <div className="rounded-2xl bg-slate-50/70 p-5 shadow-[0_10px_40px_-12px_rgba(15,23,42,0.1),0_4px_14px_-4px_rgba(15,23,42,0.05)]">
+                        <div className="mb-5 flex items-start gap-3">
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-600/25">
+                                <CarFront className="h-5 w-5" />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-sm font-bold text-slate-950">{selectedService?.name}</p>
+                                <p className="mt-1 text-xs font-semibold text-slate-500">{selectedVehicleMeta.label} pricing</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Base Price</Label>
+                                <div className="relative mt-2">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">₱</span>
+                                    <Input
+                                        inputMode="decimal"
+                                        value={selectedDraft.basePrice}
+                                        onChange={(event) => updateDraft(selectedVehicle, 'basePrice', event.target.value)}
+                                        className="h-11 border-0 bg-slate-50/80 pl-8 text-base font-bold text-slate-950 shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        placeholder="0"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Original Price</Label>
+                                <div className="relative mt-2">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">₱</span>
+                                    <Input
+                                        inputMode="decimal"
+                                        value={selectedDraft.originalPrice}
+                                        onChange={(event) => updateDraft(selectedVehicle, 'originalPrice', event.target.value)}
+                                        className="h-11 border-0 bg-slate-50/80 pl-8 text-base font-bold text-slate-950 shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        placeholder="0"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <Label className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">+ Nano Ceramic Add-on Price</Label>
+                                <div className="relative mt-2">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">₱</span>
+                                    <Input
+                                        inputMode="decimal"
+                                        value={selectedDraft.addonPrice}
+                                        onChange={(event) => updateDraft(selectedVehicle, 'addonPrice', event.target.value)}
+                                        className="h-11 border-0 bg-slate-50/80 pl-8 text-base font-bold text-slate-950 shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                        placeholder="0"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <Button
+                            onClick={() => saveVehicle(selectedVehicle)}
+                            disabled={savingVehicle === selectedVehicle || savingAll}
+                            className="mt-5 h-11 w-full bg-orange-500 font-bold text-white hover:bg-orange-600"
+                        >
+                            {savingVehicle === selectedVehicle ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                            Save Changes
+                        </Button>
+                    </div>
+
+                    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_10px_40px_-12px_rgba(15,23,42,0.1),0_4px_14px_-4px_rgba(15,23,42,0.05)]">
+                        <div className="flex flex-col gap-3 bg-slate-50/40 px-5 py-4 shadow-[inset_0_-1px_0_0_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-slate-950">All Vehicle Types - {selectedService?.name || 'Package'}</p>
+                                <p className="mt-1 text-xs font-semibold text-slate-500">Edit base, original, and add-on prices together.</p>
+                            </div>
+                            <Badge className="w-fit rounded-full border-0 bg-white px-3 py-1.5 text-slate-600 shadow-sm hover:bg-white">
+                                <Layers className="mr-1.5 h-3.5 w-3.5" />
+                                {VEHICLE_PRICE_FIELDS.length} tiers
+                            </Badge>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[760px] text-sm">
+                                <thead>
+                                    <tr className="bg-slate-50/80 shadow-[inset_0_-1px_0_0_rgba(15,23,42,0.05)]">
+                                        <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Vehicle</th>
+                                        <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Base</th>
+                                        <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Original</th>
+                                        <th className="px-3 py-3 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Nano Add-on</th>
+                                        <th className="px-5 py-3 text-right text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {VEHICLE_PRICE_FIELDS.map((field) => {
+                                        const draft = drafts[field.apiKey] || blankDraft();
+                                        const isSaving = savingVehicle === field.apiKey;
+                                        return (
+                                            <tr
+                                                key={field.apiKey}
+                                                className={
+                                                    selectedVehicle === field.apiKey
+                                                        ? 'bg-blue-50/45 transition-colors hover:bg-blue-50/60'
+                                                        : 'transition-colors even:bg-slate-50/[0.35] hover:bg-slate-50/70'
+                                                }
+                                            >
+                                                <td className="px-5 py-3">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedVehicle(field.apiKey)}
+                                                        className="text-left"
+                                                    >
+                                                        <span className="block font-bold text-slate-900">{field.compactLabel}</span>
+                                                        <span className="text-xs font-semibold text-slate-400">{field.apiKey}</span>
+                                                    </button>
+                                                </td>
+                                                {(['basePrice', 'originalPrice', 'addonPrice'] as DraftField[]).map((draftField) => (
+                                                    <td key={draftField} className="px-3 py-3">
+                                                        <div className="relative">
+                                                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₱</span>
+                                                            <Input
+                                                                inputMode="decimal"
+                                                                value={draft[draftField]}
+                                                                onChange={(event) => updateDraft(field.apiKey, draftField, event.target.value)}
+                                                                className="h-9 border-0 bg-slate-50/80 pl-7 text-sm font-bold text-slate-900 shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900/10"
+                                                                placeholder="0"
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                ))}
+                                                <td className="px-5 py-3 text-right">
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => saveVehicle(field.apiKey)}
+                                                        disabled={isSaving || savingAll}
+                                                        className="h-9 border-0 bg-white text-slate-700 shadow-sm hover:bg-slate-50/90"
+                                                    >
+                                                        {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                                                    </Button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="flex justify-end bg-slate-50/60 px-5 py-4 shadow-[inset_0_1px_0_0_rgba(15,23,42,0.04)]">
+                            <Button
+                                onClick={saveAllVehicles}
+                                disabled={savingAll || !!savingVehicle}
+                                className="h-10 bg-orange-500 font-bold text-white hover:bg-orange-600"
+                            >
+                                {savingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                                Save All Changes
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+                </TabsContent>
+                </Tabs>
+            </section>
         </div>
     );
 }

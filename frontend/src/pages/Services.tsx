@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
     Shield, Sparkles, Crown, Zap, Star, BadgeCheck,
@@ -11,7 +11,18 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import PageLayout from "@/components/PageLayout";
 import BookingCTA from "@/components/BookingCTA";
 import FAQSection from "@/components/FAQSection";
+import api from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+    DEFAULT_SPF_ADDON_PRICES,
+    DEFAULT_SPF_BASE_PRICES,
+    DEFAULT_SPF_ORIGINAL_PRICES,
+    VEHICLE_PRICE_FIELDS,
+    findPublishedServiceForPackage,
+    getServicePricingEntry,
+    type PublishedServicePricingSource,
+    type ServiceCatalogCard,
+} from "@/lib/service-pricing";
 
 /* ═══════════════════════════════════════
    Types & Constants
@@ -75,6 +86,7 @@ interface SPFPackage {
     accentMid: string;
     prices: PriceMap;
     tintPrices: PriceMap;
+    originalPrices?: PriceMap;
     originalPriceMultiplier: number;
     features: string[];
     highlighted: string[];
@@ -82,7 +94,14 @@ interface SPFPackage {
     flagship: boolean;
     icon: typeof Shield;
     tagline: string;
+    /** Optional: from API `catalogCard` */
+    addonLabel?: string;
+    discountBadge?: string;
 }
+
+const getBasePrices = (packageKey: string): PriceMap => ({ ...DEFAULT_SPF_BASE_PRICES[packageKey] } as PriceMap);
+const getTintPrices = (packageKey: string): PriceMap => ({ ...DEFAULT_SPF_ADDON_PRICES[packageKey] } as PriceMap);
+const getOriginalPrices = (packageKey: string): PriceMap => ({ ...DEFAULT_SPF_ORIGINAL_PRICES[packageKey] } as PriceMap);
 
 const spfPackages: SPFPackage[] = [
     {
@@ -90,8 +109,9 @@ const spfPackages: SPFPackage[] = [
         badge: "SPECIAL OFFER", tier: "Essential",
         accentFrom: "#38bdf8", accentTo: "#0284c7", accentMid: "#0ea5e9",
         tagline: "Perfect entry-level protection",
-        prices: { hatchback: 7499, sedan: 7999, midsized: 7999, suv: 8999, pickup: 8499, largesuv: 12999, highend: 14999 },
-        tintPrices: { hatchback: 13499, sedan: 13499, midsized: 14499, suv: 15999, pickup: 14499, largesuv: 20999, highend: 22999 },
+        prices: getBasePrices("spf80"),
+        tintPrices: getTintPrices("spf80"),
+        originalPrices: getOriginalPrices("spf80"),
         originalPriceMultiplier: 2,
         features: [
             "3 Layers Graphene Ceramic Coating (Canada)",
@@ -106,8 +126,9 @@ const spfPackages: SPFPackage[] = [
         badge: "RECOMMENDED", tier: "Advanced",
         accentFrom: "#34d399", accentTo: "#059669", accentMid: "#10b981",
         tagline: "Our most chosen package",
-        prices: { hatchback: 8999, sedan: 9999, midsized: 10999, suv: 11999, pickup: 10999, largesuv: 14999, highend: 17999 },
-        tintPrices: { hatchback: 14999, sedan: 15999, midsized: 17499, suv: 18999, pickup: 17499, largesuv: 22999, highend: 23999 },
+        prices: getBasePrices("spf89"),
+        tintPrices: getTintPrices("spf89"),
+        originalPrices: getOriginalPrices("spf89"),
         originalPriceMultiplier: 2,
         features: [
             "4 Layers Graphene Ceramic Coating (Canada)",
@@ -122,8 +143,9 @@ const spfPackages: SPFPackage[] = [
         badge: "50% OFF PROMO", tier: "Premium",
         accentFrom: "#fbbf24", accentTo: "#d97706", accentMid: "#f59e0b",
         tagline: "Maximum protection, best price-to-value",
-        prices: { hatchback: 13999, sedan: 13999, midsized: 15999, suv: 16999, pickup: 15999, largesuv: 19999, highend: 22999 },
-        tintPrices: { hatchback: 19999, sedan: 19999, midsized: 22499, suv: 23999, pickup: 22499, largesuv: 27999, highend: 28999 },
+        prices: getBasePrices("spf99"),
+        tintPrices: getTintPrices("spf99"),
+        originalPrices: getOriginalPrices("spf99"),
         originalPriceMultiplier: 2,
         features: [
             "4 Layers SONAX Profiline CC EVO (Germany)",
@@ -138,21 +160,106 @@ const spfPackages: SPFPackage[] = [
         badge: "ALL-IN PACKAGE", tier: "Ultimate",
         accentFrom: "#c084fc", accentTo: "#7c3aed", accentMid: "#a78bfa",
         tagline: "The complete transformation experience",
-        prices: { hatchback: 39999, sedan: 39999, midsized: 46999, suv: 46999, pickup: 46999, largesuv: 49999, highend: 49999 },
-        tintPrices: { hatchback: null, sedan: null, midsized: null, suv: null, pickup: null, largesuv: null, highend: null },
+        prices: getBasePrices("spf101"),
+        tintPrices: getTintPrices("spf101"),
+        originalPrices: getOriginalPrices("spf101"),
         originalPriceMultiplier: 2,
         features: [
-            "PPF Coverage (Hood, Bumper, Mirrors, Stepsils, Door Bowls, Lights)",
+            "PPF Coverage (Hood, Stepsils, Side Mirrors, Front Bumper, Door Bowls, Headlights & Taillights)",
             "4 Layers SONAX Profiline CC EVO (Germany)",
             "FREE 5 visits Reboost/Maintenance (save ₱7,500)",
             "FREE Full Recoat After 5 Years",
             "Nano Ceramic Window Tint (Full Wrap — Any Shade)",
-            "FREE Undercoating (Rust Proofing)",
+            "FREE Undercoating (Rust Proofing) (value ₱14,000)",
         ],
         highlighted: ["PPF", "SONAX", "Nano Ceramic Window Tint", "Undercoating"],
         popular: false, flagship: true, icon: Crown,
     },
 ];
+
+const CATALOG_ICON_KEYS = {
+    sparkles: Sparkles,
+    shield: Shield,
+    star: Star,
+    crown: Crown,
+    zap: Zap,
+} as const;
+
+function applyCatalogCardToPackage(pkg: SPFPackage, card: ServiceCatalogCard | null | undefined): SPFPackage {
+    if (!card || typeof card !== "object") return pkg;
+
+    const iconKey = card.iconKey && card.iconKey in CATALOG_ICON_KEYS
+        ? card.iconKey as keyof typeof CATALOG_ICON_KEYS
+        : null;
+    const NextIcon = iconKey ? CATALOG_ICON_KEYS[iconKey] : pkg.icon;
+
+    const next: SPFPackage = {
+        ...pkg,
+        icon: NextIcon,
+    };
+
+    if (card.badge != null && String(card.badge).trim() !== "") next.badge = String(card.badge).trim();
+    if (card.warrantyLabel != null && String(card.warrantyLabel).trim() !== "") next.years = String(card.warrantyLabel).trim();
+    if (card.tagline != null && String(card.tagline).trim() !== "") next.tagline = String(card.tagline).trim();
+    if (card.tierLabel != null && String(card.tierLabel).trim() !== "") next.tier = String(card.tierLabel).trim();
+    if (Array.isArray(card.features) && card.features.length > 0) {
+        next.features = card.features.map((f) => String(f).trim()).filter(Boolean);
+    }
+    if (Array.isArray(card.highlighted) && card.highlighted.length > 0) {
+        next.highlighted = card.highlighted.map((f) => String(f).trim()).filter(Boolean);
+    }
+    if (card.addonLabel != null && String(card.addonLabel).trim() !== "") {
+        next.addonLabel = String(card.addonLabel).trim();
+    }
+    if (card.discountBadge != null && String(card.discountBadge).trim() !== "") {
+        next.discountBadge = String(card.discountBadge).trim();
+    }
+    if (card.accentFrom != null && String(card.accentFrom).trim() !== "") next.accentFrom = String(card.accentFrom).trim();
+    if (card.accentTo != null && String(card.accentTo).trim() !== "") next.accentTo = String(card.accentTo).trim();
+    if (card.accentMid != null && String(card.accentMid).trim() !== "") next.accentMid = String(card.accentMid).trim();
+    if (typeof card.popular === "boolean") next.popular = card.popular;
+    if (typeof card.flagship === "boolean") next.flagship = card.flagship;
+    if (card.originalPriceMultiplier != null && Number.isFinite(Number(card.originalPriceMultiplier))) {
+        next.originalPriceMultiplier = Number(card.originalPriceMultiplier);
+    }
+
+    return next;
+}
+
+function mergePublishedPricingIntoPackages(
+    packages: SPFPackage[],
+    services: PublishedServicePricingSource[],
+): SPFPackage[] {
+    if (!services.length) return packages;
+
+    return packages.map((pkg) => {
+        const service = findPublishedServiceForPackage(services, pkg.key, pkg.label);
+        if (!service) return pkg;
+
+        const prices = { ...pkg.prices };
+        const tintPrices = { ...pkg.tintPrices };
+        const originalPrices: PriceMap = {
+            hatchback: null,
+            sedan: null,
+            midsized: null,
+            suv: null,
+            pickup: null,
+            largesuv: null,
+            highend: null,
+            ...(pkg.originalPrices || {}),
+        };
+
+        VEHICLE_PRICE_FIELDS.forEach(({ publicKey }) => {
+            const entry = getServicePricingEntry(service, publicKey);
+            if (entry.base != null) prices[publicKey] = entry.base;
+            if (entry.addon != null) tintPrices[publicKey] = entry.addon;
+            if (entry.original != null) originalPrices[publicKey] = entry.original;
+        });
+
+        const withPricing = { ...pkg, prices, tintPrices, originalPrices };
+        return applyCatalogCardToPackage(withPricing, service.catalogCard);
+    });
+}
 
 /* ═══════════════════════════════════════
    LUXURY CARD COMPONENT
@@ -164,8 +271,14 @@ function LuxuryCard({ pkg, index, vehicleType }: { pkg: SPFPackage; index: numbe
 
     const price = pkg.prices[vehicleType];
     const tintPrice = pkg.tintPrices[vehicleType];
-    const originalPrice = price ? price * pkg.originalPriceMultiplier : null;
+    const originalPrice = pkg.originalPrices?.[vehicleType] ?? (price ? price * pkg.originalPriceMultiplier : null);
     if (price === null) return null;
+
+    const discountLabel = pkg.discountBadge?.trim()
+        || (originalPrice != null && price != null && originalPrice > price
+            ? `${Math.round((1 - price / originalPrice) * 100)}% OFF`
+            : "50% OFF");
+    const addonLine = pkg.addonLabel?.trim() || "+ Nano Ceramic Window Tint";
 
     const isFlagship = pkg.flagship;
     const isPopular = pkg.popular;
@@ -337,7 +450,7 @@ function LuxuryCard({ pkg, index, vehicleType }: { pkg: SPFPackage; index: numbe
                                 }}
                                 transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                             >
-                                50% OFF
+                                {discountLabel}
                             </motion.span>
                         </div>
 
@@ -371,7 +484,7 @@ function LuxuryCard({ pkg, index, vehicleType }: { pkg: SPFPackage; index: numbe
                         {tintPrice && (
                             <div className="flex items-center justify-center gap-2 mt-3 pt-3 border-t" style={{ borderColor: pkg.accentFrom + "20" }}>
                                 <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: pkg.accentFrom + "90" }}>
-                                    + Nano Ceramic Window Tint
+                                    {addonLine}
                                 </span>
                                 <AnimatePresence mode="wait">
                                     <motion.span key={tintPrice} variants={priceFlip} initial="exit" animate="enter" exit="exit"
@@ -476,12 +589,33 @@ function LuxuryCard({ pkg, index, vehicleType }: { pkg: SPFPackage; index: numbe
    ADD-ONS DATA
 ═══════════════════════════════════════ */
 const addOns: { name: string; prices: Record<VehicleType, string> }[] = [
-    { name: "Undercoating", prices: { hatchback: "₱6,000", sedan: "₱6,500", midsized: "₱7,000", suv: "₱7,500", pickup: "₱7,500", largesuv: "₱9,000", highend: "₱8,000" } },
+    { name: "Undercoating", prices: { hatchback: "₱8,000", sedan: "₱8,000", midsized: "₱8,000", suv: "₱8,000", pickup: "₱8,000", largesuv: "₱8,000", highend: "₱8,000" } },
     { name: "Repainting", prices: { hatchback: "Per Panel", sedan: "Per Panel", midsized: "Per Panel", suv: "Per Panel", pickup: "Per Panel", largesuv: "Per Panel", highend: "Per Panel" } },
-    { name: "PDR (Dent Repair)", prices: { hatchback: "Per Dent", sedan: "Per Dent", midsized: "Per Dent", suv: "Per Dent", pickup: "Per Dent", largesuv: "Per Dent", highend: "Per Dent" } },
+    { name: "PDR (Paintless Dent Repair)", prices: { hatchback: "Per Dent", sedan: "Per Dent", midsized: "Per Dent", suv: "Per Dent", pickup: "Per Dent", largesuv: "Per Dent", highend: "Per Dent" } },
     { name: "PPF (per panel)", prices: { hatchback: "Per Panel", sedan: "Per Panel", midsized: "Per Panel", suv: "Per Panel", pickup: "Per Panel", largesuv: "Per Panel", highend: "Per Panel" } },
     { name: "Interior Detailing", prices: { hatchback: "Inquire", sedan: "Inquire", midsized: "Inquire", suv: "Inquire", pickup: "Inquire", largesuv: "Inquire", highend: "Inquire" } },
     { name: "Engine Wash/Detailing", prices: { hatchback: "Inquire", sedan: "Inquire", midsized: "Inquire", suv: "Inquire", pickup: "Inquire", largesuv: "Inquire", highend: "Inquire" } },
+];
+
+const ppfPriceRows = [
+    { vehicle: "Sedan / Hatch", prices: ["₱75,000", "₱80,000", "₱90,000", "₱120,000"] },
+    { vehicle: "Crossover", prices: ["₱80,000", "₱85,000", "₱95,000", "₱135,000"] },
+    { vehicle: "SUV / Pickup", prices: ["₱85,000", "₱90,000", "₱100,000", "₱140,000"] },
+    { vehicle: "Full-Size SUV", prices: ["₱100,000", "₱110,000", "₱120,000", "₱150,000"] },
+];
+
+const ppfSpecRows = [
+    { label: "Thickness", values: ["7.0 mils", "7.5 mils", "7.5 mils", "8.0 mils"] },
+    { label: "Warranty", values: ["5 Years", "6 Years", "8 Years", "10 Years"] },
+    { label: "Free Panel Replacement", values: ["2 panels", "2 panels", "2 panels", "None"] },
+];
+
+const tintSpecRows = [
+    { shade: "Clear Green", vlt: "75", irr: "97", uvr: "99.99%", tser: "55%" },
+    { shade: "Clear Blue", vlt: "65", irr: "97", uvr: "99.99%", tser: "60%" },
+    { shade: "Medium Dark", vlt: "30", irr: "99", uvr: "99.99%", tser: "85%" },
+    { shade: "Dark", vlt: "10", irr: "99", uvr: "99.99%", tser: "90%" },
+    { shade: "Super Dark", vlt: "5", irr: "99", uvr: "99.99%", tser: "92%" },
 ];
 
 /* ═══════════════════════════════════════
@@ -490,6 +624,7 @@ const addOns: { name: string; prices: Record<VehicleType, string> }[] = [
 export default function Services() {
     const { t } = useLanguage();
     const [vehicleType, setVehicleType] = useState<VehicleType>("sedan");
+    const [publishedServices, setPublishedServices] = useState<PublishedServicePricingSource[]>([]);
 
     const vehicleOptions: { type: VehicleType; label: string; icon: React.ElementType }[] = [
         { type: "hatchback", label: "Hatchback", icon: CarFront },
@@ -500,6 +635,43 @@ export default function Services() {
         { type: "largesuv", label: "Large SUV / Van", icon: Truck },
         { type: "highend", label: "Highend Sedan", icon: Crown },
     ];
+
+    useEffect(() => {
+        let active = true;
+
+        api.get('/services/published', { meta: { suppressErrorToast: true } } as any)
+            .then((response) => {
+                const list = response.data?.data;
+                if (active && Array.isArray(list)) {
+                    setPublishedServices(list);
+                }
+            })
+            .catch((error) => {
+                console.warn('[Services] Falling back to bundled pricing:', error?.message || error);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    const displayPackages = useMemo(
+        () => mergePublishedPricingIntoPackages(spfPackages, publishedServices),
+        [publishedServices],
+    );
+
+    const visiblePricingPackages = useMemo(
+        () => displayPackages.filter((pkg) => pkg.prices[vehicleType] != null),
+        [displayPackages, vehicleType],
+    );
+
+    const pricingGridClassName = cn(
+        "grid gap-6 lg:gap-5 items-stretch mx-auto w-full",
+        visiblePricingPackages.length <= 1 && "grid-cols-1 max-w-md",
+        visiblePricingPackages.length === 2 && "grid-cols-1 sm:grid-cols-2 max-w-3xl",
+        visiblePricingPackages.length === 3 && "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 max-w-6xl",
+        visiblePricingPackages.length >= 4 && "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 max-w-[1440px]",
+    );
 
     return (
         <PageLayout>
@@ -675,9 +847,9 @@ export default function Services() {
                         initial={{ opacity: 0, y: 16 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.25, ease: EASE }}
-                        className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 lg:gap-5 items-stretch"
+                        className={pricingGridClassName}
                     >
-                        {spfPackages.map((pkg, i) => (
+                        {visiblePricingPackages.map((pkg, i) => (
                             <LuxuryCard key={pkg.key} pkg={pkg} index={i} vehicleType={vehicleType} />
                         ))}
                     </motion.div>
@@ -827,12 +999,7 @@ export default function Services() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {[
-                                        { vehicle: "Sedan / Hatch", prices: ["₱75,000", "₱80,000", "₱90,000", "₱120,000"] },
-                                        { vehicle: "Crossover", prices: ["₱80,000", "₱85,000", "₱95,000", "₱135,000"] },
-                                        { vehicle: "SUV / Pickup", prices: ["₱85,000", "₱90,000", "₱100,000", "₱140,000"] },
-                                        { vehicle: "Full-Size SUV", prices: ["₱100,000", "₱110,000", "₱130,000", "₱160,000"] },
-                                    ].map((row, i) => (
+                                    {ppfPriceRows.map((row, i) => (
                                         <tr key={row.vehicle} className={cn(
                                             "group hover:bg-white/[0.025] transition-colors duration-300",
                                             i < 3 && "border-b border-white/[0.04]"
@@ -849,17 +1016,62 @@ export default function Services() {
 
                         <div className="border-t border-white/[0.06] px-6 py-5">
                             <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-white/35 mb-3">Specifications</div>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-2.5 text-xs">
-                                {[
-                                    { label: "Warranty", values: "5 / 5 / 6 / 10 Yrs" },
-                                    { label: "Thickness", values: "7.5 / 7.5 / 8.0 / 8.5 mils" },
-                                    { label: "Free Panel Replacement", values: "2 panels each" },
-                                ].map((spec) => (
-                                    <div key={spec.label} className="flex items-center gap-2">
-                                        <span className="text-white/35 font-medium">{spec.label}:</span>
-                                        <span className="text-white/55 font-semibold">{spec.values}</span>
-                                    </div>
-                                ))}
+                            <div className="overflow-x-auto">
+                                <table className="w-full min-w-[620px] text-xs">
+                                    <thead>
+                                        <tr className="border-b border-white/[0.06]">
+                                            <th className="px-3 py-2 text-left font-semibold text-white/35">Spec</th>
+                                            <th className="px-3 py-2 text-center font-semibold text-white/35">CEO PPF</th>
+                                            <th className="px-3 py-2 text-center font-semibold text-white/35">XPEL</th>
+                                            <th className="px-3 py-2 text-center font-semibold text-white/35">Vinyl Frog</th>
+                                            <th className="px-3 py-2 text-center font-semibold text-white/35">ZIVENT</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {ppfSpecRows.map((spec) => (
+                                            <tr key={spec.label} className="border-b border-white/[0.03] last:border-0">
+                                                <td className="px-3 py-2.5 font-semibold text-white/50">{spec.label}</td>
+                                                {spec.values.map((value, valueIndex) => (
+                                                    <td key={`${spec.label}-${valueIndex}`} className="px-3 py-2.5 text-center font-bold text-white/60">{value}</td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="border-t border-white/[0.06] px-6 py-5">
+                            <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-white/35 mb-3">Nano Ceramic Tint</div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full min-w-[620px] text-xs">
+                                    <thead>
+                                        <tr className="border-b border-white/[0.06]">
+                                            <th className="px-3 py-2 text-left font-semibold text-white/35">Shade</th>
+                                            <th className="px-3 py-2 text-center font-semibold text-white/35">VLT</th>
+                                            <th className="px-3 py-2 text-center font-semibold text-white/35">IRR</th>
+                                            <th className="px-3 py-2 text-center font-semibold text-white/35">UVR</th>
+                                            <th className="px-3 py-2 text-center font-semibold text-white/35">TSER</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {tintSpecRows.map((row) => (
+                                            <tr key={row.shade} className="border-b border-white/[0.03] last:border-0">
+                                                <td className="px-3 py-2.5 font-semibold uppercase tracking-[0.08em] text-white/65">{row.shade}</td>
+                                                <td className="px-3 py-2.5 text-center font-bold text-white/60">{row.vlt}</td>
+                                                <td className="px-3 py-2.5 text-center font-bold text-white/60">{row.irr}</td>
+                                                <td className="px-3 py-2.5 text-center font-bold text-white/60">{row.uvr}</td>
+                                                <td className="px-3 py-2.5 text-center font-bold text-amber-400/80">{row.tser}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">
+                                <span>VLT: Visible Light Transmission</span>
+                                <span>IRR: Infrared Rejection</span>
+                                <span>UVR: UV Rejection</span>
+                                <span>TSER: Total Solar Energy Rejected</span>
                             </div>
                         </div>
                     </motion.div>

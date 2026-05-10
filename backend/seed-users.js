@@ -21,7 +21,7 @@ const seedUsers = async () => {
         name: 'Mike Detailer',
         email: 'mike@detailshop.com',
         password: 'Detailer123!',
-        role: 'service_staff',
+        role: 'staff_quality_checker',
         isVerified: true,
         isActive: true,
       },

@@ -7,7 +7,7 @@ import { invalidate } from '../lib/queryCache';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
 import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking } from '../lib/phone';
 import { normalizePlateNumber } from '../lib/plate';
-import { RAW_SPF_PACKAGES } from '../lib/customer-booking-catalog';
+import { usePublishedBookingPackages } from '../lib/customer-booking-catalog';
 import {
   BOOKING_TERMS_DOCUMENT_TITLE,
   BOOKING_TERMS_INTRO,
@@ -24,6 +24,14 @@ import {
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
 import { compressImageForBookingProof } from '../lib/compress-image-for-upload';
 import { isNonNavigableImageSrc } from '../lib/non-navigable-image-url';
+import VehicleGarageForm from '@/components/shared/VehicleGarageForm';
+import {
+  ADD_VEHICLE_TYPE_LABELS,
+  BOOKING_YEAR_OPTIONS,
+  CAR_BRANDS,
+  getVehiclePriceKey,
+  validateVehicleGarageForm,
+} from '@/components/shared/vehicle-garage-constants';
 
 type DashboardSection = 'dashboard' | 'scan' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker' | 'payments';
 
@@ -48,10 +56,6 @@ function getStoredSidebarCollapsed() {
 }
 
 // ---- STATIC DATA FOR BOOKING ----
-const ADD_VEHICLE_TYPE_LABELS = ['Hatchback', 'Sedan', 'Midsized', 'SUV', 'Pick UP', 'Large SUV / Van', 'Highend Sedan'] as const;
-
-const BOOKING_YEAR_OPTIONS = Array.from({ length: 36 }, (_, i) => String(2025 - i));
-
 /** Preset names matching Add Vehicle color swatches (custom colors use free-text). */
 const EDIT_VEHICLE_COLOR_PRESETS = ['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Brown'] as const;
 
@@ -321,6 +325,7 @@ export default function CustomerDashboard() {
   });
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
+  const bookingPackages = usePublishedBookingPackages();
   const bookRouteAutoOpenRef = useRef(false);
   const bookRouteModalOpenedRef = useRef(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -702,22 +707,16 @@ export default function CustomerDashboard() {
     setEditVehicleOpen(true);
   };
   const saveEditVehicle = async () => {
-    const errors: Record<string, string> = {};
+    const errors = validateVehicleGarageForm(editVehicleForm);
+    if (Object.keys(errors).length > 0) {
+      setEditVehicleErrors(errors);
+      return;
+    }
     const plateRaw = editVehicleForm.plate.trim();
     const plateNorm = normalizePlateNumber(plateRaw);
     const brand = editVehicleForm.brand.trim();
     const model = editVehicleForm.model.trim();
     const type = editVehicleForm.type.trim();
-
-    if (!plateRaw) errors.plate = 'Plate number is required.';
-    else if (plateNorm.length < 4 || plateNorm.length > 9) {
-      errors.plate = 'Use 4–9 letters and numbers (spaces are ignored).';
-    }
-    if (!brand) errors.brand = 'Select a brand.';
-    if (!model) errors.model = 'Model is required (e.g. Vios, Civic).';
-    else if (model.length < 2) errors.model = 'Too short — enter the model name.';
-    if (!type) errors.type = 'Please select a vehicle type.';
-    if (Object.keys(errors).length > 0) { setEditVehicleErrors(errors); return; }
     const targetVehicle = vehicles[editVehicleIndex];
     const vehicleId = targetVehicle?._id || targetVehicle?.id;
     setEditVehicleApiError('');
@@ -788,7 +787,7 @@ export default function CustomerDashboard() {
 
       const body = bookingBodyRef.current;
       const list = packageListRef.current;
-      const cards = packageCardRefs.current.slice(0, RAW_SPF_PACKAGES.length);
+      const cards = packageCardRefs.current.slice(0, bookingPackages.length);
 
       if (!bookingOpen || bookingDone || bookingStep !== 1 || !body || !list || cards.length <= 1) {
         setPackagePeekHidden();
@@ -817,7 +816,7 @@ export default function CustomerDashboard() {
         }
       });
 
-      const remaining = Math.max(0, RAW_SPF_PACKAGES.length - lastVisiblePackageIndex - 1);
+      const remaining = Math.max(0, bookingPackages.length - lastVisiblePackageIndex - 1);
       if (remaining <= 0) {
         setPackagePeekHidden();
         return;
@@ -841,7 +840,7 @@ export default function CustomerDashboard() {
           : next
       ));
     });
-  }, [bookingDone, bookingOpen, bookingStep, setPackagePeekHidden]);
+  }, [bookingDone, bookingOpen, bookingPackages.length, bookingStep, setPackagePeekHidden]);
 
   useLayoutEffect(() => {
     if (!bookingOpen || bookingDone || bookingStep !== 1) {
@@ -873,18 +872,8 @@ export default function CustomerDashboard() {
     };
   }, [bookingDone, bookingForm.service, bookingOpen, bookingStep, updatePackagePeek, setPackagePeekHidden]);
 
-  // Map vehicle type labels → pricing keys
-  const VEHICLE_TYPE_MAP: Record<string, string> = {
-    'hatchback': 'hatchback', 'sedan': 'sedan', 'midsized': 'midsized',
-    'suv': 'suv', 'pick up': 'pickup', 'pickup': 'pickup',
-    'large suv / van': 'largesuv', 'large suv': 'largesuv', 'van': 'largesuv',
-    'highend': 'highend',
-    'highend sedan': 'highend', 'high-end sedan': 'highend',
-  };
-  const getVehiclePriceKey = (type: string) => VEHICLE_TYPE_MAP[type?.toLowerCase()] || 'hatchback';
-
   const BOOKING_TIMES = ['8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'];
-  const CAR_BRANDS = ['Toyota', 'Honda', 'Mitsubishi', 'Ford', 'Hyundai', 'Kia', 'Nissan', 'Suzuki', 'Mazda', 'Isuzu', 'Chevrolet', 'BMW', 'Mercedes-Benz', 'Audi', 'Subaru', 'Volkswagen', 'Lexus', 'Jeep', 'RAM', 'Other'];
+
   const [bookingCalMonth, setBookingCalMonth] = useState(() => {
     const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), 1);
   });
@@ -917,15 +906,16 @@ export default function CustomerDashboard() {
     // Track whether booking was opened FROM a vehicle card (pre-fills & locks vehicle fields)
     setBookingFromVehicle(!!preSelectedVehicle);
     const presetPkg = options?.presetPackageId
-      ? RAW_SPF_PACKAGES.find((p) => p.id === options.presetPackageId)
+      ? bookingPackages.find((p) => p.id === options.presetPackageId)
       : undefined;
     const presetPrice =
       presetPkg && detectedKey in presetPkg.prices
-        ? presetPkg.prices[detectedKey as keyof typeof presetPkg.prices]
+        ? presetPkg.prices[detectedKey as keyof typeof presetPkg.prices] ?? 0
         : 0;
+    const presetAvailable = !presetPkg || presetPrice > 0;
     setBookingForm({
-      service: presetPkg?.id || '',
-      serviceName: presetPkg?.name || '',
+      service: presetAvailable ? presetPkg?.id || '' : '',
+      serviceName: presetAvailable ? presetPkg?.name || '' : '',
       servicePrice: presetPrice,
       // Populate individual vehicle fields from the garage record
       vehicleMake: targetVehicle ? (targetVehicle.make || '') : '',
@@ -1203,33 +1193,16 @@ export default function CustomerDashboard() {
 
   const handleAddVehicleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const errors: Record<string, string> = {};
-    const plate = newVehicle.plate.trim();
-    const plateNorm = normalizePlateNumber(plate);
-    const brand = newVehicle.brand.trim();
-    const model = newVehicle.model.trim();
-    const type = newVehicle.type.trim();
-
-    // Plate: required
-    if (!plate.trim()) {
-      errors.plate = 'Plate number is required.';
-    } else if (plateNorm.length < 4 || plateNorm.length > 9) {
-      errors.plate = 'Use 4–9 letters and numbers (spaces are ignored).';
-    }
-    if (!brand) errors.brand = 'Select a brand.';
-    if (!model) {
-      errors.model = 'Model is required (e.g. Vios, Civic).';
-    } else if (model.length < 2) {
-      errors.model = 'Too short — enter the model name.';
-    }
-    if (!type) errors.type = 'Please select a vehicle type.';
-
+    const errors = validateVehicleGarageForm(newVehicle);
     if (Object.keys(errors).length > 0) {
       setVehicleErrors(errors);
       return;
     }
 
-    // Save to DB — optimistic row + refetch so list can't be overwritten by a stale in-flight GET
+    const plate = newVehicle.plate.trim();
+    const plateNorm = normalizePlateNumber(plate);
+    const brand = newVehicle.brand.trim();
+    const model = newVehicle.model.trim();
     setVehicleApiError('');
     const displayName = [newVehicle.year, brand, model].filter(Boolean).join(' ');
     const optimisticId = `optimistic-${Date.now()}`;
@@ -1243,7 +1216,7 @@ export default function CustomerDashboard() {
       model,
       name: displayName,
       color: newVehicle.color.trim() || 'Unknown',
-      type,
+      type: newVehicle.type || '',
       transmission: newVehicle.transmission || '',
       fuelType: newVehicle.fuelType || '',
     };
@@ -1259,7 +1232,7 @@ export default function CustomerDashboard() {
         make: brand,
         model,
         color: newVehicle.color.trim() || 'Unknown',
-        vehicleType: type,
+        vehicleType: newVehicle.type || '',
         transmission: newVehicle.transmission || '',
         fuelType: newVehicle.fuelType || '',
       });
@@ -4665,6 +4638,7 @@ export default function CustomerDashboard() {
                 {/* Service catalog — after garage: browse / plan without blocking status or booking alerts */}
                 <CustomerDashboardServicesShowcase
                   vehicles={vehicles}
+                  packages={bookingPackages}
                   getVehiclePriceKey={getVehiclePriceKey}
                   onOpenBooking={(opts) => {
                     void openBookingModal(undefined, opts?.presetPackageId ? { presetPackageId: opts.presetPackageId } : undefined);
@@ -4937,290 +4911,23 @@ export default function CustomerDashboard() {
             {/* Form */}
             <form onSubmit={handleAddVehicleSubmit} className="customer-vehicle-form space-y-5 overflow-y-auto px-5 py-5 sm:px-6 sm:py-6" noValidate>
 
-              {/* API error banner */}
-              {vehicleApiError && (
-                <div className="flex items-start gap-3 rounded-2xl border border-red-100/90 bg-red-50/85 px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]">
-                  <iconify-icon icon="solar:danger-triangle-bold" width="16" style={{ color: '#dc2626', marginTop: '1px', flexShrink: 0 }}></iconify-icon>
-                  <p className="text-[12px] font-medium leading-relaxed text-red-700">{vehicleApiError}</p>
-                </div>
-              )}
-
-              {/* ── Live Vehicle Card Preview ── */}
-              {(() => {
-                const colorHex: Record<string, string> = {
-                  White: '#e2e8f0', Black: '#1e293b', Silver: '#94a3b8', Gray: '#64748b',
-                  Blue: '#3b82f6', Red: '#ef4444', Green: '#22c55e', Yellow: '#eab308',
-                  Orange: '#f97316', Brown: '#92400e',
-                };
-                const bg = colorHex[newVehicle.color] || '#94a3b8';
-                const isLight = ['White', 'Silver', 'Yellow', ''].includes(newVehicle.color);
-                const txt = isLight ? '#1e293b' : '#f8fafc';
-                const previewName = [newVehicle.year, newVehicle.brand, newVehicle.model].filter(Boolean).join(' ') || 'Your Vehicle';
-                const previewPlate = newVehicle.plate ? normalizePlateNumber(newVehicle.plate) : 'Plate';
-                return (
-                  <div className="customer-vehicle-preview overflow-hidden rounded-[22px] border bg-white">
-                    <div className="relative overflow-hidden px-5 py-5" style={{ background: `linear-gradient(135deg, ${bg}, ${bg}dd)` }}>
-                      <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/15" />
-                      <div className="absolute -bottom-12 left-8 h-28 w-28 rounded-full bg-white/10" />
-                      <div className="relative flex items-center gap-4">
-                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/18 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]">
-                          <iconify-icon icon="solar:car-bold" width="30" style={{ color: txt, opacity: 0.9 }}></iconify-icon>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-bold" style={{ color: txt }}>{previewName}</p>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <span className="rounded-lg bg-white/22 px-2.5 py-1 font-mono text-xs font-bold uppercase" style={{ color: txt }}>
-                              {previewPlate}
-                            </span>
-                            <span className="rounded-lg bg-white/18 px-2.5 py-1 text-xs font-semibold" style={{ color: txt, opacity: 0.86 }}>
-                              {newVehicle.type || 'Vehicle class'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 divide-x divide-slate-100 bg-slate-50/75">
-                      {[
-                        { label: 'Brand', value: newVehicle.brand || 'Not set' },
-                        { label: 'Model', value: newVehicle.model || 'Not set' },
-                        { label: 'Color', value: newVehicle.color || 'Not set' },
-                      ].map(item => (
-                        <div key={item.label} className="min-w-0 px-3 py-3 text-center">
-                          <p className="text-[11px] font-semibold text-slate-400">{item.label}</p>
-                          <p className="mt-0.5 truncate text-xs font-bold text-slate-700">{item.value}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-                {/* Plate Number */}
-                <div>
-                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Plate number <span className="font-bold text-red-500 normal-case">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. ABC-1234"
-                    value={newVehicle.plate}
-                    onChange={(e) => { setNewVehicle({ ...newVehicle, plate: e.target.value.toUpperCase() }); setVehicleErrors(er => ({ ...er, plate: '' })); }}
-                    className={`w-full rounded-2xl border px-3.5 py-2.5 font-mono text-sm uppercase tracking-widest text-slate-900 outline-none transition-[border-color,box-shadow,background-color] duration-200 placeholder:text-slate-400/75 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${vehicleErrors.plate ? 'border-red-100/95 bg-red-50/60 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]' : 'border-slate-100 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
-                  />
-                  {vehicleErrors.plate ? (
-                    <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.plate}</p>
-                  ) : newVehicle.plate.trim() ? (
-                    (() => {
-                      const pn = normalizePlateNumber(newVehicle.plate);
-                      return pn.length >= 4 && pn.length <= 9 ? (
-                      <p className="mt-1 text-[11px] text-emerald-500 flex items-center gap-1"><iconify-icon icon="solar:check-circle-bold" width="11"></iconify-icon> Valid plate format</p>
-                    ) : (
-                      <p className="mt-1 text-[11px] text-amber-500 flex items-center gap-1"><iconify-icon icon="solar:info-circle-bold" width="11"></iconify-icon> 4–9 letters/numbers (spaces ignored)</p>
-                    );
-                    })()
-                  ) : null}
-                </div>
-
-                {/* Vehicle Type */}
-                <div>
-                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Type <span className="font-bold text-red-500 normal-case">*</span>
-                  </label>
-                  <select
-                    value={newVehicle.type}
-                    onChange={(e) => { setNewVehicle({ ...newVehicle, type: e.target.value }); setVehicleErrors(er => ({ ...er, type: '' })); }}
-                    className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow,background-color] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${vehicleErrors.type ? 'border-red-100/95 bg-red-50/60 text-red-800 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]' : newVehicle.type ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]' : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
-                  >
-                    <option value="" disabled>Select...</option>
-                    <option value="Hatchback">Hatchback</option>
-                    <option value="Sedan">Sedan</option>
-                    <option value="Midsized">Midsized</option>
-                    <option value="SUV">SUV</option>
-                    <option value="Pick UP">Pick UP</option>
-                    <option value="Large SUV / Van">Large SUV / Van</option>
-                    <option value="Highend Sedan">Highend Sedan</option>
-                  </select>
-                  {vehicleErrors.type && (
-                    <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.type}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* ── Live Price Preview Panel (shows when type is selected) ── */}
-              {newVehicle.type && (() => {
-                const priceKey = getVehiclePriceKey(newVehicle.type);
-                return (
-                  <div className="customer-vehicle-pricing-panel overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-4">
-                    <div className="mb-2.5 flex items-center gap-2">
-                      <iconify-icon icon="solar:tag-price-bold" width="14" style={{ color: '#f97316' }}></iconify-icon>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400/95">
-                        {newVehicle.type} pricing (linked to this vehicle)
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      {RAW_SPF_PACKAGES.map(pkg => (
-                        <div key={pkg.id} className="customer-vehicle-price-tile rounded-xl border border-white/[0.07] bg-white/[0.05] px-2.5 py-2">
-                          <p className="mb-0.5 text-[10px] font-semibold leading-snug text-slate-400">
-                            {pkg.name.split('—')[0].trim()}
-                          </p>
-                          <p className="text-sm font-bold tracking-tight text-white">
-                            ₱{(pkg.prices[priceKey as keyof typeof pkg.prices] || 0).toLocaleString()}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="mt-2.5 text-center text-[10px] font-medium text-slate-500">
-                      Shown rates apply when you book for this vehicle
-                    </p>
-                  </div>
-                );
-              })()}
-
-              {/* Brand + Year */}
-              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Brand <span className="font-bold text-red-500 normal-case">*</span>
-                  </label>
-                  <select
-                    value={newVehicle.brand}
-                    onChange={(e) => { setNewVehicle({ ...newVehicle, brand: e.target.value }); setVehicleErrors(er => ({ ...er, brand: '' })); }}
-                    className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow,background-color] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${vehicleErrors.brand ? 'border-red-100/95 bg-red-50/60 text-red-800 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]' : newVehicle.brand ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]' : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
-                  >
-                    <option value="">Select brand</option>
-                    {CAR_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
-                  </select>
-                  {vehicleErrors.brand && <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.brand}</p>}
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Year <span className="font-normal normal-case text-slate-400">(optional)</span>
-                  </label>
-                  <select
-                    value={newVehicle.year}
-                    onChange={(e) => setNewVehicle({ ...newVehicle, year: e.target.value })}
-                    className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${newVehicle.year ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]' : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
-                  >
-                    <option value="">Year</option>
-                    {Array.from({ length: 36 }, (_, i) => String(2025 - i)).map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {/* Model */}
-              <div>
-                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Model <span className="font-bold text-red-500 normal-case">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Vios, Civic, Ranger"
-                  value={newVehicle.model}
-                  onChange={(e) => { setNewVehicle({ ...newVehicle, model: e.target.value }); setVehicleErrors(er => ({ ...er, model: '' })); }}
-                  className={`w-full rounded-2xl border px-3.5 py-2.5 text-sm text-slate-900 outline-none transition-[border-color,box-shadow,background-color] duration-200 placeholder:text-slate-400/75 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${vehicleErrors.model ? 'border-red-100/95 bg-red-50/60 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]' : 'border-slate-100 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
-                />
-                {vehicleErrors.model && <p className="mt-1 text-[11px] text-red-500">{vehicleErrors.model}</p>}
-              </div>
-
-              {/* Color Swatch Picker */}
-              <div>
-                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Color <span className="font-normal normal-case text-slate-400">(optional)</span>
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { name: 'White', hex: '#f1f5f9' }, { name: 'Black', hex: '#1e293b' },
-                    { name: 'Silver', hex: '#94a3b8' }, { name: 'Gray', hex: '#64748b' },
-                    { name: 'Blue', hex: '#3b82f6' }, { name: 'Red', hex: '#ef4444' },
-                    { name: 'Green', hex: '#22c55e' }, { name: 'Yellow', hex: '#eab308' },
-                    { name: 'Orange', hex: '#f97316' }, { name: 'Brown', hex: '#92400e' },
-                  ].map(c => {
-                    const sel = newVehicle.color === c.name && !newVehicleShowColorInput;
-                    return (
-                      <button key={c.name} type="button" title={c.name}
-                        onClick={() => { setNewVehicle(nv => ({ ...nv, color: c.name })); setNewVehicleShowColorInput(false); }}
-                        className={`h-8 w-8 shrink-0 rounded-full border-0 shadow-[0_1px_3px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.25)] transition-all duration-200 outline-none ring-2 ${
-                          sel
-                            ? 'ring-slate-400/55 ring-offset-2 ring-offset-white scale-[1.06]'
-                            : 'ring-white/80 ring-slate-200/50 hover:ring-slate-300/65'
-                        }`}
-                        style={{ background: c.hex }}
-                      />
-                    );
-                  })}
-                  {/* Other button */}
-                  <button type="button"
-                    onClick={() => { setNewVehicleShowColorInput(true); setNewVehicle(nv => ({ ...nv, color: '' })); }}
-                    className={`h-8 shrink-0 rounded-full border px-3.5 text-[11px] font-semibold transition-all duration-200 shadow-[0_1px_2px_rgba(15,23,42,0.05)] ${
-                      newVehicleShowColorInput
-                        ? 'border-slate-200/70 bg-gradient-to-b from-slate-50 to-slate-100/80 text-slate-800 ring-2 ring-slate-300/35 ring-offset-2 ring-offset-white'
-                        : 'border border-slate-100/90 bg-gradient-to-b from-white to-slate-50/70 text-slate-500 hover:border-slate-200/90 hover:text-slate-700'
-                    }`}
-                  >Other</button>
-                </div>
-                {newVehicleShowColorInput && (
-                  <input
-                    type="text" placeholder="e.g. Champagne Gold"
-                    value={newVehicle.color}
-                    onChange={(e) => setNewVehicle({ ...newVehicle, color: e.target.value })}
-                    className="mt-2.5 w-full rounded-2xl border border-slate-100 bg-gradient-to-b from-white to-slate-50/80 px-3.5 py-2.5 text-sm text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-slate-400/75 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]"
-                    autoFocus
-                  />
-                )}
-                {newVehicle.color && !newVehicleShowColorInput && (
-                  <p className="mt-1.5 pl-0.5 text-[11px] text-slate-400">Selected: <span className="font-semibold text-slate-600">{newVehicle.color}</span></p>
-                )}
-              </div>
-
-              {/* Transmission + Fuel Type */}
-              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Transmission <span className="font-normal normal-case text-slate-400">(optional)</span>
-                  </label>
-                  <select
-                    value={newVehicle.transmission}
-                    onChange={(e) => setNewVehicle({ ...newVehicle, transmission: e.target.value })}
-                    className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${newVehicle.transmission ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]' : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
-                  >
-                    <option value="">Select...</option>
-                    <option value="Automatic">Automatic</option>
-                    <option value="Manual">Manual</option>
-                    <option value="CVT">CVT</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Fuel type <span className="font-normal normal-case text-slate-400">(optional)</span>
-                  </label>
-                  <select
-                    value={newVehicle.fuelType}
-                    onChange={(e) => setNewVehicle({ ...newVehicle, fuelType: e.target.value })}
-                    className={`w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${newVehicle.fuelType ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]' : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'}`}
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
-                  >
-                    <option value="">Select...</option>
-                    <option value="Gasoline">Gasoline</option>
-                    <option value="Diesel">Diesel</option>
-                    <option value="Electric">Electric</option>
-                    <option value="Hybrid">Hybrid</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Hint — no emoji */}
-              <div className="flex gap-3.5 rounded-2xl border-0 bg-slate-50/90 px-4 py-3.5 ring-1 ring-slate-200/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
-                <div className="shrink-0 pt-0.5" aria-hidden>
-                  <iconify-icon icon="solar:calendar-mark-bold" width="18" style={{ color: '#64748b' }}></iconify-icon>
-                </div>
-                <p className="text-[12px] font-medium leading-relaxed text-slate-600">
-                  After you save, open <span className="font-semibold text-slate-800">Book</span> on your vehicle card to schedule a service with these details pre-filled.
-                </p>
-              </div>
+              <VehicleGarageForm
+                variant="customer-rich"
+                values={newVehicle}
+                onChange={setNewVehicle}
+                errors={vehicleErrors}
+                onClearError={(field) => setVehicleErrors((er) => ({ ...er, [field]: '' }))}
+                showCustomColorInput={newVehicleShowColorInput}
+                onShowCustomColorInput={setNewVehicleShowColorInput}
+                apiError={vehicleApiError}
+                showPricingPreview
+                bookingPackages={bookingPackages}
+                footerHint={
+                  <>
+                    After you save, open <span className="font-semibold text-slate-800">Book</span> on your vehicle card to schedule a service with these details pre-filled.
+                  </>
+                }
+              />
 
               {/* Actions */}
               <div className="customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-t bg-white/95 px-5 pt-4 backdrop-blur sm:-mx-6 sm:flex-row sm:px-6">
@@ -5521,14 +5228,15 @@ export default function CustomerDashboard() {
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
-                            {RAW_SPF_PACKAGES.length} packages
+                            {bookingPackages.length} packages
                           </span>
                         </div>
                     </div>
 
                     <div ref={packageListRef} className="space-y-3">
-                      {RAW_SPF_PACKAGES.map((svc: any, index: number) => {
-                        const currentPrice = svc.prices[bookingVehicleType] || 0;
+                      {bookingPackages.map((svc: any, index: number) => {
+                        const currentPrice = svc.prices[bookingVehicleType] ?? null;
+                        if (currentPrice === null) return null;
                         const selected = bookingForm.service === svc.id;
                         const packageBadge =
                           svc.id === 'spf89' ? 'Most chosen' :
@@ -6445,8 +6153,8 @@ export default function CustomerDashboard() {
                 aria-hidden={!packagePeek.visible}
               >
                 <div className="booking-package-peek-pill">
-                  {packagePeek.remaining === RAW_SPF_PACKAGES.length
-                    ? `View all ${RAW_SPF_PACKAGES.length} packages ↓`
+                  {packagePeek.remaining === bookingPackages.length
+                    ? `View all ${bookingPackages.length} packages ↓`
                     : `↓ ${packagePeek.remaining} more package${packagePeek.remaining === 1 ? '' : 's'} available`}
                 </div>
               </div>
@@ -6510,7 +6218,7 @@ export default function CustomerDashboard() {
                             ? 'Check the box to agree to the Terms and Conditions.'
                             : ''
                           : '';
-                const selectedBookingService = RAW_SPF_PACKAGES.find((svc: any) => svc.id === bookingForm.service);
+                const selectedBookingService = bookingPackages.find((svc: any) => svc.id === bookingForm.service);
 
                 return (
                   <div className="booking-service-footer shrink-0 border-t px-5 py-4">
@@ -6873,244 +6581,18 @@ export default function CustomerDashboard() {
             </div>
 
             <div className="px-5 py-4 space-y-3">
-              {editVehicleApiError && (
-                <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-red-50 border border-red-100">
-                  <iconify-icon icon="solar:danger-triangle-bold" width="15" style={{ color: '#ef4444', marginTop: '1px', flexShrink: 0 }}></iconify-icon>
-                  <p className="text-[12px] text-red-600 font-medium leading-snug">{editVehicleApiError}</p>
-                </div>
-              )}
-
-              {(editVehicleForm.brand || editVehicleForm.model || editVehicleForm.plate) && (() => {
-                const colorHex: Record<string, string> = {
-                  White: '#e2e8f0', Black: '#1e293b', Silver: '#94a3b8', Gray: '#64748b',
-                  Blue: '#3b82f6', Red: '#ef4444', Green: '#22c55e', Yellow: '#eab308',
-                  Orange: '#f97316', Brown: '#92400e',
-                };
-                const bg = colorHex[editVehicleForm.color] || '#94a3b8';
-                const isLight = ['White', 'Silver', 'Yellow', ''].includes(editVehicleForm.color);
-                const txt = isLight ? '#1e293b' : '#f8fafc';
-                const previewName = [editVehicleForm.year, editVehicleForm.brand, editVehicleForm.model].filter(Boolean).join(' ') || 'Your Vehicle';
-                return (
-                  <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                    <div style={{ background: `linear-gradient(135deg, ${bg}, ${bg}dd)`, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <iconify-icon icon="solar:car-bold" width="36" style={{ color: txt, opacity: 0.8, flexShrink: 0 }}></iconify-icon>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 13, fontWeight: 700, color: txt, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previewName}</p>
-                        <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
-                          {editVehicleForm.plate && <span style={{ fontSize: 10, fontWeight: 700, color: txt, opacity: 0.8, letterSpacing: '0.05em', background: 'rgba(255,255,255,0.2)', padding: '1px 6px', borderRadius: 4 }}>{normalizePlateNumber(editVehicleForm.plate)}</span>}
-                          {editVehicleForm.type && <span style={{ fontSize: 10, fontWeight: 600, color: txt, opacity: 0.7 }}>{editVehicleForm.type}</span>}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ background: '#f8fafc', padding: '6px 16px', fontSize: 10, color: '#94a3b8', fontWeight: 500, textAlign: 'center' }}>Live Preview</div>
-                  </div>
-                );
-              })()}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Plate Number <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. ABC-1234"
-                    value={editVehicleForm.plate}
-                    onChange={(e) => { setEditVehicleForm(f => ({ ...f, plate: e.target.value.toUpperCase() })); setEditVehicleErrors(er => ({ ...er, plate: '' })); }}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors uppercase tracking-widest font-mono ${editVehicleErrors.plate ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
-                  />
-                  {editVehicleErrors.plate ? (
-                    <p className="mt-1 text-[11px] text-red-500">{editVehicleErrors.plate}</p>
-                  ) : editVehicleForm.plate.trim() ? (
-                    (() => {
-                      const pn = normalizePlateNumber(editVehicleForm.plate);
-                      return pn.length >= 4 && pn.length <= 9 ? (
-                        <p className="mt-1 text-[11px] text-emerald-500 flex items-center gap-1"><iconify-icon icon="solar:check-circle-bold" width="11"></iconify-icon> Valid plate format</p>
-                      ) : (
-                        <p className="mt-1 text-[11px] text-amber-500 flex items-center gap-1"><iconify-icon icon="solar:info-circle-bold" width="11"></iconify-icon> 4–9 letters/numbers (spaces ignored)</p>
-                      );
-                    })()
-                  ) : null}
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Type <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={editVehicleForm.type}
-                    onChange={(e) => { setEditVehicleForm(f => ({ ...f, type: e.target.value })); setEditVehicleErrors(er => ({ ...er, type: '' })); }}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${editVehicleErrors.type ? 'border-red-300 bg-red-50 text-red-700 focus:border-red-400' : editVehicleForm.type ? 'border-gray-200 text-gray-900 focus:border-gray-400' : 'border-gray-200 text-gray-400 focus:border-gray-400'}`}
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
-                  >
-                    <option value="" disabled>Select...</option>
-                    {ADD_VEHICLE_TYPE_LABELS.map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                  {editVehicleErrors.type && <p className="mt-1 text-[11px] text-red-500">{editVehicleErrors.type}</p>}
-                </div>
-              </div>
-
-              {editVehicleForm.type && (() => {
-                const priceKey = getVehiclePriceKey(editVehicleForm.type);
-                return (
-                  <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 12, padding: '12px 14px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                      <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#f59e0b' }}></iconify-icon>
-                      <span style={{ fontSize: 10, fontWeight: 800, color: '#f59e0b', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        {editVehicleForm.type} Pricing — Locked to this vehicle
-                      </span>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                      {RAW_SPF_PACKAGES.map(pkg => (
-                        <div key={pkg.id} style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: '8px 10px' }}>
-                          <p style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginBottom: 2, lineHeight: 1.3 }}>
-                            {pkg.name.split('—')[0].trim()}
-                          </p>
-                          <p style={{ fontSize: 14, fontWeight: 900, color: '#fff', letterSpacing: '-0.01em' }}>
-                            ₱{(pkg.prices[priceKey as keyof typeof pkg.prices] || 0).toLocaleString()}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Brand <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={editVehicleForm.brand}
-                    onChange={(e) => { setEditVehicleForm(f => ({ ...f, brand: e.target.value })); setEditVehicleErrors(er => ({ ...er, brand: '' })); }}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${editVehicleErrors.brand ? 'border-red-300 bg-red-50 text-red-700' : editVehicleForm.brand ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
-                  >
-                    <option value="">Select brand</option>
-                    {editVehicleForm.brand && !CAR_BRANDS.includes(editVehicleForm.brand) && (
-                      <option value={editVehicleForm.brand}>{editVehicleForm.brand}</option>
-                    )}
-                    {CAR_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
-                  </select>
-                  {editVehicleErrors.brand && <p className="mt-1 text-[11px] text-red-500">{editVehicleErrors.brand}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Year <span className="text-gray-400 font-normal">(optional)</span>
-                  </label>
-                  <select
-                    value={editVehicleForm.year}
-                    onChange={(e) => setEditVehicleForm(f => ({ ...f, year: e.target.value }))}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${editVehicleForm.year ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
-                  >
-                    <option value="">Year</option>
-                    {BOOKING_YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Model <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Vios, Civic, Ranger"
-                  value={editVehicleForm.model}
-                  onChange={(e) => { setEditVehicleForm(f => ({ ...f, model: e.target.value })); setEditVehicleErrors(er => ({ ...er, model: '' })); }}
-                  className={`w-full px-3 py-2 rounded-lg border text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${editVehicleErrors.model ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'}`}
-                />
-                {editVehicleErrors.model && <p className="mt-1 text-[11px] text-red-500">{editVehicleErrors.model}</p>}
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  Color <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {[
-                    { name: 'White', hex: '#f1f5f9' }, { name: 'Black', hex: '#1e293b' },
-                    { name: 'Silver', hex: '#94a3b8' }, { name: 'Gray', hex: '#64748b' },
-                    { name: 'Blue', hex: '#3b82f6' }, { name: 'Red', hex: '#ef4444' },
-                    { name: 'Green', hex: '#22c55e' }, { name: 'Yellow', hex: '#eab308' },
-                    { name: 'Orange', hex: '#f97316' }, { name: 'Brown', hex: '#92400e' },
-                  ].map(c => {
-                    const sel = editVehicleForm.color === c.name && !editVehicleShowColorInput;
-                    return (
-                      <button key={c.name} type="button" title={c.name}
-                        onClick={() => { setEditVehicleForm(f => ({ ...f, color: c.name })); setEditVehicleShowColorInput(false); }}
-                        style={{
-                          width: 28, height: 28, borderRadius: '50%', border: sel ? '2.5px solid #0f172a' : '2px solid #e2e8f0',
-                          background: c.hex, cursor: 'pointer', transition: 'all 0.15s',
-                          boxShadow: sel ? '0 0 0 2px #fff, 0 0 0 4px #0f172a' : 'none',
-                          outline: 'none', flexShrink: 0,
-                        }}
-                      />
-                    );
-                  })}
-                  <button type="button"
-                    onClick={() => { setEditVehicleShowColorInput(true); setEditVehicleForm(f => ({ ...f, color: '' })); }}
-                    style={{
-                      height: 28, padding: '0 10px', borderRadius: 14, fontSize: 11, fontWeight: 600,
-                      border: editVehicleShowColorInput ? '2px solid #0f172a' : '2px solid #e2e8f0',
-                      background: editVehicleShowColorInput ? '#f8fafc' : '#fff', color: '#64748b',
-                      cursor: 'pointer', transition: 'all 0.15s',
-                    }}
-                  >Other</button>
-                </div>
-                {editVehicleShowColorInput && (
-                  <input
-                    type="text"
-                    placeholder="e.g. Champagne Gold"
-                    value={editVehicleForm.color}
-                    onChange={(e) => setEditVehicleForm(f => ({ ...f, color: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 transition-colors mt-2"
-                    autoFocus
-                  />
-                )}
-                {editVehicleForm.color && !editVehicleShowColorInput && (
-                  <p className="mt-1.5 text-[11px] text-gray-400 pl-0.5">Selected: <span className="font-semibold text-gray-600">{editVehicleForm.color}</span></p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Transmission <span className="text-gray-400 font-normal">(optional)</span>
-                  </label>
-                  <select
-                    value={editVehicleForm.transmission}
-                    onChange={(e) => setEditVehicleForm(f => ({ ...f, transmission: e.target.value }))}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${editVehicleForm.transmission ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
-                  >
-                    <option value="">Select...</option>
-                    <option value="Automatic">Automatic</option>
-                    <option value="Manual">Manual</option>
-                    <option value="CVT">CVT</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Fuel Type <span className="text-gray-400 font-normal">(optional)</span>
-                  </label>
-                  <select
-                    value={editVehicleForm.fuelType}
-                    onChange={(e) => setEditVehicleForm(f => ({ ...f, fuelType: e.target.value }))}
-                    className={`w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors appearance-none ${editVehicleForm.fuelType ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'}`}
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '28px' }}
-                  >
-                    <option value="">Select...</option>
-                    <option value="Gasoline">Gasoline</option>
-                    <option value="Diesel">Diesel</option>
-                    <option value="Electric">Electric</option>
-                    <option value="Hybrid">Hybrid</option>
-                  </select>
-                </div>
-              </div>
+              <VehicleGarageForm
+                variant="compact"
+                values={editVehicleForm}
+                onChange={setEditVehicleForm}
+                errors={editVehicleErrors}
+                onClearError={(field) => setEditVehicleErrors((er) => ({ ...er, [field]: '' }))}
+                showCustomColorInput={editVehicleShowColorInput}
+                onShowCustomColorInput={setEditVehicleShowColorInput}
+                apiError={editVehicleApiError}
+                showPricingPreview
+                bookingPackages={bookingPackages}
+              />
             </div>
 
             <div className="flex gap-2 px-5 pb-5 pt-1">

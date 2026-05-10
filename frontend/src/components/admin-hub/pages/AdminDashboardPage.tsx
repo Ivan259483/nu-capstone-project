@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Users, UserCheck, Clock, ShieldCheck, TrendingUp, ArrowRight, LogIn, Edit, Key, UserPlus as UserPlusIcon, AlertTriangle } from 'lucide-react';
+import { Users, UserCheck, Clock, ShieldCheck, TrendingUp, ArrowRight, LogIn, Edit, Key, UserPlus as UserPlusIcon, AlertTriangle, Calendar, Package } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 interface Props {
@@ -73,6 +73,35 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
       <div>
         <h1 style={{ fontSize: 24, fontWeight: 600, color: '#0f172a', margin: 0 }}>Dashboard Overview</h1>
         <p style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>Welcome back — here's what's happening with your users today.</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
+          <button
+            type="button"
+            className="ah-btn-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 13 }}
+            onClick={() => onNavigate('scheduling')}
+          >
+            <Calendar size={16} aria-hidden />
+            Appointments
+          </button>
+          <button
+            type="button"
+            className="ah-btn-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 13 }}
+            onClick={() => onNavigate('inventory')}
+          >
+            <Package size={16} aria-hidden />
+            Inventory
+          </button>
+          <button
+            type="button"
+            className="ah-btn-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 13 }}
+            onClick={() => onNavigate('users')}
+          >
+            <Users size={16} aria-hidden />
+            User management
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -83,7 +112,7 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
             <div key={kpi.label} className="ah-kpi-card ah-slide-up" style={{ borderLeft: `4px solid ${kpi.border}`, animationDelay: `${idx * 0.06}s`, background: kpi.alert ? 'rgba(255,251,235,.4)' : '#fff' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
                 <div>
-                  <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{kpi.label}</p>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', letterSpacing: '0.02em', margin: 0 }}>{kpi.label}</p>
                   {kpi.alert && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 10, fontWeight: 600, color: '#d97706', background: '#fef3c7', padding: '2px 6px', borderRadius: 4 }}>⚠ Action Required</span>}
                 </div>
                 <div style={{ width: 36, height: 36, borderRadius: 8, background: kpi.iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

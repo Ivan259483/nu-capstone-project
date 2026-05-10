@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { encrypt, decrypt } from '../utils/encryption.utils.js';
-import { USER_ROLES } from '../constants/roles.js';
+import { USER_ROLES, normalizeToCanonical } from '../constants/roles.js';
 
 const userSchema = new mongoose.Schema(
   {
@@ -97,9 +97,23 @@ const userSchema = new mongoose.Schema(
         type: String,
       }
     ],
+    /** Last client heartbeat / session ping — used for admin “presence” display */
+    lastSeenAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
   },
   { timestamps: true }
 );
+
+// Coerce deprecated role strings before enum validation (e.g. hr → office_admin).
+userSchema.pre('validate', function (next) {
+  if (this.role) {
+    this.role = normalizeToCanonical(this.role);
+  }
+  next();
+});
 
 // Hash password and Encrypt PII before saving
 userSchema.pre('save', async function (next) {

@@ -1,6 +1,8 @@
 import type { UserRole } from '@/lib/roles';
+import type { ServiceCatalogCard } from '@/lib/service-pricing';
 
 export type { UserRole } from '@/lib/roles';
+export type { ServiceCatalogCard } from '@/lib/service-pricing';
 
 export interface User {
     id: string;
@@ -51,6 +53,7 @@ export interface Supplier {
 }
 
 // Service/Pricing Types
+
 export interface Service {
     id: string;
     _id?: string;
@@ -60,6 +63,11 @@ export interface Service {
     duration: string;
     basePrice?: number;
     prices?: Record<'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largesuv' | 'highend', number | null>;
+    pricing?: Partial<Record<'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largeSuv' | 'highend', {
+        base?: number | null;
+        original?: number | null;
+        addon?: number | null;
+    }>>;
     memberPrice?: number | null;
     recipe?: Array<{
         product?: string;
@@ -74,6 +82,7 @@ export interface Service {
     lastUpdatedAt?: string;
     createdAt?: string;
     updatedAt?: string;
+    catalogCard?: ServiceCatalogCard | null;
 }
 
 // Booking Types

@@ -4,11 +4,12 @@
  * Approve / Reject actions are ONLY available here (not on calendar cells).
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
   X, Clock, Car, CheckCircle, XCircle, Loader2,
-  Calendar, ChevronRight, AlertCircle,
+  Calendar, AlertCircle, Package, Banknote,
 } from 'lucide-react';
 import { approveBooking, rejectBooking } from './calendarService';
 import { invalidateDateCache } from './useBookingsByDate';
@@ -18,13 +19,17 @@ import DraggableBooking from './DraggableBooking';
 
 // ── Status display map ────────────────────────────────────────────────────────
 const STATUS_META: Record<string, { label: string; dot: string; bg: string; text: string }> = {
+  pending: { label: 'Pending', dot: '#f59e0b', bg: '#fffbeb', text: '#92400e' },
   pending_confirmation: { label: 'Pending Review', dot: '#f59e0b', bg: '#fffbeb', text: '#92400e' },
   confirmed:            { label: 'Confirmed',       dot: '#3b82f6', bg: '#eff6ff', text: '#1e40af' },
   approved:             { label: 'Approved',        dot: '#10b981', bg: '#ecfdf5', text: '#065f46' },
   assigned:             { label: 'Assigned',        dot: '#8b5cf6', bg: '#f5f3ff', text: '#4c1d95' },
   received:             { label: 'Received',        dot: '#14b8a6', bg: '#f0fdfa', text: '#134e4a' },
   in_progress:          { label: 'In Progress',     dot: '#f97316', bg: '#fff7ed', text: '#9a3412' },
+  'in-progress':        { label: 'In Progress',     dot: '#f97316', bg: '#fff7ed', text: '#9a3412' },
   completed:            { label: 'Completed',       dot: '#22c55e', bg: '#f0fdf4', text: '#14532d' },
+  paid:                 { label: 'Paid',            dot: '#059669', bg: '#ecfdf5', text: '#065f46' },
+  released:             { label: 'Released',        dot: '#0891b2', bg: '#ecfeff', text: '#155e75' },
   cancelled:            { label: 'Cancelled',       dot: '#9ca3af', bg: '#f9fafb', text: '#6b7280' },
   rejected:             { label: 'Rejected',        dot: '#ef4444', bg: '#fef2f2', text: '#7f1d1d' },
   queued:               { label: 'Queued',          dot: '#6366f1', bg: '#eef2ff', text: '#3730a3' },
@@ -95,65 +100,107 @@ function BookingCard({
     }
   };
 
+  const refShort =
+    booking.bookingReference && booking.bookingReference.length > 18
+      ? `${booking.bookingReference.slice(0, 10)}…${booking.bookingReference.slice(-4)}`
+      : booking.bookingReference;
+
   return (
-    <div className="rounded-2xl overflow-hidden"
-      style={{ background: '#fff', border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
-      {/* Card header */}
-      <div className="px-4 pt-4 pb-3 flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-sm font-bold text-white"
-          style={{ background: meta.dot }}>
-          {(booking.customerName || 'C').charAt(0).toUpperCase()}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-slate-900 text-sm">{booking.customerName}</span>
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
-              style={{ background: meta.bg, color: meta.text }}>
-              <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: meta.dot }} />
-              {meta.label}
-            </span>
+    <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_6px_28px_rgba(15,23,42,0.07)] ring-1 ring-slate-900/[0.04]">
+      {/* Header strip */}
+      <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 to-white px-4 py-4">
+        <div className="flex items-start gap-3">
+          <div
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white shadow-md"
+            style={{ background: `linear-gradient(145deg, ${meta.dot}, ${meta.dot}cc)` }}
+          >
+            {(booking.customerName || 'C').charAt(0).toUpperCase()}
           </div>
-          <div className="flex items-center gap-3 mt-1 text-xs text-slate-500 flex-wrap">
-            {booking.bookingTime && (
-              <span className="flex items-center gap-1"><Clock size={10} />{booking.bookingTime}</span>
-            )}
-            {booking.vehiclePlate && (
-              <span className="flex items-center gap-1"><Car size={10} />{booking.vehiclePlate}</span>
-            )}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[15px] font-bold tracking-tight text-slate-900">{booking.customerName}</span>
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-bold shadow-sm"
+                style={{
+                  borderColor: `${meta.dot}55`,
+                  background: meta.bg,
+                  color: meta.text,
+                }}
+              >
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: meta.dot }} />
+                {meta.label}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] font-medium text-slate-600">
+              {booking.bookingTime && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Clock size={13} className="text-slate-400" strokeWidth={2.5} />
+                  {booking.bookingTime}
+                </span>
+              )}
+              {booking.vehiclePlate && (
+                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-slate-700">
+                  <Car size={13} className="text-slate-400" strokeWidth={2.5} />
+                  {booking.vehiclePlate}
+                </span>
+              )}
+            </div>
             {booking.bookingReference && (
-              <span className="font-mono text-slate-400">#{booking.bookingReference}</span>
+              <p
+                className="mt-2 font-mono text-[10px] font-medium tracking-wide text-slate-400"
+                title={`#${booking.bookingReference}`}
+              >
+                Ref · #{refShort}
+              </p>
             )}
           </div>
         </div>
       </div>
 
-      {/* Details grid */}
-      <div className="px-4 pb-3 grid grid-cols-2 gap-2">
-        <div className="rounded-xl p-2.5" style={{ background: '#f8fafc' }}>
-          <p className="text-[10px] text-slate-400 uppercase tracking-wide">Service</p>
-          <p className="text-xs font-semibold text-slate-700 mt-0.5 truncate">
-            {booking.serviceName || booking.serviceType || '—'}
-          </p>
-        </div>
-        <div className="rounded-xl p-2.5" style={{ background: '#f8fafc' }}>
-          <p className="text-[10px] text-slate-400 uppercase tracking-wide">Total</p>
-          <p className="text-xs font-semibold text-slate-700 mt-0.5">
-            ₱{Number(booking.totalPrice || booking.totalAmount || 0).toLocaleString()}
-          </p>
-        </div>
-        {(booking.vehicleMake || booking.vehicleModel) && (
-          <div className="col-span-2 rounded-xl p-2.5" style={{ background: '#f8fafc' }}>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide">Vehicle</p>
-            <p className="text-xs font-semibold text-slate-700 mt-0.5">
-              {[booking.vehicleMake, booking.vehicleModel, booking.vehicleType].filter(Boolean).join(' ')}
+      {/* Detail rows */}
+      <div className="space-y-2.5 px-4 py-4">
+        <div className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-100">
+            <Package size={16} className="text-violet-600" strokeWidth={2} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Service</p>
+            <p className="mt-0.5 text-sm font-semibold leading-snug text-slate-900">
+              {booking.serviceName || booking.serviceType || '—'}
             </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-100">
+            <Banknote size={16} className="text-emerald-600" strokeWidth={2} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Total</p>
+            <p className="mt-0.5 text-lg font-black tabular-nums tracking-tight text-slate-900">
+              ₱{Number(booking.totalPrice || booking.totalAmount || 0).toLocaleString()}
+            </p>
+          </div>
+        </div>
+
+        {(booking.vehicleMake || booking.vehicleModel) && (
+          <div className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-100">
+              <Car size={16} className="text-sky-600" strokeWidth={2} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Vehicle</p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-900">
+                {[booking.vehicleMake, booking.vehicleModel, booking.vehicleType].filter(Boolean).join(' ')}
+              </p>
+            </div>
           </div>
         )}
       </div>
 
       {/* Payment proof image */}
       {isPending && booking.paymentProofUrl && (
-        <div className="px-4 pb-3">
+        <div className="border-t border-slate-100 px-4 pb-4 pt-2">
           <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-2">GCash Proof</p>
           <img
             src={booking.paymentProofUrl}
@@ -165,7 +212,7 @@ function BookingCard({
         </div>
       )}
       {isPending && !booking.paymentProofUrl && (
-        <div className="px-4 pb-3">
+        <div className="border-t border-slate-100 px-4 pb-4 pt-2">
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: '#fef9c3', border: '1px solid #fde68a' }}>
             <AlertCircle size={12} className="text-amber-600 flex-shrink-0" />
             <span className="text-[11px] text-amber-700 font-medium">No payment proof uploaded yet</span>
@@ -175,7 +222,7 @@ function BookingCard({
 
       {/* Action buttons — ONLY for pending_confirmation */}
       {isPending && (
-        <div className="px-4 pb-4">
+        <div className="border-t border-slate-100 px-4 pb-4 pt-1">
           {rejectMode ? (
             <div className="space-y-2">
               <textarea
@@ -254,37 +301,62 @@ export default function DayPanel({ date, bookings, loading, onClose, onRefresh }
     onRefresh();
   };
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-end"
-      style={{ background: 'rgba(15,23,42,0.25)', backdropFilter: 'blur(2px)' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div
-        className="w-full max-w-md h-full bg-white flex flex-col overflow-hidden"
-        style={{ borderLeft: '1px solid #e2e8f0', boxShadow: '-4px 0 32px rgba(0,0,0,0.08)' }}>
+  /** Lock scroll while drawer is open (portal renders above Admin Hub). */
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  /** Portal → document.body so `position:fixed` is viewport-relative (Admin Hub `.ah-page-enter` uses transform and traps fixed descendants). */
+  const drawer = (
+    <>
+      <button
+        type="button"
+        className="fixed inset-0 z-[200] cursor-default border-0 bg-slate-900/[0.035] backdrop-blur-[2px] transition-colors hover:bg-slate-900/[0.055]"
+        aria-label="Close day details"
+        onClick={onClose}
+      />
+      <aside
+        className="fixed top-0 right-0 z-[210] flex h-[100dvh] w-[min(100vw,420px)] flex-col overflow-hidden border-l border-slate-200/90 bg-white shadow-[-16px_0_48px_rgba(15,23,42,0.14)] sm:rounded-l-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="day-panel-title"
+      >
 
         {/* Header */}
-        <div className="px-5 py-4 flex items-center justify-between flex-shrink-0"
-          style={{ borderBottom: '1px solid #f1f5f9' }}>
-          <div>
-            <div className="flex items-center gap-2">
-              <Calendar size={14} className="text-blue-600" />
-              <h3 className="font-bold text-slate-900 text-sm">{label}</h3>
+        <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-slate-100 bg-white px-5 py-5">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Selected date</p>
+            <div className="mt-1 flex items-center gap-2">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+                <Calendar size={18} strokeWidth={2} />
+              </div>
+              <div>
+                <h3 id="day-panel-title" className="text-base font-bold leading-tight tracking-tight text-slate-900">
+                  {label}
+                </h3>
+                <p className="mt-1 text-[13px] font-medium text-slate-500">
+                  {loading ? 'Loading…' : `${active.length} active booking${active.length !== 1 ? 's' : ''}`}
+                  {excluded.length > 0 && ` · ${excluded.length} excluded`}
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5 ml-5">
-              {loading ? 'Loading…' : `${active.length} active booking${active.length !== 1 ? 's' : ''}`}
-              {excluded.length > 0 && ` · ${excluded.length} cancelled/rejected`}
-            </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-            <X size={16} />
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-400 ring-1 ring-slate-200/80 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close panel"
+          >
+            <X size={18} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 space-y-4 overflow-y-auto bg-gradient-to-b from-slate-50/90 to-slate-50/40 p-4">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <Loader2 size={24} className="animate-spin text-blue-500" />
@@ -336,7 +408,10 @@ export default function DayPanel({ date, bookings, loading, onClose, onRefresh }
             </>
           )}
         </div>
-      </div>
-    </div>
+      </aside>
+    </>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(drawer, document.body);
 }

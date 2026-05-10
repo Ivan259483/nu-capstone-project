@@ -19,6 +19,7 @@ import {
   getManageableUserRoles,
   getInvalidUserRoleMessage,
   isValidUserRole,
+  normalizeToCanonical,
 } from '../constants/roles.js';
 import { parseOptionalPhilippineMobile } from '../utils/phone.utils.js';
 
@@ -36,6 +37,18 @@ const canViewUser = (req, user) => {
 };
 
 /**
+ * PATCH /api/users/me/activity — session heartbeat for admin “presence” UI
+ */
+export const touchMyActivity = async (req, res, next) => {
+  try {
+    await User.findByIdAndUpdate(req.user.id, { lastSeenAt: new Date() });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get all users
  */
 export const getAllUsers = async (req, res, next) => {
@@ -45,18 +58,42 @@ export const getAllUsers = async (req, res, next) => {
       filter.email = { $regex: new RegExp(`^${req.query.email.trim()}$`, 'i') };
     }
 
-    if (req.user?.role && !['administrator', 'office_admin'].includes(req.user.role)) {
+    if (req.user?.role && !['administrator', 'office_admin'].includes(normalizeToCanonical(req.user.role))) {
       const readableRoles = req.user.role === 'sales'
-        ? ['service_staff']
+        ? ['customer']
         : getManageableUserRoles(req.user.role);
       filter.role = { $in: readableRoles };
     }
 
     const users = await User.find(filter).select('-password');
 
+    // Ensure PII is decrypted in JSON (hooks usually handle this; re-decrypt is safe for iv:hex blobs).
+    const data = users.map((doc) => {
+      const u = doc.toObject ? doc.toObject() : doc;
+      if (u.phone) u.phone = decrypt(u.phone);
+      if (u.address) u.address = decrypt(u.address);
+      return u;
+    });
+
+    const ids = data.map((u) => u._id).filter(Boolean);
+    if (ids.length > 0) {
+      const plateGroups = await Vehicle.aggregate([
+        { $match: { customer: { $in: ids } } },
+        { $group: { _id: '$customer', plates: { $push: '$plateNumber' } } },
+      ]);
+      const byCustomer = new Map(plateGroups.map((g) => [String(g._id), g.plates]));
+      for (const u of data) {
+        u.vehiclePlates = byCustomer.get(String(u._id)) || [];
+      }
+    } else {
+      for (const u of data) {
+        u.vehiclePlates = [];
+      }
+    }
+
     res.json({
       success: true,
-      data: users,
+      data,
     });
   } catch (error) {
     next(error);
@@ -107,6 +144,13 @@ export const updateUser = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: getInvalidUserRoleMessage(),
+      });
+    }
+
+    if (typeof role !== 'undefined' && normalizeToCanonical(role) === 'administrator') {
+      return res.status(400).json({
+        success: false,
+        message: 'The Administrator role cannot be assigned. Use OFFICE ADMIN for full oversight.',
       });
     }
 
@@ -209,6 +253,18 @@ export const updateUser = async (req, res, next) => {
         success: true,
         message: 'User created and updated successfully',
         data: user,
+      });
+    }
+
+    const targetUserCanonical = normalizeToCanonical(user.role);
+    if (
+      typeof role !== 'undefined'
+      && targetUserCanonical === 'administrator'
+      && normalizeToCanonical(role) !== 'administrator'
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'The bootstrap Administrator role cannot be reassigned.',
       });
     }
 
@@ -342,6 +398,16 @@ export const deleteUser = async (req, res, next) => {
       });
     }
 
+    if (normalizeToCanonical(req.user?.role) !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Hard delete is restricted to the bootstrap administrator account. Use Archive instead.',
+      });
+    }
+
+    const userId = user._id;
+    const userEmail = user.email;
+
     user.isDeleted = true;
     user.deletedAt = new Date();
     user.isActive = false;
@@ -372,8 +438,6 @@ export const deleteUser = async (req, res, next) => {
     }
 
     // Cascade-clean all related documents
-    const userId = user._id;
-    const userEmail = user.email;
 
     const cleanupLabels = [
       'Orders (customer)', 'Orders (assignedDetailer)', 'Customers',
@@ -450,6 +514,13 @@ export const archiveUser = async (req, res, next) => {
       });
     }
 
+    if (normalizeToCanonical(user.role) === 'administrator' && normalizeToCanonical(req.user?.role) !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the bootstrap administrator can archive the Administrator account.',
+      });
+    }
+
     // Only archive if not already archived/suspended
     if (!user.isActive && ['archived', 'suspended'].includes(user.status)) {
       return res.status(409).json({
@@ -510,6 +581,13 @@ export const activateUser = async (req, res, next) => {
       });
     }
 
+    if (normalizeToCanonical(user.role) === 'administrator' && normalizeToCanonical(req.user?.role) !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the bootstrap administrator can restore the Administrator account.',
+      });
+    }
+
     if (user.isActive && user.status === 'active') {
       return res.status(409).json({
         success: false,
@@ -558,6 +636,13 @@ export const createUser = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         message: 'Access denied',
+      });
+    }
+
+    if (normalizeToCanonical(requestedRole) === 'administrator') {
+      return res.status(400).json({
+        success: false,
+        message: 'The Administrator role cannot be assigned. Use OFFICE ADMIN for full oversight.',
       });
     }
 

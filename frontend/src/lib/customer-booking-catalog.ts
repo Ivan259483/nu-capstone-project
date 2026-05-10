@@ -2,6 +2,14 @@
  * Bookable ceramic / detailing packages — single source for booking step 1
  * and the customer dashboard services showcase.
  */
+import { useEffect, useMemo, useState } from "react";
+import api from "@/lib/api";
+import {
+    DEFAULT_SPF_BASE_PRICES,
+    mergeBookingPackagesWithPublishedServices,
+    type PublishedServicePricingSource,
+} from "@/lib/service-pricing";
+
 export type VehiclePriceKey =
     | "hatchback"
     | "sedan"
@@ -18,9 +26,12 @@ export type BookingPackage = {
     duration: string;
     /** Longer customer-facing copy (web + mobile booking). */
     description: string;
-    prices: Record<VehiclePriceKey, number>;
+    prices: Record<VehiclePriceKey, number | null>;
     features: string[];
 };
+
+const getDefaultPackagePrices = (packageKey: string): Record<VehiclePriceKey, number | null> =>
+    ({ ...DEFAULT_SPF_BASE_PRICES[packageKey] } as Record<VehiclePriceKey, number | null>);
 
 export const RAW_SPF_PACKAGES: BookingPackage[] = [
     {
@@ -29,7 +40,7 @@ export const RAW_SPF_PACKAGES: BookingPackage[] = [
         duration: "Perfect entry-level protection",
         description:
             "Give your car the protection it deserves with our essential ceramic coating package. We apply a high-quality protective layer that helps shield your paint from scratches, UV rays, dirt, and water so your vehicle stays glossier and easier to wash between visits.",
-        prices: { hatchback: 7499, sedan: 7999, midsized: 7999, suv: 8999, pickup: 8499, largesuv: 12999, highend: 14999 },
+        prices: getDefaultPackagePrices("spf80"),
         features: [
             "3 Layers Graphene Ceramic Coating (Canada)",
             "Graphene Sealant",
@@ -42,7 +53,7 @@ export const RAW_SPF_PACKAGES: BookingPackage[] = [
         duration: "Our most chosen package",
         description:
             "Step up to a deeper, longer-lasting ceramic stack built for daily drivers. Multiple graphene-rich layers add stronger UV and chemical resistance while keeping water beading tight—so your paint looks richer and stays protected through sun, rain, and road grime.",
-        prices: { hatchback: 8999, sedan: 9999, midsized: 10999, suv: 11999, pickup: 10999, largesuv: 14999, highend: 17999 },
+        prices: getDefaultPackagePrices("spf89"),
         features: [
             "4 Layers Graphene Ceramic Coating (Canada)",
             "Graphene Sealant",
@@ -55,7 +66,7 @@ export const RAW_SPF_PACKAGES: BookingPackage[] = [
         duration: "Maximum protection, best price-to-value",
         description:
             "Our premium coating program uses professional-grade SONAX Profiline layers for exceptional gloss and durability. Ideal if you want showroom depth, easier maintenance, and a documented maintenance path—including scheduled reboost visits to keep the film chemistry performing year after year.",
-        prices: { hatchback: 13999, sedan: 13999, midsized: 15999, suv: 16999, pickup: 15999, largesuv: 19999, highend: 22999 },
+        prices: getDefaultPackagePrices("spf99"),
         features: [
             "4 Layers SONAX Profiline CC EVO (Germany)",
             "FREE Full Recoat After 5 Years",
@@ -68,17 +79,45 @@ export const RAW_SPF_PACKAGES: BookingPackage[] = [
         duration: "The complete transformation experience",
         description:
             "The ultimate AutoSPF+ experience: strategic PPF coverage for high-impact areas, flagship ceramic coating, full nano-ceramic tint, and bundled maintenance so your vehicle leaves protected from bumper to glass. Built for owners who want maximum resale appeal and peace of mind in one appointment.",
-        prices: { hatchback: 39999, sedan: 39999, midsized: 46999, suv: 46999, pickup: 46999, largesuv: 49999, highend: 49999 },
+        prices: getDefaultPackagePrices("spf101"),
         features: [
-            "PPF Coverage (Hood, Bumper, Mirrors, Stepsils, Door Bowls, Lights)",
+            "PPF Coverage (Hood, Stepsils, Side Mirrors, Front Bumper, Door Bowls, Headlights & Taillights)",
             "4 Layers SONAX Profiline CC EVO (Germany)",
             "FREE 5 visits Reboost/Maintenance (save ₱7,500)",
             "FREE Full Recoat After 5 Years",
             "Nano Ceramic Window Tint (Full Wrap — Any Shade)",
-            "FREE Undercoating (Rust Proofing)",
+            "FREE Undercoating (Rust Proofing) (value ₱14,000)",
         ],
     },
 ];
+
+export function usePublishedBookingPackages() {
+    const [publishedServices, setPublishedServices] = useState<PublishedServicePricingSource[]>([]);
+
+    useEffect(() => {
+        let active = true;
+
+        api.get('/services/published', { meta: { suppressErrorToast: true } } as any)
+            .then((response) => {
+                const list = response.data?.data;
+                if (active && Array.isArray(list)) {
+                    setPublishedServices(list);
+                }
+            })
+            .catch((error) => {
+                console.warn('[customer-booking-catalog] Falling back to bundled pricing:', error?.message || error);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    return useMemo(
+        () => mergeBookingPackagesWithPublishedServices(RAW_SPF_PACKAGES, publishedServices),
+        [publishedServices],
+    );
+}
 
 /** Labels for price tier selector (matches booking modal). */
 export const CUSTOMER_BOOKING_PRICE_TIERS: { key: VehiclePriceKey; label: string }[] = [

@@ -21,6 +21,11 @@ export interface BackendService {
   duration?: string;
   basePrice?: number;
   prices: ServicePrices;
+  pricing?: Partial<Record<'hatchback' | 'sedan' | 'midsized' | 'suv' | 'pickup' | 'largeSuv' | 'highend', {
+    base?: number | null;
+    original?: number | null;
+    addon?: number | null;
+  }>>;
   memberPrice?: number | null;
   status: 'Active' | 'Inactive';
   isPublished: boolean;
@@ -28,8 +33,12 @@ export interface BackendService {
 
 /** Returns the effective price for a service given the selected vehicle type */
 export function getEffectivePrice(svc: BackendService, vehicleType: VehicleType): number {
-  const typePrice = svc.prices?.[vehicleType];
+  const pricingKey = vehicleType === 'largesuv' ? 'largeSuv' : vehicleType;
+  const hasLegacyVehiclePrice = !!svc.prices && Object.prototype.hasOwnProperty.call(svc.prices, vehicleType);
+  const pricingBase = svc.pricing?.[pricingKey]?.base;
+  const typePrice = pricingBase ?? (hasLegacyVehiclePrice ? svc.prices?.[vehicleType] : undefined);
   if (typePrice != null && typePrice > 0) return typePrice;
+  if (hasLegacyVehiclePrice && typePrice == null) return 0;
   return svc.basePrice ?? 0;
 }
 

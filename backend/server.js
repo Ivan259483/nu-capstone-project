@@ -232,13 +232,6 @@ const startServer = async () => {
       if (canon.modifiedCount > 0) {
         console.log('[ROLE_FIX] ✅ admin@test.com → administrator + lock cleared');
       }
-      const om = await User.updateOne(
-        { email: 'testoperationalmanager@gmail.com', role: { $ne: 'operation_manager' } },
-        { $set: { role: 'operation_manager', status: 'active' } }
-      );
-      if (om.modifiedCount > 0) {
-        console.log('[ROLE_FIX] ✅ testoperationalmanager@gmail.com → operation_manager');
-      }
     } catch (e) { /* non-fatal */ }
 
     // Initialize Resend mailer
