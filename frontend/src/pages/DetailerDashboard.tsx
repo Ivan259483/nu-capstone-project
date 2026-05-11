@@ -9,17 +9,17 @@ import {
     ChevronRight, ChevronLeft, Eye, Settings, Menu, X, LayoutDashboard, User,
     Shield, Volume2, Info, Hash, Sun, Moon, BadgeHelp, Monitor, ScanLine, Receipt
 } from 'lucide-react';
-import { DashboardTab } from '@/components/staff/DashboardTab';
-import { QueueTab } from '@/components/staff/QueueTab';
-import { ScheduleTab } from '@/components/staff/ScheduleTab';
-import { InventoryTab } from '@/components/staff/InventoryTab';
-import { PhotosTab } from '@/components/staff/PhotosTab';
-import { NotesTab } from '@/components/staff/NotesTab';
-import { SettingsTab } from '@/components/staff/SettingsTab';
-import { ServiceRecordsTab } from '@/components/staff/ServiceRecordsTab';
-import { ProgressReportsTab } from '@/components/staff/ProgressReportsTab';
-import { ActivityLogsTab } from '@/components/staff/ActivityLogsTab';
-import { HistoryTab } from '@/components/staff/HistoryTab';
+import { DashboardTab } from '@/components/technician/DashboardTab';
+import { QueueTab } from '@/components/technician/QueueTab';
+import { ScheduleTab } from '@/components/technician/ScheduleTab';
+import { InventoryTab } from '@/components/technician/InventoryTab';
+import { PhotosTab } from '@/components/technician/PhotosTab';
+import { NotesTab } from '@/components/technician/NotesTab';
+import { SettingsTab } from '@/components/technician/SettingsTab';
+import { ServiceRecordsTab } from '@/components/technician/ServiceRecordsTab';
+import { ProgressReportsTab } from '@/components/technician/ProgressReportsTab';
+import { ActivityLogsTab } from '@/components/technician/ActivityLogsTab';
+import { HistoryTab } from '@/components/technician/HistoryTab';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { formatDistanceToNow } from 'date-fns';
 import { collection, query, where, onSnapshot, orderBy, doc, setDoc } from 'firebase/firestore';
@@ -41,7 +41,7 @@ import { OrderService } from '@/lib/order-service';
 import { ActivityService } from '@/lib/activity-service-api';
 import { NotificationService, type SystemNotification } from '@/lib/notification-service';
 import InspectionCapture from '@/components/InspectionCapture';
-import WarrantyReceiptModal from '@/components/staff/WarrantyReceiptModal';
+import WarrantyReceiptModal from '@/components/technician/WarrantyReceiptModal';
 import api from '@/lib/api';
 import { SERVICE_STAFF_ROLE, STAFF_ROLES, isStaffQCRole, isStaffInventoryRole, isTechnicianRole } from '@/lib/roles';
 import {
@@ -50,10 +50,10 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import type { Booking, InventoryItem, InventoryUsage, CustomerNote } from '@/types';
-import WorkflowOrchestrator from '@/components/staff/workflow/WorkflowOrchestrator';
+import WorkflowOrchestrator from '@/components/technician/workflow/WorkflowOrchestrator';
 
 import { AIEstimatorEmbed } from '@/pages/AIEstimatorPage';
-import QCDashboardPanel from '@/components/staff/qc/QCDashboardPanel';
+import QCDashboardPanel from '@/components/technician/qc/QCDashboardPanel';
 import './DetailerDashboard.css';
 
 type TabType = 'dashboard' | 'queue' | 'schedule' | 'inventory' | 'records' | 'progress' | 'activity' | 'photos' | 'notes' | 'settings' | 'history' | 'pos' | 'voice_assistant' | 'ai_damage_detection' | 'qc_review';

@@ -150,7 +150,7 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
       {/* Charts */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 24 }}>
         {/* User Growth */}
-        <div className="ah-card-section ah-slide-up" style={{ padding: 20, animationDelay: '0.15s' }}>
+        <div className="ah-card-section ah-chart-card ah-slide-up" style={{ padding: 20, animationDelay: '0.15s' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
             <div><h2 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', margin: 0 }}>User Growth</h2><p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Total vs Active — last 12 weeks</p></div>
           </div>
@@ -170,7 +170,7 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
         </div>
 
         {/* Role Distribution */}
-        <div className="ah-card-section ah-slide-up" style={{ padding: 20, animationDelay: '0.2s' }}>
+        <div className="ah-card-section ah-chart-card ah-slide-up" style={{ padding: 20, animationDelay: '0.2s' }}>
           <div><h2 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', margin: 0 }}>Users by Role</h2><p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Distribution across system roles</p></div>
           <div style={{ marginTop: 16 }}>
             <ResponsiveContainer width="100%" height={220}>
@@ -187,7 +187,7 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
       </div>
 
       {/* Recent Registrations */}
-      <div className="ah-card-section ah-slide-up" style={{ animationDelay: '0.25s' }}>
+      <div className="ah-card-section ah-table-card ah-slide-up" style={{ animationDelay: '0.25s' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
           <div><h2 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', margin: 0 }}>Recent Registrations</h2><p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Latest account submissions</p></div>
           <button className="ah-btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => onNavigate('users')}>View All <ArrowRight size={13} /></button>

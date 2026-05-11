@@ -72,7 +72,7 @@ export default function AdminActivityLogs({ activityLogs, loading }: Props) {
         ))}
       </div>
 
-      <div className="ah-card-section">
+      <div className="ah-card-section ah-table-card">
         {/* Filters */}
         <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 320 }}>

@@ -80,7 +80,47 @@ export interface QCTechnicianStat {
   rate: number;
 }
 
-const POLL_INTERVAL_MS = 5_000; // 5 s — backup poll (socket is primary; keeps autospf.shop feeling fresh)
+const QC_JOBS_LIMIT = 20;
+const SUMMARY_POLL_INTERVAL_MS = 60_000;
+const SOCKET_JOBS_DEBOUNCE_MS = 350;
+const REQUEST_DEDUPE_MS = 5_000;
+
+type CacheEntry<T> = {
+  data?: T;
+  inFlight?: Promise<T>;
+  updatedAt: number;
+};
+
+const qcRequestCache = new Map<string, CacheEntry<any>>();
+
+const isCanceledRequest = (err: any) =>
+  err?.code === 'ERR_CANCELED' ||
+  err?.name === 'CanceledError' ||
+  err?.message === 'canceled';
+
+const dedupedRequest = async <T,>(key: string, request: () => Promise<T>): Promise<T> => {
+  const now = Date.now();
+  const cached = qcRequestCache.get(key);
+  if (cached?.inFlight) return cached.inFlight;
+  if (cached && cached.data !== undefined && now - cached.updatedAt < REQUEST_DEDUPE_MS) {
+    return cached.data;
+  }
+
+  const inFlight = request()
+    .then((data) => {
+      qcRequestCache.set(key, { data, updatedAt: Date.now() });
+      return data;
+    })
+    .finally(() => {
+      const latest = qcRequestCache.get(key);
+      if (latest?.inFlight === inFlight) {
+        qcRequestCache.set(key, { data: latest.data, updatedAt: latest.updatedAt });
+      }
+    });
+
+  qcRequestCache.set(key, { data: cached?.data, inFlight, updatedAt: cached?.updatedAt ?? 0 });
+  return inFlight;
+};
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
@@ -106,7 +146,7 @@ export function useQCData() {
   const [technicianData, setTechnicianData] = useState<QCTechnicianStat[]>([]);
   const [techLoading, setTechLoading] = useState(true);
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const summaryPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   /** After first successful /qc/jobs response, never toggle jobsLoading again (silent refetches only). */
   const qcJobsHydratedRef = useRef(false);
 
@@ -114,25 +154,37 @@ export function useQCData() {
 
   const fetchJobs = useCallback(async (silent = false) => {
     const blockingUi = !silent && !qcJobsHydratedRef.current;
+    const shouldResolveInitialLoading = !qcJobsHydratedRef.current;
     if (blockingUi) setJobsLoading(true);
+
     try {
-      const res = await api.get('/qc/jobs');
-      if (res.data?.success) {
-        setJobs(res.data.data ?? []);
-        qcJobsHydratedRef.current = true;
-      }
+      const jobs = await dedupedRequest<QCJob[]>('qc-jobs:page=1&limit=20', async () => {
+        const res = await api.get('/qc/jobs', {
+          params: { page: 1, limit: QC_JOBS_LIMIT },
+          meta: { suppressErrorToast: true, suppressCancelLog: true },
+        } as any);
+        return res.data?.success ? (res.data.jobs ?? res.data.data ?? []) : [];
+      });
+      setJobs(jobs);
+      qcJobsHydratedRef.current = true;
     } catch (err: any) {
+      if (isCanceledRequest(err)) return;
       if (!silent) console.error('[QC] Failed to fetch jobs:', err.message);
     } finally {
-      if (blockingUi) setJobsLoading(false);
+      if (blockingUi || shouldResolveInitialLoading) {
+        setJobsLoading(false);
+      }
     }
   }, []);
 
   const fetchStats = useCallback(async (silent = false) => {
     if (!silent) setStatsLoading(true);
     try {
-      const res = await api.get('/qc/dashboard/stats');
-      if (res.data?.success) setStats(res.data.data);
+      const data = await dedupedRequest<QCStats | undefined>('qc-stats', async () => {
+        const res = await api.get('/qc/dashboard/stats');
+        return res.data?.success ? res.data.data : undefined;
+      });
+      if (data) setStats(data);
     } catch (err: any) {
       if (!silent) console.error('[QC] Failed to fetch stats:', err.message);
     } finally {
@@ -143,8 +195,11 @@ export function useQCData() {
   const fetchActivity = useCallback(async (silent = false) => {
     if (!silent) setActivityLoading(true);
     try {
-      const res = await api.get('/qc/activity?limit=15');
-      if (res.data?.success) setActivity(res.data.data ?? []);
+      const data = await dedupedRequest<QCActivityItem[]>('qc-activity:limit=15', async () => {
+        const res = await api.get('/qc/activity?limit=15');
+        return res.data?.success ? (res.data.data ?? []) : [];
+      });
+      setActivity(data);
     } catch (err: any) {
       if (!silent) console.error('[QC] Failed to fetch activity:', err.message);
     } finally {
@@ -155,8 +210,11 @@ export function useQCData() {
   const fetchTechnicianData = useCallback(async (silent = false) => {
     if (!silent) setTechLoading(true);
     try {
-      const res = await api.get('/qc/reports/technicians');
-      if (res.data?.success) setTechnicianData(res.data.data ?? []);
+      const data = await dedupedRequest<QCTechnicianStat[]>('qc-technicians', async () => {
+        const res = await api.get('/qc/reports/technicians');
+        return res.data?.success ? (res.data.data ?? []) : [];
+      });
+      setTechnicianData(data);
     } catch (err: any) {
       if (!silent) console.error('[QC] Failed to fetch technician report:', err.message);
     } finally {
@@ -173,34 +231,47 @@ export function useQCData() {
     ]);
   }, [fetchJobs, fetchStats, fetchActivity, fetchTechnicianData]);
 
+  const refetchSummary = useCallback(async (silent = false) => {
+    await Promise.all([
+      fetchStats(silent),
+      fetchActivity(silent),
+      fetchTechnicianData(silent),
+    ]);
+  }, [fetchStats, fetchActivity, fetchTechnicianData]);
+
+  const resetSummaryPoll = useCallback(() => {
+    if (summaryPollRef.current) clearInterval(summaryPollRef.current);
+    summaryPollRef.current = setInterval(() => {
+      refetchSummary(true);
+    }, SUMMARY_POLL_INTERVAL_MS);
+  }, [refetchSummary]);
+
   // ── Initial load + polling ───────────────────────────────────────────────────
 
   useEffect(() => {
-    refetchAll(false);
-
-    pollRef.current = setInterval(() => {
-      refetchAll(true); // silent background poll
-    }, POLL_INTERVAL_MS);
+    fetchJobs(false);
+    refetchSummary(false);
+    resetSummaryPoll();
 
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (summaryPollRef.current) clearInterval(summaryPollRef.current);
     };
-  }, [refetchAll]);
+  }, [fetchJobs, refetchSummary, resetSummaryPoll]);
 
-  // ── Shared socket listener + visibility refresh (PRIORITY 1 & 3) ─────────────
+  // ── Shared socket listener ───────────────────────────────────────────────────
   // Uses the app-wide singleton socket (getSharedSocket) — no new io() connection.
-  // Fires a silent refetch whenever MongoDB reports an orders change.
+  // Fires a jobs-only refetch whenever MongoDB reports an orders change.
 
   useEffect(() => {
     const socket = getSharedSocket();
-    /** Coalesce db_change + orderUpdated bursts into one silent refetch (smoother for defense / slow Wi‑Fi). */
+    /** Coalesce db_change + orderUpdated bursts into one jobs refresh. */
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleSocketRefetch = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
-        refetchAll(true);
-      }, 350);
+        fetchJobs(true);
+      }, SOCKET_JOBS_DEBOUNCE_MS);
     };
 
     // db_change fires from MongoDB Change Streams via the backend
@@ -214,29 +285,12 @@ export function useQCData() {
     // Legacy event name used by some controllers
     socket.on('orderUpdated', scheduleSocketRefetch);
 
-    // Visibility & focus refresh — catch changes missed while tab was in background
-    let visTimer: ReturnType<typeof setTimeout> | null = null;
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        if (visTimer) clearTimeout(visTimer);
-        visTimer = setTimeout(() => {
-          console.log('[useQCData] Tab visible — silent refetch');
-          refetchAll(true);
-        }, 500);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('focus', handleVisibility);
-
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       socket.off('db_change', handleDbChange);
       socket.off('orderUpdated', scheduleSocketRefetch);
-      document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('focus', handleVisibility);
-      if (visTimer) clearTimeout(visTimer);
     };
-  }, [refetchAll]);
+  }, [fetchJobs]);
 
   // ── Actions ──────────────────────────────────────────────────────────────────
 
@@ -244,14 +298,14 @@ export function useQCData() {
     try {
       await api.patch(`/qc/jobs/${id}/approve`);
       toast.success('Job approved', { description: 'The job has been marked as completed.' });
-      await refetchAll(true);
+      await Promise.all([fetchJobs(true), fetchStats(true), fetchActivity(true)]);
       return true;
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Failed to approve job';
       toast.error('Approval failed', { description: msg });
       return false;
     }
-  }, [refetchAll]);
+  }, [fetchJobs, fetchStats, fetchActivity]);
 
   const returnJob = useCallback(async (id: string, reason: string): Promise<boolean> => {
     if (!reason?.trim()) {
@@ -261,14 +315,14 @@ export function useQCData() {
     try {
       await api.patch(`/qc/jobs/${id}/return`, { reason });
       toast.success('Job returned', { description: 'The job has been sent back to the technician.' });
-      await refetchAll(true);
+      await Promise.all([fetchJobs(true), fetchStats(true), fetchActivity(true)]);
       return true;
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Failed to return job';
       toast.error('Return failed', { description: msg });
       return false;
     }
-  }, [refetchAll]);
+  }, [fetchJobs, fetchStats, fetchActivity]);
 
   const updateChecklist = useCallback(async (
     id: string,
@@ -408,8 +462,14 @@ export function useQCData() {
     technicianData,
     techLoading,
     refetchJobs: () => fetchJobs(false),
-    refetchStats: () => fetchStats(false),
-    refetchAll: () => refetchAll(false),
+    refetchStats: async () => {
+      await fetchStats(false);
+      resetSummaryPoll();
+    },
+    refetchAll: async () => {
+      await refetchAll(false);
+      resetSummaryPoll();
+    },
     approveJob,
     returnJob,
     updateChecklist,

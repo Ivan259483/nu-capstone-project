@@ -3,7 +3,7 @@ import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '@/contexts/AuthContext';
 import { isAdminDashboardRole, isServiceStaffRole } from '@/lib/roles';
 import { invalidate } from '@/lib/queryCache';
-import { getBackendSocketUrl } from '@/lib/api';
+import { getBackendSocketUrl, getStoredAuthToken } from '@/lib/api';
 
 // ── Collection → cache key mapping ──────────────────────────────────
 // When a change stream event arrives for a collection, we bust the
@@ -25,7 +25,7 @@ let subscribers: ((payload: any) => void)[] = [];
  */
 export const getSharedSocket = (): Socket => {
   if (!sharedSocket) {
-    const token = localStorage.getItem('autospf_token') || '';
+    const token = getStoredAuthToken();
 
     sharedSocket = io(getBackendSocketUrl(), {
       transports: ['polling', 'websocket'], // polling first for handshake, then upgrades to ws
@@ -63,7 +63,7 @@ export const getSharedSocket = (): Socket => {
  */
 export const refreshSocketAuth = () => {
   if (!sharedSocket) return;
-  const token = localStorage.getItem('autospf_token') || '';
+  const token = getStoredAuthToken();
   (sharedSocket as any).auth = { token };
   // Force a reconnect so the backend picks up the new token and
   // automatically joins the user's rooms.

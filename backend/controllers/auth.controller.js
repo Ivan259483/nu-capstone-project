@@ -647,9 +647,12 @@ export const login = async (req, res, next) => {
       });
     }
 
+    // Normalize — User schema stores lowercase; queries must match (e.g. Staff@Co.com vs staff@co.com).
+    const emailNormalized = String(email).trim().toLowerCase();
+
     // Server-side email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(emailNormalized)) {
       return res.status(400).json({
         success: false,
         message: 'Please enter a valid email address',
@@ -657,7 +660,7 @@ export const login = async (req, res, next) => {
     }
 
     // Find user
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: emailNormalized });
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -677,9 +680,9 @@ export const login = async (req, res, next) => {
       // Unverified — generate & resend OTP then prompt verification
       const otp = generateOTP(config.otpLength);
       const otpHash = await bcrypt.hash(otp, 10);
-      await OTP.deleteMany({ email });
+      await OTP.deleteMany({ email: emailNormalized });
       await OTP.create({
-        email,
+        email: emailNormalized,
         otp,
         otpHash,
         expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
@@ -687,17 +690,17 @@ export const login = async (req, res, next) => {
         maxAttempts: 5,
         verified: false,
       });
-      if (process.env.NODE_ENV === 'development') console.log(`🔑 [Login] OTP for unverified ${email}: ${otp}`);
-      await sendOtpEmail(email, otp).catch(err => console.warn('OTP email failed:', err.message));
+      if (process.env.NODE_ENV === 'development') console.log(`🔑 [Login] OTP for unverified ${emailNormalized}: ${otp}`);
+      await sendOtpEmail(emailNormalized, otp).catch(err => console.warn('OTP email failed:', err.message));
       return res.status(200).json({
         success: true,
         message: 'Please verify your email. A verification code has been sent.',
-        data: { requiresOtp: true, email },
+        data: { requiresOtp: true, email: emailNormalized },
       });
     }
 
     // Check if account is locked (specific demo/admin emails are never locked — see loginLockout.exempt.js)
-    if (user.lockUntil && user.lockUntil > new Date() && !isLoginLockoutExemptEmail(email)) {
+    if (user.lockUntil && user.lockUntil > new Date() && !isLoginLockoutExemptEmail(emailNormalized)) {
       const remainingMs = user.lockUntil.getTime() - Date.now();
       const remainingMinutes = Math.ceil(remainingMs / (60 * 1000));
       return res.status(423).json({
@@ -722,7 +725,7 @@ export const login = async (req, res, next) => {
 
     // Verify password using bcrypt
     const isPasswordValid = await user.comparePassword(password);
-    const lockoutExempt = isLoginLockoutExemptEmail(email);
+    const lockoutExempt = isLoginLockoutExemptEmail(emailNormalized);
 
     if (!isPasswordValid) {
       if (!lockoutExempt) {
@@ -733,9 +736,9 @@ export const login = async (req, res, next) => {
           await user.save();
 
           logActivity({
-            userId: user._id, userName: user.name || email, userRole: user.role,
+            userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
             type: 'account_lock', module: 'Auth', action: 'Account Locked',
-            description: `${user.name || email} locked after ${MAX_LOGIN_ATTEMPTS} failed attempts.`,
+            description: `${user.name || emailNormalized} locked after ${MAX_LOGIN_ATTEMPTS} failed attempts.`,
             status: 'warning',
           });
 
@@ -753,9 +756,9 @@ export const login = async (req, res, next) => {
         const remainingAttempts = MAX_LOGIN_ATTEMPTS - user.loginAttempts;
 
         logActivity({
-          userId: user._id, userName: user.name || email, userRole: user.role,
+          userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
           type: 'failed_login', module: 'Auth', action: 'Failed Login',
-          description: `Failed login attempt for ${email}. Attempts: ${user.loginAttempts}/${MAX_LOGIN_ATTEMPTS}. Remaining: ${remainingAttempts}.`,
+          description: `Failed login attempt for ${emailNormalized}. Attempts: ${user.loginAttempts}/${MAX_LOGIN_ATTEMPTS}. Remaining: ${remainingAttempts}.`,
           status: 'error',
         });
 
@@ -772,9 +775,9 @@ export const login = async (req, res, next) => {
       }
 
       logActivity({
-        userId: user._id, userName: user.name || email, userRole: user.role,
+        userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
         type: 'failed_login', module: 'Auth', action: 'Failed Login',
-        description: `Failed login attempt for ${email} (lockout-exempt account).`,
+        description: `Failed login attempt for ${emailNormalized} (lockout-exempt account).`,
         status: 'error',
       });
 
@@ -816,7 +819,7 @@ export const login = async (req, res, next) => {
     if (NON_CUSTOMER_ROLES.includes(user.role)) {
       // ── DEV MODE: skip OTP email and issue JWT directly ─────────────────
       if (process.env.NODE_ENV === 'development') {
-        console.log(`🔑 [Login DEV] Skipping 2FA for ${email} (role: ${user.role})`);
+        console.log(`🔑 [Login DEV] Skipping 2FA for ${emailNormalized} (role: ${user.role})`);
         const token = jwt.sign(
           { id: user._id, email: user.email, role: user.role },
           config.jwtSecret,
@@ -830,9 +833,9 @@ export const login = async (req, res, next) => {
         attachPhoneForClient(user, userObject);
 
         logActivity({
-          userId: user._id, userName: user.name || email, userRole: user.role,
+          userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
           type: 'login', module: 'Auth', action: 'User Login (DEV)',
-          description: `${user.name || email} logged in (dev mode, 2FA skipped).`, status: 'success',
+          description: `${user.name || emailNormalized} logged in (dev mode, 2FA skipped).`, status: 'success',
         });
 
         return res.json({
@@ -849,7 +852,7 @@ export const login = async (req, res, next) => {
       // Remove any previous login OTP for this user, then save fresh one
       await OTP.deleteMany({ userId: user._id, purpose: 'login' });
 
-      const maskedEmail = email.replace(/^(.)(.*)(@.*)$/, (_, first, middle, domain) =>
+      const maskedEmail = emailNormalized.replace(/^(.)(.*)(@.*)$/, (_, first, middle, domain) =>
         `${first}${'*'.repeat(Math.min(middle.length, 5))}${domain}`
       );
 
@@ -879,13 +882,13 @@ export const login = async (req, res, next) => {
       }
 
       if (process.env.NODE_ENV === 'development') {
-        console.log(`🔑 [Login 2FA] OTP for ${email}: ${otp}`);
+        console.log(`🔑 [Login 2FA] OTP for ${emailNormalized}: ${otp}`);
       }
 
       logActivity({
-        userId: user._id, userName: user.name || email, userRole: user.role,
+        userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
         type: 'login_otp_sent', module: 'Auth', action: '2FA OTP Sent',
-        description: `OTP challenge issued for ${user.name || email}.`, status: 'info',
+        description: `OTP challenge issued for ${user.name || emailNormalized}.`, status: 'info',
       });
 
       return res.json({
@@ -915,9 +918,9 @@ export const login = async (req, res, next) => {
     attachPhoneForClient(user, userObject);
 
     logActivity({
-      userId: user._id, userName: user.name || email, userRole: user.role,
+      userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
       type: 'login', module: 'Auth', action: 'User Login',
-      description: `${user.name || email} logged in successfully.`, status: 'success',
+      description: `${user.name || emailNormalized} logged in successfully.`, status: 'success',
     });
 
     res.json({

@@ -8,7 +8,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '@/lib/api';
 import { OrderService } from '@/lib/order-service';
+import { useAuth } from '@/contexts/AuthContext';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
+import { invalidate } from '@/lib/queryCache';
+import { getSafeUserRole } from '@/lib/roles';
 import { mapBookingToJob, mapUserToTechnician } from '../ops-types';
 import type { OpsJob, OpsTechnician } from '../ops-types';
 import type { Booking, User } from '@/types';
@@ -23,6 +26,9 @@ interface OpsData {
 }
 
 export function useOpsData(): OpsData {
+  const { user } = useAuth();
+  const currentRole = getSafeUserRole(user?.role);
+  const canReadUserDirectory = currentRole === 'administrator' || currentRole === 'office_admin';
   const [jobs, setJobs] = useState<OpsJob[]>([]);
   const [technicians, setTechnicians] = useState<OpsTechnician[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +42,11 @@ export function useOpsData(): OpsData {
       if (!silent) {
         setLoading(true);
         setError(null);
+        try {
+          invalidate('/bookings');
+        } catch {
+          /* ignore */
+        }
       }
 
       let bookings: Booking[] = [];
@@ -63,6 +74,16 @@ export function useOpsData(): OpsData {
       };
 
       const loadUsers = async (): Promise<User[]> => {
+        if (!canReadUserDirectory) {
+          return user
+            ? [{
+                ...user,
+                id: user._id || user.id,
+                role: currentRole,
+              } as User]
+            : [];
+        }
+
         try {
           const usersResponse = await api.get('/users', {
             meta: { suppressErrorToast: true },
@@ -94,7 +115,7 @@ export function useOpsData(): OpsData {
       const mappedJobs = bookings.map((b, i) => mapBookingToJob(b, i));
 
       const staffRoles = ['staff_quality_checker', 'office_admin', 'sales'];
-      const staffUsers = allUsers.filter((u) => staffRoles.includes(u.role));
+      const staffUsers = allUsers.filter((u) => staffRoles.includes(getSafeUserRole(u.role)));
       const mappedTechs = staffUsers.map((u, i) => mapUserToTechnician(u, mappedJobs, i));
 
       setJobs(mappedJobs);
@@ -118,7 +139,7 @@ export function useOpsData(): OpsData {
         setLoading(false);
       }
     }
-  }, []);
+  }, [canReadUserDirectory, currentRole, user]);
 
   useEffect(() => {
     isMounted.current = true;

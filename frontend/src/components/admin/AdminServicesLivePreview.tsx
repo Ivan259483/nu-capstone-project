@@ -44,7 +44,7 @@ export function AdminServicesLivePreview({ services, selectedPackageKey, onRefre
     );
 
     const pricingGridClassName = cn(
-        'grid gap-6 lg:gap-5 items-stretch mx-auto w-full',
+        'grid gap-4 lg:gap-5 items-stretch mx-auto w-full',
         displayPackages.length <= 1 && 'grid-cols-1 max-w-md mx-auto',
         displayPackages.length === 2 && 'grid-cols-1 sm:grid-cols-2 max-w-3xl',
         displayPackages.length === 3 && 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 max-w-6xl',
@@ -52,25 +52,24 @@ export function AdminServicesLivePreview({ services, selectedPackageKey, onRefre
     );
 
     return (
-        <section className="overflow-hidden rounded-3xl bg-white shadow-[0_22px_64px_-36px_rgba(15,23,42,0.14),0_12px_40px_-28px_rgba(15,23,42,0.06)]">
-            <div className="bg-white px-5 py-4 shadow-[inset_0_-1px_0_0_rgba(241,245,249,0.95)] sm:px-6">
-                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-600">Live catalog editor</p>
-                <h2 className="mt-1 text-lg font-bold tracking-tight text-slate-900">Services page — pricing strip</h2>
-                <p className="mt-1 max-w-3xl text-xs font-medium leading-relaxed text-slate-500">
-                    Preview matches published SPF packages (same data as <span className="font-mono text-slate-700">/services</span>). Pick a
-                    vehicle tab, tap <span className="font-medium text-slate-700">Edit</span> on a card, change copy and prices, then{' '}
-                    <span className="font-medium text-slate-700">Save this package</span>.
-                </p>
-            </div>
+        <section className="overflow-hidden rounded-[22px] border border-slate-200/80 bg-slate-50 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.28)]">
+            <div className="relative z-20 border-b border-slate-200/80 bg-white/95 px-4 py-3 shadow-[0_10px_28px_-26px_rgba(15,23,42,0.35)] backdrop-blur sm:px-5">
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600">Live catalog editor</p>
+                        <h2 className="mt-1 text-base font-bold tracking-tight text-slate-950">Pricing strip preview</h2>
+                        <p className="mt-0.5 max-w-2xl text-xs font-medium leading-relaxed text-slate-500">
+                            Edit the public SPF package cards directly from this preview.
+                        </p>
+                    </div>
 
-            <div className="relative z-20 bg-white py-5">
-                <motion.div
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, ease: EASE }}
-                    className="flex justify-center px-4"
-                >
-                    <div className="inline-flex flex-wrap justify-center gap-1 rounded-2xl bg-slate-50/90 p-1.5 shadow-[0_10px_40px_-24px_rgba(15,23,42,0.12),inset_0_1px_0_0_rgba(255,255,255,0.85)]">
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.45, ease: EASE }}
+                        className="w-full xl:w-auto"
+                    >
+                    <div className="flex w-full justify-start gap-1 overflow-x-auto rounded-xl bg-slate-100/90 p-1 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.8)] xl:w-auto">
                         {vehicleOptions.map((opt) => {
                             const VIcon = opt.icon;
                             const isActive = vehicleType === opt.type;
@@ -82,15 +81,15 @@ export function AdminServicesLivePreview({ services, selectedPackageKey, onRefre
                                     whileHover={{ scale: isActive ? 1 : 1.04 }}
                                     whileTap={{ scale: 0.96 }}
                                     className={cn(
-                                        'relative flex items-center gap-2 overflow-hidden rounded-[11px] px-4 py-2.5 text-sm font-semibold transition-all duration-300 ease-in-out sm:px-5',
+                                        'relative flex shrink-0 items-center gap-1.5 overflow-hidden rounded-lg px-3 py-2 text-xs font-semibold transition-all duration-300 ease-in-out sm:px-3.5',
                                         !isActive && 'text-slate-600 hover:bg-white hover:text-slate-900 hover:shadow-sm',
                                     )}
                                     style={
                                         isActive
                                             ? {
-                                                  background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
+                                                  background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
                                                   color: '#fff',
-                                                  boxShadow: '0 10px 36px -8px rgba(245,158,11,0.5)',
+                                                  boxShadow: '0 8px 28px -10px rgba(37,99,235,0.5)',
                                               }
                                             : {}
                                     }
@@ -103,20 +102,21 @@ export function AdminServicesLivePreview({ services, selectedPackageKey, onRefre
                                             transition={{ duration: 1.5, repeat: Infinity, repeatDelay: 3 }}
                                         />
                                     )}
-                                    <VIcon className="w-4 h-4 relative z-10" />
+                                    <VIcon className="relative z-10 h-3.5 w-3.5" />
                                     <span className="hidden sm:inline relative z-10">{opt.label}</span>
                                     <span className="sm:hidden text-xs relative z-10">{opt.label.split(' ')[0]}</span>
                                 </motion.button>
                             );
                         })}
                     </div>
-                </motion.div>
+                    </motion.div>
+                </div>
 
                 <motion.p
                     key={vehicleType}
                     initial={{ opacity: 0, y: 5 }}
                     animate={{ opacity: 1, y: 0, transition: { duration: 0.25 } }}
-                    className="mt-4 text-center text-[11px] font-medium uppercase tracking-[0.3em] text-slate-400"
+                    className="mt-3 text-left text-[10px] font-bold uppercase tracking-[0.24em] text-slate-400 xl:text-right"
                 >
                     Showing prices for{' '}
                     <span className="font-bold text-blue-600">{vehicleOptions.find((v) => v.type === vehicleType)?.label}</span>{' '}
@@ -124,7 +124,7 @@ export function AdminServicesLivePreview({ services, selectedPackageKey, onRefre
                 </motion.p>
             </div>
 
-            <section className="relative overflow-hidden bg-white px-3 pb-10 pt-6 sm:px-5 lg:px-8">
+            <section className="relative overflow-hidden bg-gradient-to-b from-white to-slate-50 px-3 py-5 sm:px-5 lg:px-6">
                 <div className="w-full max-w-[1440px] mx-auto relative z-10">
                     <motion.div
                         key={vehicleType}

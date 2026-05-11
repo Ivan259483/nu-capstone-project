@@ -10,6 +10,8 @@ interface Props {
   cartItems: CartItem[];
   subtotal: number;
   discount: number;
+  /** Manual VAT in peso (same as POS payment summary). */
+  vatAmount: number;
   total: number;
   paymentMethod: string;
   onClose: () => void;
@@ -18,7 +20,7 @@ interface Props {
 
 export default function ReceiptModal({
   txnId, customer, vehicle, cartItems,
-  subtotal, discount, total, paymentMethod,
+  subtotal, discount, vatAmount, total, paymentMethod,
   onClose, onNewTransaction,
 }: Props) {
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -160,9 +162,9 @@ export default function ReceiptModal({
                   <span className="font-tabular">−{formatPeso(discount)}</span>
                 </div>
               )}
-              <div className="flex justify-between text-xs text-slate-500">
-                <span>VAT (0%)</span>
-                <span className="font-tabular">₱0.00</span>
+              <div className="flex justify-between text-xs text-slate-600">
+                <span>VAT</span>
+                <span className="font-tabular">{formatPeso(vatAmount)}</span>
               </div>
               <div className="flex justify-between text-base font-bold text-slate-900 pt-1 border-t border-slate-200">
                 <span>Total Paid</span>

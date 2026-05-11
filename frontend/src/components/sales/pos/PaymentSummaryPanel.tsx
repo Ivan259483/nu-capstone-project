@@ -1,15 +1,17 @@
 import React from 'react';
-import { Loader2, CreditCard, Banknote, Smartphone, Building2, Wallet, Tag, ChevronRight } from 'lucide-react';
+import { Loader2, CreditCard, Banknote, Smartphone, Building2, Wallet, Tag, ChevronRight, Landmark } from 'lucide-react';
 import { CartItem, formatPeso } from '@/lib/salesData';
 
 interface Props {
   cartItems: CartItem[];
   subtotal: number;
   discount: number;
+  vatAmount: number;
   total: number;
   paymentMethod: string;
   processing: boolean;
   onDiscountChange: (v: number) => void;
+  onVatChange: (v: number) => void;
   onPaymentMethodChange: (v: string) => void;
   onProcessPayment: () => void;
 }
@@ -23,9 +25,9 @@ const PAYMENT_METHODS = [
 ];
 
 export default function PaymentSummaryPanel({
-  cartItems, subtotal, discount, total,
+  cartItems, subtotal, discount, vatAmount, total,
   paymentMethod, processing,
-  onDiscountChange, onPaymentMethodChange, onProcessPayment,
+  onDiscountChange, onVatChange, onPaymentMethodChange, onProcessPayment,
 }: Props) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 overflow-hidden">
@@ -82,9 +84,23 @@ export default function PaymentSummaryPanel({
             </div>
           </div>
 
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Tax (VAT-exempt)</span>
-            <span>₱0.00</span>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Landmark size={13} className="text-blue-500" />
+              <span className="text-sm text-slate-600">VAT</span>
+            </div>
+            <div className="relative w-28">
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-500">₱</span>
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={vatAmount || ''}
+                onChange={(e) => onVatChange(Math.max(0, Number(e.target.value) || 0))}
+                placeholder="0.00"
+                className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-slate-200 bg-white text-xs text-right text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-all"
+              />
+            </div>
           </div>
         </div>
 

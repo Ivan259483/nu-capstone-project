@@ -251,10 +251,22 @@ export default function POSWorkspace() {
 
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [discount, setDiscount] = useState<number>(0);
+  /** Manual VAT (peso) — added on top of (subtotal − discount). Synced to order billing as `taxVatAmount`. */
+  const [vatAmount, setVatAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [showReceipt, setShowReceipt] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [completedTxnId, setCompletedTxnId] = useState<string>('');
+  /** Snapshot for receipt after payment (cart is cleared in same flow). */
+  const [receiptData, setReceiptData] = useState<{
+    txnId: string;
+    cartItems: CartItem[];
+    subtotal: number;
+    discount: number;
+    vatAmount: number;
+    total: number;
+    paymentMethod: string;
+  } | null>(null);
   /** When set, Pay uses billing checkout for this existing order (queue / booking). */
   const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
   /** Manually selected unpaid order (dropdown); queue selection uses `linkedOrderId`. */
@@ -303,7 +315,13 @@ export default function POSWorkspace() {
   const hydrateCartFromOrder = useCallback(async (orderId: string) => {
     try {
       const billRes = await BillingService.getBilling(orderId);
-      if (billRes.success && billRes.data && Array.isArray(billRes.data.lineItems) && billRes.data.lineItems.length > 0) {
+      if (
+        billRes.success &&
+        'data' in billRes &&
+        billRes.data &&
+        Array.isArray(billRes.data.lineItems) &&
+        billRes.data.lineItems.length > 0
+      ) {
         const items: CartItem[] = billRes.data.lineItems.map((li: any, i: number) => {
           const sid = li.serviceId ? String(li.serviceId) : `billing-line-${orderId}-${i}`;
           const svc = li.serviceId ? services.find((s) => s._id === String(li.serviceId)) : undefined;
@@ -324,6 +342,7 @@ export default function POSWorkspace() {
         } else {
           setDiscount(0);
         }
+        setVatAmount(Math.max(0, Number(billRes.data.taxVatAmount) || 0));
         setBillingSyncNonce((n) => n + 1);
         return;
       }
@@ -333,6 +352,7 @@ export default function POSWorkspace() {
       if (!ordRes.success || !ordRes.data) {
         setCartItems([]);
         setDiscount(0);
+        setVatAmount(0);
         setBillingSyncNonce((n) => n + 1);
         return;
       }
@@ -359,6 +379,7 @@ export default function POSWorkspace() {
         });
         setCartItems(mapped);
         setDiscount(0);
+        setVatAmount(0);
         setBillingSyncNonce((n) => n + 1);
         return;
       }
@@ -381,10 +402,12 @@ export default function POSWorkspace() {
         setCartItems([]);
       }
       setDiscount(0);
+      setVatAmount(0);
       setBillingSyncNonce((n) => n + 1);
     } catch {
       toast.error('Could not load order line items');
       setCartItems([]);
+      setVatAmount(0);
     }
   }, [services]);
 
@@ -395,7 +418,7 @@ export default function POSWorkspace() {
         const put = await BillingService.putBilling(effectiveOrderId, {
           lineItems: buildLineItemsFromCart(),
           discount: discount > 0 ? { discountType: 'fixed' as const, value: discount } : undefined,
-          taxVatAmount: 0,
+          taxVatAmount: vatAmount,
           additionalFees: 0,
           downpayment: 0,
         });
@@ -403,16 +426,18 @@ export default function POSWorkspace() {
       })();
     }, 450);
     return () => window.clearTimeout(t);
-  }, [effectiveOrderId, cartItems, discount, buildLineItemsFromCart]);
+  }, [effectiveOrderId, cartItems, discount, vatAmount, buildLineItemsFromCart]);
 
   const onBillingCheckoutSuccess = useCallback(
     async ({ invoiceNumber }: { invoiceNumber: string; pdfUrl: string }) => {
       const inv = await BillingService.getInvoice(invoiceNumber);
-      if (inv.success && inv.data && typeof inv.data === 'object' && 'snapshot' in inv.data) {
+      if (inv.success && 'data' in inv && inv.data && typeof inv.data === 'object' && 'snapshot' in inv.data) {
         setInvoiceSnap((inv.data as { snapshot: InvoiceA4Snapshot }).snapshot);
       }
       setCartItems([]);
       setDiscount(0);
+      setVatAmount(0);
+      setReceiptData(null);
       setLinkedOrderId(null);
       setPosBillingOrderId(null);
       loadUnpaidOrders();
@@ -560,7 +585,7 @@ export default function POSWorkspace() {
   };
 
   const subtotal = cartItems.reduce((sum, c) => sum + c.price * c.quantity, 0);
-  const total = Math.max(0, subtotal - discount);
+  const total = Math.max(0, subtotal - discount + vatAmount);
 
   const handleProcessPayment = async () => {
     if (!selectedCustomer) { toast.error('Please select a customer before processing payment.'); return; }
@@ -573,7 +598,7 @@ export default function POSWorkspace() {
         const put = await BillingService.putBilling(effectiveOrderId, {
           lineItems,
           discount: discount > 0 ? { discountType: 'fixed' as const, value: discount } : undefined,
-          taxVatAmount: 0,
+          taxVatAmount: vatAmount,
           additionalFees: 0,
           downpayment: 0,
         });
@@ -593,21 +618,33 @@ export default function POSWorkspace() {
           paymentMethod: pm,
           cashReceived: pm === 'cash' ? balanceDue : undefined,
         });
-        if (chk.success && chk.data) {
-          setCompletedTxnId(chk.data.invoiceNumber || chk.data.posInvoiceId || `TXN-${Date.now()}`);
+        if (!chk.success || !('data' in chk) || !chk.data) {
+          toast.error(chk.message || 'Checkout failed');
+        } else {
+          const chkData = chk.data;
+          const txnId = chkData.invoiceNumber || chkData.posInvoiceId || `TXN-${Date.now()}`;
+          setReceiptData({
+            txnId,
+            cartItems: cartItems.map((c) => ({ ...c })),
+            subtotal,
+            discount,
+            vatAmount,
+            total: balanceDue,
+            paymentMethod,
+          });
+          setCompletedTxnId(txnId);
           setShowReceipt(true);
-          toast.success(`Payment recorded — ${chk.data.invoiceNumber || ''}`);
-          const inv = await BillingService.getInvoice(chk.data.invoiceNumber);
-          if (inv.success && inv.data && typeof inv.data === 'object' && 'snapshot' in inv.data) {
+          toast.success(`Payment recorded — ${chkData.invoiceNumber || ''}`);
+          const inv = await BillingService.getInvoice(chkData.invoiceNumber);
+          if (inv.success && 'data' in inv && inv.data && typeof inv.data === 'object' && 'snapshot' in inv.data) {
             setInvoiceSnap((inv.data as { snapshot: InvoiceA4Snapshot }).snapshot);
           }
           setCartItems([]);
           setDiscount(0);
+          setVatAmount(0);
           setLinkedOrderId(null);
           setPosBillingOrderId(null);
           loadUnpaidOrders();
-        } else {
-          toast.error(chk.message || 'Checkout failed');
         }
         setProcessing(false);
         return;
@@ -638,9 +675,21 @@ export default function POSWorkspace() {
       const res = await OrderService.createOrder(orderPayload);
       if (res.success) {
         const txnId = res.data?.bookingReference || res.data?._id || `TXN-${Date.now()}`;
+        setReceiptData({
+          txnId,
+          cartItems: cartItems.map((c) => ({ ...c })),
+          subtotal,
+          discount,
+          vatAmount,
+          total,
+          paymentMethod,
+        });
         setCompletedTxnId(txnId);
         setShowReceipt(true);
         toast.success(`Payment processed! ${txnId}`);
+        setCartItems([]);
+        setDiscount(0);
+        setVatAmount(0);
       } else {
         toast.error(res.message || 'Failed to process payment');
       }
@@ -648,6 +697,15 @@ export default function POSWorkspace() {
       console.error('POS Payment Error:', err);
       // Fallback: still show receipt but warn
       const fallbackId = `TXN-LOCAL-${Date.now()}`;
+      setReceiptData({
+        txnId: fallbackId,
+        cartItems: cartItems.map((c) => ({ ...c })),
+        subtotal,
+        discount,
+        vatAmount,
+        total,
+        paymentMethod,
+      });
       setCompletedTxnId(fallbackId);
       setShowReceipt(true);
       toast.warning('Payment saved locally — sync may be delayed.');
@@ -662,13 +720,24 @@ export default function POSWorkspace() {
     setManualVehicleType(null);
     setCartItems([]);
     setDiscount(0);
+    setVatAmount(0);
     setPaymentMethod('cash');
     setShowReceipt(false);
     setCompletedTxnId('');
+    setReceiptData(null);
     setLinkedOrderId(null);
     setPosBillingOrderId(null);
     setInvoiceSnap(null);
   };
+
+  const receiptSnap = receiptData;
+  const receiptCartItems = receiptSnap?.cartItems ?? cartItems;
+  const receiptSubtotal = receiptSnap?.subtotal ?? subtotal;
+  const receiptDiscount = receiptSnap?.discount ?? discount;
+  const receiptVat = receiptSnap?.vatAmount ?? vatAmount;
+  const receiptTotal = receiptSnap?.total ?? total;
+  const receiptTxnId = receiptSnap?.txnId ?? completedTxnId;
+  const receiptPm = receiptSnap?.paymentMethod ?? paymentMethod;
 
   return (
     <>
@@ -748,10 +817,12 @@ export default function POSWorkspace() {
                 cartItems={cartItems}
                 subtotal={subtotal}
                 discount={discount}
+                vatAmount={vatAmount}
                 total={total}
                 paymentMethod={paymentMethod}
                 processing={processing}
                 onDiscountChange={setDiscount}
+                onVatChange={setVatAmount}
                 onPaymentMethodChange={setPaymentMethod}
                 onProcessPayment={handleProcessPayment}
               />
@@ -781,15 +852,19 @@ export default function POSWorkspace() {
 
         {showReceipt && selectedCustomer && selectedVehicle && (
           <ReceiptModal
-            txnId={completedTxnId}
+            txnId={receiptTxnId}
             customer={selectedCustomer}
             vehicle={selectedVehicle}
-            cartItems={cartItems}
-            subtotal={subtotal}
-            discount={discount}
-            total={total}
-            paymentMethod={paymentMethod}
-            onClose={() => setShowReceipt(false)}
+            cartItems={receiptCartItems}
+            subtotal={receiptSubtotal}
+            discount={receiptDiscount}
+            vatAmount={receiptVat}
+            total={receiptTotal}
+            paymentMethod={receiptPm}
+            onClose={() => {
+              setShowReceipt(false);
+              setReceiptData(null);
+            }}
             onNewTransaction={handleNewTransaction}
           />
         )}

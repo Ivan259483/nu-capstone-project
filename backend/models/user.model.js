@@ -107,6 +107,9 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Admin directory: filter by isDeleted + optional role $in — avoids full scans at scale
+userSchema.index({ isDeleted: 1, role: 1 });
+
 // Coerce deprecated role strings before enum validation (e.g. hr → office_admin).
 userSchema.pre('validate', function (next) {
   if (this.role) {

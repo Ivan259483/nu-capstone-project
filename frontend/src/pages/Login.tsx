@@ -27,7 +27,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { getBaseApiUrl } from "@/lib/api";
-import { getDashboardPathForRole } from "@/lib/roles";
+import { getDashboardPathForRole, getSafeUserRole } from "@/lib/roles";
 import { buildRegisterE164, validateRegisterNationalDigits } from "@/lib/phone";
 import { REGISTER_COUNTRY_DIALS } from "@/lib/countries-dial-data";
 import { RegisterPhoneField } from "@/components/auth/RegisterPhoneField";
@@ -260,11 +260,12 @@ export default function Login() {
         }
         setIsLoading(true);
         try {
-            const result = await login(loginForm.email, loginForm.password);
+            const emailNorm = loginForm.email.trim().toLowerCase();
+            const result = await login(emailNorm, loginForm.password);
 
             // ── Unverified account: redirect to OTP verification page ──
             if (result.requiresOtp || result.data?.requiresOtp) {
-                const emailToVerify = result.data?.email || loginForm.email;
+                const emailToVerify = result.data?.email || emailNorm;
                 navigate(`/verify-otp?email=${encodeURIComponent(emailToVerify)}`);
                 toast.info("Please verify your email to continue.");
                 return;
@@ -282,7 +283,7 @@ export default function Login() {
             // ── 2FA: non-customer role ──
             if (result.requiresOTP) {
                 setPendingUserId(result.userId ?? "");
-                setLoginMaskedEmail(result.maskedEmail ?? loginForm.email);
+                setLoginMaskedEmail(result.maskedEmail ?? emailNorm);
                 setLoginOtpDigits(["", "", "", "", "", ""]);
                 setLoginOtpExpiry(300); // 5 min
                 setLoginOtpResend(60);  // 60 s cooldown
@@ -315,7 +316,7 @@ export default function Login() {
             setRemainingAttempts(null);
             setIsLocked(false);
             setLockUntilMs(null);
-            if (rememberMe) localStorage.setItem("remembered_email", loginForm.email);
+            if (rememberMe) localStorage.setItem("remembered_email", emailNorm);
             else localStorage.removeItem("remembered_email");
             toast.success("Welcome back.");
         } catch {
@@ -452,29 +453,31 @@ export default function Login() {
                 localStorage.setItem("autospf_token", backendToken);
             }
             if (backendUser) {
+                const normalizedRole = getSafeUserRole(backendUser.role);
+                const normalizedBackendUser = { ...backendUser, role: normalizedRole };
                 // Keep in localStorage so onAuthStateChanged's backend-only session guard
                 // can restore it if it fires before React state propagates.
-                localStorage.setItem("autospf_backend_user", JSON.stringify(backendUser));
+                localStorage.setItem("autospf_backend_user", JSON.stringify(normalizedBackendUser));
 
                 // ── Critical: set AuthContext user state NOW ──
                 // Without this, ProtectedRoute sees null user and bounces to /login
                 // before onAuthStateChanged has a chance to restore the session.
                 setAuthUser({
-                    id: backendUser._id || backendUser.id || "",
-                    _id: backendUser._id || backendUser.id || "",
-                    email: backendUser.email || "",
-                    name: backendUser.name || "",
-                    role: backendUser.role || "customer",
-                    createdAt: backendUser.createdAt || new Date().toISOString(),
+                    id: normalizedBackendUser._id || normalizedBackendUser.id || "",
+                    _id: normalizedBackendUser._id || normalizedBackendUser.id || "",
+                    email: normalizedBackendUser.email || "",
+                    name: normalizedBackendUser.name || "",
+                    role: normalizedRole,
+                    createdAt: normalizedBackendUser.createdAt || new Date().toISOString(),
                     password: "",
-                    isActive: backendUser.isActive ?? true,
-                    lastActive: backendUser.lastActive || new Date().toISOString(),
-                    avatar: backendUser.avatar || undefined,
-                    phone: backendUser.phone || undefined,
+                    isActive: normalizedBackendUser.isActive ?? true,
+                    lastActive: normalizedBackendUser.lastActive || new Date().toISOString(),
+                    avatar: normalizedBackendUser.avatar || undefined,
+                    phone: normalizedBackendUser.phone || undefined,
                 });
             }
 
-            const role = backendUser?.role ?? "customer";
+            const role = getSafeUserRole(backendUser?.role);
             if (rememberMe) localStorage.setItem("remembered_email", loginForm.email);
             toast.success("Verification successful. Welcome!");
             setLoginOtpStep("form");

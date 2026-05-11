@@ -3,6 +3,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { UserService } from '@/lib/user-service';
 
 const INTERVAL_MS = 90 * 1000;
+const MIN_TOUCH_INTERVAL_MS = 60 * 1000;
+
+let lastActivityTouchAt = 0;
+let activityTouchInFlight: Promise<unknown> | null = null;
 
 /** Ping server while logged in so admin “presence” (lastSeenAt) stays fresh */
 export function useActivityHeartbeat() {
@@ -14,7 +18,15 @@ export function useActivityHeartbeat() {
 
     const ping = () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      UserService.touchActivity().catch(() => {});
+      const now = Date.now();
+      if (activityTouchInFlight || now - lastActivityTouchAt < MIN_TOUCH_INTERVAL_MS) return;
+
+      lastActivityTouchAt = now;
+      activityTouchInFlight = UserService.touchActivity()
+        .catch(() => {})
+        .finally(() => {
+          activityTouchInFlight = null;
+        });
     };
 
     ping();

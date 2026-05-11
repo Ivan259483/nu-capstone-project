@@ -243,8 +243,9 @@ export const getDashboardPathForRole = (role: string | null | undefined): string
     return '/sales/dashboard';
   }
 
+  /** QC / technician floor staff — Detailer portal (`components/technician`), not Admin Hub */
   if (safeRole === 'staff_quality_checker') {
-    return '/admin/dashboard?tab=live_tracking';
+    return '/detailer/dashboard';
   }
 
   if (isAdminDashboardRole(safeRole)) {

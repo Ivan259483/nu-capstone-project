@@ -130,9 +130,12 @@ app.use('/api/', generalLimiter);
 app.use(compression());
 
 // ── Request logger with response time tracking ──────────────────────
+// Use originalUrl: Express mutates req.url to "/" as it enters mounted routers
+// (e.g. /api/activity?limit=200), so res.on("finish") would log misleading "GET /".
 app.use((req, res, next) => {
   const start = process.hrtime.bigint();
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  const logPath = req.originalUrl || req.url;
+  console.log(`[${new Date().toISOString()}] ${req.method} ${logPath}`);
   if (req.method === 'OPTIONS') {
     console.log('  -> Preflight request');
   }
@@ -154,7 +157,7 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
     if (durationMs > 1000) {
-      console.warn(`⚠️ SLOW REQUEST: ${req.method} ${req.url} — ${durationMs.toFixed(0)}ms`);
+      console.warn(`⚠️ SLOW REQUEST: ${req.method} ${logPath} — ${durationMs.toFixed(0)}ms`);
     }
   });
   

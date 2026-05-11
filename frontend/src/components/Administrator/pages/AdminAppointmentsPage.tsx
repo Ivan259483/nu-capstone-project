@@ -21,6 +21,17 @@ export default function AdminAppointmentsPage({ onNavigate, currentUserRole }: P
     [currentUserRole],
   );
   const [activeTab, setActiveTab] = useState<SchedulingTab>('calendar');
+  const [visitedTabs, setVisitedTabs] = useState<Set<SchedulingTab>>(() => new Set(['calendar']));
+
+  const selectSchedulingTab = (tab: SchedulingTab) => {
+    setActiveTab(tab);
+    setVisitedTabs((current) => {
+      if (current.has(tab)) return current;
+      const next = new Set(current);
+      next.add(tab);
+      return next;
+    });
+  };
 
   return (
     <div className="ah-page-enter flex flex-col gap-6">
@@ -51,7 +62,7 @@ export default function AdminAppointmentsPage({ onNavigate, currentUserRole }: P
               ? 'bg-blue-600 text-white shadow-sm'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
-          onClick={() => setActiveTab('calendar')}
+          onClick={() => selectSchedulingTab('calendar')}
         >
           <CalendarDays size={15} />
           Calendar
@@ -64,7 +75,7 @@ export default function AdminAppointmentsPage({ onNavigate, currentUserRole }: P
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
-            onClick={() => setActiveTab('availability')}
+            onClick={() => selectSchedulingTab('availability')}
           >
             <SlidersHorizontal size={15} />
             Availability Controls
@@ -74,7 +85,16 @@ export default function AdminAppointmentsPage({ onNavigate, currentUserRole }: P
 
       <div className="admin-appointments-shell min-h-[560px] overflow-hidden rounded-[28px] bg-white shadow-[0_28px_90px_-28px_rgba(15,23,42,0.14),0_12px_40px_-18px_rgba(15,23,42,0.08)]">
         <div className="bg-white p-5 sm:p-6">
-          {activeTab === 'availability' && isAdministrator ? <AvailabilityControls /> : <SalesSmartCalendar />}
+          <div className="ah-inner-tab-stack">
+            <div className={`ah-inner-tab-panel ${activeTab === 'calendar' ? 'is-active' : 'is-hidden'}`} aria-hidden={activeTab !== 'calendar'}>
+              <SalesSmartCalendar />
+            </div>
+            {isAdministrator && (activeTab === 'availability' || visitedTabs.has('availability')) && (
+              <div className={`ah-inner-tab-panel ${activeTab === 'availability' ? 'is-active' : 'is-hidden'}`} aria-hidden={activeTab !== 'availability'}>
+                <AvailabilityControls />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -10,6 +10,11 @@ import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
  */
 export const authenticate = async (req, res, next) => {
   try {
+    // CORS preflight — no Authorization header (browser strips custom headers on OPTIONS)
+    if (req.method === 'OPTIONS') {
+      return next();
+    }
+
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -24,23 +29,20 @@ export const authenticate = async (req, res, next) => {
 
     try {
       const decoded = jwt.verify(token, config.jwtSecret);
-      const normalizedRole = migrateLegacyUserRole(decoded.role);
-      
-      // Ensure essential user properties exist
-      if (!decoded.id || !normalizedRole) {
-         console.error('[AUTH_ERROR] Malformed token payload:', decoded);
-         return res.status(401).json({
-             success: false,
-             message: 'Invalid token payload: missing user ID or role'
-         });
+      // `role` in JWT is from login time and may be stale; live role is applied from MongoDB below.
+      if (!decoded.id) {
+        console.error('[AUTH_ERROR] Malformed token payload (missing id):', decoded);
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid token payload: missing user ID',
+        });
       }
 
-      if (normalizedRole !== decoded.role) {
-        console.warn(`[AUTH_MIGRATION] Normalized legacy token role ${decoded.role} -> ${normalizedRole}`);
-      }
-
-      // STRICT VERIFICATION: Ensure user actually still exists and has not been deleted/deactivated
-      const userDoc = await User.findById(decoded.id).select('isActive isDeleted lockUntil email');
+      // STRICT VERIFICATION: Ensure user actually still exists and has not been deleted/deactivated.
+      // Always use live MongoDB role/name/email — JWT embeds role from login time and goes stale after admin edits.
+      const userDoc = await User.findById(decoded.id).select(
+        'isActive isDeleted lockUntil email role name'
+      );
       if (!userDoc) {
         return res.status(401).json({ success: false, message: 'User account no longer exists.' });
       }
@@ -58,7 +60,17 @@ export const authenticate = async (req, res, next) => {
         return res.status(423).json({ success: false, message: 'Your account is temporarily locked.' });
       }
 
-      req.user = { ...decoded, role: normalizedRole };
+      const liveRole = migrateLegacyUserRole(userDoc.role);
+      if (!liveRole) {
+        return res.status(401).json({ success: false, message: 'Invalid account role.' });
+      }
+
+      req.user = {
+        ...decoded,
+        role: liveRole,
+        email: userDoc.email || decoded.email,
+        name: userDoc.name || decoded.name,
+      };
       next();
     } catch (verifyError) {
       console.error('[AUTH_ERROR] Token verification failed:', verifyError.message);

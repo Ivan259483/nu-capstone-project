@@ -58,7 +58,7 @@ import { ActivityLogs } from '@/components/admin/ActivityLogs';
 import { ServicesPricing } from '@/components/admin/ServicesPricing';
 import { SupplierManagement } from '@/components/admin/SupplierManagement';
 import { UserManagementPanel } from '@/components/admin/UserManagementPanel';
-import AdminHubPanel from '@/components/admin-hub/AdminHubPanel';
+import AdminHubPanel from '@/components/Administrator/AdminHubPanel';
 import { WaiversDocs } from '@/components/admin/WaiversDocs';
 import { CheckInDialog } from '@/components/admin/CheckInDialog';
 import { ActivityService } from '@/lib/activity-service-api';
@@ -171,6 +171,11 @@ import { getBackendSocketUrl } from '@/lib/api';
 export default function AdminDashboard() {
     const navigate = useNavigate();
     const { user, logout, updateUser } = useAuth();
+    const safeUserRole = getSafeUserRole(user?.role);
+    const isAdminHubRole =
+        safeUserRole === 'administrator' ||
+        safeUserRole === 'office_admin' ||
+        safeUserRole === 'staff_quality_checker';
     const isAdmin = isAdminDashboardRole(user?.role);
     const canAccessUsers = isStaffManagerRole(user?.role);
     const canAccessBookings = isBookingManagerRole(user?.role);
@@ -188,26 +193,47 @@ export default function AdminDashboard() {
     const canAccessAIEstimator = isAIEstimatorRole(user?.role);
     const needsUserDirectory = canAccessUsers || canAccessBookings || canAccessPOS || canRegisterUsers;
     const needsServiceCatalogData = canAccessPricing || canAccessPOS;
-    const needsBookingsData = canAccessBookings || canAccessPOS || canAccessAppointments;
-    const needsAnalyticsData = canAccessBookings || canAccessPOS;
+    const needsBookingsData = !isAdminHubRole && (canAccessBookings || canAccessPOS || canAccessAppointments);
+    const needsAnalyticsData = !isAdminHubRole && (canAccessBookings || canAccessPOS);
 
     // Realtime Database Sync
     // Refs to avoid putting functions directly in deps and causing cycles.
     const loadDataRef = useRef<(() => void) | null>(null);
     const fetchBookingsRef = useRef<(() => void) | null>(null);
+    const loadDataDebounceRef = useRef<number | null>(null);
+    const bookingsDebounceRef = useRef<number | null>(null);
     useRealtimeSync(
         ['orders', 'users', 'suppliers', 'categories', 'services', 'settings', 'notifications', 'products', 'activitylogs'],
         useCallback((collection: string) => {
-            // Short debounce to prevent a spike of fetches if 10 rows update at once
+            // Short debounce to prevent a spike of fetches if many rows update at once
             if (collection === 'orders') {
-                // Bookings live in a separate state — refresh them immediately
-                setTimeout(() => fetchBookingsRef.current && fetchBookingsRef.current(), 300);
+                if (bookingsDebounceRef.current !== null) {
+                    window.clearTimeout(bookingsDebounceRef.current);
+                }
+                bookingsDebounceRef.current = window.setTimeout(() => {
+                    fetchBookingsRef.current && fetchBookingsRef.current();
+                    bookingsDebounceRef.current = null;
+                }, 300);
             }
-            if (loadDataRef.current) {
-                setTimeout(() => loadDataRef.current && loadDataRef.current(), 500);
+            if (loadDataDebounceRef.current !== null) {
+                window.clearTimeout(loadDataDebounceRef.current);
             }
+            loadDataDebounceRef.current = window.setTimeout(() => {
+                loadDataRef.current && loadDataRef.current();
+                loadDataDebounceRef.current = null;
+            }, 500);
         }, [])
     );
+    useEffect(() => {
+        return () => {
+            if (bookingsDebounceRef.current !== null) {
+                window.clearTimeout(bookingsDebounceRef.current);
+            }
+            if (loadDataDebounceRef.current !== null) {
+                window.clearTimeout(loadDataDebounceRef.current);
+            }
+        };
+    }, []);
 
     // Theme State
     const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -249,6 +275,8 @@ export default function AdminDashboard() {
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [payments, setPayments] = useState<any[]>([]);
     const [totalSales, setTotalSales] = useState(0);
+    /** Signals Admin Hub when the parent bulk sync is available as a background refresh source. */
+    const [adminShellBulkLoaded, setAdminShellBulkLoaded] = useState(false);
     const socketRef = useRef<Socket | null>(null);
 
     // Dynamic Analytics State
@@ -507,6 +535,7 @@ export default function AdminDashboard() {
             console.log('🔄 [AdminDashboard] Starting data sync...');
 
             if (isAdmin) {
+                setAdminShellBulkLoaded(false);
                 if (!canAccessUsers) setUsers([]);
                 if (!canViewSupplierData) setSuppliers([]);
                 if (!needsServiceCatalogData) setServices([]);
@@ -623,7 +652,7 @@ export default function AdminDashboard() {
             setSuppliers(supplierStorage.getAll());
             setServices(serviceStorage.getAll());
         } finally {
-            // Background sync complete
+            if (isAdmin) setAdminShellBulkLoaded(true);
         }
     }, [
         canAccessInventory,
@@ -2174,30 +2203,19 @@ export default function AdminDashboard() {
     const isHRMode = activeTab === 'users' && (canAccessUsers || canRegisterUsers);
     // Strict check: AdminHub is ONLY for administrator / office_admin
     // HR users get their own separate UserManagementPanel
-    const userRoleLower = (user?.role || '').toLowerCase();
-    const isAdminHubRole =
-        userRoleLower === 'administrator' ||
-        userRoleLower === 'office_admin' ||
-        userRoleLower === 'staff_quality_checker';
     // Administrator/office_admin ALWAYS uses AdminHub for ALL tabs (full mode)
     const isAdminHubMode = isAdminHubRole;
     const isHROnlyMode = isHRMode && !isAdminHubRole;
 
-    return (
-        <div className={`admin-root admin-shell ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-
-            {/* ── OVERLAY ── */}
-            <div
-                className={`drawer-overlay ${!sidebarCollapsed ? 'open' : ''}`}
-                style={isAdminHubMode ? { display: 'none', pointerEvents: 'none' } : undefined}
-                onClick={() => setSidebarCollapsed(true)}
-            />
-
-            {/* ── ADMIN HUB (Full UI for admin-role users) ── */}
-            {isAdminHubMode && (
+    if (isAdminHubMode) {
+        return (
+            <div className={`admin-root admin-shell ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
                 <AdminHubPanel
                     currentUser={user}
                     fullMode={true}
+                    syncUserDirectoryFromParent
+                    directoryUsers={users}
+                    directoryBulkLoaded={adminShellBulkLoaded}
                     inventory={inventory}
                     suppliers={suppliers}
                     services={services}
@@ -2214,7 +2232,19 @@ export default function AdminDashboard() {
                     onClearCache={handleClearCache}
                     onResetSystem={() => setShowResetModal(true)}
                 />
-            )}
+            </div>
+        );
+    }
+
+    return (
+        <div className={`admin-root admin-shell ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+
+            {/* ── OVERLAY ── */}
+            <div
+                className={`drawer-overlay ${!sidebarCollapsed ? 'open' : ''}`}
+                style={isAdminHubMode ? { display: 'none', pointerEvents: 'none' } : undefined}
+                onClick={() => setSidebarCollapsed(true)}
+            />
 
             {/* ── HR DASHBOARD FULL-SCREEN MODE (HR-only users) ── */}
             {isHROnlyMode && (

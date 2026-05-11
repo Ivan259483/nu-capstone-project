@@ -20,6 +20,7 @@ import {
     INVENTORY_DASHBOARD_ROLES,
     STAFF_ROLES,
     getDashboardPathForRole,
+    getSafeUserRole,
 } from "@/lib/roles";
 import { useActivityHeartbeat } from "@/hooks/useActivityHeartbeat";
 
@@ -110,8 +111,9 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode; allow
         return <Navigate to="/login" replace />;
     }
 
-    if (!allowedRoles.includes(user.role)) {
-        return <Navigate to={getDashboardPathForRole(user.role)} replace />;
+    const safeRole = getSafeUserRole(user.role);
+    if (!allowedRoles.includes(safeRole)) {
+        return <Navigate to={getDashboardPathForRole(safeRole)} replace />;
     }
 
     return <>{children}</>;
@@ -124,8 +126,25 @@ function ScrollToTop() {
     return null;
 }
 
-/** Legacy /ops/dashboard → Admin Hub live customer tracking tab */
+/** Legacy /ops/dashboard — QC → Detailer (`components/technician`), ops/admin → Admin Hub live tab */
 function OpsDashboardRedirect() {
+    const { user, isFirebaseAuthReady } = useAuth();
+    if (!isFirebaseAuthReady) return <RoutePageSkeleton />;
+    if (!user) return <Navigate to="/login" replace />;
+    const safeRole = getSafeUserRole(user.role);
+    if (safeRole === 'staff_quality_checker') {
+        return <Navigate to="/detailer/dashboard" replace />;
+    }
+    return <Navigate to="/admin/dashboard?tab=live_tracking" replace />;
+}
+
+/** Bookmark /admin/live-tracking — QC uses Detailer portal; others stay on Admin Hub */
+function AdminLiveTrackingRoleRedirect() {
+    const { user } = useAuth();
+    const safeRole = getSafeUserRole(user?.role);
+    if (safeRole === 'staff_quality_checker') {
+        return <Navigate to="/detailer/dashboard" replace />;
+    }
     return <Navigate to="/admin/dashboard?tab=live_tracking" replace />;
 }
 
@@ -221,8 +240,8 @@ function AppRoutes() {
                     <Route
                         path="/admin/live-tracking"
                         element={
-                            <ProtectedRoute allowedRoles={['administrator', 'office_admin']}>
-                                <Navigate to="/admin/dashboard?tab=live_tracking" replace />
+                            <ProtectedRoute allowedRoles={ADMIN_DASHBOARD_ROLES}>
+                                <AdminLiveTrackingRoleRedirect />
                             </ProtectedRoute>
                         }
                     />

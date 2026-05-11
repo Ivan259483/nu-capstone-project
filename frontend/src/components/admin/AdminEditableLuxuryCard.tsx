@@ -289,9 +289,9 @@ export function AdminEditableLuxuryCard({
             onHoverStart={() => setHovered(true)}
             onHoverEnd={() => setHovered(false)}
             className={cn(
-                'group relative flex flex-col rounded-[24px] overflow-hidden w-full transition-all duration-300 ease-in-out',
-                isHighlighted && 'lg:scale-[1.03] z-10',
-                adminHighlight && 'ring-2 ring-amber-400/90 ring-offset-2 ring-offset-white z-20 rounded-[24px]',
+                'group relative flex w-full flex-col overflow-hidden rounded-[20px] transition-all duration-300 ease-in-out',
+                isHighlighted && 'z-10 lg:scale-[1.01]',
+                adminHighlight && 'z-20 rounded-[20px] ring-2 ring-amber-400/90 ring-offset-2 ring-offset-white',
             )}
             style={{
                 willChange: 'transform',
@@ -300,7 +300,7 @@ export function AdminEditableLuxuryCard({
             }}
         >
             <div
-                className="absolute -inset-[2px] rounded-[26px] z-0 pointer-events-none"
+                className="pointer-events-none absolute -inset-[2px] z-0 rounded-[22px]"
                 style={{
                     opacity: hovered ? 0.55 : 0,
                     background: `linear-gradient(135deg, ${liveAccent.from}55 0%, transparent 42%, ${liveAccent.to}35 78%, transparent 100%)`,
@@ -309,12 +309,19 @@ export function AdminEditableLuxuryCard({
             />
 
             <div
-                className="relative z-10 flex h-full flex-col overflow-hidden rounded-[24px]"
+                className="relative z-10 flex h-full flex-col overflow-hidden rounded-[20px]"
                 style={{
                     background: `linear-gradient(170deg, 
-                        ${hovered ? `${liveAccent.from}14` : `${liveAccent.from}08`} 0%, 
-                        rgba(12,17,29,0.97) 35%, 
-                        rgba(8,12,24,0.99) 100%)`,
+                        ${hovered ? `${liveAccent.from}18` : `${liveAccent.from}12`} 0%, 
+                        rgba(24,32,48,0.92) 38%, 
+                        rgba(14,20,33,0.96) 100%)`,
+                    border: `1px solid ${
+                        hovered
+                            ? `${liveAccent.from}40`
+                            : isHighlighted
+                              ? `${liveAccent.from}30`
+                              : 'rgba(148,163,184,0.20)'
+                    }`,
                     boxShadow: hovered
                         ? `0 32px 64px -20px ${liveAccent.from}35, 0 18px 40px -22px rgba(15,23,42,0.45)`
                         : isHighlighted
@@ -332,11 +339,11 @@ export function AdminEditableLuxuryCard({
                     />
                 </div>
 
-                <div className="absolute top-3 right-3 z-30 flex gap-2">
+                <div className="absolute right-3 top-3 z-30 flex gap-2">
                     <button
                         type="button"
                         onClick={() => setEditing((v) => !v)}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-black/45 px-2.5 py-1.5 text-[11px] font-bold text-white/95 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.55)] backdrop-blur-md hover:bg-white/10"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-black/45 px-2.5 text-[11px] font-bold text-white/95 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.55)] backdrop-blur-md transition hover:bg-white/[0.12]"
                     >
                         {editing ? (
                             'Preview'

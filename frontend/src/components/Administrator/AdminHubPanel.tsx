@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import './admin-hub.css';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import './administrator.css';
 import { UserService } from '@/lib/user-service';
 import { ActivityService } from '@/lib/activity-service-api';
 import { NotificationService } from '@/lib/notification-service';
@@ -14,8 +14,8 @@ import { ServicesPricing } from '@/components/admin/ServicesPricing';
 import InventoryPanel from '@/components/inventory/InventoryPanel';
 
 import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getSafeUserRole, isServiceCatalogRole } from '@/lib/roles';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { getRoleLabel, getSafeUserRole, isServiceCatalogRole } from '@/lib/roles';
 import { CalendarScheduleDnDProvider, useCalendarScheduleDnD } from '@/components/sales/calendar/CalendarScheduleDnDContext';
 
 interface Props {
@@ -38,6 +38,10 @@ interface Props {
   onClearCache?: () => void;
   onResetSystem?: () => void;
   fullMode?: boolean; // When true, this is the ONLY UI (no old dashboard behind it)
+  /** Parent AdminDashboard also loads GET /users; use it as a background refresh source after the Hub's immediate directory load. */
+  syncUserDirectoryFromParent?: boolean;
+  directoryUsers?: any[];
+  directoryBulkLoaded?: boolean;
 }
 
 const NAV_MAIN_MENU = [
@@ -46,6 +50,10 @@ const NAV_MAIN_MENU = [
 
 const NAV_OPERATIONS = [
   { id: 'scheduling', label: 'Appointments', icon: Calendar, section: 'Operations' },
+  { id: 'live_tracking', label: 'Live Tracking', icon: Radio, section: 'Operations' },
+];
+
+const NAV_QC_OPERATIONS = [
   { id: 'live_tracking', label: 'Live Tracking', icon: Radio, section: 'Operations' },
 ];
 
@@ -60,66 +68,130 @@ const NAV_MANAGEMENT = [
   { id: 'logs', label: 'Activity Logs', icon: ScrollText, section: 'Management' },
 ];
 
+const ROUTABLE_TAB_IDS = new Set(['live_tracking', 'pricing', 'scheduling', 'inventory']);
+
 function AdminHubPanelInner({
   currentUser, onClose,
   inventory = [], suppliers = [], services = [], bookings = [], settings, setSettings,
   onLoadData, onAddSupplier, onEditSupplier, onOrderSupplier,
   onSaveSettings, onExportData, onBackupDB, onClearCache, onResetSystem,
   fullMode = false,
+  syncUserDirectoryFromParent = false,
+  directoryUsers,
+  directoryBulkLoaded = false,
 }: Props) {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const currentRole = getSafeUserRole(currentUser?.role);
+  const isQualityChecker = currentRole === 'staff_quality_checker';
 
   const [activePage, setActivePage] = useState(() => {
+    if (getSafeUserRole(currentUser?.role) === 'staff_quality_checker') return 'live_tracking';
     try {
       if (typeof window !== 'undefined') {
-        const tab = new URLSearchParams(window.location.search).get('tab');
-        if (tab === 'live_tracking') return 'live_tracking';
-        if (tab === 'pricing') return 'pricing';
-        if (tab === 'scheduling') return 'scheduling';
-        if (tab === 'inventory') return 'inventory';
+        const tab = new URLSearchParams(location.search).get('tab');
+        if (tab && ROUTABLE_TAB_IDS.has(tab)) return tab;
       }
     } catch {
       /* ignore */
     }
     return 'dashboard';
   });
+  const [visitedPages, setVisitedPages] = useState<Set<string>>(() => new Set([activePage]));
   const [collapsed, setCollapsed] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isUsersLoading, setIsUsersLoading] = useState(true);
+  const [isLogsLoading, setIsLogsLoading] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
 
   const { logout } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (getSafeUserRole(currentUser?.role) !== 'staff_quality_checker') return;
-    const tab = searchParams.get('tab');
-    if (tab === 'live_tracking' || tab === 'pricing') return;
-    setActivePage('live_tracking');
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.set('tab', 'live_tracking');
-        return next;
-      },
-      { replace: true },
-    );
-  }, [currentUser?.role, currentUser?.id, searchParams, setSearchParams]);
+  /** Auth context often replaces `user` with a new object reference; depending on it here caused endless refetch + loading skeletons. */
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
+  const stableUserId = String(currentUser?._id || currentUser?.id || '');
+  const activityLogsLoadedRef = useRef(false);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [userRes, logRes] = await Promise.all([
-        UserService.getAllUsers(),
-        ActivityService.getActivityLogs({ limit: 200 }),
-      ]);
-      if (userRes?.success) setUsers(userRes.data || []);
-      if (logRes?.success) setActivityLogs(logRes.data || []);
-    } catch (e) { console.error('[AdminHub] fetch error:', e); }
-    setLoading(false);
+  const applyCurrentUserFallback = useCallback(() => {
+    const cu = currentUserRef.current;
+    if (!cu) return;
+    setUsers([{
+      ...cu,
+      id: cu._id || cu.id,
+      role: getSafeUserRole(cu.role),
+      status: cu.status || 'active',
+    }]);
   }, []);
+
+  const fetchUsers = useCallback(async (options?: { showBlockingLoader?: boolean }) => {
+    const showBlockingLoader = options?.showBlockingLoader ?? true;
+    if (showBlockingLoader) {
+      setIsUsersLoading(true);
+    }
+    try {
+      if (isQualityChecker) {
+        const cu = currentUserRef.current;
+        setUsers(
+          cu
+            ? [{
+                ...cu,
+                id: cu._id || cu.id,
+                role: currentRole,
+              }]
+            : [],
+        );
+        return;
+      }
+
+      const userRes = await UserService.getAllUsers({ suppressErrorToast: true });
+      if (userRes?.success && Array.isArray(userRes.data)) {
+        setUsers(userRes.data);
+      } else {
+        applyCurrentUserFallback();
+      }
+    } catch (e) {
+      console.error('[AdminHub] users fetch error:', e);
+      applyCurrentUserFallback();
+    } finally {
+      setIsUsersLoading(false);
+    }
+  }, [applyCurrentUserFallback, currentRole, isQualityChecker, stableUserId]);
+
+  const refreshUsers = useCallback(async () => {
+    if (syncUserDirectoryFromParent && onLoadData) {
+      await onLoadData();
+      await fetchUsers({ showBlockingLoader: false });
+      return;
+    }
+    await fetchUsers();
+  }, [syncUserDirectoryFromParent, onLoadData, fetchUsers]);
+
+  const fetchActivityLogs = useCallback(async () => {
+    if (isQualityChecker) {
+      setActivityLogs([]);
+      setIsLogsLoading(false);
+      return;
+    }
+
+    setIsLogsLoading(true);
+    try {
+      const logRes = await ActivityService.getActivityLogs({ limit: 200 });
+      if (logRes?.success) setActivityLogs(logRes.data || []);
+    } catch (e) {
+      console.error('[AdminHub] activity logs fetch error:', e);
+    } finally {
+      activityLogsLoadedRef.current = true;
+      setIsLogsLoading(false);
+    }
+  }, [isQualityChecker]);
+
+  /** Full-page skeleton only on first sync with no data yet — not on every background refetch */
+  const blockingHubLoad =
+    isUsersLoading &&
+    !isQualityChecker &&
+    users.length === 0;
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -128,52 +200,119 @@ function AdminHubPanelInner({
     } catch { /* silent */ }
   }, []);
 
-  useEffect(() => { fetchData(); fetchNotifications(); }, [fetchData, fetchNotifications]);
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab === 'live_tracking' || tab === 'pricing' || tab === 'scheduling' || tab === 'inventory') setActivePage(tab);
-  }, [searchParams]);
+    if (isQualityChecker) {
+      fetchUsers();
+      return;
+    }
+    fetchUsers();
+  }, [fetchUsers, isQualityChecker]);
+
+  useEffect(() => {
+    if (!fullMode || !syncUserDirectoryFromParent || isQualityChecker) return;
+    const nextUsers = Array.isArray(directoryUsers) ? directoryUsers : [];
+    if (nextUsers.length > 0) {
+      setUsers(nextUsers);
+      setIsUsersLoading(false);
+      return;
+    }
+    if (directoryBulkLoaded && users.length === 0) {
+      fetchUsers({ showBlockingLoader: false });
+    }
+  }, [
+    directoryBulkLoaded,
+    directoryUsers,
+    fetchUsers,
+    fullMode,
+    isQualityChecker,
+    syncUserDirectoryFromParent,
+    users.length,
+  ]);
+
+  useEffect(() => {
+    if (activePage !== 'logs') return;
+    if (activityLogsLoadedRef.current) return;
+    fetchActivityLogs();
+  }, [activePage, fetchActivityLogs]);
+
+  useEffect(() => {
+    setVisitedPages((current) => {
+      if (current.has(activePage)) return current;
+      const next = new Set(current);
+      next.add(activePage);
+      return next;
+    });
+  }, [activePage]);
+
+  const syncTabSearchParam = useCallback((tabId: string) => {
+    if (typeof window === 'undefined') return;
+
+    const nextParams = new URLSearchParams(window.location.search);
+    if (ROUTABLE_TAB_IDS.has(tabId)) {
+      nextParams.set('tab', tabId);
+    } else {
+      nextParams.delete('tab');
+    }
+
+    const currentQuery = window.location.search.startsWith('?')
+      ? window.location.search.slice(1)
+      : window.location.search;
+    const nextQuery = nextParams.toString();
+    if (nextQuery === currentQuery) return;
+
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`;
+    window.history.replaceState(window.history.state, '', nextUrl);
+  }, []);
+
+  useEffect(() => {
+    if (isQualityChecker) {
+      if (activePage !== 'live_tracking') setActivePage('live_tracking');
+      syncTabSearchParam('live_tracking');
+      return;
+    }
+
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab && ROUTABLE_TAB_IDS.has(tab) && tab !== activePage) {
+      setActivePage(tab);
+    }
+  }, [activePage, isQualityChecker, location.search, syncTabSearchParam]);
 
   const selectNavPage = useCallback(
-    (id: string) => {
-      setActivePage(id);
-      setSearchParams(
-        prev => {
-          const next = new URLSearchParams(prev);
-          if (id === 'live_tracking' || id === 'pricing' || id === 'scheduling' || id === 'inventory') next.set('tab', id);
-          else next.delete('tab');
-          return next;
-        },
-        { replace: true },
-      );
+    (requestedId: string) => {
+      const id = isQualityChecker ? 'live_tracking' : requestedId;
+      if (id !== activePage) {
+        setActivePage(id);
+      }
+      syncTabSearchParam(id);
     },
-    [setSearchParams],
+    [activePage, isQualityChecker, syncTabSearchParam],
   );
 
   // Office Admin inherits operational manager duties — surface live customer tracking here
   const navItems = useMemo(() => {
-    const role = getSafeUserRole(currentUser?.role);
-    if (role === 'administrator') {
+    if (currentRole === 'administrator') {
       return [...NAV_MAIN_MENU, ...NAV_OPERATIONS, ...NAV_CATALOG, ...NAV_MANAGEMENT];
     }
-    if (role === 'office_admin') {
+    if (currentRole === 'office_admin') {
       return [...NAV_MAIN_MENU, ...NAV_OPERATIONS, ...NAV_CATALOG, ...NAV_MANAGEMENT];
     }
-    if (role === 'staff_quality_checker') {
-      return [...NAV_OPERATIONS];
+    if (currentRole === 'staff_quality_checker') {
+      return NAV_QC_OPERATIONS;
     }
     return [...NAV_MAIN_MENU, ...NAV_MANAGEMENT];
-  }, [currentUser?.role]);
+  }, [currentRole]);
 
   const sidebarW = collapsed ? 64 : 240;
   const { isDraggingSchedule } = useCalendarScheduleDnD();
   const sidebarWEffective = isDraggingSchedule ? 0 : sidebarW;
-  const userRoleLower = (currentUser?.role || '').toLowerCase();
   const prefetchCustomerTracker =
-    userRoleLower === 'office_admin' ||
-    userRoleLower === 'administrator' ||
-    userRoleLower === 'staff_quality_checker';
+    currentRole === 'office_admin' ||
+    currentRole === 'administrator' ||
+    currentRole === 'staff_quality_checker';
 
   const handleLogout = () => {
     logout();
@@ -190,8 +329,24 @@ function AdminHubPanelInner({
 
   const safeBookings = Array.isArray(bookings) ? bookings : [];
 
-  const mainBgWhite =
-    activePage === 'pricing' || activePage === 'scheduling' || isDraggingSchedule ? '#ffffff' : '#f8fafc';
+  const renderTabPanel = useCallback(
+    (id: string, children: React.ReactNode, options?: { forceMount?: boolean }) => {
+      const isActive = activePage === id;
+      const shouldMount = isActive || visitedPages.has(id) || options?.forceMount;
+      if (!shouldMount) return null;
+
+      return (
+        <section
+          key={id}
+          className={`ah-tab-panel ${isActive ? 'is-active' : 'is-hidden'}`}
+          aria-hidden={!isActive}
+        >
+          {children}
+        </section>
+      );
+    },
+    [activePage, visitedPages],
+  );
 
   return (
     <div
@@ -213,8 +368,20 @@ function AdminHubPanelInner({
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', height: 64, padding: '0 12px', borderBottom: '1px solid #f1f5f9', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>A</div>
-            {!collapsed && <span style={{ fontWeight: 600, color: '#0f172a', fontSize: 15, lineHeight: 1.2, minWidth: 0 }}>Administrator</span>}
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+              {(currentUser?.name || currentUser?.email || '?').trim().charAt(0).toUpperCase()}
+            </div>
+            {!collapsed && (
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {currentUser?.name?.trim() || 'Signed in'}
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {currentUser?.email || ''}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', marginTop: 2 }}>{getRoleLabel(currentRole)}</div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -281,48 +448,54 @@ function AdminHubPanelInner({
 
       {/* ── Main Content ── */}
       <main
+        className="ah-main-surface"
         style={{
           flex: 1,
           minHeight: '100vh',
           overflow: 'auto',
-          transition: 'margin-left 0.22s cubic-bezier(0.16,1,0.3,1), background-color 0.18s ease',
+          transition: 'margin-left 0.22s cubic-bezier(0.16,1,0.3,1)',
           marginLeft: sidebarWEffective,
-          background: mainBgWhite,
+          background: '#f8fafc',
         }}
       >
-        <div style={{ maxWidth: activePage === 'live_tracking' || activePage === 'scheduling' || activePage === 'inventory' ? 1560 : 1400, margin: '0 auto', padding: '32px 24px' }}>
-          {activePage === 'dashboard' && (
-            <AdminDashboardPage users={users} activityLogs={activityLogs} loading={loading} onNavigate={selectNavPage} />
-          )}
-          {activePage === 'scheduling' && (
+        <div
+          className="ah-tab-shell"
+          style={{ maxWidth: 1560, margin: '0 auto', padding: '32px 24px' }}
+        >
+          <div className="ah-tab-stack">
+            {renderTabPanel('dashboard', (
+            <AdminDashboardPage users={users} activityLogs={activityLogs} loading={blockingHubLoad} onNavigate={selectNavPage} />
+            ))}
+            {renderTabPanel('scheduling', (
             <AdminAppointmentsPage onNavigate={selectNavPage} currentUserRole={currentUser?.role} />
-          )}
-          {activePage === 'users' && (
+            ))}
+            {renderTabPanel('users', (
             <AdminUserManagement
               users={users}
               setUsers={setUsers}
-              loading={loading}
-              onRefresh={fetchData}
+              loading={isUsersLoading && users.length === 0}
+              onRefresh={refreshUsers}
               currentUserRole={currentUser?.role}
               currentUserId={currentUser?.id || currentUser?._id}
             />
-          )}
-          {activePage === 'roles' && <AdminRoleManagement users={users} />}
-          {activePage === 'logs' && <AdminActivityLogs activityLogs={activityLogs} loading={loading} />}
-          {activePage === 'pricing' && isServiceCatalogRole(currentUser?.role) && (
+            ))}
+            {renderTabPanel('roles', <AdminRoleManagement users={users} />)}
+            {renderTabPanel('logs', <AdminActivityLogs activityLogs={activityLogs} loading={isLogsLoading && activityLogs.length === 0} />)}
+            {isServiceCatalogRole(currentUser?.role) && renderTabPanel('pricing', (
             <ServicesPricing services={services} onRefresh={onLoadData || (() => undefined)} />
-          )}
-          {activePage === 'inventory' && <InventoryPanel embedded />}
+            ))}
+            {renderTabPanel('inventory', <InventoryPanel embedded />)}
 
-          {prefetchCustomerTracker && (
-            <div style={{ display: activePage === 'live_tracking' ? 'block' : 'none' }}>
+            {prefetchCustomerTracker && renderTabPanel('live_tracking', (
+              <>
               <div style={{ marginBottom: 24 }}>
                 <h1 style={{ fontSize: 22, fontWeight: 600, color: '#0f172a', margin: 0 }}>Customer Tracker</h1>
                 <p style={{ fontSize: 14, color: '#64748b', margin: '8px 0 0' }}>Live job status and customer tracking updates across all customers</p>
               </div>
               <CustomerTrackerPanel embedded />
-            </div>
-          )}
+              </>
+            ), { forceMount: true })}
+          </div>
         </div>
       </main>
 

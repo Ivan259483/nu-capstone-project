@@ -301,7 +301,7 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
         ))}
       </div>
 
-      <div className="ah-card-section">
+      <div className="ah-card-section ah-table-card">
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 320 }}>
             <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />

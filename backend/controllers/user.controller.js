@@ -53,7 +53,7 @@ export const touchMyActivity = async (req, res, next) => {
  */
 export const getAllUsers = async (req, res, next) => {
   try {
-    const filter = { isDeleted: { $ne: true } };
+    const filter = { isDeleted: false };
     if (req.query.email) {
       filter.email = { $regex: new RegExp(`^${req.query.email.trim()}$`, 'i') };
     }
@@ -65,9 +65,22 @@ export const getAllUsers = async (req, res, next) => {
       filter.role = { $in: readableRoles };
     }
 
-    const users = await User.find(filter).select('-password');
+    const users = await User.collection
+      .find(filter, {
+        projection: {
+          password: 0,
+          avatar: 0,
+          photoURL: 0,
+          profileImage: 0,
+          image: 0,
+          expoPushTokens: 0,
+          pushTokens: 0,
+          refreshTokens: 0,
+        },
+      })
+      .toArray();
 
-    // Ensure PII is decrypted in JSON (hooks usually handle this; re-decrypt is safe for iv:hex blobs).
+    // Ensure PII is decrypted in JSON (.lean() skips post-init hooks; decrypt here).
     const data = users.map((doc) => {
       const u = doc.toObject ? doc.toObject() : doc;
       if (u.phone) u.phone = decrypt(u.phone);

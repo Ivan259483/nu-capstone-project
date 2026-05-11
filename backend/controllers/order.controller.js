@@ -20,6 +20,7 @@ import {
   isPosManagerRole,
   isServiceStaffRole,
   isStaffRole,
+  normalizeToCanonical,
 } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
@@ -280,8 +281,13 @@ export const getAllOrders = async (req, res, next) => {
       query.archived = { $ne: true };
     }
 
+    const canonicalRole = normalizeToCanonical(req.user.role);
+
     if (isCustomerRole(req.user.role)) {
       query.customer = req.user.id;
+    } else if (canonicalRole === 'staff_quality_checker') {
+      // Quality Checker / Live Tracker: full operational queue — NOT limited to orders where this user is assignedDetailer
+      // (assigned-only filtering left the Customer Tracker empty for QC accounts).
     } else if (isStaffRole(req.user.role)) {
       query.assignedDetailer = req.user.id;
     } else if (!isBookingManagerRole(req.user.role) && !isPosManagerRole(req.user.role)) {
@@ -295,7 +301,9 @@ export const getAllOrders = async (req, res, next) => {
     const parsedLimit = parseInt(limit);
 
     const useLiteListPayload =
-      isPosManagerRole(req.user.role) || isBookingManagerRole(req.user.role);
+      isPosManagerRole(req.user.role) ||
+      isBookingManagerRole(req.user.role) ||
+      canonicalRole === 'staff_quality_checker';
 
     let orderQuery = Order.find(query);
 

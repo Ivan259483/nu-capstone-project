@@ -5,20 +5,59 @@ import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { generateQCPDF } from '../utils/pdf.utils.js';
 import Notification from '../models/notification.model.js';
 
+const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed', 'released'];
+const QC_JOBS_DEFAULT_LIMIT = 20;
+const QC_JOBS_MAX_LIMIT = 100;
+const QC_JOBS_PROJECTION = [
+  'orderNumber',
+  'bookingReference',
+  'customerName',
+  'serviceType',
+  'status',
+  'createdAt',
+  'updatedAt',
+  'assignedDetailer',
+  'vehicleYear',
+  'vehicleMake',
+  'vehicleModel',
+  'vehicleColor',
+  'vehiclePlate',
+  'notes',
+  'photos.before',
+  'photos.after',
+  'staffNotes.content',
+  'serviceProper.completedAt',
+  'qcCompletedAt',
+  'serviceTrackingStage',
+  'serviceStaffAssignments',
+].join(' ');
+
 /**
  * GET /api/qc/jobs
- * Returns all in-progress orders awaiting QC review.
+ * Returns a bounded page of in-progress orders awaiting QC review.
  */
 export const getQCJobs = async (req, res, next) => {
   try {
-    const orders = await Order.find({
-      status: { $in: ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed', 'released'] },
-      archived: { $ne: true },
-    })
-      .populate('customer', 'name email phone avatar')
-      .populate('assignedDetailer', 'name email')
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(
+      Math.max(1, parseInt(req.query.limit, 10) || QC_JOBS_DEFAULT_LIMIT),
+      QC_JOBS_MAX_LIMIT
+    );
+    const skip = (page - 1) * limit;
+    const filter = {
+      status: { $in: QC_JOB_STATUSES },
+      archived: false,
+    };
+
+    const rows = await Order.find(filter)
+      .select(QC_JOBS_PROJECTION)
       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit + 1)
+      .maxTimeMS(5000)
       .lean();
+    const hasNextPage = rows.length > limit;
+    const orders = hasNextPage ? rows.slice(0, limit) : rows;
 
     const now = Date.now();
 
@@ -40,7 +79,7 @@ export const getQCJobs = async (req, res, next) => {
       const hasReturn = Array.isArray(o.staffNotes) && o.staffNotes.some((n) => n.content?.startsWith('[QC_RETURN]'));
       if (hasReturn) qcStatus = 'needs-fix';
 
-      const aiFlag = Array.isArray(o.damageAnnotations) && o.damageAnnotations.length > 0;
+      const aiFlag = false;
 
       const customerName =
         o.customerName ||
@@ -48,8 +87,10 @@ export const getQCJobs = async (req, res, next) => {
         'Unknown';
 
       const technicianName =
-        o.assignedDetailer && typeof o.assignedDetailer === 'object'
-          ? (o.assignedDetailer?.name || 'Unassigned')
+        Array.isArray(o.serviceStaffAssignments) && o.serviceStaffAssignments[0]?.name
+          ? o.serviceStaffAssignments[0].name
+          : o.assignedDetailer
+            ? 'Assigned'
           : 'Unassigned';
 
       const vehicleStr = [o.vehicleYear, o.vehicleMake, o.vehicleModel]
@@ -59,44 +100,69 @@ export const getQCJobs = async (req, res, next) => {
       return {
         id: o._id.toString(),
         jobId: o.orderNumber || o.bookingReference || o._id.toString(),
+        orderId: o.orderNumber || o.bookingReference || o._id.toString(),
         customer: customerName,
+        customerName,
         vehicle: vehicleStr,
+        vehicleInfo: vehicleStr,
         make: o.vehicleMake || '',
         plate: o.vehiclePlate || '',
         service: o.serviceType || 'Service',
         serviceType: o.serviceType || 'Service',
         technician: technicianName,
-        technicianId: typeof o.assignedDetailer === 'object' ? o.assignedDetailer?._id?.toString() : o.assignedDetailer?.toString(),
+        technicianId: o.assignedDetailer?.toString?.(),
         submittedAt: submittedAt ? new Date(submittedAt).toISOString() : new Date(o.createdAt).toISOString(),
         elapsed: elapsedDisplay,
         elapsedMinutes,
         status: qcStatus,
+        qcStatus,
         orderStatus: o.status,                                          // raw backend status
         serviceTrackingStage: o.serviceTrackingStage || null,           // QC-controlled fine stage
-        serviceTrackingUpdatedAt: o.serviceTrackingUpdatedAt || null,
-        serviceTrackingUpdatedBy: o.serviceTrackingUpdatedBy || null,
+        currentGate: o.serviceTrackingStage || null,
+        serviceTrackingUpdatedAt: null,
+        serviceTrackingUpdatedBy: null,
         serviceStaffAssignments: o.serviceStaffAssignments || [],        // assigned named staff
-        trackerStageMedia: o.trackerStageMedia || [],
+        trackerStageMedia: [],
         aiFlag,
         priority: elapsedMinutes > 120 ? 'high' : elapsedMinutes > 60 ? 'medium' : 'normal',
         // Raw order data for detail view
         photos: o.photos || { before: [], after: [] },
         staffNotes: o.staffNotes || [],
         qcChecklist: o.qcChecklist || [],
-        damageAnnotations: o.damageAnnotations || [],
+        damageAnnotations: [],
         notes: o.notes || '',
         vehicleYear: o.vehicleYear || '',
         vehicleMake: o.vehicleMake || '',
         vehicleModel: o.vehicleModel || '',
         vehicleColor: o.vehicleColor || '',
-        technicianNotes: o.serviceProper?.technicianNotes || '',
-        customerPhone: typeof o.customer === 'object' ? o.customer?.phone : o.customerPhone || '',
-        customerEmail: typeof o.customer === 'object' ? o.customer?.email : '',
+        technicianNotes: '',
+        assignedTechnician: technicianName,
+        customerPhone: '',
+        customerEmail: '',
         customerNotes: o.notes || '',
       };
     });
 
-    res.json({ success: true, data: jobs, count: jobs.length });
+    const total = skip + jobs.length + (hasNextPage ? 1 : 0);
+    const totalPages = page + (hasNextPage ? 1 : 0);
+
+    res.json({
+      success: true,
+      data: jobs,
+      jobs,
+      count: jobs.length,
+      total,
+      page,
+      limit,
+      totalPages,
+      pagination: {
+        page,
+        limit,
+        returned: jobs.length,
+        total,
+        totalPages,
+      },
+    });
   } catch (error) {
     next(error);
   }

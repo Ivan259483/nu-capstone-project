@@ -12,6 +12,34 @@ export const getBaseApiUrl = () => {
 
 export const BACKEND_API_URL = getBaseApiUrl();
 
+export const getStoredAuthToken = () => {
+    if (typeof window === 'undefined') return '';
+
+    const token =
+        localStorage.getItem('autospf_token') ||
+        sessionStorage.getItem('autospf_token') ||
+        localStorage.getItem('token') ||
+        sessionStorage.getItem('token') ||
+        '';
+
+    if (token && token !== 'undefined' && token !== 'null') {
+        if (!localStorage.getItem('autospf_token')) {
+            localStorage.setItem('autospf_token', token);
+        }
+        return token;
+    }
+
+    return '';
+};
+
+export const clearStoredAuthToken = () => {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem('autospf_token');
+    sessionStorage.removeItem('autospf_token');
+    localStorage.removeItem('token');
+    sessionStorage.removeItem('token');
+};
+
 const api = axios.create({
     baseURL: BACKEND_API_URL,
     headers: {
@@ -29,7 +57,7 @@ export const getBackendSocketUrl = () => {
 // Request Interceptor: Attach Authorization Header
 api.interceptors.request.use(
     (config) => {
-        const token = localStorage.getItem('autospf_token');
+        const token = getStoredAuthToken();
         if (token && token !== 'undefined' && token !== 'null') {
             config.headers.Authorization = `Bearer ${token}`;
         }
@@ -61,6 +89,15 @@ api.interceptors.response.use(
     async (error) => {
         const { response, config } = error;
         const suppressErrorToast = Boolean((config as any)?.meta?.suppressErrorToast);
+        const suppressCancelLog = Boolean((config as any)?.meta?.suppressCancelLog);
+        const isCanceled =
+            error?.code === 'ERR_CANCELED' ||
+            error?.name === 'CanceledError' ||
+            error?.message === 'canceled';
+
+        if (suppressCancelLog && isCanceled) {
+            return Promise.reject(error);
+        }
 
         // Log precise error details for debugging
         const status = response?.status || 'NETWORK_ERROR';
@@ -83,7 +120,7 @@ api.interceptors.response.use(
             // Firebase auth state is exclusively managed by AuthContext.
             // Calling signOut(auth) here would fire onAuthStateChanged(null)
             // and nuke the entire session, even for freshly-logged-in users.
-            localStorage.removeItem('autospf_token');
+            clearStoredAuthToken();
 
             // Try silent refresh if Firebase user exists
             const firebaseUser = auth.currentUser;
@@ -119,7 +156,7 @@ api.interceptors.response.use(
             // ── Deactivated / archived account → force full logout ──────────────
             if (code === 'ACCOUNT_INACTIVE') {
                 console.warn('🔒 [API 403 ACCOUNT_INACTIVE]: Account deactivated — forcing logout.');
-                localStorage.removeItem('autospf_token');
+                clearStoredAuthToken();
                 // Sign out of Firebase so social-login bypass is also blocked
                 try {
                     const { signOut } = await import('firebase/auth');

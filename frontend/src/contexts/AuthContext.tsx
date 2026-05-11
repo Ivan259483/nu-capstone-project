@@ -13,6 +13,7 @@ import {
     onAuthStateChanged
 } from 'firebase/auth';
 import { getBaseApiUrl } from '@/lib/api';
+import { invalidate, invalidateAll } from '@/lib/queryCache';
 import { getSharedSocket, refreshSocketAuth, destroySharedSocket } from '@/hooks/useRealtimeSync';
 
 // NOTE: Firestore is intentionally NOT used for role lookup.
@@ -26,7 +27,7 @@ const BACKEND_URL = getBaseApiUrl();
    ═══════════════════════════════════════════════════════ */
 const SESSION_CACHE_KEY = 'autospf_session_cache';
 const SESSION_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
-const SESSION_CACHE_VERSION = 3; // Bump to invalidate stale caches (forced re-auth after role change hr→staff_quality_checker)
+const SESSION_CACHE_VERSION = 4; // Bump: middleware + client now reconcile role from MongoDB (fixes stale JWT/session QC label)
 
 interface SessionCache {
     user: User;
@@ -183,7 +184,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 try {
                     const existingStored = userStorage.getCurrentUser();
 
-                    // ── Ultra-fast path: session cache hit ──
+                    // ── Ultra-fast path: session cache hit — merge GET /auth/me so sidebar role matches MongoDB (JWT role goes stale) ──
                     const cached = getSessionCache();
                     if (cached && cached.user.id === firebaseUser.uid) {
                         // Strictly reject suspended/inactive accounts even on cache hit
@@ -199,17 +200,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             setIsFirebaseAuthReady(true);
                             return;
                         }
-                        console.log(`⚡ [AuthContext] Session cache hit — instant restore, role: ${cached.user.role}`);
-                        const sanitized = sanitizeUser(cached.user);
+                        const restoredToken =
+                            (cached.token && cached.token !== 'undefined' && cached.token !== 'null'
+                                ? cached.token
+                                : null) || localStorage.getItem('autospf_token');
+                        let mergedUser: User = {
+                            ...cached.user,
+                            role: getSafeUserRole(cached.user.role, CUSTOMER_ROLE),
+                        };
+                        if (
+                            restoredToken &&
+                            restoredToken !== 'undefined' &&
+                            restoredToken !== 'null'
+                        ) {
+                            try {
+                                const meResp = await fetch(`${BACKEND_URL}/auth/me`, {
+                                    headers: { Authorization: `Bearer ${restoredToken}` },
+                                    signal: AbortSignal.timeout(8000),
+                                });
+                                if (meResp.ok) {
+                                    const meJson = await meResp.json();
+                                    const me = meJson.data as Record<string, unknown> | undefined;
+                                    if (me && typeof me === 'object') {
+                                        const migratedRole = migrateLegacyUserRole(me.role as string);
+                                        mergedUser = {
+                                            ...mergedUser,
+                                            id: firebaseUser.uid,
+                                            _id: (me.id || me._id || mergedUser._id) as string,
+                                            email: String(me.email || mergedUser.email || ''),
+                                            name: String(me.name || mergedUser.name || 'User'),
+                                            role: (migratedRole ||
+                                                getSafeUserRole(me.role as string, CUSTOMER_ROLE)) as User['role'],
+                                            avatar: (me.avatar as string | undefined) ?? mergedUser.avatar,
+                                            phone: (me.phone as string | undefined) ?? mergedUser.phone,
+                                            isActive:
+                                                typeof me.isActive === 'boolean'
+                                                    ? me.isActive
+                                                    : mergedUser.isActive,
+                                            lastActive:
+                                                (me.updatedAt as string | undefined) || mergedUser.lastActive,
+                                        };
+                                        console.log(
+                                            `⚡ [AuthContext] Session cache + /auth/me merge — role: ${mergedUser.role}`,
+                                        );
+                                    }
+                                }
+                            } catch {
+                                /* offline — keep cached role */
+                            }
+                        }
+                        const sanitized = sanitizeUser(mergedUser);
                         userStorage.setCurrentUser(sanitized);
-                        setUser(cached.user);
-                        if (cached.token && !localStorage.getItem('autospf_token')) {
-                            localStorage.setItem('autospf_token', cached.token);
+                        setUser(mergedUser);
+                        if (restoredToken && !localStorage.getItem('autospf_token')) {
+                            localStorage.setItem('autospf_token', restoredToken);
+                        }
+                        setSessionCache(mergedUser, restoredToken || cached.token);
+                        try {
+                            invalidate('/bookings');
+                        } catch {
+                            /* ignore */
                         }
                         setIsLoading(false);
                         setIsFirebaseAuthReady(true);
                         queueMicrotask(() => {
-                            backgroundRefreshUser(firebaseUser.email || '', firebaseUser.uid, cached.user);
+                            backgroundRefreshUser(
+                                firebaseUser.email || '',
+                                firebaseUser.uid,
+                                mergedUser,
+                            );
                         });
                         return;
                     }
@@ -379,13 +438,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             _id: parsed._id || parsed.id || '',
                             email: parsed.email || '',
                             name: parsed.name || '',
-                            role: parsed.role || 'customer',
+                            role: getSafeUserRole(parsed.role, CUSTOMER_ROLE),
                             createdAt: parsed.createdAt || new Date().toISOString(),
                             password: '',
                             isActive: parsed.isActive ?? true,
                             lastActive: parsed.lastActive || new Date().toISOString(),
                             avatar: parsed.avatar || undefined,
                         };
+                        if (restoredUser.role !== parsed.role) {
+                            localStorage.setItem('autospf_backend_user', JSON.stringify({ ...parsed, role: restoredUser.role }));
+                        }
                         const sanitized = sanitizeUser(restoredUser);
                         userStorage.setCurrentUser(sanitized);
                         setUser(restoredUser);
@@ -806,23 +868,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         };
                     }
 
-                    console.log('✅ [DEBUG-login] Firebase rejected but backend OK — backend-only login for staff account');
-                    localStorage.setItem('autospf_token', bToken);
-                    localStorage.setItem('autospf_backend_user', JSON.stringify(bUser));
-
                     const migratedRole = migrateLegacyUserRole(bUser.role);
                     const finalRole = migratedRole || CUSTOMER_ROLE;
+                    const normalizedBackendUser = { ...bUser, role: finalRole };
+                    console.log('✅ [DEBUG-login] Firebase rejected but backend OK — backend-only login for staff account');
+                    localStorage.setItem('autospf_token', bToken);
+                    localStorage.setItem('autospf_backend_user', JSON.stringify(normalizedBackendUser));
+
                     const userData: User = {
-                        id: bUser._id || bUser.id || '',
-                        _id: bUser._id || bUser.id || '',
-                        email: bUser.email || '',
-                        name: bUser.name || '',
+                        id: normalizedBackendUser._id || normalizedBackendUser.id || '',
+                        _id: normalizedBackendUser._id || normalizedBackendUser.id || '',
+                        email: normalizedBackendUser.email || '',
+                        name: normalizedBackendUser.name || '',
                         role: finalRole as import('@/types').UserRole,
-                        createdAt: bUser.createdAt || new Date().toISOString(),
+                        createdAt: normalizedBackendUser.createdAt || new Date().toISOString(),
                         password: '',
-                        isActive: bUser.isActive ?? true,
-                        lastActive: bUser.lastActive || new Date().toISOString(),
-                        avatar: bUser.avatar || undefined,
+                        isActive: normalizedBackendUser.isActive ?? true,
+                        lastActive: normalizedBackendUser.lastActive || new Date().toISOString(),
+                        avatar: normalizedBackendUser.avatar || undefined,
                     };
 
                     const sanitized = sanitizeUser(userData);
@@ -834,6 +897,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                     setUser(userData);
                     setIsLoading(false);
+                    try {
+                        invalidate('/bookings');
+                    } catch {
+                        /* ignore */
+                    }
                     return { success: true, role: finalRole };
                 }
 
@@ -1068,6 +1136,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                 // Refresh the socket auth so the backend auto-joins this user's rooms
                 refreshSocketAuth();
+                try {
+                    invalidate('/bookings');
+                } catch {
+                    /* ignore */
+                }
             } else {
                 console.error('❌ [DEBUG-login] backendUser is null/undefined — this should not happen!');
             }
@@ -1215,6 +1288,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             userStorage.setCurrentUser(null);
             setUser(null);
             clearSessionCache();
+            try {
+                invalidateAll();
+            } catch {
+                /* ignore */
+            }
         } catch (error) {
             console.error('Logout error:', error);
         }

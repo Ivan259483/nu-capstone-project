@@ -76,7 +76,7 @@ export const getRoleLabel = (role: string | null | undefined): string =>
 export const getDashboardPathForRole = (role: string | null | undefined): string => {
   const safeRole = getSafeUserRole(role);
   if (safeRole === 'sales') return '/sales/dashboard';
-  if (safeRole === 'staff_quality_checker') return '/admin/dashboard?tab=live_tracking';
+  if (safeRole === 'staff_quality_checker') return '/detailer/dashboard';
   if (isAdminDashboardRole(safeRole)) return '/admin/dashboard';
   return '/customer/dashboard';
 };
