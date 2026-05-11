@@ -8,7 +8,7 @@
  * — Approve / Reject only inside DayPanel (never on calendar cells)
  */
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import {
   ChevronLeft,
@@ -24,11 +24,15 @@ import {
   GripVertical,
 } from 'lucide-react';
 import {
+  closestCenter,
   DndContext as _DndContext,
   DragEndEvent,
+  DragOverEvent,
   DragOverlay as _DragOverlay,
   DragStartEvent,
+  MouseSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
@@ -209,10 +213,20 @@ export default function SalesSmartCalendar() {
   const [rescheduleData, setRescheduleData] = useState<{ booking: CalendarBooking; targetDate: string } | null>(null);
   /** Shown inside DragOverlay after the day panel closes so the drag continues (see onDragStart). */
   const [dragOverlayBooking, setDragOverlayBooking] = useState<CalendarBooking | null>(null);
+  /** Keep payload stable even if the source draggable unmounts during drag. */
+  const activeDragBookingRef = useRef<CalendarBooking | null>(null);
+  /** Keep last hovered date; `event.over` can be null on drop in fast drag/unmount transitions. */
+  const lastOverDateRef = useRef<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 12 },
+      activationConstraint: { distance: 4 },
+    }),
+    useSensor(MouseSensor, {
+      activationConstraint: { distance: 4 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 120, tolerance: 8 },
     }),
   );
 
@@ -290,10 +304,11 @@ export default function SalesSmartCalendar() {
   // ── Drag and Drop ──────────────────────────────────────────────────────────
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
-    if (!over) return;
 
-    const booking = active.data.current?.booking as CalendarBooking;
-    const targetDate = over.data.current?.targetDate as string;
+    const booking = (active.data.current?.booking as CalendarBooking | undefined) ?? activeDragBookingRef.current;
+    const fromDroppableData = over?.data.current?.targetDate as string | undefined;
+    const fromDroppableId = typeof over?.id === 'string' && over.id.startsWith('day-') ? over.id.slice(4) : undefined;
+    const targetDate = fromDroppableData || fromDroppableId || lastOverDateRef.current || undefined;
 
     if (!booking || !targetDate) return;
 
@@ -303,27 +318,45 @@ export default function SalesSmartCalendar() {
     setRescheduleData({ booking, targetDate });
   }, []);
 
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const fromDroppableData = event.over?.data.current?.targetDate as string | undefined;
+    const fromDroppableId =
+      typeof event.over?.id === 'string' && event.over.id.startsWith('day-')
+        ? event.over.id.slice(4)
+        : undefined;
+    if (fromDroppableData || fromDroppableId) {
+      lastOverDateRef.current = fromDroppableData || fromDroppableId || null;
+    }
+  }, []);
+
   /** Close day panel + blur as soon as drag starts; DragOverlay keeps the drag alive after unmount. */
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const booking = event.active.data.current?.booking as CalendarBooking | undefined;
     if (!booking) return;
+    lastOverDateRef.current = null;
     flushSync(() => {
+      activeDragBookingRef.current = booking;
       setDragOverlayBooking(booking);
       setDraggingSchedule(true);
     });
-    setSelectedDate(null);
+    // Defer drawer close to next frame so sensor activation is not interrupted mid-tick.
+    requestAnimationFrame(() => setSelectedDate(null));
   }, [setDraggingSchedule]);
 
   const handleDragCancel = useCallback(() => {
+    activeDragBookingRef.current = null;
+    lastOverDateRef.current = null;
     setDragOverlayBooking(null);
     setDraggingSchedule(false);
   }, [setDraggingSchedule]);
 
   const handleDragEndWrapped = useCallback(
     (event: DragEndEvent) => {
+      handleDragEnd(event);
+      activeDragBookingRef.current = null;
+      lastOverDateRef.current = null;
       setDragOverlayBooking(null);
       setDraggingSchedule(false);
-      handleDragEnd(event);
     },
     [handleDragEnd, setDraggingSchedule],
   );
@@ -360,7 +393,9 @@ export default function SalesSmartCalendar() {
   return (
     <DndContext
       sensors={sensors}
+      collisionDetection={closestCenter}
       onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEndWrapped}
     >

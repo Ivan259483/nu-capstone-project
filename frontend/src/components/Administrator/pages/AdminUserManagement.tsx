@@ -129,7 +129,8 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
       const normalizedSearch = search.toLowerCase();
       const matchSearch = !normalizedSearch
         || (user.name || '').toLowerCase().includes(normalizedSearch)
-        || (user.email || '').toLowerCase().includes(normalizedSearch);
+        || (user.email || '').toLowerCase().includes(normalizedSearch)
+        || (user.id || user._id || '').toString().toLowerCase().includes(normalizedSearch);
       const matchRole = !roleFilter || getSafeUserRole(user.role) === roleFilter;
       const matchStatus = !statusFilter || normalizeUserStatus(user.status) === statusFilter;
       return matchSearch && matchRole && matchStatus;
@@ -175,6 +176,33 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
       ).length,
     [users, nowTick],
   );
+
+  const totalUsersCount = users.length;
+  const activeAccountsCount = useMemo(
+    () => users.filter((u) => normalizeUserStatus(u.status) === 'active').length,
+    [users],
+  );
+  const pendingAccountsCount = useMemo(
+    () => users.filter((u) => normalizeUserStatus(u.status) === 'pending').length,
+    [users],
+  );
+  const archivedAccountsCount = useMemo(
+    () => users.filter((u) => normalizeUserStatus(u.status) === 'suspended').length,
+    [users],
+  );
+  const statusFilterLabel = statusFilter
+    ? STATUS_FILTER_OPTIONS.find((status) => status.value === statusFilter)?.label || statusFilter
+    : '';
+  const roleFilterLabel = roleFilter
+    ? filterRoleOptions.find((role) => role.value === roleFilter)?.label || roleFilter
+    : '';
+  const hasActiveFilters = Boolean(search.trim() || roleFilter || statusFilter);
+  const visiblePages = useMemo(() => {
+    if (totalPages <= 0) return [];
+    const visibleCount = Math.min(totalPages, 5);
+    const start = Math.max(1, Math.min(page - 2, totalPages - visibleCount + 1));
+    return Array.from({ length: visibleCount }, (_, index) => start + index);
+  }, [page, totalPages]);
 
   const canManageAccount = (user: any) => canManageUserRole(currentUserRole, user?.role);
   const isCurrentUser = (user: any) => String(user?.id || user?._id || '') === String(currentUserId || '');
@@ -222,6 +250,13 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
     }
   };
 
+  const clearFilters = () => {
+    setSearch('');
+    setRoleFilter('');
+    setStatusFilter('');
+    setPage(1);
+  };
+
   const statusBadge = (status: string) => {
     const normalized = normalizeUserStatus(status);
     const map: Record<string, string> = {
@@ -245,8 +280,8 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
       if (updated != null) {
         const ago = nowTick - updated;
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: '#64748b' }}>Offline</span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
+            <span className="ah-badge ah-badge-inactive">Offline</span>
             <span style={{ fontSize: 11, color: '#94a3b8' }}>
               Account updated {formatRelativeAgo(ago)}
             </span>
@@ -254,8 +289,8 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
         );
       }
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: 13, fontWeight: 500, color: '#64748b' }}>Offline</span>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
+          <span className="ah-badge ah-badge-inactive">Offline</span>
           <span style={{ fontSize: 11, color: '#94a3b8' }}>No session yet</span>
         </div>
       );
@@ -263,21 +298,24 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
     const ago = nowTick - seen;
     if (ago < PRESENCE_ONLINE_MS) {
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
           <span className="ah-badge ah-badge-success">Active now</span>
           <span style={{ fontSize: 11, color: '#64748b' }}>{formatRelativeAgo(ago)}</span>
         </div>
       );
     }
     return (
-      <span style={{ fontSize: 13, fontWeight: 500, color: '#475569' }}>
-        Last active {formatRelativeAgo(ago)}
-      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
+        <span className="ah-badge ah-badge-inactive">Offline</span>
+        <span style={{ fontSize: 11, color: '#64748b' }}>
+          Last active {formatRelativeAgo(ago)}
+        </span>
+      </div>
     );
   };
 
   return (
-    <div className="ah-page-enter" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div className="ah-page-enter" style={{ display: 'flex', flexDirection: 'column', gap: 24, flex: '1 1 auto', width: '100%', minWidth: 0, minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 600, color: '#0f172a', margin: 0 }}>User Management</h1>
@@ -288,80 +326,158 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 16 }}>
         {[
-          { label: 'Total', value: users.length, color: '#2563eb' },
-          { label: 'Active', value: users.filter(user => user.status === 'active').length, color: '#059669' },
-          { label: 'Online now', value: onlineNowCount, color: '#16a34a' },
-          { label: 'Pending', value: users.filter(user => user.status === 'pending' || user.status === 'pending_verification').length, color: '#d97706' },
-          { label: 'Archived', value: users.filter(user => normalizeUserStatus(user.status) === 'suspended').length, color: '#64748b' },
+          { label: 'Total users', value: totalUsersCount, color: '#2563eb', helper: 'All accounts' },
+          { label: 'Active accounts', value: activeAccountsCount, color: '#059669', helper: 'Can sign in' },
+          { label: 'Online right now', value: onlineNowCount, color: '#16a34a', helper: 'Seen in last 3 mins' },
+          { label: 'Pending verification', value: pendingAccountsCount, color: '#d97706', helper: 'Needs activation' },
+          { label: 'Archived accounts', value: archivedAccountsCount, color: '#64748b', helper: 'Access disabled' },
         ].map(stat => (
           <div key={stat.label} className="ah-kpi-card" style={{ padding: 16 }}>
             <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', letterSpacing: '0.02em', margin: 0 }}>{stat.label}</p>
             <p className="tabular-nums" style={{ fontSize: 28, fontWeight: 700, color: stat.color, margin: '4px 0 0' }}>{stat.value}</p>
+            <p style={{ fontSize: 11, color: '#94a3b8', margin: '3px 0 0' }}>{stat.helper}</p>
           </div>
         ))}
       </div>
 
-      <div className="ah-card-section ah-table-card">
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 320 }}>
-            <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-            <input className="ah-input" placeholder="Search by name or email..." value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} style={{ paddingLeft: 36 }} />
+      <div className="ah-card-section ah-table-card" style={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div className="ah-user-toolbar" style={{ boxShadow: '0 4px 18px -12px rgba(15,23,42,0.07)', flexShrink: 0 }}>
+          <div className="ah-user-toolbar-main">
+            <div className="ah-user-search-wrap">
+              <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <input className="ah-input" placeholder="Search by name, email, or user ID..." value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} style={{ paddingLeft: 36 }} />
+            </div>
+            <select className="ah-input ah-user-filter-control" value={roleFilter} onChange={event => { setRoleFilter(event.target.value); setPage(1); }}>
+              <option value="">All roles</option>
+              {filterRoleOptions.map(role => <option key={role.value} value={role.value}>{role.label}</option>)}
+            </select>
+            <select className="ah-input ah-user-filter-control" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(1); }}>
+              <option value="">All account status</option>
+              {STATUS_FILTER_OPTIONS.map(status => <option key={status.value} value={status.value}>{status.label}</option>)}
+            </select>
+            <div className="ah-user-toolbar-meta">
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b', padding: '6px 10px', borderRadius: 999, background: '#f1f5f9' }}>
+                {filtered.length} {filtered.length === 1 ? 'user' : 'users'} found
+              </span>
+              {hasActiveFilters && (
+                <button className="ah-btn-secondary" onClick={clearFilters} style={{ padding: '6px 10px', fontSize: 12 }}>
+                  <X size={13} />
+                  Clear filters
+                </button>
+              )}
+            </div>
           </div>
-          <select className="ah-input" value={roleFilter} onChange={event => { setRoleFilter(event.target.value); setPage(1); }} style={{ width: 'auto', minWidth: 140 }}>
-            <option value="">All Roles</option>
-            {filterRoleOptions.map(role => <option key={role.value} value={role.value}>{role.label}</option>)}
-          </select>
-          <select className="ah-input" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(1); }} style={{ width: 'auto', minWidth: 130 }}>
-            <option value="">All Status</option>
-            {STATUS_FILTER_OPTIONS.map(status => <option key={status.value} value={status.value}>{status.label}</option>)}
-          </select>
+
+          {hasActiveFilters && (
+            <div className="ah-user-active-filters">
+              <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>Active filters:</span>
+              {search.trim() ? (
+                <span style={{ fontSize: 12, color: '#334155', borderRadius: 999, padding: '4px 10px', background: '#eff6ff', boxShadow: 'inset 0 0 0 1px rgba(191,219,254,0.8)' }}>
+                  Search: {search.trim()}
+                </span>
+              ) : null}
+              {roleFilterLabel ? (
+                <span style={{ fontSize: 12, color: '#334155', borderRadius: 999, padding: '4px 10px', background: '#f8fafc', boxShadow: 'inset 0 0 0 1px rgba(203,213,225,0.9)' }}>
+                  Role: {roleFilterLabel}
+                </span>
+              ) : null}
+              {statusFilterLabel ? (
+                <span style={{ fontSize: 12, color: '#334155', borderRadius: 999, padding: '4px 10px', background: '#f8fafc', boxShadow: 'inset 0 0 0 1px rgba(203,213,225,0.9)' }}>
+                  Status: {statusFilterLabel}
+                </span>
+              ) : null}
+            </div>
+          )}
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
+        <div className="ah-user-toolbar-tip">
+          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
+            Tip: Use <strong>View</strong> for details, <strong>Edit</strong> for role/status updates, and <strong>Archive</strong> to disable sign-in.
+          </p>
+        </div>
+
+        <div style={{ overflow: 'auto', flex: '1 1 auto', minHeight: 0 }}>
           <table className="ah-table">
             <thead><tr>
-              <th style={{ cursor: 'pointer' }} onClick={() => handleSort('name')}>Name <ArrowUpDown size={11} style={{ display: 'inline', marginLeft: 4, color: sortField === 'name' ? '#2563eb' : '#cbd5e1' }} /></th>
-              <th>Email</th>
-              <th style={{ cursor: 'pointer' }} onClick={() => handleSort('role')}>Role</th>
-              <th style={{ cursor: 'pointer' }} onClick={() => handleSort('status')}>Activity</th>
-              <th>Created</th>
-              <th>Actions</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => handleSort('name')}>User <ArrowUpDown size={11} style={{ display: 'inline', marginLeft: 4, color: sortField === 'name' ? '#2563eb' : '#cbd5e1' }} /></th>
+              <th>Email address</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => handleSort('role')}>Access role <ArrowUpDown size={11} style={{ display: 'inline', marginLeft: 4, color: sortField === 'role' ? '#2563eb' : '#cbd5e1' }} /></th>
+              <th style={{ cursor: 'pointer', textAlign: 'center' }} onClick={() => handleSort('status')}>Status and activity <ArrowUpDown size={11} style={{ display: 'inline', marginLeft: 4, color: sortField === 'status' ? '#2563eb' : '#cbd5e1' }} /></th>
+              <th>Created date</th>
+              <th style={{ textAlign: 'center' }}>Quick actions</th>
             </tr></thead>
             <tbody>
               {loading ? Array.from({ length: 5 }).map((_, index) => (
                 <tr key={index}><td colSpan={6}><div className="ah-skeleton" style={{ height: 20, width: '100%' }} /></td></tr>
               )) : paginated.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>No users match your filters</td></tr>
+                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>No users match your current filters.</td></tr>
               ) : paginated.map(user => (
                 <tr key={user.id || user._id}>
                   <td><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #60a5fa, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, flexShrink: 0 }}>{(user.name || '?')[0]?.toUpperCase()}</div>
-                    <div><p style={{ fontWeight: 500, color: '#1e293b', margin: 0, fontSize: 14 }}>{user.name}</p><p className="font-mono" style={{ fontSize: 10, color: '#94a3b8', margin: 0 }}>{(user.id || user._id || '').slice(-8)}</p></div>
+                    <div><p style={{ fontWeight: 600, color: '#1e293b', margin: 0, fontSize: 14 }}>{user.name || 'Unnamed user'}</p><p className="font-mono" style={{ fontSize: 10, color: '#94a3b8', margin: 0 }}>ID: {(user.id || user._id || '').slice(-8) || '—'}</p></div>
                   </div></td>
-                  <td><span className="font-mono" style={{ fontSize: 12, color: '#475569' }}>{user.email}</span></td>
-                  <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', borderRadius: 4, fontSize: 12, fontWeight: 500, border: '1px solid #bfdbfe' }}><ShieldCheck size={11} />{getRoleLabel(user.role)}</span></td>
-                  <td>{renderActivity(user)}</td>
-                  <td><span className="font-mono" style={{ fontSize: 12, color: '#94a3b8' }}>{user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span></td>
+                  <td><span className="font-mono" style={{ fontSize: 12, color: '#475569' }}>{user.email || '—'}</span></td>
+                  <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', borderRadius: 6, fontSize: 12, fontWeight: 500, border: 'none', boxShadow: '0 1px 2px rgba(37,99,235,0.12), inset 0 0 0 1px rgba(191,219,254,0.6)' }}><ShieldCheck size={11} />{getRoleLabel(user.role)}</span></td>
                   <td>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button onClick={() => setViewUser(user)} style={{ padding: 6, borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8', transition: 'all 0.15s' }} title="View"><Eye size={14} /></button>
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                      {renderActivity(user)}
+                    </div>
+                  </td>
+                  <td><span className="font-mono" style={{ fontSize: 12, color: '#94a3b8' }}>{user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span></td>
+                  <td style={{ textAlign: 'center' }}>
+                    <div style={{ display: 'inline-flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => setViewUser(user)}
+                        style={{ minWidth: 92, padding: '5px 10px', borderRadius: 8, border: 'none', background: '#f8fafc', cursor: 'pointer', color: '#334155', transition: 'all 0.15s', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: 'inset 0 0 0 1px rgba(226,232,240,0.9)' }}
+                        title="View details"
+                        aria-label={`View ${user.name || 'user'} details`}
+                      >
+                        <Eye size={13} />
+                        View
+                      </button>
                       {canMutateAccount(user) ? (
                         <>
-                          <button onClick={() => setEditUser(user)} style={{ padding: 6, borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8', transition: 'all 0.15s' }} title="Edit"><Edit2 size={14} /></button>
+                          <button
+                            onClick={() => setEditUser(user)}
+                            style={{ minWidth: 92, padding: '5px 10px', borderRadius: 8, border: 'none', background: '#f8fafc', cursor: 'pointer', color: '#334155', transition: 'all 0.15s', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: 'inset 0 0 0 1px rgba(226,232,240,0.9)' }}
+                            title="Edit account"
+                            aria-label={`Edit ${user.name || 'user'}`}
+                          >
+                            <Edit2 size={13} />
+                            Edit
+                          </button>
                           {normalizeUserStatus(user.status) === 'active' && canArchiveOrRestoreAccount(user) && (
-                            <button onClick={() => handleArchive(user)} style={{ padding: 6, borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8' }} title="Archive"><Archive size={14} /></button>
+                            <button
+                              onClick={() => handleArchive(user)}
+                              style={{ minWidth: 100, padding: '5px 10px', borderRadius: 8, border: 'none', background: '#fff1f2', cursor: 'pointer', color: '#be123c', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: 'inset 0 0 0 1px rgba(251,207,232,0.95)' }}
+                              title="Archive account"
+                              aria-label={`Archive ${user.name || 'user'}`}
+                            >
+                              <Archive size={13} />
+                              Archive
+                            </button>
                           )}
                           {normalizeUserStatus(user.status) === 'suspended' && canArchiveOrRestoreAccount(user) && (
-                            <button onClick={() => handleActivate(user)} style={{ padding: 6, borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8' }} title="Restore"><RotateCcw size={14} /></button>
+                            <button
+                              onClick={() => handleActivate(user)}
+                              style={{ minWidth: 100, padding: '5px 10px', borderRadius: 8, border: 'none', background: '#ecfdf5', cursor: 'pointer', color: '#047857', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: 'inset 0 0 0 1px rgba(167,243,208,0.95)' }}
+                              title="Restore account"
+                              aria-label={`Restore ${user.name || 'user'}`}
+                            >
+                              <RotateCcw size={13} />
+                              Restore
+                            </button>
                           )}
                         </>
                       ) : (
                         <button
                           disabled
-                          style={{ padding: 6, borderRadius: 6, border: 'none', background: 'transparent', cursor: 'not-allowed', color: '#cbd5e1' }}
+                          style={{ minWidth: 92, padding: '5px 10px', borderRadius: 8, border: 'none', background: '#f8fafc', cursor: 'not-allowed', color: '#cbd5e1', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: 'inset 0 0 0 1px rgba(226,232,240,0.9)' }}
                           title={isCurrentUser(user) ? 'Manage your own account from profile settings' : 'You do not have permission to modify this account'}
                         >
-                          <Edit2 size={14} />
+                          <Edit2 size={13} />
+                          Edit
                         </button>
                       )}
                     </div>
@@ -372,12 +488,14 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
           </table>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderTop: '1px solid #f1f5f9', background: '#f8fafc' }}>
-          <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Showing {filtered.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1}–{Math.min(page * ITEMS_PER_PAGE, filtered.length)} of {filtered.length}</p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', background: '#fafbfc', flexShrink: 0, boxShadow: '0 -4px 18px -10px rgba(15,23,42,0.05)', gap: 12, flexWrap: 'wrap' }}>
+          <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>
+            Showing {filtered.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1}–{Math.min(page * ITEMS_PER_PAGE, filtered.length)} of {filtered.length} • Page {totalPages === 0 ? 0 : page} of {totalPages}
+          </p>
           <div style={{ display: 'flex', gap: 4 }}>
             <button onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page === 1} style={{ padding: 6, borderRadius: 8, border: 'none', background: 'transparent', cursor: page === 1 ? 'not-allowed' : 'pointer', color: '#64748b', opacity: page === 1 ? 0.4 : 1 }}><ChevronLeft size={15} /></button>
-            {Array.from({ length: Math.min(totalPages, 5) }).map((_, index) => (
-              <button key={index} onClick={() => setPage(index + 1)} style={{ width: 28, height: 28, borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer', background: page === index + 1 ? '#2563eb' : 'transparent', color: page === index + 1 ? '#fff' : '#64748b' }}>{index + 1}</button>
+            {visiblePages.map((pageNo) => (
+              <button key={pageNo} onClick={() => setPage(pageNo)} style={{ width: 28, height: 28, borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer', background: page === pageNo ? '#2563eb' : 'transparent', color: page === pageNo ? '#fff' : '#64748b' }}>{pageNo}</button>
             ))}
             <button onClick={() => setPage(current => Math.min(totalPages, current + 1))} disabled={page >= totalPages} style={{ padding: 6, borderRadius: 8, border: 'none', background: 'transparent', cursor: page >= totalPages ? 'not-allowed' : 'pointer', color: '#64748b', opacity: page >= totalPages ? 0.4 : 1 }}><ChevronRight size={15} /></button>
           </div>
@@ -479,10 +597,10 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-user-modal-title"
-        className="flex max-h-[min(92vh,760px)] w-full max-w-[460px] flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_25px_50px_-12px_rgba(15,23,42,0.35)]"
+        className="flex max-h-[min(92vh,760px)] w-full max-w-[460px] flex-col overflow-hidden rounded-2xl border-0 bg-white shadow-[0_25px_50px_-12px_rgba(15,23,42,0.2)]"
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white px-6 py-4">
+        <header className="flex shrink-0 items-center justify-between gap-3 px-6 py-4 bg-gradient-to-b from-slate-50/95 to-white">
           <h2 id="create-user-modal-title" className="text-lg font-semibold tracking-tight text-slate-900">
             Create New User
           </h2>
@@ -505,7 +623,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
               <input
                 className={cn(
                   'ah-input w-full',
-                  fieldErrors.name && 'border-red-300 ring-2 ring-red-500/20',
+                  fieldErrors.name && 'ring-2 ring-red-400/35 shadow-[0_0_0_1px_rgba(248,113,113,0.35)]',
                 )}
                 placeholder="e.g. Juan Dela Cruz"
                 value={form.name}
@@ -522,7 +640,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
               <input
                 className={cn(
                   'ah-input w-full',
-                  fieldErrors.email && 'border-red-300 ring-2 ring-red-500/20',
+                  fieldErrors.email && 'ring-2 ring-red-400/35 shadow-[0_0_0_1px_rgba(248,113,113,0.35)]',
                 )}
                 type="email"
                 placeholder="user@example.com"
@@ -540,7 +658,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
               <select
                 className={cn(
                   'ah-input w-full normal-case',
-                  fieldErrors.role && 'border-red-300 ring-2 ring-red-500/20',
+                  fieldErrors.role && 'ring-2 ring-red-400/35 shadow-[0_0_0_1px_rgba(248,113,113,0.35)]',
                 )}
                 value={form.role}
                 onChange={(event) => patchForm({ role: event.target.value })}
@@ -562,7 +680,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
                 <input
                   className={cn(
                     'ah-input w-full pr-10',
-                    fieldErrors.password && 'border-red-300 ring-2 ring-red-500/20',
+                    fieldErrors.password && 'ring-2 ring-red-400/35 shadow-[0_0_0_1px_rgba(248,113,113,0.35)]',
                   )}
                   type={showPass ? 'text' : 'password'}
                   placeholder="Min 8 characters"
@@ -590,7 +708,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
                 <input
                   className={cn(
                     'ah-input w-full pr-10',
-                    fieldErrors.confirmPassword && 'border-red-300 ring-2 ring-red-500/20',
+                    fieldErrors.confirmPassword && 'ring-2 ring-red-400/35 shadow-[0_0_0_1px_rgba(248,113,113,0.35)]',
                   )}
                   type={showConf ? 'text' : 'password'}
                   placeholder="Confirm your password"
@@ -613,10 +731,10 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
             </div>
           </div>
 
-          <footer className="flex shrink-0 flex-wrap items-center justify-end gap-3 border-t border-slate-200 bg-slate-50/95 px-6 py-4">
+          <footer className="flex shrink-0 flex-wrap items-center justify-end gap-3 px-6 py-4 bg-slate-50/80 shadow-[0_-6px_24px_-8px_rgba(15,23,42,0.06)]">
             <button
               type="button"
-              className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/40"
+              className="rounded-xl border-0 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-[0_1px_3px_rgba(15,23,42,0.08)] transition-all hover:bg-slate-50 hover:shadow-[0_2px_10px_rgba(15,23,42,0.1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/35"
               onClick={onClose}
             >
               Cancel
@@ -674,7 +792,7 @@ function EditUserModalInline({
   return (
     <div className="ah-modal-overlay" onClick={onClose}>
       <div className="ah-modal-card" onClick={event => event.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #f1f5f9' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', boxShadow: '0 4px 18px -10px rgba(15,23,42,0.08)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #60a5fa, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 600 }}>{(user.name || '?')[0]?.toUpperCase()}</div>
             <div><h3 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', margin: 0 }}>Edit User</h3><p className="font-mono" style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{(user.id || user._id || '').slice(-12)}</p></div>
@@ -699,7 +817,7 @@ function EditUserModalInline({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div><label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Role</label>
                 {bootstrapAdmin ? (
-                  <p style={{ margin: 0, fontSize: 13, color: '#64748b', padding: '10px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748b', padding: '10px 12px', background: '#f8fafc', borderRadius: 10, border: 'none', boxShadow: '0 1px 3px rgba(15,23,42,0.05), inset 0 0 0 1px rgba(226,232,240,0.55)' }}>
                     {getRoleLabel('administrator')} <span style={{ display: 'block', fontSize: 11, marginTop: 4, color: '#94a3b8' }}>System bootstrap account — role is not changed from this screen.</span>
                   </p>
                 ) : (
@@ -711,7 +829,7 @@ function EditUserModalInline({
               </div>
             </div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, padding: '16px 24px', borderTop: '1px solid #f1f5f9', background: '#f8fafc' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, padding: '16px 24px', background: '#fafbfc', boxShadow: '0 -6px 24px -8px rgba(15,23,42,0.06)' }}>
             <button type="button" className="ah-btn-secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="ah-btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
           </div>
@@ -733,7 +851,7 @@ function ViewUserPanel({ user, canEdit, onClose, onEdit }: { user: any; canEdit:
   return (
     <div className="ah-modal-overlay" onClick={onClose}>
       <div className="ah-modal-card" style={{ maxWidth: 440 }} onClick={event => event.stopPropagation()}>
-        <div style={{ padding: '24px', textAlign: 'center', borderBottom: '1px solid #f1f5f9' }}>
+        <div style={{ padding: '24px', textAlign: 'center', boxShadow: '0 4px 18px -10px rgba(15,23,42,0.08)' }}>
           <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'linear-gradient(135deg, #60a5fa, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 24, fontWeight: 600, margin: '0 auto 12px' }}>{(user.name || '?')[0]?.toUpperCase()}</div>
           <h3 style={{ fontSize: 18, fontWeight: 600, color: '#0f172a', margin: 0 }}>{user.name}</h3>
           <p className="font-mono" style={{ fontSize: 13, color: '#64748b', margin: '4px 0 8px' }}>{user.email}</p>
@@ -744,7 +862,7 @@ function ViewUserPanel({ user, canEdit, onClose, onEdit }: { user: any; canEdit:
             <div key={label as string} style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 13, color: '#64748b' }}>{label}</span><span style={{ fontSize: 13, fontWeight: 500, color: '#1e293b' }}>{value}</span></div>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 12, padding: '16px 24px', borderTop: '1px solid #f1f5f9' }}>
+        <div style={{ display: 'flex', gap: 12, padding: '16px 24px', boxShadow: '0 -6px 24px -8px rgba(15,23,42,0.06)', background: '#fafbfc' }}>
           <button className="ah-btn-secondary" onClick={onClose} style={{ flex: 1 }}>Close</button>
           {canEdit && <button className="ah-btn-primary" onClick={onEdit} style={{ flex: 1 }}><Edit2 size={14} /> Edit</button>}
         </div>

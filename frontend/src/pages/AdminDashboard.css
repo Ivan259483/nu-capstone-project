@@ -36,6 +36,14 @@
   text-align: left;
 }
 
+/* Light canvas when AdminHubPanel is the only child (fixed overlay) */
+.admin-root.admin-shell.admin-hub-route-host {
+  min-height: 100dvh;
+  height: 100dvh;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
 @keyframes smoothFadeIn {
   0% {
     opacity: 0;

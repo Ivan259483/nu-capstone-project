@@ -52,9 +52,9 @@ export function AdminServicesLivePreview({ services, selectedPackageKey, onRefre
     );
 
     return (
-        <section className="overflow-hidden rounded-[22px] border border-slate-200/80 bg-slate-50 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.28)]">
-            <div className="relative z-20 border-b border-slate-200/80 bg-white/95 px-4 py-3 shadow-[0_10px_28px_-26px_rgba(15,23,42,0.35)] backdrop-blur sm:px-5">
-                <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <section className="flex flex-col overflow-hidden rounded-[22px] border-0 bg-slate-50/90 shadow-[0_1px_3px_rgba(15,23,42,0.05),0_12px_40px_-18px_rgba(15,23,42,0.12)]">
+            <div className="relative z-20 shrink-0 bg-white/95 px-4 py-2.5 shadow-[0_4px_24px_-12px_rgba(15,23,42,0.08)] backdrop-blur sm:px-5">
+                <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
                     <div className="min-w-0">
                         <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600">Live catalog editor</p>
                         <h2 className="mt-1 text-base font-bold tracking-tight text-slate-950">Pricing strip preview</h2>
@@ -116,7 +116,7 @@ export function AdminServicesLivePreview({ services, selectedPackageKey, onRefre
                     key={vehicleType}
                     initial={{ opacity: 0, y: 5 }}
                     animate={{ opacity: 1, y: 0, transition: { duration: 0.25 } }}
-                    className="mt-3 text-left text-[10px] font-bold uppercase tracking-[0.24em] text-slate-400 xl:text-right"
+                    className="mt-2 text-left text-[10px] font-bold uppercase tracking-[0.24em] text-slate-400 xl:text-right"
                 >
                     Showing prices for{' '}
                     <span className="font-bold text-blue-600">{vehicleOptions.find((v) => v.type === vehicleType)?.label}</span>{' '}
@@ -124,13 +124,13 @@ export function AdminServicesLivePreview({ services, selectedPackageKey, onRefre
                 </motion.p>
             </div>
 
-            <section className="relative overflow-hidden bg-gradient-to-b from-white to-slate-50 px-3 py-5 sm:px-5 lg:px-6">
-                <div className="w-full max-w-[1440px] mx-auto relative z-10">
+            <section className="relative overflow-hidden bg-gradient-to-b from-white via-slate-50/80 to-slate-50 px-3 pt-3 pb-4 sm:px-5 sm:pt-3 sm:pb-5 lg:px-6">
+                <div className="relative z-10 mx-auto w-full max-w-[1440px]">
                     <motion.div
                         key={vehicleType}
-                        initial={{ opacity: 0, y: 16 }}
+                        initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.25, ease: EASE }}
+                        transition={{ duration: 0.2, ease: EASE }}
                         className={pricingGridClassName}
                     >
                         {displayPackages.map((pkg, i) => (
@@ -141,6 +141,7 @@ export function AdminServicesLivePreview({ services, selectedPackageKey, onRefre
                                 vehicleType={vehicleType}
                                 service={findPublishedServiceForPackage(services, pkg.key, pkg.label)}
                                 adminHighlight={Boolean(selectedPackageKey && selectedPackageKey === pkg.key)}
+                                instantReveal
                                 onSaved={async () => {
                                     await onRefresh?.();
                                 }}

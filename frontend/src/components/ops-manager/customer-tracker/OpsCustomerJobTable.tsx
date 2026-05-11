@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, X, Eye, Phone, AlertTriangle, ChevronUp, ChevronDown, CheckCircle2, Clock, Users, SlidersHorizontal } from 'lucide-react';
+import { Search, X, Eye, Phone, AlertTriangle, ChevronUp, ChevronDown, CheckCircle2, Clock, Users, SlidersHorizontal, UserPlus } from 'lucide-react';
 import type { OpsJob, OpsTechnician } from '../ops-types';
 import { OpsStatusBadge } from '../ui/OpsUIKit';
 import type { JobStatus } from '../ui/OpsUIKit';
@@ -29,42 +29,86 @@ function fallbackLiveStepFromOpsStatus(status: JobStatus): number {
   }
 }
 
+function splitScheduleCell(value: string): { date: string; time: string } {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^([A-Za-z]{3}\s+\d{1,2})\s+(.+)$/);
+  if (match) {
+    return { date: match[1], time: match[2] };
+  }
+  return { date: raw || '—', time: '' };
+}
+
+function formatLastUpdateMeta(updatedAt: string): { time: string; dayHint: string } {
+  try {
+    const d = new Date(updatedAt);
+    if (isNaN(d.getTime())) return { time: '—', dayHint: '' };
+
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const y = new Date(now);
+    y.setDate(now.getDate() - 1);
+    const isYesterday = d.toDateString() === y.toDateString();
+
+    return {
+      time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      dayHint: sameDay ? 'Today' : isYesterday ? 'Yesterday' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    };
+  } catch {
+    return { time: '—', dayHint: '' };
+  }
+}
+
 function ProgressTracker({ job }: { job: OpsJob }) {
   const current = job._booking
     ? getLiveTrackerStepIndex(job._booking)
     : fallbackLiveStepFromOpsStatus(job.status);
   const isDelayed = job.status === 'Delayed';
   const isCancelled = job.status === 'Cancelled';
+  const totalSteps = LIVE_TRACKER_PROGRESS_LABELS.length;
+  const currentIndex = Math.max(0, Math.min(current, totalSteps - 1));
+  const activeStepLabel = LIVE_TRACKER_PROGRESS_LABELS[currentIndex];
+  const doneSteps = isCancelled ? 0 : Math.max(1, currentIndex + 1);
+  const percent = isCancelled ? 0 : Math.round((doneSteps / totalSteps) * 100);
 
   return (
-    <div className="flex min-w-[220px] max-w-[min(100%,320px)] items-center gap-0">
-      {LIVE_TRACKER_PROGRESS_LABELS.map((step, i) => {
-        const isComplete = current > i;
-        const isActive = current === i;
-        const isLast = i === LIVE_TRACKER_PROGRESS_LABELS.length - 1;
-        const dotColor = isCancelled ? 'bg-slate-200'
-          : isDelayed && isActive ? 'bg-red-500'
-          : isComplete || isActive ? 'bg-slate-800' : 'bg-slate-200';
-        const lineColor = isComplete ? 'bg-slate-800' : 'bg-slate-200';
+    <div className="min-w-[240px] max-w-[min(100%,340px)]">
+      <div className="flex items-center gap-0">
+        {LIVE_TRACKER_PROGRESS_LABELS.map((step, i) => {
+          const isComplete = current > i;
+          const isActive = current === i;
+          const isLast = i === LIVE_TRACKER_PROGRESS_LABELS.length - 1;
+          const dotColor = isCancelled ? 'bg-slate-200'
+            : isDelayed && isActive ? 'bg-red-500'
+            : isComplete || isActive ? 'bg-slate-800' : 'bg-slate-200';
+          const lineColor = isComplete ? 'bg-slate-800' : 'bg-slate-200';
 
-        return (
-          <React.Fragment key={`prog-${step}`}>
-            <div className="group/step relative flex-shrink-0">
-              <div
-                className={`h-2 w-2 rounded-full transition-all duration-300 ${dotColor} ${
-                  isActive && !isCancelled ? 'ring-2 ring-slate-300 ring-offset-1' : ''
-                }`}
-              />
-              <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/step:opacity-100">
-                {step}{isActive && isDelayed ? ' (delayed)' : ''}
+          return (
+            <React.Fragment key={`prog-${step}`}>
+              <div className="group/step relative flex-shrink-0">
+                <div
+                  className={`h-2 w-2 rounded-full transition-all duration-300 ${dotColor} ${
+                    isActive && !isCancelled ? 'ring-2 ring-slate-300 ring-offset-1' : ''
+                  }`}
+                />
+                <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/step:opacity-100">
+                  {step}{isActive && isDelayed ? ' (delayed)' : ''}
+                </div>
               </div>
-            </div>
-            {!isLast && (
-              <div className={`h-px min-w-[8px] flex-1 transition-all duration-300 ${lineColor}`} />
-            )}
-          </React.Fragment>
-        );
-      })}
+              {!isLast && (
+                <div className={`h-px min-w-[8px] flex-1 transition-all duration-300 ${lineColor}`} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <p className="truncate text-[10.5px] font-medium text-slate-500">
+          {isCancelled ? 'Cancelled' : `Now: ${activeStepLabel}`}
+        </p>
+        <span className="text-[10.5px] font-semibold tabular-nums text-slate-600">
+          {isCancelled ? '0%' : `${percent}%`}
+        </span>
+      </div>
     </div>
   );
 }
@@ -284,6 +328,13 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
                 Actions
               </th>
             </tr>
+            <tr>
+              <th colSpan={11} className="bg-blue-50/35 px-3 py-2 text-left text-[11px] font-medium text-slate-600">
+                Tip: Click <span className="font-semibold text-slate-800">Job ID</span> to open full details. Use
+                <span className="font-semibold text-slate-800"> Status</span> to update phase and
+                <span className="font-semibold text-slate-800"> Progress</span> to track the live workflow step.
+              </th>
+            </tr>
           </thead>
           <tbody>
             {paginated.length === 0 && (
@@ -315,6 +366,10 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
               const tech = getTech(job.technicianId);
               const isDelayed = job.status === 'Delayed';
               const isBreached = job.slaStatus === 'Breached';
+              const scheduleMeta = splitScheduleCell(job.scheduledAt);
+              const updateMeta = formatLastUpdateMeta(job.updatedAt);
+              const etaIsDone = job.eta.toLowerCase() === 'done';
+              const etaIsOverdue = job.eta.toLowerCase() === 'overdue' || job.status === 'Delayed';
 
               return (
                 <tr
@@ -395,17 +450,33 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
                         </div>
                       </div>
                     ) : (
-                      <span className="text-[12px] text-slate-400">Unassigned</span>
+                      <button
+                        type="button"
+                        onClick={() => onJobClick(job)}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100/80 px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-slate-200/70 hover:text-slate-800"
+                        title="Open details to assign technician"
+                      >
+                        <UserPlus size={12} />
+                        Assign technician
+                      </button>
                     )}
                   </td>
                   <td className="px-3 py-2.5 align-middle">
-                    <span className="whitespace-nowrap text-[12px] tabular-nums text-slate-700">{job.scheduledAt}</span>
+                    <div className="whitespace-nowrap">
+                      <p className="text-[12px] font-semibold tabular-nums text-slate-800">{scheduleMeta.date}</p>
+                      {scheduleMeta.time && (
+                        <p className="text-[10.5px] tabular-nums text-slate-500">{scheduleMeta.time}</p>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5 align-middle">
                     <span
-                      className={`whitespace-nowrap text-[12px] tabular-nums ${
-                        job.status === 'Delayed' ? 'font-semibold text-red-700' :
-                        job.status === 'Completed' ? 'font-medium text-emerald-700' : 'text-slate-700'
+                      className={`inline-flex whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
+                        etaIsOverdue
+                          ? 'bg-red-50 text-red-700'
+                          : etaIsDone
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : 'bg-slate-100 text-slate-700'
                       }`}
                     >
                       {job.eta}
@@ -413,14 +484,12 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
                   </td>
                   <td className="px-3 py-2.5 align-middle">{slaChip(job.slaStatus)}</td>
                   <td className="px-3 py-2.5 align-middle">
-                    <p className="whitespace-nowrap text-[11px] tabular-nums text-slate-500">
-                      {(() => {
-                        try {
-                          const d = new Date(job.updatedAt);
-                          return isNaN(d.getTime()) ? '—' : d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                        } catch { return '—'; }
-                      })()}
-                    </p>
+                    <div className="whitespace-nowrap">
+                      <p className="text-[11px] font-medium tabular-nums text-slate-700">{updateMeta.time}</p>
+                      {updateMeta.dayHint && (
+                        <p className="text-[10px] text-slate-500">{updateMeta.dayHint}</p>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5 align-middle">
                     <div className="flex items-center justify-end gap-0.5">

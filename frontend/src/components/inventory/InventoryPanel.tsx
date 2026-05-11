@@ -236,7 +236,7 @@ function InventoryPanelInner({ embedded = false }: { embedded?: boolean }) {
 
   const pageBody = (
     <>
-      {activePage === 'items' && <InventoryItemsContent />}
+      {activePage === 'items' && <InventoryItemsContent embedded={embedded} />}
       {activePage === 'suppliers' && <SupplierManagementContent />}
       {activePage === 'stock-monitor' && <StockMonitorPage />}
       {activePage === 'notifications' && <NotificationsPage />}
@@ -346,81 +346,6 @@ function InventoryPanelInner({ embedded = false }: { embedded?: boolean }) {
           </button>
         </div>
       </aside>
-      )}
-
-      {embedded && (
-        <div className="inv-embedded-tabs">
-          {Object.entries(sections).map(([sectionName, sectionItems]) => (
-            <div key={sectionName} className="inv-embedded-tab-group">
-              <span className="inv-embedded-tab-section">{sectionName}</span>
-              <div className="inv-embedded-tab-row">
-                {sectionItems.map(item => {
-                  const Icon = item.icon;
-                  const disabled = Boolean(item.disabled);
-                  const isActive = activePage === item.id && !disabled;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={`inv-nav-item ${isActive ? 'active' : ''} ${disabled ? 'inv-nav-item--disabled' : ''}`}
-                      disabled={disabled}
-                      onClick={() => { if (!disabled) setActivePage(item.id); }}
-                      title={disabled ? `${item.label} · Coming soon` : undefined}
-                    >
-                      <Icon size={16} className={`shrink-0 ${disabled ? 'opacity-70' : ''}`} />
-                      <span className="flex-1 min-w-0 text-left leading-snug">{item.label}</span>
-                      {item.soon && (
-                        <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-600">Soon</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-          <div className="inv-embedded-tab-group">
-            <span className="inv-embedded-tab-section">Alerts</span>
-            <div className="inv-embedded-tab-row">
-              <button
-                type="button"
-                className={`inv-nav-item ${activePage === 'notifications' ? 'active' : ''}`}
-                onClick={() => {
-                  setActivePage('notifications');
-                  NotificationService.getNotifications()
-                    .then(res => { if (res?.success) setNotifCount((res.data || []).filter((n: any) => !n.isRead).length); })
-                    .catch(() => {});
-                }}
-              >
-                <div style={{ position: 'relative', flexShrink: 0 }}>
-                  <Bell size={16} />
-                  {notifCount > 0 && (
-                    <span
-                      style={{
-                        position: 'absolute',
-                        top: -3,
-                        right: -5,
-                        width: 14,
-                        height: 14,
-                        background: '#ef4444',
-                        borderRadius: '50%',
-                        border: '2px solid #fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 8,
-                        color: '#fff',
-                        fontWeight: 700,
-                      }}
-                    >
-                      {notifCount > 9 ? '9+' : notifCount}
-                    </span>
-                  )}
-                </div>
-                <span>Notifications</span>
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* ── Main Content ── */}

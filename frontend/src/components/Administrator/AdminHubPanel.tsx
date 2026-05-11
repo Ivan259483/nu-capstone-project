@@ -114,6 +114,13 @@ function AdminHubPanelInner({
   const stableUserId = String(currentUser?._id || currentUser?.id || '');
   const activityLogsLoadedRef = useRef(false);
 
+  const rawProfileName = currentUser?.name?.trim() ?? '';
+  /** Avoid showing the generic login "admin" — use proper role title in the header */
+  const sidebarDisplayName =
+    rawProfileName.toLowerCase() === 'admin' ? 'Administrator' : rawProfileName || 'Signed in';
+  const sidebarRoleLabel = getRoleLabel(currentRole);
+  const showSidebarRoleRow = Boolean(sidebarRoleLabel && sidebarRoleLabel !== sidebarDisplayName);
+
   const applyCurrentUserFallback = useCallback(() => {
     const cu = currentUserRef.current;
     if (!cu) return;
@@ -308,7 +315,7 @@ function AdminHubPanelInner({
 
   const sidebarW = collapsed ? 64 : 240;
   const { isDraggingSchedule } = useCalendarScheduleDnD();
-  const sidebarWEffective = isDraggingSchedule ? 0 : sidebarW;
+  const sidebarWEffective = sidebarW;
   const prefetchCustomerTracker =
     currentRole === 'office_admin' ||
     currentRole === 'administrator' ||
@@ -351,35 +358,40 @@ function AdminHubPanelInner({
   return (
     <div
       className={`adminhub-root ${isDraggingSchedule ? 'ah-schedule-dragging' : ''}`}
-      style={{ position: 'fixed', inset: 0, zIndex: 100 }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 100,
+        width: '100%',
+        minHeight: '100dvh',
+      }}
     >
       {/* ── Sidebar ── */}
       <aside
         className="ah-sidebar"
         style={{
           width: sidebarWEffective,
-          opacity: isDraggingSchedule ? 0 : 1,
-          pointerEvents: isDraggingSchedule ? 'none' : 'auto',
-          transition: 'width 0.22s cubic-bezier(0.16,1,0.3,1), opacity 0.18s ease',
+          transition: 'width 0.22s cubic-bezier(0.16,1,0.3,1)',
           overflow: 'hidden',
-          ...(isDraggingSchedule ? { border: 'none', boxShadow: 'none' } : {}),
         }}
       >
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', height: 64, padding: '0 12px', borderBottom: '1px solid #f1f5f9', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
-              {(currentUser?.name || currentUser?.email || '?').trim().charAt(0).toUpperCase()}
+              {(sidebarDisplayName || currentUser?.email || '?').charAt(0).toUpperCase()}
             </div>
             {!collapsed && (
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {currentUser?.name?.trim() || 'Signed in'}
+                  {sidebarDisplayName}
                 </div>
                 <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {currentUser?.email || ''}
                 </div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', marginTop: 2 }}>{getRoleLabel(currentRole)}</div>
+                {showSidebarRoleRow ? (
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', marginTop: 2 }}>{sidebarRoleLabel}</div>
+                ) : null}
               </div>
             )}
           </div>
@@ -450,8 +462,6 @@ function AdminHubPanelInner({
       <main
         className="ah-main-surface"
         style={{
-          flex: 1,
-          minHeight: '100vh',
           overflow: 'auto',
           transition: 'margin-left 0.22s cubic-bezier(0.16,1,0.3,1)',
           marginLeft: sidebarWEffective,
@@ -460,7 +470,13 @@ function AdminHubPanelInner({
       >
         <div
           className="ah-tab-shell"
-          style={{ maxWidth: 1560, margin: '0 auto', padding: '32px 24px' }}
+          style={{
+            width: '100%',
+            maxWidth: '100%',
+            boxSizing: 'border-box',
+            margin: 0,
+            padding: '28px clamp(16px, 2.5vw, 32px)',
+          }}
         >
           <div className="ah-tab-stack">
             {renderTabPanel('dashboard', (
@@ -487,13 +503,7 @@ function AdminHubPanelInner({
             {renderTabPanel('inventory', <InventoryPanel embedded />)}
 
             {prefetchCustomerTracker && renderTabPanel('live_tracking', (
-              <>
-              <div style={{ marginBottom: 24 }}>
-                <h1 style={{ fontSize: 22, fontWeight: 600, color: '#0f172a', margin: 0 }}>Customer Tracker</h1>
-                <p style={{ fontSize: 14, color: '#64748b', margin: '8px 0 0' }}>Live job status and customer tracking updates across all customers</p>
-              </div>
               <CustomerTrackerPanel embedded />
-              </>
             ), { forceMount: true })}
           </div>
         </div>

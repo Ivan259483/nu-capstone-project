@@ -2209,7 +2209,7 @@ export default function AdminDashboard() {
 
     if (isAdminHubMode) {
         return (
-            <div className={`admin-root admin-shell ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+            <div className={`admin-root admin-shell admin-hub-route-host ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
                 <AdminHubPanel
                     currentUser={user}
                     fullMode={true}

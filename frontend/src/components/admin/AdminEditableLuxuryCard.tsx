@@ -69,6 +69,8 @@ interface Props {
     vehicleType: VehicleType;
     service: PublishedServicePricingSource | undefined;
     adminHighlight?: boolean;
+    /** Admin catalog: show cards immediately (skip scroll-reveal) so layout doesn’t look empty */
+    instantReveal?: boolean;
     onSaved: () => void | Promise<void>;
 }
 
@@ -78,6 +80,7 @@ export function AdminEditableLuxuryCard({
     vehicleType,
     service,
     adminHighlight = false,
+    instantReveal = false,
     onSaved,
 }: Props) {
     const { t } = useLanguage();
@@ -282,10 +285,14 @@ export function AdminEditableLuxuryCard({
     return (
         <motion.div
             custom={index}
-            initial={{ opacity: 0, y: 40, scale: 0.97 }}
-            whileInView={{ opacity: 1, y: 0, scale: 1 }}
-            viewport={{ once: true, margin: '-30px' }}
-            transition={{ duration: 0.6, ease: EASE, delay: index * 0.08 }}
+            initial={instantReveal ? { opacity: 1, y: 0, scale: 1 } : { opacity: 0, y: 40, scale: 0.97 }}
+            {...(instantReveal
+                ? { animate: { opacity: 1, y: 0, scale: 1 } }
+                : {
+                      whileInView: { opacity: 1, y: 0, scale: 1 },
+                      viewport: { once: true, margin: '-30px' },
+                  })}
+            transition={{ duration: instantReveal ? 0.2 : 0.6, ease: EASE, delay: instantReveal ? index * 0.04 : index * 0.08 }}
             onHoverStart={() => setHovered(true)}
             onHoverEnd={() => setHovered(false)}
             className={cn(

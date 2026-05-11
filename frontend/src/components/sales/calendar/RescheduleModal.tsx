@@ -56,7 +56,7 @@ export default function RescheduleModal({ booking, targetDate, onClose, onConfir
       }}
     >
       <div
-        className="flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-2xl"
+        className="flex w-full max-w-md flex-col overflow-hidden rounded-3xl border-0 bg-white shadow-[0_25px_50px_-12px_rgba(15,23,42,0.18)]"
         onClick={(e) => e.stopPropagation()}
       >
         
@@ -75,7 +75,7 @@ export default function RescheduleModal({ booking, targetDate, onClose, onConfir
         <div className="p-5">
           <div className="mb-4">
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Target Date</label>
-            <div className="flex items-center gap-2 mt-1.5 p-3 rounded-xl bg-slate-50 text-slate-800 text-sm font-medium border border-slate-200">
+            <div className="flex items-center gap-2 mt-1.5 p-3 rounded-2xl bg-slate-50/90 text-slate-800 text-sm font-medium border-0 shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
               <CalIcon size={16} className="text-blue-500" />
               {formattedTargetDate}
             </div>
@@ -88,7 +88,7 @@ export default function RescheduleModal({ booking, targetDate, onClose, onConfir
                 <Loader2 size={16} className="animate-spin" /> Loading available times...
               </div>
             ) : timeSlots.length === 0 ? (
-              <div className="mt-3 p-3 rounded-xl bg-red-50 text-red-600 text-sm border border-red-200">
+              <div className="mt-3 p-3 rounded-2xl bg-red-50/90 text-red-600 text-sm border-0 shadow-[0_1px_3px_rgba(220,38,38,0.08)]">
                 No available time slots on this date.
               </div>
             ) : (
@@ -96,11 +96,12 @@ export default function RescheduleModal({ booking, targetDate, onClose, onConfir
                 {timeSlots.map(s => (
                   <button
                     key={s.time}
+                    type="button"
                     onClick={() => setSelectedTime(s.time)}
-                    className={`p-2 rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition-colors border ${
+                    className={`p-2 rounded-2xl text-sm font-medium flex items-center justify-center gap-1.5 transition-all duration-200 border-0 outline-none focus-visible:ring-2 focus-visible:ring-blue-400/35 focus-visible:ring-offset-2 ${
                       selectedTime === s.time
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50'
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
+                        : 'bg-slate-50/90 text-slate-700 shadow-[0_1px_3px_rgba(15,23,42,0.06)] hover:bg-blue-50/90 hover:shadow-[0_2px_8px_rgba(37,99,235,0.12)]'
                     }`}
                   >
                     <Clock size={12} className={selectedTime === s.time ? 'text-blue-200' : 'text-slate-400'} />

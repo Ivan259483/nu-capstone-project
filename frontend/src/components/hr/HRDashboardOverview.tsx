@@ -87,7 +87,7 @@ export default function HRDashboardOverview({ localUsers, activityLogs, onNaviga
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1280, margin: '0 auto' }}>
+    <div style={{ padding: '32px clamp(20px, 3vw, 40px)', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32 }}>
         <div>

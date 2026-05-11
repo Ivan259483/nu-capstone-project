@@ -155,9 +155,10 @@ export default function HRRoleAccessControl({ localUsers, currentUserRole }: any
 
   return (
     <div style={{
-      padding: '32px 40px',
-      maxWidth: 1300,
-      margin: '0 auto',
+      padding: '32px clamp(20px, 3vw, 40px)',
+      width: '100%',
+      maxWidth: '100%',
+      boxSizing: 'border-box',
       fontFamily: "'Inter', 'DM Sans', sans-serif",
     }}>
 

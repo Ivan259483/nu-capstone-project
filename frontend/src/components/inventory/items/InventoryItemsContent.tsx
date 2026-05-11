@@ -23,7 +23,7 @@ const STATUS_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'on-order', label: 'On Order' },
 ];
 
-export default function InventoryItemsContent() {
+export default function InventoryItemsContent({ embedded = false }: { embedded?: boolean }) {
   const { items, loading: dataLoading, editItem, removeItem, addItem, refreshItems } = useInventory();
   const [activeCategory, setActiveCategory] = useState<'All' | ItemCategory>('All');
   const [search, setSearch] = useState('');
@@ -126,11 +126,13 @@ export default function InventoryItemsContent() {
   return (
     <>
       <div className="space-y-5">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className={`flex items-center gap-4 flex-wrap ${embedded ? 'justify-end' : 'justify-between'}`}>
+          {!embedded && (
           <div>
             <h2 className="text-lg font-bold text-gray-900">{filtered.length} items{activeCategory !== 'All' && <span className="text-gray-400 font-medium"> in {activeCategory}</span>}</h2>
             <p className="text-xs text-gray-400 font-medium mt-0.5">{items.filter((i) => i.status === 'critical' || i.status === 'out-of-stock').length} items need restocking</p>
           </div>
+          )}
           <div className="flex items-center gap-3">
             <button onClick={handleExportCSV} className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150 active:scale-95 shadow-sm"><Download size={15} /><span className="hidden sm:inline">Export CSV</span></button>
             <button onClick={() => { setEditingItem(null); setAddEditOpen(true); }} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md glow-blue"><Plus size={16} />Add Item</button>
