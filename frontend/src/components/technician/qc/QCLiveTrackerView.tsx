@@ -263,10 +263,10 @@ function OrderSidebarCard({
     <button
       type="button"
       onClick={onSelect}
-      className={`group w-full rounded-xl border py-3 pl-3 pr-3 text-left transition ${
+      className={`group w-full rounded-2xl border py-3.5 pl-3.5 pr-3.5 text-left transition-all duration-200 ${
         selected
-          ? 'border-slate-300 border-l-[3px] border-l-slate-950 bg-slate-50 shadow-sm'
-          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80'
+          ? 'border-blue-200 bg-blue-50/55 shadow-[0_14px_34px_rgba(37,99,235,0.10)] ring-1 ring-blue-100/80'
+          : 'border-slate-200/70 bg-white/90 shadow-[0_10px_28px_rgba(15,23,42,0.045)] hover:border-blue-100 hover:bg-white hover:shadow-[0_16px_36px_rgba(15,23,42,0.075)]'
       } ${tracker.isComplete ? 'opacity-60' : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -286,7 +286,7 @@ function OrderSidebarCard({
       </p>
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-slate-600">
+        <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-slate-200/70 bg-white/85 px-2 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-slate-600 shadow-sm">
           <span className={`h-2 w-2 shrink-0 rounded-full ${tracker.currentGate.dotClass}`} />
           <span className="truncate">{tracker.currentGate.shortLabel}</span>
         </span>
@@ -309,8 +309,9 @@ function MilestoneStepper({ job }: { job: QCJob }) {
   const tracker = getTrackerState(job);
 
   return (
-    <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-4">
-      <div className="grid grid-cols-4">
+    <div className="shrink-0 bg-transparent px-6 py-4">
+      <div className="rounded-[24px] bg-white/85 px-5 py-4 shadow-[0_16px_44px_rgba(15,23,42,0.055),inset_0_1px_0_rgba(255,255,255,0.9)] ring-1 ring-slate-200/70">
+        <div className="grid grid-cols-4">
         {TRACKER_GATES.map((gate, index) => {
           const state = getGateState(job, index);
           const done = state === 'done';
@@ -320,8 +321,8 @@ function MilestoneStepper({ job }: { job: QCJob }) {
             <div key={gate.id} className="relative flex min-w-0 flex-col items-center text-center">
               {index < TRACKER_GATES.length - 1 ? (
                 <div
-                  className={`absolute left-1/2 top-3.5 h-0.5 w-full transition-colors ${
-                    lineDone ? 'bg-emerald-500' : 'bg-slate-200'
+                  className={`absolute left-1/2 top-3.5 h-1 w-full rounded-full transition-colors ${
+                    lineDone ? 'bg-emerald-400/80' : 'bg-slate-100'
                   }`}
                 />
               ) : null}
@@ -342,6 +343,7 @@ function MilestoneStepper({ job }: { job: QCJob }) {
             </div>
           );
         })}
+        </div>
       </div>
     </div>
   );
@@ -353,7 +355,7 @@ function PhotoComplianceCard({ job }: { job: QCJob }) {
   const tracker = getTrackerState(job);
 
   return (
-    <section className="qc-live-panel rounded-2xl border border-slate-200/80 bg-white p-4">
+    <section className="qc-live-panel rounded-[24px] border border-slate-200/60 bg-white/90 p-4 shadow-[0_16px_44px_rgba(15,23,42,0.055)]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Photo compliance</p>
@@ -397,7 +399,7 @@ function PhotoComplianceCard({ job }: { job: QCJob }) {
 function OrderInfoCard({ job }: { job: QCJob }) {
   const warning = needsCustomerUpdate(job);
   return (
-    <section className="qc-live-panel rounded-2xl border border-slate-200/80 bg-white p-4">
+    <section className="qc-live-panel rounded-[24px] border border-slate-200/60 bg-white/90 p-4 shadow-[0_16px_44px_rgba(15,23,42,0.055)]">
       <div className="flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
           <UserCheck className="h-4 w-4" />
@@ -409,7 +411,7 @@ function OrderInfoCard({ job }: { job: QCJob }) {
       </div>
 
       <dl className="mt-4 space-y-3 text-xs">
-        <div className="border-t border-slate-100 pt-3">
+        <div className="rounded-2xl bg-slate-50/75 px-3 py-2.5">
           <dt className="font-bold text-slate-400">Technician</dt>
           <dd className="mt-1 font-black text-slate-900">{formatTitle(getLeadTechnician(job), '-')}</dd>
         </div>
@@ -481,7 +483,7 @@ function CurrentGateCard({
   };
 
   return (
-    <section className="qc-live-panel rounded-2xl border border-slate-200/80 bg-white p-5">
+    <section className="qc-live-panel rounded-[26px] border border-slate-200/60 bg-white/95 p-5 shadow-[0_20px_52px_rgba(15,23,42,0.065)]">
       <input ref={inputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoSelected} />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -500,7 +502,7 @@ function CurrentGateCard({
       </div>
 
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+        <div className="overflow-hidden rounded-[24px] border border-slate-200/70 bg-slate-50/80 shadow-inner">
           {currentPhoto?.photoUrl ? (
             <img src={currentPhoto.photoUrl} alt="" className="aspect-[4/3] w-full object-cover" />
           ) : (
@@ -515,7 +517,7 @@ function CurrentGateCard({
           type="button"
           onClick={triggerUpload}
           disabled={uploading}
-          className="flex aspect-[4/3] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-slate-500 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 disabled:opacity-50"
+          className="flex aspect-[4/3] flex-col items-center justify-center gap-3 rounded-[24px] border border-dashed border-slate-300/80 bg-slate-50/80 text-slate-500 transition hover:border-blue-300 hover:bg-white hover:text-slate-800 disabled:opacity-50"
         >
           {uploading ? <Loader2 className="h-8 w-8 animate-spin" /> : <UploadCloud className="h-8 w-8" strokeWidth={1.6} />}
           <span className="text-xs font-black uppercase tracking-[0.14em]">{currentPhoto?.photoUrl ? 'Replace photo' : 'Upload photo'}</span>
@@ -529,7 +531,7 @@ function CurrentGateCard({
           onChange={(event) => setCaptionDrafts((prev) => ({ ...prev, [currentStage]: event.target.value }))}
           placeholder="Short caption (optional, customer-facing)"
           rows={2}
-          className="mt-1 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-slate-200/70"
+          className="mt-1 w-full resize-none rounded-2xl border border-slate-200/70 bg-slate-50/70 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-blue-100"
         />
       </div>
     </section>
@@ -571,7 +573,7 @@ function GateActionBar({
   };
 
   return (
-    <div className="sticky bottom-0 z-20 shrink-0 border-t border-slate-200 bg-white px-5 py-3 shadow-[0_-14px_34px_rgba(15,23,42,0.06)]">
+    <div className="sticky bottom-0 z-20 shrink-0 bg-white/90 px-6 py-4 shadow-[0_-18px_42px_rgba(15,23,42,0.08)] backdrop-blur-xl">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-black uppercase tracking-[0.12em] text-slate-400">Gate action</p>
@@ -606,7 +608,7 @@ function GateActionBar({
                 type="button"
                 onClick={() => advanceGate(true)}
                 disabled={advancing}
-                className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-45"
+                className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200/70 bg-white px-4 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-45"
               >
                 Skip photo
               </button>
@@ -644,7 +646,7 @@ function ShopFloorLogCard({
   };
 
   return (
-    <section className="qc-live-panel rounded-2xl border border-slate-200/80 bg-white p-5">
+    <section className="qc-live-panel rounded-[26px] border border-slate-200/60 bg-white/95 p-5 shadow-[0_20px_52px_rgba(15,23,42,0.065)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
@@ -653,12 +655,12 @@ function ShopFloorLogCard({
           </div>
           <h3 className="mt-1 text-lg font-black tracking-tight text-slate-950">Latest service updates</h3>
         </div>
-        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+        <span className="rounded-full border border-slate-200/70 bg-slate-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
           {updates.length} entries
         </span>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+      <div className="mt-4 rounded-[22px] border border-slate-200/70 bg-slate-50/80 p-3">
         <label className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Post update</label>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
           <textarea
@@ -666,7 +668,7 @@ function ShopFloorLogCard({
             onChange={(event) => setNoteDraft(event.target.value)}
             rows={2}
             placeholder="Add a concise shop-floor update"
-            className="min-h-[44px] flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-slate-200/70"
+            className="min-h-[44px] flex-1 resize-none rounded-2xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-blue-100"
           />
           <button
             type="button"
@@ -682,13 +684,13 @@ function ShopFloorLogCard({
 
       <div className="mt-4 space-y-2">
         {updates.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center">
+          <div className="rounded-[22px] border border-dashed border-slate-200/80 bg-slate-50/80 px-4 py-8 text-center">
             <p className="text-sm font-black text-slate-700">No updates posted yet.</p>
             <p className="mt-1 text-xs font-semibold text-slate-500">Service notes will appear here chronologically.</p>
           </div>
         ) : (
           updates.map((update) => (
-            <div key={update.id} className="rounded-2xl border border-slate-100 bg-slate-50/70 px-4 py-3">
+            <div key={update.id} className="rounded-[22px] border border-slate-100/80 bg-slate-50/70 px-4 py-3">
               <p className="text-sm font-bold leading-snug text-slate-900">{update.content}</p>
               <p className="mt-1 text-xs font-semibold text-slate-500">
                 {update.author} - {relTime(update.createdAt)}
@@ -727,8 +729,8 @@ function SelectedOrderPanel({
   const serviceDisplay = formatService(job);
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/50">
-      <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-4">
+    <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-gradient-to-b from-slate-50/70 via-white to-slate-50/70">
+      <div className="shrink-0 bg-white/80 px-6 py-5 shadow-[0_12px_32px_rgba(15,23,42,0.035)]">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <p className="truncate font-mono text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">{job.jobId}</p>
@@ -761,8 +763,8 @@ function SelectedOrderPanel({
 
       <MilestoneStepper job={job} />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        <div className="grid gap-5" style={{ gridTemplateColumns: '1fr 220px' }}>
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <div className="grid gap-5" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(240px, 280px)' }}>
           <div className="min-w-0 space-y-5">
             <CurrentGateCard
               key={`${job.id}-${tracker.currentGate.id}`}
@@ -897,9 +899,9 @@ export default function QCLiveTrackerView({
 
   if (loading) {
     return (
-      <div className="qc-live-shell h-[calc(100vh-108px)] overflow-hidden rounded-3xl border border-slate-200 bg-white">
-        <div className="flex h-full">
-          <div className="w-[240px] shrink-0 border-r border-slate-200 bg-white p-4">
+      <div className="qc-live-shell h-[calc(100vh-96px)] w-full overflow-hidden rounded-[34px] border border-slate-200/60 bg-white/95 p-3 shadow-[0_26px_80px_rgba(15,23,42,0.10)]">
+        <div className="flex h-full gap-3">
+          <div className="w-[300px] shrink-0 rounded-[26px] bg-slate-50/80 p-4">
             <div className="h-8 w-32 animate-pulse rounded-lg bg-slate-100" />
             <div className="mt-5 space-y-3">
               {[1, 2, 3, 4].map((item) => (
@@ -917,8 +919,8 @@ export default function QCLiveTrackerView({
 
   if (trackedOrders.length === 0) {
     return (
-      <div className="qc-live-panel flex h-[calc(100vh-108px)] flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200/90 bg-white text-center">
-        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-400">
+      <div className="qc-live-panel flex h-[calc(100vh-96px)] flex-col items-center justify-center rounded-[34px] border border-dashed border-slate-200/80 bg-white/95 text-center shadow-[0_26px_80px_rgba(15,23,42,0.08)]">
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200/70 bg-slate-50 text-slate-400">
           <Radio size={26} strokeWidth={1.5} />
         </div>
         <p className="text-lg font-black text-slate-900">No active orders</p>
@@ -930,10 +932,10 @@ export default function QCLiveTrackerView({
   }
 
   return (
-    <div className="qc-live-shell h-[calc(100vh-108px)] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex h-full min-h-0 flex-col lg:flex-row">
-        <aside className="flex h-[320px] w-full shrink-0 flex-col border-b border-slate-200 bg-white lg:h-full lg:w-[240px] lg:border-b-0 lg:border-r">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-4">
+    <div className="qc-live-shell h-[calc(100vh-96px)] w-full overflow-hidden rounded-[34px] border border-slate-200/60 bg-white/95 p-3 shadow-[0_26px_80px_rgba(15,23,42,0.10)]">
+      <div className="flex h-full min-h-0 flex-col gap-3 lg:flex-row">
+        <aside className="flex h-[320px] w-full shrink-0 flex-col overflow-hidden rounded-[28px] bg-slate-50/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] lg:h-full lg:w-[300px]">
+          <div className="flex items-center justify-between gap-3 px-5 py-5">
             <div>
               <p className="text-lg font-black tracking-tight text-slate-950">Live Orders</p>
               <p className="text-xs font-semibold text-slate-400">Today active lane</p>
@@ -943,7 +945,7 @@ export default function QCLiveTrackerView({
             </span>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
             {trackedOrders.map((job) => (
               <OrderSidebarCard
                 key={job.id}

@@ -21,7 +21,7 @@ export default function KPIBentoGrid() {
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
       {/* Hero: Total Sales Today */}
-      <div className="sm:col-span-2 lg:col-span-2 bg-gradient-to-br from-blue-700 to-blue-900 rounded-xl p-6 text-white shadow-sm relative overflow-hidden">
+      <div className="sm:col-span-2 lg:col-span-2 bg-gradient-to-br from-blue-700 to-blue-900 rounded-xl p-6 text-white border-0 shadow-[0_4px_24px_-6px_rgba(30,58,138,0.45),0_16px_40px_-12px_rgba(15,23,42,0.2)] relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-white" />
           <div className="absolute -bottom-12 -left-4 w-32 h-32 rounded-full bg-white" />
@@ -61,7 +61,7 @@ export default function KPIBentoGrid() {
       </div>
 
       {/* Transactions Count */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+      <div className="bg-white rounded-xl border-0 p-5 shadow-[0_2px_8px_rgba(15,23,42,0.04),0_12px_32px_-8px_rgba(15,23,42,0.08)]">
         <div className="flex items-center justify-between mb-3">
           <div className="p-2 rounded-lg bg-slate-100">
             <CreditCard size={16} className="text-slate-600" />
@@ -81,7 +81,7 @@ export default function KPIBentoGrid() {
       </div>
 
       {/* Avg Transaction Value */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+      <div className="bg-white rounded-xl border-0 p-5 shadow-[0_2px_8px_rgba(15,23,42,0.04),0_12px_32px_-8px_rgba(15,23,42,0.08)]">
         <div className="flex items-center justify-between mb-3">
           <div className="p-2 rounded-lg bg-purple-50">
             <TrendingUp size={16} className="text-purple-600" />
@@ -96,7 +96,7 @@ export default function KPIBentoGrid() {
       </div>
 
       {/* Pending Payments */}
-      <div className="bg-amber-50/50 rounded-xl border border-amber-200 shadow-sm p-5">
+      <div className="bg-amber-50/50 rounded-xl border-0 p-5 shadow-[0_2px_8px_rgba(245,158,11,0.08),0_12px_32px_-8px_rgba(245,158,11,0.12)]">
         <div className="flex items-center justify-between mb-3">
           <div className="p-2 rounded-lg bg-amber-100">
             <Clock size={16} className="text-amber-600" />
@@ -111,7 +111,7 @@ export default function KPIBentoGrid() {
       </div>
 
       {/* Completed Payments */}
-      <div className="bg-emerald-50/30 rounded-xl border border-emerald-200 shadow-sm p-5">
+      <div className="bg-emerald-50/30 rounded-xl border-0 p-5 shadow-[0_2px_8px_rgba(16,185,129,0.08),0_12px_32px_-8px_rgba(16,185,129,0.1)]">
         <div className="flex items-center justify-between mb-3">
           <div className="p-2 rounded-lg bg-emerald-100">
             <CheckCircle2 size={16} className="text-emerald-600" />
@@ -124,7 +124,7 @@ export default function KPIBentoGrid() {
       </div>
 
       {/* Top Service Today */}
-      <div className="sm:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+      <div className="sm:col-span-2 bg-white rounded-xl border-0 p-5 shadow-[0_2px_8px_rgba(15,23,42,0.04),0_12px_32px_-8px_rgba(15,23,42,0.08)]">
         <div className="flex items-center justify-between mb-3">
           <div className="p-2 rounded-lg bg-blue-50">
             <Sparkles size={16} className="text-blue-700" />

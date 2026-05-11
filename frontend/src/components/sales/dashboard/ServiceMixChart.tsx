@@ -7,7 +7,7 @@ import { useSalesContext } from '@/contexts/SalesAnalyticsContext';
 const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: { name: string; value: number; payload: { pct: number } }[] }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-modal px-4 py-3 text-sm">
+    <div className="bg-white/95 backdrop-blur-sm border-0 rounded-xl shadow-modal px-4 py-3 text-sm">
       <p className="font-semibold text-slate-900">{payload[0].name}</p>
       <p className="text-slate-700 font-bold font-tabular mt-0.5">₱{payload[0].value.toLocaleString()}</p>
       <p className="text-slate-500 text-xs">{payload[0].payload.pct}% of total</p>
@@ -28,7 +28,7 @@ export default function ServiceMixChart() {
 
       {isEmpty ? (
         <div className="flex flex-col items-center justify-center h-[180px] text-center">
-          <div className="w-16 h-16 rounded-full border-4 border-dashed border-slate-200 flex items-center justify-center mb-3">
+          <div className="w-16 h-16 rounded-full bg-slate-100/90 shadow-inner flex items-center justify-center mb-3 ring-0">
             <span className="text-slate-300 text-2xl">🍩</span>
           </div>
           <p className="text-sm font-semibold text-slate-600">No service data yet</p>

@@ -25,11 +25,11 @@ const STATUS_CONFIG: Record<string, { icon: React.ReactNode; bg: string }> = {
 };
 
 const PM_COLORS: Record<string, string> = {
-  cash: 'text-emerald-700 bg-emerald-50 border-emerald-100',
-  card: 'text-blue-700   bg-blue-50   border-blue-100',
-  gcash: 'text-blue-600   bg-blue-50   border-blue-100',
-  maya: 'text-green-700  bg-green-50  border-green-100',
-  bank_transfer: 'text-slate-600  bg-slate-50  border-slate-100',
+  cash: 'text-emerald-700 bg-emerald-50/90 shadow-sm shadow-emerald-900/5',
+  card: 'text-blue-700 bg-blue-50/90 shadow-sm shadow-blue-900/5',
+  gcash: 'text-blue-600 bg-blue-50/90 shadow-sm shadow-blue-900/5',
+  maya: 'text-green-700 bg-green-50/90 shadow-sm shadow-green-900/5',
+  bank_transfer: 'text-slate-600 bg-slate-50/90 shadow-sm shadow-slate-900/5',
 };
 
 const PM_LABELS: Record<string, string> = {
@@ -46,10 +46,7 @@ export default function RecentTransactionsFeed({ onViewAll }: Props) {
   return (
     <div className="card-base flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div
-        className="flex items-center justify-between px-5 py-4 shrink-0"
-        style={{ borderBottom: '1px solid rgba(226,232,240,0.45)' }}
-      >
+      <div className="flex items-center justify-between px-5 py-4 shrink-0 bg-slate-50/35">
         <h2 className="text-base font-semibold text-slate-900">Recent Transactions</h2>
         {onViewAll && (
           <button
@@ -72,7 +69,7 @@ export default function RecentTransactionsFeed({ onViewAll }: Props) {
             <p className="text-xs text-slate-400 mt-1">Completed POS transactions will appear here</p>
           </div>
         ) : (
-          recent.map((txn, i) => {
+          recent.map((txn) => {
             const status = STATUS_CONFIG[txn.status] ?? STATUS_CONFIG.voided;
             const pmColor = PM_COLORS[txn.paymentMethod] ?? PM_COLORS.cash;
             const amountColor =
@@ -83,8 +80,7 @@ export default function RecentTransactionsFeed({ onViewAll }: Props) {
             return (
               <div
                 key={`feed-${txn.id}`}
-                className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/70 transition-colors duration-150 cursor-default"
-                style={i < recent.length - 1 ? { borderBottom: '1px solid rgba(226,232,240,0.3)' } : undefined}
+                className="flex items-center gap-3 px-5 py-3 mx-2 mb-1 rounded-xl hover:bg-slate-50/80 transition-colors duration-150 cursor-default"
               >
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${status.bg}`}>
                   {status.icon}
@@ -92,7 +88,7 @@ export default function RecentTransactionsFeed({ onViewAll }: Props) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <p className="text-xs font-semibold text-slate-900 truncate">{txn.customerName}</p>
-                    <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border shrink-0 ${pmColor}`}>
+                    <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${pmColor}`}>
                       {PM_LABELS[txn.paymentMethod]}
                     </span>
                   </div>

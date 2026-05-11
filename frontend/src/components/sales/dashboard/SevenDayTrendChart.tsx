@@ -10,7 +10,7 @@ import { useSalesContext } from '@/contexts/SalesAnalyticsContext';
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-modal px-4 py-3 text-sm">
+    <div className="bg-white/95 backdrop-blur-sm border-0 rounded-xl shadow-modal px-4 py-3 text-sm">
       <p className="font-semibold text-slate-900 mb-1">{label}</p>
       <p className="text-blue-700 font-bold font-tabular">₱{payload[0].value.toLocaleString()}</p>
     </div>
@@ -29,7 +29,7 @@ export default function SevenDayTrendChart() {
           <p className="text-xs text-slate-500 mt-0.5">Revenue over the last 7 days</p>
         </div>
         {!isEmpty && (
-          <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+          <span className="text-xs font-semibold text-emerald-600 bg-emerald-50/90 px-2.5 py-1 rounded-full shadow-sm shadow-emerald-900/5">
             Live data
           </span>
         )}
@@ -56,7 +56,7 @@ export default function SevenDayTrendChart() {
             <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8', fontFamily: 'DM Sans' }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#94a3b8', fontFamily: 'DM Sans' }} axisLine={false} tickLine={false} tickFormatter={(v) => `₱${(v / 1000).toFixed(0)}k`} width={44} />
             <Tooltip content={<CustomTooltip />} />
-            <Area type="monotone" dataKey="revenue" stroke="#0F52BA" strokeWidth={2.5} fill="url(#salesGradient)" dot={{ r: 4, fill: '#0F52BA', strokeWidth: 0 }} activeDot={{ r: 6, fill: '#0F52BA', strokeWidth: 0 }} />
+            <Area type="natural" dataKey="revenue" stroke="#0F52BA" strokeWidth={2.5} fill="url(#salesGradient)" dot={{ r: 4, fill: '#0F52BA', strokeWidth: 0 }} activeDot={{ r: 6, fill: '#0F52BA', strokeWidth: 0 }} />
           </AreaChart>
         </ResponsiveContainer>
       )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Eye, EyeOff, Edit2, Archive, ChevronLeft, ChevronRight, ShieldCheck, ArrowUpDown, X, Plus, RotateCcw } from 'lucide-react';
+import { Search, Eye, EyeOff, Edit2, Archive, ChevronLeft, ChevronRight, ShieldCheck, ArrowUpDown, X, Plus, RotateCcw, CheckCircle2, XCircle } from 'lucide-react';
 import { UserService } from '@/lib/user-service';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -519,6 +519,39 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
 
 type CreateUserFormValues = { name: string; email: string; password: string; confirmPassword: string; role: string };
 
+const CREATE_USER_PASSWORD_SPECIAL_RE = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/;
+
+function getCreateUserPasswordRules(password: string) {
+  return {
+    length: password.length >= 8,
+    upper: /[A-Z]/.test(password),
+    lower: /[a-z]/.test(password),
+    number: /[0-9]/.test(password),
+    special: CREATE_USER_PASSWORD_SPECIAL_RE.test(password),
+  };
+}
+
+function getCreateUserPasswordPolicyError(password: string): string | null {
+  const rules = getCreateUserPasswordRules(password);
+  if (!password) return 'Password is required.';
+  if (!rules.length) return 'Password must be at least 8 characters.';
+  if (!rules.upper) return 'Password must contain at least one uppercase letter.';
+  if (!rules.lower) return 'Password must contain at least one lowercase letter.';
+  if (!rules.number) return 'Password must contain at least one number.';
+  if (!rules.special) return 'Password must contain at least one special character.';
+  return null;
+}
+
+function getCreateUserPasswordStrength(password: string) {
+  if (!password.length) return null;
+  const rules = getCreateUserPasswordRules(password);
+  const met = [rules.length, rules.upper, rules.lower, rules.number, rules.special].filter(Boolean).length;
+  if (met <= 2) return { label: 'Weak', widthClass: 'w-[24%]', barClass: 'bg-gradient-to-r from-red-500 to-orange-500', textClass: 'text-red-600' };
+  if (met <= 4) return { label: 'Medium', widthClass: 'w-[62%]', barClass: 'bg-gradient-to-r from-amber-500 to-orange-500', textClass: 'text-amber-600' };
+  if (password.length >= 12) return { label: 'Very strong', widthClass: 'w-full', barClass: 'bg-gradient-to-r from-emerald-500 to-green-500', textClass: 'text-emerald-700' };
+  return { label: 'Strong', widthClass: 'w-[88%]', barClass: 'bg-gradient-to-r from-blue-500 to-emerald-500', textClass: 'text-emerald-700' };
+}
+
 function validateCreateUserForm(form: CreateUserFormValues): Record<string, string> {
   const e: Record<string, string> = {};
   if (!form.name.trim()) e.name = 'Full name is required.';
@@ -527,8 +560,8 @@ function validateCreateUserForm(form: CreateUserFormValues): Record<string, stri
     e.email = 'Enter a valid email address.';
   }
   if (!form.role) e.role = 'Select a role.';
-  if (!form.password) e.password = 'Password is required.';
-  else if (form.password.length < 8) e.password = 'Use at least 8 characters.';
+  const passwordError = getCreateUserPasswordPolicyError(form.password);
+  if (passwordError) e.password = passwordError;
   if (!form.confirmPassword) e.confirmPassword = 'Confirm your password.';
   else if (form.password !== form.confirmPassword) e.confirmPassword = 'Passwords do not match.';
   return e;
@@ -546,6 +579,18 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
   const [saving, setSaving] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [showConf, setShowConf] = useState(false);
+  const passwordRules = useMemo(() => getCreateUserPasswordRules(form.password), [form.password]);
+  const passwordStrength = useMemo(() => getCreateUserPasswordStrength(form.password), [form.password]);
+  const passwordChecklist = useMemo(
+    () => [
+      { met: passwordRules.length, label: '8+ characters' },
+      { met: passwordRules.upper, label: 'Uppercase letter (A-Z)' },
+      { met: passwordRules.lower, label: 'Lowercase letter (a-z)' },
+      { met: passwordRules.number, label: 'Number (0-9)' },
+      { met: passwordRules.special, label: 'Special character (!@#$...)' },
+    ],
+    [passwordRules],
+  );
 
   useEffect(() => {
     if (!roleOptions.some((option) => option.value === form.role)) {
@@ -683,7 +728,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
                     fieldErrors.password && 'ring-2 ring-red-400/35 shadow-[0_0_0_1px_rgba(248,113,113,0.35)]',
                   )}
                   type={showPass ? 'text' : 'password'}
-                  placeholder="Min 8 characters"
+                  placeholder="Min 8 chars, upper, lower, number, special"
                   value={form.password}
                   onChange={(event) => patchForm({ password: event.target.value })}
                   autoComplete="new-password"
@@ -697,6 +742,45 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
                   {showPass ? <EyeOff size={17} /> : <Eye size={17} />}
                 </button>
               </div>
+              {passwordStrength ? (
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Password strength
+                    </span>
+                    <span className={cn('text-xs font-bold', passwordStrength.textClass)}>
+                      {passwordStrength.label}
+                    </span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className={cn(
+                        'h-full rounded-full transition-[width] duration-300 ease-out',
+                        passwordStrength.widthClass,
+                        passwordStrength.barClass,
+                      )}
+                    />
+                  </div>
+                  <ul className="mt-3 grid gap-1.5" aria-label="Password requirements">
+                    {passwordChecklist.map((rule) => (
+                      <li
+                        key={rule.label}
+                        className={cn(
+                          'flex items-center gap-2 rounded-lg px-2 py-1 text-xs font-medium transition-colors',
+                          rule.met ? 'bg-emerald-50 text-emerald-700' : 'text-slate-500',
+                        )}
+                      >
+                        {rule.met ? (
+                          <CheckCircle2 size={14} className="shrink-0 text-emerald-500" aria-hidden />
+                        ) : (
+                          <XCircle size={14} className="shrink-0 text-slate-300" aria-hidden />
+                        )}
+                        <span>{rule.label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {fieldErrors.password ? <p className="text-xs font-medium text-red-600">{fieldErrors.password}</p> : null}
             </div>
 

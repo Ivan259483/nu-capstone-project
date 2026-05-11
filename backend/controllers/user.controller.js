@@ -633,6 +633,20 @@ export const activateUser = async (req, res, next) => {
 /**
  * Create user (Admin only)
  */
+const ADMIN_CREATE_PASSWORD_SPECIAL_RE = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/;
+
+function getAdminCreatePasswordErrors(password) {
+  const errors = [];
+  if (typeof password !== 'string' || password.length < 8) errors.push('at least 8 characters');
+  if (typeof password !== 'string' || !/[A-Z]/.test(password)) errors.push('one uppercase letter');
+  if (typeof password !== 'string' || !/[a-z]/.test(password)) errors.push('one lowercase letter');
+  if (typeof password !== 'string' || !/[0-9]/.test(password)) errors.push('one number');
+  if (typeof password !== 'string' || !ADMIN_CREATE_PASSWORD_SPECIAL_RE.test(password)) {
+    errors.push('one special character');
+  }
+  return errors;
+}
+
 export const createUser = async (req, res, next) => {
   try {
     const { name, email, password, role, avatar, firebaseUid } = req.body;
@@ -659,6 +673,14 @@ export const createUser = async (req, res, next) => {
       });
     }
 
+    const passwordErrors = getAdminCreatePasswordErrors(password);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Password must contain: ${passwordErrors.join(', ')}`,
+      });
+    }
+
     // Check if user already exists
     const userExists = await User.findOne({ email });
     if (userExists) {
@@ -681,6 +703,7 @@ export const createUser = async (req, res, next) => {
               lockUntil: null,
               deletedAt: null,
               password: hashedPassword,
+              isFirstLogin: false,
               ...(firebaseUid ? { firebaseUid } : {}),
             }
           },
@@ -722,7 +745,7 @@ export const createUser = async (req, res, next) => {
       isVerified: true, // Admin created users are verified by default
       isActive: true,
       status: 'active',
-      isFirstLogin: requestedRole !== 'customer', // Staff must change password on first login
+      isFirstLogin: false, // Admin-created users already receive validated strong passwords.
     };
 
     if (firebaseUid) {

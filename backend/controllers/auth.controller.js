@@ -794,18 +794,10 @@ export const login = async (req, res, next) => {
       await user.save();
     }
 
-    // ── Staff first login: force password change ────────────────────────
+    // ── Staff first login: legacy flag cleanup ──────────────────────────
     if (user.isFirstLogin && user.role !== 'customer') {
-      const token = jwt.sign(
-        { id: user._id, email: user.email, role: user.role, requiresPasswordChange: true },
-        config.jwtSecret,
-        { expiresIn: '1h' }
-      );
-      return res.json({
-        success: true,
-        message: 'Please set your own password to continue.',
-        data: { requiresPasswordChange: true, token },
-      });
+      user.isFirstLogin = false;
+      await user.save({ validateBeforeSave: false });
     }
 
     // ── 2FA Branch ─────────────────────────────────────────────────────────
@@ -1493,6 +1485,19 @@ export const createStaff = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid email address.' });
     }
 
+    const passwordErrors = [];
+    if (password.length < 8) passwordErrors.push('at least 8 characters');
+    if (!/[A-Z]/.test(password)) passwordErrors.push('one uppercase letter');
+    if (!/[a-z]/.test(password)) passwordErrors.push('one lowercase letter');
+    if (!/[0-9]/.test(password)) passwordErrors.push('one number');
+    if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) passwordErrors.push('one special character');
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Password must contain: ${passwordErrors.join(', ')}`,
+      });
+    }
+
     const existing = await User.findOne({ email });
     if (existing) {
       return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
@@ -1507,7 +1512,7 @@ export const createStaff = async (req, res) => {
       isVerified: false,
       isActive: true,
       status: 'pending',
-      isFirstLogin: true,
+      isFirstLogin: false,
     });
     await user.save();
 

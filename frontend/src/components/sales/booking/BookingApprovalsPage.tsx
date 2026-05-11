@@ -122,7 +122,7 @@ function sortPendingApprovalsFifo(list: any[]): any[] {
 // ─── Status badge ───────────────────────────────────────────────────────────
 function PendingBadge() {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-amber-200/70 bg-amber-50 px-3 py-1.5 shadow-sm shadow-amber-100/60">
+    <span className="inline-flex items-center gap-2 rounded-full border-0 bg-amber-50 px-3 py-1.5 shadow-sm shadow-amber-600/12">
       <span className="relative flex h-2 w-2">
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
         <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
@@ -136,10 +136,10 @@ function PendingBadge() {
 function PayBreakdown({ total }: { total: number }) {
   const balance = Math.max(0, total - DOWNPAYMENT);
   return (
-    <div className="booking-payment-ledger overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+    <div className="booking-payment-ledger overflow-hidden rounded-2xl border-0 bg-white shadow-[0_2px_10px_rgba(15,23,42,0.05),0_12px_32px_-12px_rgba(15,23,42,0.08)]">
+      <div className="flex items-center justify-between bg-slate-50/90 px-4 py-3 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.06)]">
         <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-600 shadow-sm shadow-blue-600/12">
             <WalletCards size={16} strokeWidth={2.4} />
           </span>
           <div>
@@ -147,7 +147,7 @@ function PayBreakdown({ total }: { total: number }) {
             <p className="text-xs font-bold text-slate-800">GCash reservation fee</p>
           </div>
         </div>
-        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-blue-700 ring-1 ring-blue-100">
+        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-blue-700 shadow-sm shadow-blue-600/12">
           GCash
         </span>
       </div>
@@ -162,7 +162,7 @@ function PayBreakdown({ total }: { total: number }) {
           <span className="font-black tabular-nums text-emerald-600">− {formatMoney(DOWNPAYMENT)}</span>
         </div>
         <div className="h-px bg-slate-100" />
-        <div className="flex items-center justify-between gap-4 rounded-xl bg-rose-50 px-3 py-2 ring-1 ring-rose-100">
+        <div className="flex items-center justify-between gap-4 rounded-xl bg-rose-50 px-3 py-2 shadow-sm shadow-rose-500/10">
           <span className="font-black text-rose-700">Balance on arrival</span>
           <span className="font-black tabular-nums text-rose-700">{formatMoney(balance)}</span>
         </div>
@@ -173,7 +173,7 @@ function PayBreakdown({ total }: { total: number }) {
 
 function DetailTile({ label, value, icon: Icon }: { label: string; value: React.ReactNode; icon?: any }) {
   return (
-    <div className="booking-approval-detail rounded-2xl border border-slate-200/70 bg-white px-3.5 py-3 shadow-sm shadow-slate-200/30">
+    <div className="booking-approval-detail rounded-2xl border-0 bg-white px-3.5 py-3 shadow-[0_2px_8px_rgba(15,23,42,0.04),0_10px_28px_-10px_rgba(15,23,42,0.08)]">
       <div className="mb-1.5 flex items-center gap-1.5">
         {Icon ? <Icon size={12} strokeWidth={2.4} className="text-slate-400" /> : null}
         <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</div>
@@ -196,14 +196,14 @@ function ProofPreview({
 }) {
   if (!proofUrl) {
     return (
-      <div className={`${compact ? 'h-[220px]' : 'h-[360px]'} flex flex-col items-center justify-center rounded-[22px] border-2 border-dashed border-slate-200 bg-slate-50/80 text-slate-400`}>
+      <div className={`${compact ? 'h-[220px]' : 'h-[360px]'} flex flex-col items-center justify-center rounded-[22px] border-0 bg-slate-100/50 text-slate-400 shadow-inner`}>
         <ImageIcon size={32} className="mb-2 opacity-50" />
         <span className="text-xs font-black uppercase tracking-[0.16em]">No proof uploaded</span>
       </div>
     );
   }
 
-  const frameClass = `${compact ? 'h-[240px]' : 'h-[calc(100vh-220px)] max-h-[680px] min-h-[420px]'} group/proof relative w-full overflow-hidden rounded-[24px] border border-slate-200 bg-slate-950 text-left shadow-[0_24px_60px_rgba(15,23,42,0.18)] transition-all duration-300 ${
+  const frameClass = `${compact ? 'h-[240px]' : 'h-[calc(100vh-220px)] max-h-[680px] min-h-[420px]'} group/proof relative w-full overflow-hidden rounded-[24px] border-0 bg-slate-950 text-left shadow-[0_24px_60px_rgba(15,23,42,0.22),0_12px_40px_-16px_rgba(0,0,0,0.35)] transition-all duration-300 ${
     interactive ? 'hover:-translate-y-0.5 hover:shadow-[0_30px_80px_rgba(15,23,42,0.24)]' : 'cursor-default'
   }`;
 
@@ -264,10 +264,10 @@ function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
           <ProofPreview proofUrl={proofUrl} interactive={false} />
         </div>
 
-        <aside className="flex min-h-0 flex-col border-l border-slate-200 bg-white">
-          <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-5">
+        <aside className="flex min-h-0 flex-col bg-white shadow-[inset_16px_0_32px_-28px_rgba(15,23,42,0.08)]">
+          <div className="flex items-start justify-between gap-4 px-5 py-5 shadow-[0_12px_24px_-24px_rgba(15,23,42,0.08)]">
             <div className="min-w-0">
-              <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-blue-700 ring-1 ring-blue-100">
+              <span className="inline-flex items-center gap-2 rounded-full border-0 bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-blue-700 shadow-sm shadow-blue-600/14">
                 <ShieldCheck size={12} />
                 Payment verification
               </span>
@@ -276,7 +276,7 @@ function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
             </div>
             <button
               onClick={onClose}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-all hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border-0 bg-white text-slate-500 shadow-sm shadow-slate-900/8 transition-all hover:bg-slate-50 hover:text-slate-900 hover:shadow-md"
               aria-label="Close proof modal"
             >
               <X size={18} strokeWidth={2.5} />
@@ -295,7 +295,7 @@ function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
 
             <PayBreakdown total={total} />
 
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold leading-relaxed text-amber-900">
+            <div className="mt-4 rounded-2xl border-0 bg-amber-50 px-4 py-3 text-xs font-semibold leading-relaxed text-amber-900 shadow-sm shadow-amber-600/12">
               <div className="mb-2 flex items-center gap-2 font-black">
                 <AlertTriangle size={16} className="text-amber-600" />
                 Before approving
@@ -304,7 +304,7 @@ function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
             </div>
           </div>
 
-          <div className="grid gap-3 border-t border-slate-100 bg-slate-50/80 p-5">
+          <div className="grid gap-3 bg-slate-50/85 p-5 shadow-[inset_0_8px_16px_-12px_rgba(15,23,42,0.06)]">
             <button
               onClick={onApprove}
               disabled={acting}
@@ -325,7 +325,7 @@ function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
             <button
               onClick={onReject}
               disabled={acting}
-              className="flex h-11 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-4 text-sm font-black text-rose-600 transition-all hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex h-11 items-center justify-center gap-2 rounded-2xl border-0 bg-white px-4 text-sm font-black text-rose-600 shadow-sm shadow-rose-500/12 transition-all hover:bg-rose-50/90 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
             >
               <XCircle size={17} strokeWidth={2.5} />
               Reject proof
@@ -379,8 +379,7 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
         <ProofModal booking={booking} onClose={() => setShowModal(false)}
           onApprove={doApprove} onReject={() => { setShowModal(false); setRejectMode(true); }} acting={acting} />
       )}
-      <div
-        className={`booking-approval-card overflow-hidden rounded-[28px] border border-slate-200 bg-white transition-all duration-300 relative group
+      <div className={`booking-approval-card overflow-hidden rounded-[28px] border-0 bg-white shadow-[0_4px_20px_rgba(15,23,42,0.06),0_20px_48px_-20px_rgba(15,23,42,0.1)] transition-all duration-300 relative group
           ${leaving ? 'opacity-0 translate-x-12 scale-95 pointer-events-none' : 'opacity-100 translate-x-0 scale-100'}
         `}
         style={{ animationDelay: `${idx * 0.05}s` }}
@@ -390,7 +389,7 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
         <div className="p-4 sm:p-5 lg:p-6">
           <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex min-w-0 items-center gap-4">
-              <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg shadow-slate-950/15 ring-4 ring-slate-100">
+              <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-xl shadow-slate-950/30">
                 <span className="text-lg font-black uppercase tracking-tight">{getInitials(customerName)}</span>
                 <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white ring-2 ring-white">
                   <Smartphone size={11} strokeWidth={3} />
@@ -409,7 +408,7 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
                     {booking.createdAt ? new Date(booking.createdAt).toLocaleString('en-PH', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '—'}
                   </span>
                   <span className="text-slate-300">/</span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 font-mono text-slate-600 ring-1 ring-slate-200">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 font-mono text-slate-600 shadow-sm shadow-slate-900/6">
                     <Hash size={11} />
                     {ref}
                   </span>
@@ -418,7 +417,7 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <PendingBadge />
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-blue-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full border-0 bg-blue-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-blue-700 shadow-sm shadow-blue-600/14">
                 <ReceiptText size={12} />
                 Proof attached
               </span>
@@ -439,7 +438,7 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
               <div className="grid gap-4 lg:grid-cols-[minmax(0,420px)_minmax(280px,1fr)]">
                 <PayBreakdown total={total} />
 
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="rounded-2xl border-0 bg-slate-50/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_4px_16px_-8px_rgba(15,23,42,0.06)]">
                   <div className="mb-3 flex items-center gap-2">
                     <BadgeCheck size={17} className="text-blue-600" />
                     <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Review checklist</p>
@@ -453,7 +452,7 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
               </div>
 
               {!rejectMode ? (
-                <div className="booking-approval-action-bar flex flex-col gap-3 rounded-[22px] border border-slate-200 bg-white p-3 shadow-sm sm:flex-row">
+                <div className="booking-approval-action-bar flex flex-col gap-3 rounded-[22px] border-0 bg-white p-3 shadow-[0_2px_10px_rgba(15,23,42,0.05),0_14px_36px_-14px_rgba(15,23,42,0.1)] sm:flex-row">
                   <button
                     onClick={() => setShowModal(true)}
                     className="flex h-12 flex-[2] items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:bg-emerald-700 active:scale-[0.99]"
@@ -463,14 +462,14 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
                   </button>
                   <button
                     onClick={() => setRejectMode(true)}
-                    className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-5 text-sm font-black text-rose-700 transition-all hover:border-rose-300 hover:bg-rose-100 active:scale-[0.99]"
+                    className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl border-0 bg-rose-50 px-5 text-sm font-black text-rose-700 shadow-sm shadow-rose-500/12 transition-all hover:bg-rose-100/90 hover:shadow-md active:scale-[0.99]"
                   >
                     <XCircle size={17} strokeWidth={2.5} />
                     Reject
                   </button>
                 </div>
               ) : (
-                <div className="rounded-[22px] border border-rose-200 bg-rose-50 p-4 animate-in fade-in zoom-in-95 duration-200">
+                <div className="rounded-[22px] border-0 bg-rose-50 p-4 shadow-sm shadow-rose-500/12 animate-in fade-in zoom-in-95 duration-200">
                   <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-rose-700">
                     <AlertTriangle size={15} />
                     Reason for rejection
@@ -480,7 +479,7 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
                     onChange={e => setReason(e.target.value)}
                     rows={3}
                     placeholder="Example: screenshot is unclear, amount does not match, or sender reference cannot be verified."
-                    className="mb-3 w-full resize-none rounded-2xl border border-rose-200 bg-white px-3.5 py-3 text-sm text-slate-800 shadow-sm transition-all placeholder:text-slate-400 focus:border-rose-400 focus:outline-none focus:ring-4 focus:ring-rose-500/10"
+                    className="mb-3 w-full resize-none rounded-2xl border-0 bg-white px-3.5 py-3 text-sm text-slate-800 shadow-[0_2px_8px_rgba(15,23,42,0.05)] transition-all placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-rose-500/12"
                   />
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <button
@@ -497,7 +496,7 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
                     </button>
                     <button
                       onClick={() => setRejectMode(false)}
-                      className="h-11 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-600 transition-all hover:bg-slate-50"
+                      className="h-11 rounded-2xl border-0 bg-white px-5 text-sm font-black text-slate-600 shadow-sm shadow-slate-900/8 transition-all hover:bg-slate-50 hover:shadow-md"
                     >
                       Cancel
                     </button>
@@ -506,13 +505,13 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
               )}
             </div>
 
-            <div className="booking-proof-rail rounded-[26px] border border-slate-200 bg-slate-50/70 p-3 shadow-inner shadow-slate-200/40">
+            <div className="booking-proof-rail rounded-[26px] border-0 bg-slate-50/75 p-3 shadow-inner">
               <div className="mb-3 flex items-center justify-between px-1">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">GCash proof</p>
                   <p className="mt-0.5 text-xs font-bold text-slate-700">Receipt screenshot</p>
                 </div>
-                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.13em] text-slate-500 ring-1 ring-slate-200">
+                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.13em] text-slate-500 shadow-sm shadow-slate-900/8">
                   Tap to zoom
                 </span>
               </div>
@@ -531,11 +530,11 @@ function HistoryRow({ b, type }: { b: any; type: 'approved' | 'rejected' }) {
   const isApproved = type === 'approved';
 
   return (
-    <div className="booking-approval-history-row bg-white rounded-[18px] border border-slate-100 p-4 flex items-center gap-4 hover:-translate-y-0.5 transition-all duration-200 group">
-      <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ring-1 ring-inset ${
+    <div className="booking-approval-history-row bg-white rounded-[18px] border-0 p-4 flex items-center gap-4 shadow-[0_2px_10px_rgba(15,23,42,0.04),0_12px_32px_-12px_rgba(15,23,42,0.08)] hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-8px_rgba(15,23,42,0.12)] transition-all duration-200 group">
+      <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
         isApproved
-          ? 'bg-emerald-50 text-emerald-600 ring-emerald-600/20'
-          : 'bg-red-50 text-red-600 ring-red-600/20'
+          ? 'bg-emerald-50 text-emerald-600 shadow-emerald-600/15'
+          : 'bg-red-50 text-red-600 shadow-red-600/15'
       }`}>
         {isApproved ? <CheckCircle2 size={20} strokeWidth={2.5} /> : <XCircle size={20} strokeWidth={2.5} />}
       </div>
@@ -715,10 +714,10 @@ export default function BookingApprovalsPage() {
   return (
     <div className="booking-approvals-shell flex min-h-0 flex-col space-y-5 page-enter pb-6">
       {/* Header */}
-      <div className="booking-approvals-header shrink-0 overflow-hidden rounded-[28px] border bg-white px-5 py-5 sm:px-6">
+      <div className="booking-approvals-header shrink-0 overflow-hidden rounded-[28px] border-0 bg-white px-5 py-5 shadow-[0_4px_24px_-10px_rgba(15,23,42,0.08),0_18px_48px_-18px_rgba(15,23,42,0.09)] sm:px-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <span className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-[0.12em] text-blue-700">
+            <span className="inline-flex items-center gap-2 rounded-full border-0 bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-[0.12em] text-blue-700 shadow-sm shadow-blue-600/15">
               <ShieldCheck size={13} />
               GCash Payment Command Center
             </span>
@@ -730,7 +729,7 @@ export default function BookingApprovalsPage() {
           <button
             onClick={fetchAll}
             disabled={loading}
-            className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 shadow-sm shadow-slate-200/50 transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-11 items-center gap-2 rounded-2xl border-0 bg-white px-4 text-xs font-black text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.05),0_10px_28px_-10px_rgba(15,23,42,0.1)] transition-all hover:-translate-y-0.5 hover:bg-blue-50/90 hover:text-blue-700 hover:shadow-[0_6px_20px_-8px_rgba(37,99,235,0.15)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             Refresh
@@ -738,21 +737,21 @@ export default function BookingApprovalsPage() {
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="booking-approval-stat rounded-2xl border bg-amber-50/90 px-4 py-3">
+          <div className="booking-approval-stat rounded-2xl border-0 bg-amber-50/90 px-4 py-3 shadow-[0_2px_8px_rgba(245,158,11,0.1),0_12px_28px_-10px_rgba(245,158,11,0.15)]">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-amber-700">Pending Review</span>
               <Clock size={16} className="text-amber-500" />
             </div>
             <p className="mt-2 text-2xl font-black text-amber-700 tabular-nums">{pending.length}</p>
           </div>
-          <div className="booking-approval-stat rounded-2xl border bg-emerald-50/90 px-4 py-3">
+          <div className="booking-approval-stat rounded-2xl border-0 bg-emerald-50/90 px-4 py-3 shadow-[0_2px_8px_rgba(16,185,129,0.1),0_12px_28px_-10px_rgba(16,185,129,0.14)]">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-emerald-700">Approved</span>
               <TrendingUp size={16} className="text-emerald-500" />
             </div>
             <p className="mt-2 text-2xl font-black text-emerald-700 tabular-nums">{approved.length}</p>
           </div>
-          <div className="booking-approval-stat rounded-2xl border bg-rose-50/90 px-4 py-3">
+          <div className="booking-approval-stat rounded-2xl border-0 bg-rose-50/90 px-4 py-3 shadow-[0_2px_8px_rgba(244,63,94,0.1),0_12px_28px_-10px_rgba(244,63,94,0.14)]">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-rose-700">Rejected</span>
               <XCircle size={16} className="text-rose-500" />
@@ -763,7 +762,7 @@ export default function BookingApprovalsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="booking-approvals-tabs flex max-w-full shrink-0 gap-2 overflow-x-auto rounded-[18px] border bg-white p-1.5 scrollbar-thin">
+      <div className="booking-approvals-tabs flex max-w-full shrink-0 gap-2 overflow-x-auto rounded-[18px] border-0 bg-white p-1.5 shadow-[0_2px_10px_rgba(15,23,42,0.05),0_12px_32px_-12px_rgba(15,23,42,0.08)] scrollbar-thin">
         {TABS.map(t => {
           const active = tab === t.key;
           return (
@@ -793,7 +792,7 @@ export default function BookingApprovalsPage() {
       </div>
 
       {/* Content */}
-      <div className="booking-approvals-content rounded-[22px] border bg-white p-4">
+      <div className="booking-approvals-content rounded-[22px] border-0 bg-white p-4 shadow-[0_4px_20px_rgba(15,23,42,0.06),0_16px_44px_-16px_rgba(15,23,42,0.09)]">
         {loading ? (
           <div className="flex flex-col items-center justify-center h-64 gap-4 rounded-2xl bg-slate-50/70">
             <div className="w-10 h-10 border-4 border-amber-100 border-t-amber-500 rounded-full animate-spin" />
@@ -801,8 +800,8 @@ export default function BookingApprovalsPage() {
           </div>
         ) : tab === 'pending' ? (
           pending.length === 0 ? (
-            <div className="booking-approvals-empty flex min-h-[360px] flex-col items-center justify-center rounded-[20px] border bg-slate-50/70 px-6 text-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-sm shadow-slate-200/60 ring-1 ring-emerald-100">
+            <div className="booking-approvals-empty flex min-h-[360px] flex-col items-center justify-center rounded-[20px] border-0 bg-slate-50/75 px-6 text-center shadow-inner">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-[0_4px_16px_-4px_rgba(16,185,129,0.2)]">
                 <CheckCircle2 size={30} strokeWidth={2.5} />
               </div>
               <p className="text-xl font-extrabold text-slate-900 mb-1">All caught up</p>
@@ -818,8 +817,8 @@ export default function BookingApprovalsPage() {
           )
         ) : tab === 'approved' ? (
           approved.length === 0 ? (
-            <div className="booking-approvals-empty flex min-h-[360px] flex-col items-center justify-center rounded-[20px] border bg-slate-50/70 px-6 text-center">
-              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 ring-1 ring-slate-200 shadow-sm">
+            <div className="booking-approvals-empty flex min-h-[360px] flex-col items-center justify-center rounded-[20px] border-0 bg-slate-50/75 px-6 text-center shadow-inner">
+              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-[0_4px_16px_-6px_rgba(15,23,42,0.1)]">
                 <CheckCircle2 size={28} className="text-slate-300" />
               </div>
               <p className="text-sm font-bold text-slate-500">No approved bookings yet.</p>
@@ -831,8 +830,8 @@ export default function BookingApprovalsPage() {
           )
         ) : (
           rejected.length === 0 ? (
-            <div className="booking-approvals-empty flex min-h-[360px] flex-col items-center justify-center rounded-[20px] border bg-slate-50/70 px-6 text-center">
-              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 ring-1 ring-slate-200 shadow-sm">
+            <div className="booking-approvals-empty flex min-h-[360px] flex-col items-center justify-center rounded-[20px] border-0 bg-slate-50/75 px-6 text-center shadow-inner">
+              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-[0_4px_16px_-6px_rgba(15,23,42,0.1)]">
                 <XCircle size={28} className="text-slate-300" />
               </div>
               <p className="text-sm font-bold text-slate-500">No rejected bookings.</p>

@@ -1,13 +1,11 @@
 import { useState } from "react";
-import { Shield, Star, Zap, Award, Users, Car, Sparkles, ArrowRight } from "lucide-react";
+import { Shield, Star, Zap, Users, Car, Sparkles, ArrowRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Variants } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScrollAnimation, useCounter } from "@/hooks/useScrollAnimation";
 import PageLayout from "@/components/PageLayout";
 import BookingCTA from "@/components/BookingCTA";
-import { cn } from "@/lib/utils";
-
 /* ── Framer Motion Variants (matching Services/Gallery) ── */
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -228,50 +226,65 @@ export default function About() {
                         viewport={{ once: true, margin: "-60px" }}
                         className="relative"
                     >
-                        <div className="absolute -inset-4 bg-gradient-to-br from-amber-500/8 via-transparent to-indigo-500/8 blur-3xl rounded-3xl pointer-events-none" />
+                        <div className="absolute -inset-4 bg-gradient-to-br from-amber-500/10 via-transparent to-orange-500/10 blur-3xl rounded-3xl pointer-events-none" />
 
                         <motion.div
                             whileHover={{ y: -6, transition: { duration: 0.3 } }}
-                            className="relative overflow-hidden rounded-3xl ring-1 ring-white/[0.07] p-10 text-center"
+                            className="relative isolate overflow-hidden rounded-3xl border-0 px-10 pt-8 pb-9 text-center shadow-[0_24px_56px_-12px_rgba(0,0,0,0.72),0_0_80px_-28px_rgba(251,146,60,0.055)] selection:bg-white/15 selection:text-white"
                             style={{
-                                background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%)",
-                                backdropFilter: "blur(12px)",
+                                background:
+                                    "linear-gradient(200deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.028) 28%, rgba(10,9,8,0.42) 100%), radial-gradient(ellipse 95% 55% at 50% 128%, rgba(251,191,36,0.045), transparent 58%)",
+                                backdropFilter: "blur(22px) saturate(140%)",
+                                WebkitBackdropFilter: "blur(22px) saturate(140%)",
                             }}
                         >
-                            {/* Ambient corner glow */}
-                            <div className="absolute top-0 right-0 w-40 h-40 bg-amber-500/[0.08] blur-[60px] rounded-full pointer-events-none" />
+                            {/* Soft vignette only — no top band */}
+                            <div className="pointer-events-none absolute inset-0 rounded-3xl bg-[radial-gradient(ellipse_85%_55%_at_50%_100%,rgba(0,0,0,0.22),transparent_72%)] opacity-90" />
 
-                            <motion.div
-                                initial={{ scale: 0.8, opacity: 0 }}
-                                whileInView={{ scale: 1, opacity: 1 }}
-                                viewport={{ once: true }}
-                                transition={{ duration: 0.6, delay: 0.3, type: "spring", stiffness: 200 }}
-                                className="w-24 h-24 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 mx-auto mb-5 flex items-center justify-center shadow-2xl shadow-amber-500/30"
-                            >
-                                <Award className="w-12 h-12 text-white" />
-                            </motion.div>
+                            {/* Ambient glows (corners only, very soft) */}
+                            <div className="absolute -top-4 -right-10 w-44 h-44 bg-amber-400/[0.06] blur-[58px] rounded-full pointer-events-none" />
+                            <div className="absolute -bottom-10 -left-10 w-36 h-36 bg-orange-500/[0.06] blur-[52px] rounded-full pointer-events-none" />
 
-                            <h3 className="text-xl font-bold text-white mb-2">AutoSPF+</h3>
-                            <p className="text-sm text-white/35 mb-4">Premium Auto Detailing</p>
+                            {/* Diagonal sweep — no mix-blend (avoids orange “plate” behind text) */}
+                            <div className="about-brand-glass-sweep" aria-hidden />
 
-                            <div className="flex justify-center gap-1 mb-6">
-                                {[...Array(5)].map((_, i) => (
-                                    <motion.div
-                                        key={i}
-                                        initial={{ opacity: 0, scale: 0 }}
-                                        whileInView={{ opacity: 1, scale: 1 }}
-                                        viewport={{ once: true }}
-                                        transition={{ delay: 0.5 + i * 0.08, type: "spring", stiffness: 300 }}
-                                    >
-                                        <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
-                                    </motion.div>
-                                ))}
+                            <div className="relative z-10 mx-auto w-full max-w-sm selection:bg-white/15 selection:text-white">
+                                <motion.div
+                                    initial={{ scale: 0.8, opacity: 0 }}
+                                    whileInView={{ scale: 1, opacity: 1 }}
+                                    viewport={{ once: true }}
+                                    transition={{ duration: 0.6, delay: 0.3, type: "spring", stiffness: 200 }}
+                                    className="mx-auto mb-1 flex items-center justify-center"
+                                >
+                                    <img
+                                        src="/images/autospf-logo.png"
+                                        alt="AutoSPF+"
+                                        className="h-28 sm:h-32 w-auto max-w-[min(100%,320px)] object-contain drop-shadow-[0_12px_36px_rgba(0,0,0,0.5)]"
+                                    />
+                                </motion.div>
+                                <h3 className="sr-only">AutoSPF+</h3>
+
+                                <p className="text-sm text-white/35 mb-2 leading-snug -mt-0.5">Premium Auto Detailing</p>
+
+                                <div className="flex justify-center gap-1 mb-3">
+                                    {[...Array(5)].map((_, i) => (
+                                        <motion.div
+                                            key={i}
+                                            initial={{ opacity: 0, scale: 0 }}
+                                            whileInView={{ opacity: 1, scale: 1 }}
+                                            viewport={{ once: true }}
+                                            transition={{ delay: 0.5 + i * 0.08, type: "spring", stiffness: 300 }}
+                                        >
+                                            <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+                                        </motion.div>
+                                    ))}
+                                </div>
                             </div>
 
                             {/* Badge pills */}
-                            <div className="flex flex-wrap items-center justify-center gap-2">
+                            <div className="relative z-10 flex flex-wrap items-center justify-center gap-2">
                                 {["SONAX Certified", "PPF Installer", "Vinyl Frog Partner"].map((badge) => (
-                                    <span key={badge} className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/20 px-3 py-1.5 rounded-full border border-white/5">
+                                    <span key={badge} className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/35 px-3 py-1.5 rounded-full border-0 bg-white/[0.06] shadow-[0_2px_12px_rgba(0,0,0,0.2)]">
                                         {badge}
                                     </span>
                                 ))}
@@ -284,13 +297,15 @@ export default function About() {
                             whileInView={{ opacity: 1, y: 0, scale: 1 }}
                             viewport={{ once: true }}
                             transition={{ duration: 0.5, delay: 0.6, ease: EASE }}
-                            className="absolute -bottom-4 -right-4 rounded-2xl px-5 py-3 ring-1 ring-white/[0.07] backdrop-blur-md shadow-xl"
+                            className="absolute -bottom-4 -right-4 isolate overflow-hidden rounded-2xl border-0 px-5 py-3 shadow-[0_16px_40px_-8px_rgba(0,0,0,0.65),0_0_56px_-20px_rgba(251,146,60,0.06)] backdrop-blur-xl selection:bg-white/15 selection:text-white"
                             style={{
-                                background: "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)",
+                                background:
+                                    "linear-gradient(200deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.035) 40%, rgba(12,10,9,0.45) 100%), radial-gradient(ellipse 100% 80% at 50% 120%, rgba(251,191,36,0.08), transparent 58%)",
                             }}
                         >
-                            <div className="text-[10px] text-white/30 uppercase tracking-wider font-medium">Since</div>
-                            <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500">2011</div>
+                            <div className="about-brand-glass-sweep about-brand-glass-sweep--badge" aria-hidden />
+                            <div className="relative z-10 text-[10px] text-white/30 uppercase tracking-wider font-medium">Since</div>
+                            <div className="relative z-10 text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500">2011</div>
                         </motion.div>
                     </motion.div>
                 </div>

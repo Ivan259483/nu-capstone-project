@@ -52,7 +52,7 @@ function DonutChart({ data }: { data: { name: string; value: number; pct: number
     return (
       <div className="flex items-center justify-center h-40">
         <div className="text-center">
-          <div className="w-20 h-20 rounded-full border-4 border-slate-100 mx-auto mb-2" />
+          <div className="w-20 h-20 rounded-full bg-slate-100/90 shadow-inner mx-auto mb-2" />
           <p className="text-xs text-slate-400">No data yet</p>
         </div>
       </div>
@@ -248,7 +248,7 @@ export default function SalesReportsView() {
         </div>
         <div className="flex items-center gap-2">
           {/* Date Range Selector */}
-          <div className="flex bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div className="flex rounded-xl bg-slate-100/70 p-1 shadow-inner gap-0.5">
             {[
               { key: '7d' as DateRange, label: '7 Days' },
               { key: '30d' as DateRange, label: '30 Days' },
@@ -258,10 +258,10 @@ export default function SalesReportsView() {
               <button
                 key={opt.key}
                 onClick={() => setDateRange(opt.key)}
-                className={`px-3 py-2 text-xs font-semibold transition-all ${
+                className={`px-3 py-2 text-xs font-semibold rounded-lg transition-all duration-200 ${
                   dateRange === opt.key
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-600 hover:bg-slate-50'
+                    ? 'bg-white text-blue-700 shadow-[0_1px_3px_rgba(15,23,42,0.1),0_4px_14px_-4px_rgba(15,23,42,0.08)]'
+                    : 'text-slate-600 hover:bg-white/60'
                 }`}
               >
                 {opt.label}
@@ -271,7 +271,7 @@ export default function SalesReportsView() {
 
           <button
             onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-sm font-semibold text-slate-700 shadow-[0_2px_8px_rgba(15,23,42,0.05),0_10px_28px_-10px_rgba(15,23,42,0.1)] hover:shadow-[0_4px_14px_rgba(15,23,42,0.08),0_14px_36px_-12px_rgba(15,23,42,0.12)] transition-all duration-200"
           >
             <Download size={14} />
             Export CSV
@@ -282,12 +282,12 @@ export default function SalesReportsView() {
       {/* KPI Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Total Revenue', value: formatCurrency(periodRevenue), change: revChange, icon: DollarSign, color: 'bg-blue-50 text-blue-600', border: 'border-blue-200' },
-          { label: 'Total Orders', value: periodOrders.toString(), change: ordersChange, icon: ShoppingBag, color: 'bg-emerald-50 text-emerald-600', border: 'border-emerald-200' },
-          { label: 'Avg. Order Value', value: formatCurrency(periodAvg), change: avgChange, icon: TrendingUp, color: 'bg-violet-50 text-violet-600', border: 'border-violet-200' },
-          { label: 'Unique Customers', value: uniqueCustomers.toString(), change: custChange, icon: Users, color: 'bg-amber-50 text-amber-600', border: 'border-amber-200' },
+          { label: 'Total Revenue', value: formatCurrency(periodRevenue), change: revChange, icon: DollarSign, color: 'bg-blue-50 text-blue-600', cardClass: 'shadow-[0_2px_8px_rgba(59,130,246,0.06),0_12px_32px_-8px_rgba(59,130,246,0.1)]' },
+          { label: 'Total Orders', value: periodOrders.toString(), change: ordersChange, icon: ShoppingBag, color: 'bg-emerald-50 text-emerald-600', cardClass: 'shadow-[0_2px_8px_rgba(16,185,129,0.06),0_12px_32px_-8px_rgba(16,185,129,0.1)]' },
+          { label: 'Avg. Order Value', value: formatCurrency(periodAvg), change: avgChange, icon: TrendingUp, color: 'bg-violet-50 text-violet-600', cardClass: 'shadow-[0_2px_8px_rgba(139,92,246,0.06),0_12px_32px_-8px_rgba(139,92,246,0.1)]' },
+          { label: 'Unique Customers', value: uniqueCustomers.toString(), change: custChange, icon: Users, color: 'bg-amber-50 text-amber-600', cardClass: 'shadow-[0_2px_8px_rgba(245,158,11,0.07),0_12px_32px_-8px_rgba(245,158,11,0.11)]' },
         ].map((kpi) => (
-          <div key={kpi.label} className={`bg-white rounded-xl border ${kpi.border} p-4`}>
+          <div key={kpi.label} className={`bg-white rounded-xl border-0 p-4 ${kpi.cardClass}`}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{kpi.label}</span>
               <div className={`w-8 h-8 rounded-lg ${kpi.color} flex items-center justify-center`}>
@@ -308,7 +308,7 @@ export default function SalesReportsView() {
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Revenue Trend Chart */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5">
+        <div className="lg:col-span-2 card-base p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-bold text-slate-800">Revenue Trend</h3>
@@ -331,7 +331,7 @@ export default function SalesReportsView() {
         </div>
 
         {/* Service Mix Donut */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="card-base p-5">
           <h3 className="text-sm font-bold text-slate-800 mb-1">Service Mix</h3>
           <p className="text-[11px] text-slate-400 mb-4">Revenue by service category</p>
           {isLoading ? (
@@ -347,7 +347,7 @@ export default function SalesReportsView() {
       {/* Bottom Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Payment Breakdown */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="card-base p-5">
           <h3 className="text-sm font-bold text-slate-800 mb-1">Payment Methods</h3>
           <p className="text-[11px] text-slate-400 mb-4">Revenue breakdown by payment method</p>
           {isLoading ? (
@@ -391,7 +391,7 @@ export default function SalesReportsView() {
         </div>
 
         {/* Top Services */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="card-base p-5">
           <h3 className="text-sm font-bold text-slate-800 mb-1">Top Services</h3>
           <p className="text-[11px] text-slate-400 mb-4">Most popular services by revenue</p>
           {isLoading ? (

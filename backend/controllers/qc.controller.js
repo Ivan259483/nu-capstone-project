@@ -6,6 +6,8 @@ import { generateQCPDF } from '../utils/pdf.utils.js';
 import Notification from '../models/notification.model.js';
 
 const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed', 'released'];
+const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
+const QC_APPROVED_TRACKER_STAGES = ['ready_pickup', 'completed', 'released'];
 const QC_JOBS_DEFAULT_LIMIT = 20;
 const QC_JOBS_MAX_LIMIT = 100;
 const QC_JOBS_PROJECTION = [
@@ -31,6 +33,36 @@ const QC_JOBS_PROJECTION = [
   'serviceTrackingStage',
   'serviceStaffAssignments',
 ].join(' ');
+
+const getQCApprovedOutcomeConditions = () => [
+  { qcCompletedAt: { $exists: true, $ne: null } },
+  { serviceTrackingStage: { $in: QC_APPROVED_TRACKER_STAGES } },
+  { status: { $in: QC_APPROVED_ORDER_STATUSES } },
+];
+
+const getQCApprovedOutcomeMatch = () => ({
+  archived: { $ne: true },
+  $or: getQCApprovedOutcomeConditions(),
+});
+
+const getQCApprovalDateExpression = () => ({
+  $ifNull: [
+    '$qcCompletedAt',
+    {
+      $cond: [
+        { $in: ['$serviceTrackingStage', QC_APPROVED_TRACKER_STAGES] },
+        { $ifNull: ['$serviceTrackingUpdatedAt', '$updatedAt'] },
+        {
+          $cond: [
+            { $in: ['$status', QC_APPROVED_ORDER_STATUSES] },
+            '$updatedAt',
+            null,
+          ],
+        },
+      ],
+    },
+  ],
+});
 
 /**
  * GET /api/qc/jobs
@@ -181,12 +213,11 @@ export const getQCStats = async (req, res, next) => {
 
     // All statuses that represent active or completed service work
     const ACTIVE_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed', 'released'];
-    const DONE_STATUSES   = ['completed', 'released'];
     const QUEUE_STATUSES  = ['approved', 'confirmed', 'assigned', 'received', 'in_progress'];
 
     const [
       awaitingCount,
-      approvedTodayCount,
+      approvedTodayRows,
       returnedCount,
       serviceDistribution,
     ] = await Promise.all([
@@ -196,12 +227,13 @@ export const getQCStats = async (req, res, next) => {
         archived: { $ne: true },
       }),
 
-      // Approved today: released or completed today (by updatedAt — covers Live Tracker advancement too)
-      Order.countDocuments({
-        status: { $in: DONE_STATUSES },
-        archived: { $ne: true },
-        updatedAt: { $gte: today, $lt: tomorrow },
-      }),
+      // Approved today: explicit QC completion, ready-for-pickup, completed, or released today.
+      Order.aggregate([
+        { $match: getQCApprovedOutcomeMatch() },
+        { $project: { approvalDate: getQCApprovalDateExpression() } },
+        { $match: { approvalDate: { $gte: today, $lt: tomorrow } } },
+        { $count: 'count' },
+      ]),
 
       // Returned: orders with a [QC_RETURN] staff note
       Order.countDocuments({
@@ -227,6 +259,7 @@ export const getQCStats = async (req, res, next) => {
         { $limit: 6 },
       ]),
     ]);
+    const approvedTodayCount = approvedTodayRows?.[0]?.count || 0;
 
     // Avg review time — QC-cleared jobs: qcCompletedAt − createdAt (meaningful duration)
     const avgTimeResult = await Order.aggregate([
@@ -262,15 +295,12 @@ export const getQCStats = async (req, res, next) => {
     // Trend: approved = count of QC completions per day; returned = unique orders with a return note that day
     const [trendApprovedRaw, trendReturnedRaw] = await Promise.all([
       Order.aggregate([
-        {
-          $match: {
-            archived: { $ne: true },
-            qcCompletedAt: { $exists: true, $ne: null, $gte: fourteenDaysAgo },
-          },
-        },
+        { $match: getQCApprovedOutcomeMatch() },
+        { $project: { approvalDate: getQCApprovalDateExpression() } },
+        { $match: { approvalDate: { $gte: fourteenDaysAgo } } },
         {
           $group: {
-            _id: { $dateToString: { format: '%m/%d', date: '$qcCompletedAt' } },
+            _id: { $dateToString: { format: '%m/%d', date: '$approvalDate' } },
             c: { $sum: 1 },
           },
         },
@@ -314,14 +344,11 @@ export const getQCStats = async (req, res, next) => {
 
     // Reports KPIs — lifetime QC outcomes (do not use approvedToday for approval %)
     const [qcApprovedLifetime, totalQCReviewed] = await Promise.all([
-      Order.countDocuments({
-        archived: { $ne: true },
-        qcCompletedAt: { $exists: true, $ne: null },
-      }),
+      Order.countDocuments(getQCApprovedOutcomeMatch()),
       Order.countDocuments({
         archived: { $ne: true },
         $or: [
-          { qcCompletedAt: { $exists: true, $ne: null } },
+          ...getQCApprovedOutcomeConditions(),
           { staffNotes: { $elemMatch: { content: { $regex: /^\[QC_RETURN\]/, $options: 'i' } } } },
         ],
       }),
@@ -607,6 +634,10 @@ export const updateServiceStatus = async (req, res, next) => {
     };
     order.status = stageToStatus[stage] ?? order.status;
 
+    if (QC_APPROVED_TRACKER_STAGES.includes(stage) && !order.qcCompletedAt) {
+      order.qcCompletedAt = new Date();
+    }
+
     // ── Mark payment as paid when the car is physically released ─────────
     if (stage === 'released') {
       order.paymentStatus = 'paid';
@@ -760,7 +791,7 @@ export const getQCActivity = async (req, res, next) => {
     const recent = await Order.find({
       archived: { $ne: true },
       $or: [
-        { qcCompletedAt: { $exists: true } },
+        ...getQCApprovedOutcomeConditions(),
         { 'staffNotes.content': { $regex: /^\[QC_RETURN\]/, $options: 'i' } },
       ],
     })
@@ -784,7 +815,11 @@ export const getQCActivity = async (req, res, next) => {
       );
       const type = returnNote ? 'returned' : 'approved';
       const actorName = returnNote?.detailerName || 'QC Checker';
-      const timestamp = returnNote?.createdAt || o.qcCompletedAt || o.updatedAt;
+      const approvalTimestamp = o.qcCompletedAt ||
+        (QC_APPROVED_TRACKER_STAGES.includes(o.serviceTrackingStage)
+          ? o.serviceTrackingUpdatedAt || o.updatedAt
+          : o.updatedAt);
+      const timestamp = returnNote?.createdAt || approvalTimestamp;
 
       return {
         id: o._id.toString(),
@@ -865,7 +900,7 @@ export const getQCTechnicianReport = async (req, res, next) => {
 
     const [approved, returned] = await Promise.all([
       Order.aggregate([
-        { $match: { status: 'completed', archived: { $ne: true }, qcCompletedAt: { $exists: true, $ne: null } } },
+        { $match: getQCApprovedOutcomeMatch() },
         ...techNameAddFields,
         { $group: { _id: '$techName', approved: { $sum: 1 } } },
       ]),

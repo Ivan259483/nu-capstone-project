@@ -1,7 +1,7 @@
 /**
  * Customer dashboard — service catalog blocks
  *
- * Palette: white surfaces + neutral slate text + orange (Tailwind orange-500/600) for brand accents & CTAs only.
+ * Palette: white surfaces + neutral slate text + blue accents (aligned with booking / sales UI).
  *
  * Type scale (this module):
  *   11px — overlines, meta, price captions (uppercase where noted)
@@ -51,17 +51,17 @@ export function CustomerDashboardServicesShowcase({
         <div className="space-y-8">
             <section
                 className={cn(
-                    "overflow-hidden rounded-2xl border border-slate-200/90 bg-white",
-                    "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-12px_rgba(15,23,42,0.08)]"
+                    "overflow-hidden rounded-2xl border-0 bg-white",
+                    "shadow-[0_4px_16px_rgba(15,23,42,0.06),0_16px_40px_-16px_rgba(15,23,42,0.1)]"
                 )}
             >
-                <header className="border-b border-slate-100 px-5 py-6 sm:px-8 sm:py-7">
+                <header className="border-0 px-5 py-6 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.08)] sm:px-8 sm:py-7">
                     <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
                         <div className="min-w-0 max-w-2xl">
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-700">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">
                                 Service catalog
                             </p>
-                            <div className="mt-2 h-0.5 w-10 rounded-full bg-orange-500" aria-hidden />
+                            <div className="mt-2 h-0.5 w-10 rounded-full bg-blue-600" aria-hidden />
                             <h2 className="mt-4 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
                                 Ceramic &amp; protection lineup
                             </h2>
@@ -79,9 +79,9 @@ export function CustomerDashboardServicesShowcase({
                                 value={priceTier}
                                 onChange={(e) => setPriceTier(e.target.value as VehiclePriceKey)}
                                 className={cn(
-                                    "w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-2.5",
-                                    "text-sm font-medium text-slate-900 shadow-sm outline-none transition-colors",
-                                    "hover:border-orange-200 focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20"
+                                    "w-full cursor-pointer rounded-xl border-0 bg-white px-3 py-2.5",
+                                    "text-sm font-medium text-slate-900 shadow-[0_2px_8px_rgba(15,23,42,0.06)] outline-none transition-all",
+                                    "hover:shadow-[0_4px_14px_-4px_rgba(37,99,235,0.12)] focus:ring-2 focus:ring-blue-500/25"
                                 )}
                             >
                                 {CUSTOMER_BOOKING_PRICE_TIERS.map((t) => (
@@ -94,7 +94,7 @@ export function CustomerDashboardServicesShowcase({
                     </div>
                 </header>
 
-                <div className="divide-y divide-slate-100">
+                <div className="flex flex-col gap-3 px-5 pb-5 pt-1 sm:px-8 sm:pb-6">
                     {packages.map((pkg) => {
                         const price = pkg.prices[priceTier] ?? null;
                         const isUnavailable = price === null;
@@ -103,15 +103,15 @@ export function CustomerDashboardServicesShowcase({
                             <div
                                 key={pkg.id}
                                 className={cn(
-                                    "px-5 py-6 sm:px-8 sm:py-7",
-                                    isFlagship && "bg-orange-50/50 ring-1 ring-inset ring-orange-100/80"
+                                    "rounded-2xl px-5 py-6 shadow-[0_2px_10px_rgba(15,23,42,0.04)] sm:px-8 sm:py-7",
+                                    isFlagship && "bg-blue-50/45 shadow-[0_4px_18px_-6px_rgba(37,99,235,0.12)]"
                                 )}
                             >
                                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-8 lg:items-start">
                                     <div className="lg:col-span-5">
                                         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                                             {isFlagship && (
-                                                <span className="rounded-md border border-orange-200 bg-orange-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-orange-800">
+                                                <span className="rounded-md border-0 bg-blue-100/90 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-blue-800 shadow-sm shadow-blue-600/10">
                                                     Flagship
                                                 </span>
                                             )}
@@ -127,7 +127,7 @@ export function CustomerDashboardServicesShowcase({
                                         {pkg.features.map((f) => (
                                             <li key={f} className="flex gap-3 text-sm leading-snug text-slate-600">
                                                 <span
-                                                    className="mt-2 h-1 w-1 shrink-0 rounded-full bg-orange-400"
+                                                    className="mt-2 h-1 w-1 shrink-0 rounded-full bg-blue-500 shadow-[0_0_0_3px_rgba(59,130,246,0.15)]"
                                                     aria-hidden
                                                 />
                                                 <span>{f}</span>
@@ -135,7 +135,7 @@ export function CustomerDashboardServicesShowcase({
                                         ))}
                                     </ul>
 
-                                    <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 lg:col-span-3 lg:border-t-0 lg:border-l lg:border-slate-100 lg:pl-8 lg:pt-0">
+                                    <div className="flex flex-col gap-3 border-0 pt-4 lg:col-span-3 lg:pl-8 lg:pt-0 lg:shadow-[inset_12px_0_24px_-20px_rgba(15,23,42,0.05)]">
                                         <div>
                                             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                                                 From
@@ -152,9 +152,9 @@ export function CustomerDashboardServicesShowcase({
                                             className={cn(
                                                 "inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-2.5",
                                                 "text-sm font-semibold text-white transition-colors",
-                                                isUnavailable ? "cursor-not-allowed bg-slate-300 text-slate-500" : "bg-orange-600 hover:bg-orange-700",
-                                                !isUnavailable && "shadow-sm shadow-orange-600/25",
-                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/40 focus-visible:ring-offset-2"
+                                                isUnavailable ? "cursor-not-allowed bg-slate-300 text-slate-500" : "bg-blue-600 hover:bg-blue-700",
+                                                !isUnavailable && "shadow-md shadow-blue-600/25",
+                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-2"
                                             )}
                                         >
                                             {isUnavailable ? "Unavailable" : "Book"}
@@ -167,7 +167,7 @@ export function CustomerDashboardServicesShowcase({
                     })}
                 </div>
 
-                <footer className="flex flex-col gap-3 border-t border-orange-100/80 bg-orange-50/40 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+                <footer className="flex flex-col gap-3 border-0 bg-blue-50/50 px-5 py-4 shadow-[inset_0_8px_20px_-16px_rgba(37,99,235,0.08)] sm:flex-row sm:items-center sm:justify-between sm:px-8">
                     <p className="text-xs leading-relaxed text-slate-600">
                         Rates shown are list prices for the selected class. Promotions, if any, apply at checkout.
                     </p>
@@ -175,9 +175,9 @@ export function CustomerDashboardServicesShowcase({
                         type="button"
                         onClick={() => onOpenBooking()}
                         className={cn(
-                            "inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border-2 border-orange-600 bg-white",
-                            "px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm transition-colors",
-                            "hover:bg-orange-50"
+                            "inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border-0 bg-white",
+                            "px-4 py-2 text-sm font-semibold text-blue-700 shadow-md shadow-blue-600/15 transition-all",
+                            "hover:bg-blue-50/90 hover:shadow-lg"
                         )}
                     >
                         New booking
@@ -188,14 +188,14 @@ export function CustomerDashboardServicesShowcase({
 
             <section
                 className={cn(
-                    "rounded-2xl border border-slate-200/90 bg-white px-5 py-6 sm:px-8 sm:py-7",
-                    "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-10px_rgba(15,23,42,0.06)]"
+                    "rounded-2xl border-0 bg-white px-5 py-6 sm:px-8 sm:py-7",
+                    "shadow-[0_4px_16px_rgba(15,23,42,0.06),0_12px_36px_-14px_rgba(15,23,42,0.09)]"
                 )}
             >
                 <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-700">Detailing menu</p>
-                        <div className="mt-2 h-0.5 w-10 rounded-full bg-orange-500" aria-hidden />
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">Detailing menu</p>
+                        <div className="mt-2 h-0.5 w-10 rounded-full bg-blue-600" aria-hidden />
                         <h2 className="mt-4 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
                             Signature services
                         </h2>
@@ -206,9 +206,9 @@ export function CustomerDashboardServicesShowcase({
                     <Link
                         to="/services"
                         className={cn(
-                            "inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-lg border-2 border-orange-600",
-                            "bg-white px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition-colors",
-                            "hover:bg-orange-50 sm:self-auto"
+                            "inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl border-0",
+                            "bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 shadow-md shadow-blue-600/15 transition-all",
+                            "hover:bg-blue-50/90 hover:shadow-lg sm:self-auto"
                         )}
                     >
                         View all services
@@ -220,13 +220,13 @@ export function CustomerDashboardServicesShowcase({
                         <div
                             key={s.name}
                             className={cn(
-                                "flex flex-col rounded-xl border border-slate-100 bg-white p-4",
-                                "transition-colors hover:border-orange-200 hover:shadow-sm hover:shadow-orange-500/5"
+                                "flex flex-col rounded-xl border-0 bg-white p-4",
+                                "shadow-[0_2px_10px_rgba(15,23,42,0.05)] transition-all hover:shadow-[0_6px_20px_-6px_rgba(37,99,235,0.12)]"
                             )}
                         >
                             <div className="mb-2 flex items-center justify-between gap-2">
                                 <span
-                                    className="h-1.5 w-1.5 shrink-0 rounded-full ring-2 ring-orange-100"
+                                    className="h-1.5 w-1.5 shrink-0 rounded-full ring-2 ring-blue-100"
                                     style={{ background: s.accent }}
                                 />
                                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
@@ -235,7 +235,7 @@ export function CustomerDashboardServicesShowcase({
                             </div>
                             <h3 className="text-sm font-semibold text-slate-900">{s.name}</h3>
                             <p className="mt-1.5 flex-1 text-sm leading-relaxed text-slate-600">{s.desc}</p>
-                            <p className="mt-3 text-sm font-semibold tabular-nums text-orange-700">{s.price}</p>
+                            <p className="mt-3 text-sm font-semibold tabular-nums text-blue-700">{s.price}</p>
                         </div>
                     ))}
                 </div>

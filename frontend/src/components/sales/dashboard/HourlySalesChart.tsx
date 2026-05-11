@@ -9,7 +9,7 @@ import { useSalesContext } from '@/contexts/SalesAnalyticsContext';
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; payload: { transactions: number } }[]; label?: string }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-modal px-4 py-3 text-sm">
+    <div className="bg-white/95 backdrop-blur-sm border-0 rounded-xl shadow-modal px-4 py-3 text-sm">
       <p className="font-semibold text-slate-900 mb-1">{label}</p>
       <p className="text-blue-700 font-bold font-tabular">₱{payload[0].value.toLocaleString()}</p>
       <p className="text-slate-500 text-xs">{payload[0].payload.transactions} transaction{payload[0].payload.transactions !== 1 ? 's' : ''}</p>

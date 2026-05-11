@@ -35,7 +35,7 @@ const SPF_META: { match: string; meta: SPFMeta }[] = [
     match: 'SPF 80',
     meta: {
       badge: 'SPECIAL OFFER',
-      badgeColor: 'bg-sky-100 text-sky-700 border-sky-200',
+      badgeColor: 'bg-sky-100 text-sky-700 shadow-sm shadow-sky-500/10',
       tagline: 'Perfect entry-level protection',
       warranty: '3 Years',
       tintPrices: DEFAULT_SPF_ADDON_PRICES.spf80,
@@ -45,7 +45,7 @@ const SPF_META: { match: string; meta: SPFMeta }[] = [
     match: 'SPF 89',
     meta: {
       badge: 'RECOMMENDED',
-      badgeColor: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      badgeColor: 'bg-emerald-100 text-emerald-700 shadow-sm shadow-emerald-600/10',
       tagline: 'Our most chosen package',
       warranty: '5 Years',
       tintPrices: DEFAULT_SPF_ADDON_PRICES.spf89,
@@ -55,7 +55,7 @@ const SPF_META: { match: string; meta: SPFMeta }[] = [
     match: 'SPF 99',
     meta: {
       badge: '50% OFF PROMO',
-      badgeColor: 'bg-amber-100 text-amber-700 border-amber-200',
+      badgeColor: 'bg-blue-100 text-blue-800 shadow-sm shadow-blue-600/12',
       tagline: 'Maximum protection, best price-to-value',
       warranty: '10 Years',
       tintPrices: DEFAULT_SPF_ADDON_PRICES.spf99,
@@ -65,7 +65,7 @@ const SPF_META: { match: string; meta: SPFMeta }[] = [
     match: 'SPF 101',
     meta: {
       badge: 'ALL-IN PACKAGE',
-      badgeColor: 'bg-purple-100 text-purple-700 border-purple-200',
+      badgeColor: 'bg-purple-100 text-purple-700 shadow-sm shadow-purple-600/10',
       tagline: 'The complete transformation experience',
       warranty: '10 Years',
       tintPrices: {},
@@ -129,21 +129,21 @@ export default function ServiceCartPanel({
   const activeVehicleLabel = VEHICLE_TABS.find((t) => t.key === selectedVehicleType)?.label ?? '';
 
   return (
-    <div className="pos-service-cart-panel flex flex-1 flex-col overflow-hidden rounded-[22px] border bg-white ring-1 ring-white/80">
+    <div className="pos-service-cart-panel flex flex-1 flex-col overflow-hidden rounded-[22px] border-0 bg-white shadow-[0_4px_28px_-10px_rgba(15,23,42,0.1),0_16px_48px_-20px_rgba(15,23,42,0.07)]">
 
       {/* ══ HEADER ══════════════════════════════════════════════════════════ */}
-      <div className="pos-service-cart-header border-b px-4 pb-3 pt-4">
+      <div className="pos-service-cart-header px-4 pb-3 pt-4 shadow-[0_12px_32px_-28px_rgba(15,23,42,0.12)]">
 
         {/* Title row */}
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-700 ring-1 ring-blue-100">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-700 shadow-sm shadow-blue-600/12">
               <ShoppingCart size={15} />
             </span>
             Service Cart
           </h3>
           {cartItems.length > 0 && (
-            <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 shadow-sm shadow-blue-100/50">
+            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 shadow-sm shadow-blue-600/15">
               {cartItems.length} item{cartItems.length !== 1 ? 's' : ''}
             </span>
           )}
@@ -157,7 +157,7 @@ export default function ServiceCartPanel({
             placeholder="Search services…"
             value={svcQuery}
             onChange={(e) => setSvcQuery(e.target.value)}
-            className="h-10 w-full rounded-xl border border-slate-200/70 bg-white pl-8 pr-3 text-xs text-slate-900 shadow-sm shadow-slate-200/35 transition-all duration-150 placeholder-slate-400 focus:border-blue-300 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
+            className="h-10 w-full rounded-xl border-0 bg-white pl-8 pr-3 text-xs text-slate-900 shadow-[0_1px_4px_rgba(15,23,42,0.06),0_6px_16px_-6px_rgba(15,23,42,0.08)] transition-all duration-150 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-blue-500/15"
           />
         </div>
 
@@ -171,17 +171,17 @@ export default function ServiceCartPanel({
             </p>
           </div>
         )}
-        <div className="flex items-center justify-start gap-1.5 overflow-x-auto rounded-2xl bg-slate-50/80 p-1.5 ring-1 ring-slate-100" style={{ scrollbarWidth: 'none' }}>
+        <div className="flex items-center justify-start gap-1 overflow-x-auto rounded-2xl bg-slate-100/55 p-1 shadow-inner" style={{ scrollbarWidth: 'none' }}>
           {VEHICLE_TABS.map((tab) => {
             const active = selectedVehicleType === tab.key;
             return (
               <button
                 key={tab.key}
                 onClick={() => onVehicleTypeChange(tab.key)}
-                className={`flex shrink-0 items-center justify-center rounded-xl border px-3.5 py-2 text-[11px] font-bold transition-all duration-200 ${
+                className={`flex shrink-0 items-center justify-center rounded-xl px-3.5 py-2 text-[11px] font-bold transition-all duration-200 border-0 ${
                   active
-                    ? 'border-transparent bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-[0_8px_18px_rgba(245,158,11,0.24)]'
-                    : 'border-transparent bg-transparent text-slate-500 hover:bg-white hover:text-slate-700 hover:shadow-sm'
+                    ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-[0_6px_18px_rgba(37,99,235,0.32)]'
+                    : 'bg-transparent text-slate-600 hover:bg-white/95 hover:text-slate-800 hover:shadow-[0_2px_10px_rgba(15,23,42,0.08)]'
                 }`}
               >
                 {tab.label}
@@ -196,7 +196,7 @@ export default function ServiceCartPanel({
 
         {/* ── Cart Items (in-transaction) ──────────────────────────────────── */}
         {cartItems.length > 0 && (
-          <div className="pos-service-cart-added border-b bg-slate-50/70">
+          <div className="pos-service-cart-added bg-slate-50/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
             <div className="px-4 pt-2.5 pb-1">
               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
                 Added to Transaction
@@ -206,7 +206,7 @@ export default function ServiceCartPanel({
               {cartItems.map((item) => (
                 <div
                   key={`cart-item-${item.id}`}
-                  className="grid items-center gap-2 rounded-2xl border border-slate-200/60 bg-white px-3 py-2.5 shadow-sm shadow-slate-200/35"
+                  className="grid items-center gap-2 rounded-2xl border-0 bg-white px-3 py-2.5 shadow-[0_2px_8px_rgba(15,23,42,0.05),0_8px_20px_-10px_rgba(15,23,42,0.08)]"
                   style={{ gridTemplateColumns: '1fr auto auto auto' }}
                 >
                   <div className="min-w-0">
@@ -218,7 +218,7 @@ export default function ServiceCartPanel({
                       <span className="text-[11px] text-slate-400">{formatPeso(item.price)}</span>
                       {/* Locked vehicle type badge */}
                       {(item as any).vehicleType && (
-                        <span className="text-[9px] font-bold text-orange-600 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded-full">
+                        <span className="text-[9px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full shadow-sm shadow-blue-600/10">
                           {VEHICLE_TABS.find(t => t.key === (item as any).vehicleType)?.label ?? (item as any).vehicleType}
                         </span>
                       )}
@@ -260,7 +260,7 @@ export default function ServiceCartPanel({
         {/* ── Service Catalog List ─────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto">
           {/* Catalog meta row */}
-          <div className="pos-service-catalog-meta sticky top-0 z-10 flex items-center justify-between border-b bg-white/90 px-4 py-2.5 backdrop-blur-sm">
+          <div className="pos-service-catalog-meta sticky top-0 z-10 flex items-center justify-between border-0 bg-white/92 px-4 py-2.5 backdrop-blur-md shadow-[0_8px_24px_-20px_rgba(15,23,42,0.08)]">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
               {servicesLoading ? 'Loading…' : `${filteredServices.length} service${filteredServices.length !== 1 ? 's' : ''}`}
             </p>
@@ -271,10 +271,7 @@ export default function ServiceCartPanel({
                   "{svcQuery}"
                 </span>
               )}
-              <span
-                className="rounded-full px-2.5 py-1 text-[10px] font-semibold shadow-sm"
-                style={{ backgroundColor: '#fff3ed', color: '#e07040', border: '1px solid #fdd5b8' }}
-              >
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700 shadow-sm shadow-blue-600/12">
                 {activeVehicleLabel}
               </span>
             </div>
@@ -308,8 +305,8 @@ export default function ServiceCartPanel({
                 return (
                     <div
                       key={`catalog-${svc._id}`}
-                      className={`pos-service-row rounded-2xl border px-4 py-3.5 transition-all duration-150 ${
-                        added ? 'border-blue-200/70 bg-blue-50/80 shadow-[0_10px_24px_rgba(37,99,235,0.08)]' : 'border-slate-200/60 bg-white shadow-sm shadow-slate-200/35 hover:border-blue-100 hover:bg-white hover:shadow-[0_12px_26px_rgba(15,23,42,0.06)]'
+                      className={`pos-service-row rounded-2xl border-0 px-4 py-3.5 transition-all duration-150 ${
+                        added ? 'bg-blue-50/85 shadow-[0_6px_20px_rgba(37,99,235,0.12),0_2px_8px_rgba(37,99,235,0.08)]' : 'bg-white shadow-[0_2px_8px_rgba(15,23,42,0.04),0_10px_28px_-12px_rgba(15,23,42,0.08)] hover:bg-white hover:shadow-[0_8px_28px_-8px_rgba(37,99,235,0.1),0_2px_10px_rgba(15,23,42,0.05)]'
                       }`}
                     >
                     {/* Main row */}
@@ -328,7 +325,7 @@ export default function ServiceCartPanel({
                         {/* Package badge + warranty */}
                         {spfMeta && (
                           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                              <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-black uppercase ${spfMeta.badgeColor}`}>
+                              <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black uppercase ${spfMeta.badgeColor}`}>
                                 {spfMeta.badge}
                               </span>
                             <span className="flex items-center gap-0.5 text-[9px] font-semibold text-slate-500">
@@ -350,7 +347,7 @@ export default function ServiceCartPanel({
                             </span>
                           )}
                           {!hasVehiclePrice && price > 0 && (
-                              <span className="rounded-md border border-amber-100 bg-amber-50 px-1 py-0.5 text-[9px] font-semibold text-amber-500">
+                              <span className="rounded-md bg-slate-100/90 px-1 py-0.5 text-[9px] font-semibold text-slate-500 shadow-sm">
                                 base price
                               </span>
                           )}
@@ -397,7 +394,7 @@ export default function ServiceCartPanel({
 
                     {/* Tint add-on expanded panel */}
                     {isExpanded && spfMeta && tintPrice && (
-                        <div className="mt-3 flex items-center justify-between rounded-2xl border border-teal-100 bg-teal-50/90 p-3 shadow-sm shadow-teal-100/50">
+                        <div className="mt-3 flex items-center justify-between rounded-2xl border-0 bg-teal-50/90 p-3 shadow-[0_4px_16px_-6px_rgba(13,148,136,0.15)]">
                         <div>
                           <p className="text-[10px] font-bold text-teal-800">+ Nano Ceramic Window Tint</p>
                           <p className="text-[9px] text-teal-600 mt-0.5">Bundle with {svc.name} · {activeVehicleLabel}</p>
