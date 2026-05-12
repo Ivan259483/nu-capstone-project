@@ -327,7 +327,7 @@
 2. [ ] Set production env    # .env for production
 3. [ ] Run tests             # Verify everything works
 4. [ ] Build if needed       # npm run build (if applicable)
-5. [ ] Deploy to server      # Heroku, Railway, etc.
+5. [ ] Deploy to server      # Heroku, Railway, Render, etc.
 6. [ ] Verify endpoints      # Test on production
 7. [ ] Monitor logs          # Check for errors
 8. [ ] Setup backups         # Database backup

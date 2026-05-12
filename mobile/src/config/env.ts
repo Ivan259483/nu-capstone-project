@@ -3,13 +3,13 @@
 //   1. EXPO_PUBLIC_API_URL env var (explicit override)
 //   2. In dev: auto-detect the LAN IP from Expo's debugger host
 //      (whichever IP `expo start` bound to, e.g. 192.168.x.x)
-//   3. Fallback to the production Railway domain
+//   3. Fallback to the production Render domain
 //
 // This means swapping Wi-Fi networks or moving between routers
 // "just works" — no .env edits needed for local dev.
 import Constants from 'expo-constants';
 
-const FALLBACK_API_ORIGIN = 'https://nu-capstone-project-production.up.railway.app';
+const FALLBACK_API_ORIGIN = 'https://nu-capstone-project.onrender.com';
 const DEV_API_PORT = 3000;
 
 /**

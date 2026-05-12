@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://nu-capstone-project-production.up.railway.app/api/:path*"
+      "destination": "https://nu-capstone-project.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",

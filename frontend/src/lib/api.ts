@@ -2,12 +2,12 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { auth } from '@/config/firebase';
 
-// Backend API configuration — always use production Railway URL
-const RAILWAY_API = 'https://nu-capstone-project-production.up.railway.app/api';
-const RAILWAY_BASE = 'https://nu-capstone-project-production.up.railway.app';
+// Backend API configuration — production fallback (Render); override with VITE_API_URL
+const PRODUCTION_API_URL = 'https://nu-capstone-project.onrender.com/api';
+const PRODUCTION_BACKEND_ORIGIN = 'https://nu-capstone-project.onrender.com';
 
 export const getBaseApiUrl = () => {
-    return import.meta.env.VITE_API_URL || RAILWAY_API;
+    return import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
 };
 
 export const BACKEND_API_URL = getBaseApiUrl();
@@ -96,9 +96,9 @@ const api = axios.create({
     timeout: 45_000,
 });
 
-// Socket connection URL — always use production Railway URL
+// Socket connection URL — origin only (no /api); override with VITE_BACKEND_URL
 export const getBackendSocketUrl = () => {
-    return import.meta.env.VITE_BACKEND_URL || RAILWAY_BASE;
+    return import.meta.env.VITE_BACKEND_URL || PRODUCTION_BACKEND_ORIGIN;
 };
 
 // Request Interceptor: Attach Authorization Header
