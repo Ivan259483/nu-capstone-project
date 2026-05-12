@@ -7,7 +7,6 @@ import {
   REGISTER_PHONE_PRIORITY_ISO,
   type RegisterCountryDial,
 } from "@/lib/countries-dial-data";
-import { iso2ToFlagEmoji } from "@/lib/phone";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -89,10 +88,7 @@ export function RegisterPhoneField({
             )}
             aria-label="Country code"
           >
-            <span className="mr-1 text-base leading-none" aria-hidden>
-              {iso2ToFlagEmoji(selected.iso)}
-            </span>
-            <span className="text-sm tabular-nums">+{selected.dial}</span>
+            <span className="text-sm tabular-nums font-medium">+{selected.dial}</span>
             <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-70" />
           </Button>
         </PopoverTrigger>
@@ -122,7 +118,6 @@ export function RegisterPhoneField({
                     }}
                     className="gap-2 text-white aria-selected:bg-white/15"
                   >
-                    <span className="text-base leading-none">{iso2ToFlagEmoji(c.iso)}</span>
                     <span className="flex-1 truncate">{c.name}</span>
                     <span className="tabular-nums text-white/80">+{c.dial}</span>
                     {c.iso === countryIso ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}
@@ -141,7 +136,6 @@ export function RegisterPhoneField({
                     }}
                     className="gap-2 text-white aria-selected:bg-white/15"
                   >
-                    <span className="text-base leading-none">{iso2ToFlagEmoji(c.iso)}</span>
                     <span className="flex-1 truncate">{c.name}</span>
                     <span className="tabular-nums text-white/80">+{c.dial}</span>
                     {c.iso === countryIso ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}

@@ -16,7 +16,6 @@ import {
   REGISTER_PHONE_PRIORITY_ISO,
   type RegisterCountryDial,
 } from '@/lib/countries-dial-data';
-import { iso2ToFlagEmoji } from '@/lib/phoneRegister';
 
 function orderedCountries(): { priority: RegisterCountryDial[]; rest: RegisterCountryDial[] } {
   const byIso = new Map(REGISTER_COUNTRY_DIALS.map((c) => [c.iso, c]));
@@ -118,7 +117,6 @@ export function RegisterPhoneField({
           }}
           accessibilityLabel="Country code"
         >
-          <Text style={styles.flag}>{iso2ToFlagEmoji(selected.iso)}</Text>
           <Text style={styles.dialText}>+{selected.dial}</Text>
           <Ionicons name="chevron-down" size={16} color="rgba(255,255,255,0.55)" />
         </TouchableOpacity>
@@ -181,7 +179,6 @@ export function RegisterPhoneField({
                       setSearch('');
                     }}
                   >
-                    <Text style={styles.countryFlag}>{iso2ToFlagEmoji(c.iso)}</Text>
                     <Text style={styles.countryName} numberOfLines={1}>
                       {c.name}
                     </Text>
@@ -222,9 +219,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 12,
-    gap: 6,
+    gap: 8,
   },
-  flag: { fontSize: 18, lineHeight: 22 },
   dialText: { fontSize: 14, fontWeight: '600', color: '#FFFFFF', fontVariant: ['tabular-nums'] },
   divider: { width: 1, alignSelf: 'stretch', backgroundColor: 'rgba(255,255,255,0.10)' },
   nationalInput: {
@@ -290,10 +286,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    gap: 10,
+    gap: 12,
   },
   countryRowSelected: { backgroundColor: 'rgba(255,255,255,0.08)' },
-  countryFlag: { fontSize: 20, width: 32 },
   countryName: { flex: 1, fontSize: 15, color: '#FFFFFF', fontWeight: '500' },
   countryDial: { fontSize: 14, color: 'rgba(255,255,255,0.75)', fontVariant: ['tabular-nums'] },
   empty: { textAlign: 'center', color: 'rgba(255,255,255,0.5)', padding: 24 },

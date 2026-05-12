@@ -4,7 +4,7 @@
  *   POST /auth/register → navigate to verify email (no session until OTP + login).
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Modal,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,6 +29,13 @@ import { RegisterPhoneField } from '@/components/auth/RegisterPhoneField';
 import { authService } from '@/services/api/authService';
 import { REGISTER_COUNTRY_DIALS } from '@/lib/countries-dial-data';
 import { validateRegisterNationalDigits, buildRegisterE164 } from '@/lib/phoneRegister';
+import {
+  PPF_TERMS_BUSINESS,
+  PPF_TERMS_INTRO,
+  PPF_TERMS_SECTIONS,
+} from '@/content/ppfRegistrationTerms';
+
+const SCREEN_H = Dimensions.get('window').height;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Must match web Login.tsx + backend auth.controller register password check */
@@ -122,6 +133,17 @@ export default function SignUpScreen() {
   });
   const [phoneError, setPhoneError] = useState('');
 
+  const [ppfTermsModalOpen, setPpfTermsModalOpen] = useState(false);
+  const [ppfTermsModalBodyKey, setPpfTermsModalBodyKey] = useState(0);
+  const [ppfTermsModalScrolledToEnd, setPpfTermsModalScrolledToEnd] = useState(false);
+  const [ppfTermsAgreed, setPpfTermsAgreed] = useState(false);
+  const [registerWebsiteTermsAgreed, setRegisterWebsiteTermsAgreed] = useState(false);
+
+  const registerLegalAcknowledged = useMemo(
+    () => ppfTermsAgreed && registerWebsiteTermsAgreed,
+    [ppfTermsAgreed, registerWebsiteTermsAgreed]
+  );
+
   const dial =
     REGISTER_COUNTRY_DIALS.find((c) => c.iso === registerPhoneCountryIso)?.dial ?? '63';
 
@@ -181,6 +203,19 @@ export default function SignUpScreen() {
     );
   }, [firstName, lastName, email, pwAllValid, confirmPassword, password, dial, registerPhoneNational]);
 
+  const canRegister = useMemo(
+    () => isFormValid && registerLegalAcknowledged,
+    [isFormValid, registerLegalAcknowledged]
+  );
+
+  const handlePpfTermsScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+    const threshold = 56;
+    if (layoutMeasurement.height + contentOffset.y >= contentSize.height - threshold) {
+      setPpfTermsModalScrolledToEnd(true);
+    }
+  }, []);
+
   const validateAll = (): boolean => {
     const newErrors: Record<FieldKey, string> = {
       firstName: validators.firstName(firstName),
@@ -216,6 +251,14 @@ export default function SignUpScreen() {
   const handleRegisterSubmit = async () => {
     if (!validateAll()) {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+    if (!registerLegalAcknowledged) {
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Toast.show(
+        'Both checkboxes are required: accept the PPF terms in the popup, and confirm the website Terms of Service.',
+        'error'
+      );
       return;
     }
 
@@ -407,7 +450,7 @@ export default function SignUpScreen() {
                 title={loading ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT'}
                 icon={loading ? undefined : 'person-add-outline'}
                 onPress={handleRegisterSubmit}
-                disabled={loading || !isFormValid}
+                disabled={loading || !canRegister}
               />
             </Animated.View>
 
@@ -417,10 +460,55 @@ export default function SignUpScreen() {
               </Animated.View>
             )}
 
-            <Animated.View entering={FadeInUp.delay(420).duration(200)}>
-              <Text style={s.tos}>
-                By registering, you agree to our <Text style={s.tosLink}>Terms of Service</Text>.
-              </Text>
+            <Animated.View entering={FadeInUp.delay(410).duration(200)} style={{ marginTop: 20 }}>
+              <TouchableOpacity
+                style={s.agreeRow}
+                activeOpacity={0.75}
+                onPress={() => {
+                  if (ppfTermsAgreed) {
+                    setPpfTermsAgreed(false);
+                    hapticLight();
+                  } else {
+                    setPpfTermsModalScrolledToEnd(false);
+                    setPpfTermsModalBodyKey((k) => k + 1);
+                    setPpfTermsModalOpen(true);
+                    hapticLight();
+                  }
+                }}
+              >
+                <View style={[s.agreeBox, ppfTermsAgreed && s.agreeBoxOn]}>
+                  {ppfTermsAgreed ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
+                </View>
+                <View style={s.agreeTextWrap}>
+                  <Text style={s.agreeText}>
+                    I acknowledge the{' '}
+                    <Text style={s.agreeLink}>Paint Protection Film General Terms and Conditions</Text>. Tap the
+                    checkbox to read and accept in the popup, then use <Text style={s.agreeLink}>Create Account</Text>{' '}
+                    above.
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
+
+            <Animated.View entering={FadeInUp.delay(430).duration(200)} style={{ marginTop: 16 }}>
+              <TouchableOpacity
+                style={s.agreeRow}
+                activeOpacity={0.75}
+                onPress={() => {
+                  setRegisterWebsiteTermsAgreed((v) => !v);
+                  hapticLight();
+                }}
+              >
+                <View style={[s.agreeBox, registerWebsiteTermsAgreed && s.agreeBoxOn]}>
+                  {registerWebsiteTermsAgreed ? (
+                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                  ) : null}
+                </View>
+                <Text style={s.agreeText}>
+                  By registering, you confirm the PPF terms (via the popup) and our website{' '}
+                  <Text style={s.agreeLink}>Terms of Service</Text>.
+                </Text>
+              </TouchableOpacity>
             </Animated.View>
           </View>
 
@@ -437,6 +525,85 @@ export default function SignUpScreen() {
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={ppfTermsModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPpfTermsModalOpen(false)}
+      >
+        <View style={s.ppfModalRoot}>
+          <TouchableOpacity
+            style={s.ppfModalBackdrop}
+            activeOpacity={1}
+            onPress={() => setPpfTermsModalOpen(false)}
+          />
+          <View style={[s.ppfModalSheet, { maxHeight: SCREEN_H * 0.9 }]}>
+            <View style={s.ppfModalHeader}>
+              <Ionicons name="shield-checkmark" size={22} color="#F97316" />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={s.ppfModalTitle}>Paint Protection Film — Terms & Acknowledgement</Text>
+                <Text style={s.ppfModalBrand}>AUTOSPF+ SUN PROTECTION FILM</Text>
+                <Text style={s.ppfModalBiz}>{PPF_TERMS_BUSINESS.name}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setPpfTermsModalOpen(false)} hitSlop={12}>
+                <Ionicons name="close" size={26} color="rgba(255,255,255,0.85)" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              key={ppfTermsModalBodyKey}
+              style={[s.ppfModalScroll, { maxHeight: SCREEN_H * 0.48 }]}
+              contentContainerStyle={s.ppfModalScrollContent}
+              showsVerticalScrollIndicator
+              onScroll={handlePpfTermsScroll}
+              scrollEventThrottle={16}
+              onContentSizeChange={(_, ch) => {
+                const maxH = SCREEN_H * 0.48;
+                if (ch > 0 && ch <= maxH + 32) setPpfTermsModalScrolledToEnd(true);
+              }}
+            >
+              <Text style={s.ppfModalMeta}>
+                {PPF_TERMS_BUSINESS.address} · {PPF_TERMS_BUSINESS.phone}
+              </Text>
+              <Text style={s.ppfModalIntro}>{PPF_TERMS_INTRO}</Text>
+              {PPF_TERMS_SECTIONS.map((sec, i) => (
+                <View key={sec.title} style={{ marginBottom: i === PPF_TERMS_SECTIONS.length - 1 ? 0 : 14 }}>
+                  <Text style={s.ppfModalSecTitle}>
+                    {i + 1}. {sec.title}
+                  </Text>
+                  <Text style={s.ppfModalSecBody}>{sec.body}</Text>
+                </View>
+              ))}
+            </ScrollView>
+            {!ppfTermsModalScrolledToEnd ? (
+              <Text style={s.ppfModalScrollHint}>Scroll to the bottom to enable &quot;I Accept&quot;.</Text>
+            ) : null}
+            <View style={s.ppfModalFooter}>
+              <TouchableOpacity
+                style={s.ppfModalCancel}
+                onPress={() => setPpfTermsModalOpen(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={s.ppfModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.ppfModalAccept, !ppfTermsModalScrolledToEnd && s.ppfModalAcceptDisabled]}
+                disabled={!ppfTermsModalScrolledToEnd}
+                onPress={() => {
+                  if (!ppfTermsModalScrolledToEnd) return;
+                  setPpfTermsAgreed(true);
+                  setPpfTermsModalOpen(false);
+                  if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }}
+                activeOpacity={0.9}
+              >
+                <Ionicons name="checkmark-circle" size={18} color="#171717" />
+                <Text style={s.ppfModalAcceptText}>I accept the PPF terms</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -496,14 +663,130 @@ const s = StyleSheet.create({
     marginTop: 12,
     letterSpacing: 0.3,
   },
-  tos: {
-    textAlign: 'center',
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.40)',
-    marginTop: 18,
-    lineHeight: 18,
+  agreeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  agreeBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: 'rgba(251, 191, 36, 0.65)',
+    marginTop: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    shadowColor: '#F97316',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  tosLink: { color: '#F97316', fontWeight: '700' },
+  agreeBoxOn: {
+    backgroundColor: '#EA580C',
+    borderColor: 'rgba(253, 224, 171, 0.95)',
+    shadowColor: '#F97316',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.55,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  agreeTextWrap: { flex: 1 },
+  agreeText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: 'rgba(255,255,255,0.55)',
+    fontWeight: '400',
+  },
+  agreeLink: { color: '#F97316', fontWeight: '700' },
+  ppfModalRoot: { flex: 1, justifyContent: 'flex-end' },
+  ppfModalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.65)' },
+  ppfModalSheet: {
+    backgroundColor: '#0f0f12',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    overflow: 'hidden',
+    borderTopWidth: 1,
+    borderColor: 'rgba(249,115,22,0.25)',
+  },
+  ppfModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(249,115,22,0.2)',
+    backgroundColor: '#0a0a0c',
+  },
+  ppfModalTitle: { fontSize: 15, fontWeight: '700', color: '#FFFFFF', lineHeight: 20 },
+  ppfModalBrand: {
+    marginTop: 4,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: 'rgba(249,115,22,0.9)',
+  },
+  ppfModalBiz: { marginTop: 2, fontSize: 11, color: 'rgba(255,255,255,0.45)' },
+  ppfModalScroll: { backgroundColor: '#FFFFFF' },
+  ppfModalScrollContent: { paddingHorizontal: 16, paddingVertical: 14, paddingBottom: 20 },
+  ppfModalMeta: {
+    fontSize: 11,
+    color: 'rgba(0,0,0,0.55)',
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.08)',
+  },
+  ppfModalIntro: { fontSize: 12, color: 'rgba(0,0,0,0.78)', lineHeight: 18, marginBottom: 14 },
+  ppfModalSecTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(120,53,15,0.95)',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  ppfModalSecBody: { fontSize: 12, color: 'rgba(0,0,0,0.72)', lineHeight: 18 },
+  ppfModalScrollHint: {
+    fontSize: 11,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(251,191,36,0.15)',
+    color: 'rgba(120,53,15,0.95)',
+    fontWeight: '600',
+  },
+  ppfModalFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  ppfModalCancel: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#171717',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  ppfModalCancelText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  ppfModalAccept: {
+    flex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#F97316',
+  },
+  ppfModalAcceptDisabled: { opacity: 0.45 },
+  ppfModalAcceptText: { fontSize: 13, fontWeight: '800', color: '#171717' },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 28, paddingBottom: 12 },
   footerText: { color: 'rgba(255,255,255,0.40)', fontSize: 13, fontWeight: '500' },
   footerLink: { color: '#F97316', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
