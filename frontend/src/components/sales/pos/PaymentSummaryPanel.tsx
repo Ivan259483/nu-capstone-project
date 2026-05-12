@@ -30,12 +30,12 @@ export default function PaymentSummaryPanel({
   onDiscountChange, onVatChange, onPaymentMethodChange, onProcessPayment,
 }: Props) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 overflow-hidden">
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <div className="px-4 py-4 border-b border-slate-100">
         <h3 className="text-sm font-semibold text-slate-900">Payment Summary</h3>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-5">
         {/* Line items */}
         {cartItems.length > 0 ? (
           <div className="space-y-2">

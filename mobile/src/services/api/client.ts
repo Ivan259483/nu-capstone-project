@@ -4,6 +4,49 @@ import { authStorage } from '@/services/storage/authStorage';
 import { enqueueRequest } from '../offlineQueue';
 import { Toast } from '@/components/ui/PremiumToast';
 
+type AuthInvalidHandler = ((details: { status: number | undefined; path: string; message: string }) => Promise<void> | void) | null;
+
+let authInvalidHandler: AuthInvalidHandler = null;
+let isHandlingAuthInvalid = false;
+
+export const setAuthInvalidHandler = (handler: AuthInvalidHandler): void => {
+  authInvalidHandler = handler;
+};
+
+const AUTH_EXEMPT_PATHS = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/send-otp',
+  '/auth/resend-otp',
+  '/auth/verify-otp',
+  '/auth/social-login',
+  '/auth/recover-firebase',
+  '/auth/logout',
+];
+
+const AUTH_INVALID_MESSAGE_HINTS = [
+  'user account no longer exists',
+  'user no longer exists',
+  'user not found',
+  'invalid token',
+  'token expired',
+  'jwt expired',
+  'jwt malformed',
+  'invalid signature',
+];
+
+const shouldInvalidateAuthSession = (
+  status: number | undefined,
+  path: string,
+  message: string
+): boolean => {
+  if (status !== 401) return false;
+  if (AUTH_EXEMPT_PATHS.some((authPath) => path.includes(authPath))) return false;
+
+  const lowered = message.toLowerCase();
+  return AUTH_INVALID_MESSAGE_HINTS.some((hint) => lowered.includes(hint));
+};
+
 // ── Axios client ─────────────────────────────────────────────────────
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -29,36 +72,49 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<{ message?: string }>) => {
     const config = error.config as AxiosRequestConfig & { _retryCount?: number };
+    const status = error.response?.status;
+    const path = config?.url || '';
+    const message = (error.response?.data as any)?.message || error.message || 'Unknown API error';
+    const invalidatesAuthSession = shouldInvalidateAuthSession(status, path, message);
+
+    if (invalidatesAuthSession && !isHandlingAuthInvalid) {
+      isHandlingAuthInvalid = true;
+      try {
+        if (authInvalidHandler) {
+          await authInvalidHandler({ status, path, message });
+        } else {
+          await authStorage.clearAll();
+        }
+        Toast.show('Your session is no longer valid. Please sign in again.', 'warning');
+      } catch (sessionErr) {
+        if (__DEV__) {
+          console.warn('[API] Failed to clear invalid auth session:', sessionErr);
+        }
+      } finally {
+        isHandlingAuthInvalid = false;
+      }
+    }
 
     if (__DEV__) {
-      const status = error.response?.status;
       const url = `${config?.baseURL || ''}${config?.url || ''}`;
-      const path = config?.url || '';
       const method = config?.method?.toLowerCase();
-      const msg = (error.response?.data as any)?.message || error.message;
-      const headers: any = config?.headers || {};
-      const authHeader =
-        typeof headers.get === 'function'
-          ? headers.get('Authorization') || headers.get('authorization')
-          : headers.Authorization || headers.authorization;
 
-      const isLogoutWithoutToken =
+      const isLogoutFailure =
         status === 401 &&
         method === 'post' &&
-        path.includes('/auth/logout') &&
-        !authHeader;
+        path.includes('/auth/logout');
 
       const isSocialLoginMiss =
         status === 404 &&
         method === 'post' &&
         path.includes('/auth/social-login');
 
-      if (isLogoutWithoutToken || isSocialLoginMiss) {
+      if (invalidatesAuthSession || isLogoutFailure || isSocialLoginMiss) {
         // Expected auth edge cases: keep rejecting, but do not flood the console.
       } else if (!error.response) {
-        console.warn(`[API] WARN NETWORK ${config?.method?.toUpperCase()} ${url} \u2014 ${msg}`);
+        console.warn(`[API] WARN NETWORK ${config?.method?.toUpperCase()} ${url} \u2014 ${message}`);
       } else {
-        console.error(`[API] ERROR ${status || 'NETWORK'} ${config?.method?.toUpperCase()} ${url} \u2014 ${msg}`);
+        console.error(`[API] ERROR ${status || 'NETWORK'} ${config?.method?.toUpperCase()} ${url} \u2014 ${message}`);
       }
     }
 

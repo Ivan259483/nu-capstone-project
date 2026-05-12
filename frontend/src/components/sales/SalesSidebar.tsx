@@ -19,7 +19,7 @@ const NAV_MAIN = [
   { key: 'pos' as SalesView, label: 'POS', icon: ShoppingCart },
   { key: 'transactions' as SalesView, label: 'Transactions', icon: Receipt },
   { key: 'approvals' as SalesView, label: 'Booking Approvals', icon: CheckSquare, badgeKey: 'approvals' },
-  { key: 'calendar' as SalesView, label: 'Appointments & Scheduling (Smart Calendar)', icon: CalendarDays },
+  { key: 'calendar' as SalesView, label: 'Appointment', icon: CalendarDays },
 ];
 
 const NAV_MGMT = [

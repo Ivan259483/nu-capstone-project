@@ -1,4 +1,15 @@
 import React from 'react';
+import { Check, ChevronsUpDown } from 'lucide-react';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { getModelsForBrand, getVehicleTypeForModel, vehicleBrands } from '@/data/vehicleData';
 import { normalizePlateNumber } from '@/lib/plate';
 import {
   ADD_VEHICLE_TYPE_LABELS,
@@ -28,7 +39,98 @@ type Props = {
   bookingPackages?: BookingPackageTile[];
   /** Bottom hint — omit for sales */
   footerHint?: React.ReactNode;
+  /** Customer Add Vehicle only: searchable brand/model database */
+  enableVehicleDatabase?: boolean;
 };
+
+const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
+
+type VehicleSearchSelectProps = {
+  value: string;
+  displayValue?: string;
+  placeholder: string;
+  searchPlaceholder: string;
+  emptyText: string;
+  options: string[];
+  onSelect: (value: string) => void;
+  rich: boolean;
+  hasError?: boolean;
+  disabled?: boolean;
+};
+
+function VehicleSearchSelect({
+  value,
+  displayValue,
+  placeholder,
+  searchPlaceholder,
+  emptyText,
+  options,
+  onSelect,
+  rich,
+  hasError = false,
+  disabled = false,
+}: VehicleSearchSelectProps) {
+  const [open, setOpen] = React.useState(false);
+  const selectedLabel = displayValue || value;
+
+  const triggerClass = rich
+    ? cx(
+        'customer-vehicle-combobox flex w-full appearance-none items-center justify-between rounded-2xl border px-3.5 py-2.5 text-left text-sm font-normal outline-none transition-[border-color,box-shadow,background-color] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:border-slate-200/90 focus-visible:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)] data-[state=open]:border-slate-200/90 data-[state=open]:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]',
+        hasError && 'customer-vehicle-combobox--error',
+        hasError
+          ? 'border-red-100/95 bg-red-50/60 text-red-800 focus-visible:border-red-200/90'
+          : selectedLabel
+            ? 'border-slate-100 text-slate-900 hover:border-slate-200/90'
+            : 'border-slate-100 text-slate-400 hover:border-slate-200/90',
+        disabled && 'cursor-not-allowed opacity-60'
+      )
+    : cx(
+        'flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm outline-none transition-colors',
+        hasError ? 'border-red-300 bg-red-50 text-red-700' : selectedLabel ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400',
+        disabled && 'cursor-not-allowed opacity-60'
+      );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button type="button" className={triggerClass} disabled={disabled} aria-expanded={open}>
+          <span className="min-w-0 truncate">{selectedLabel || placeholder}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-slate-400" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="vehicle-search-popover z-[160] w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-2xl border-0 p-0 text-slate-900 shadow-[0_28px_72px_-18px_rgba(15,23,42,0.22),0_12px_36px_-20px_rgba(15,23,42,0.1)] outline-none ring-0"
+      >
+        <Command className="max-h-none !bg-transparent !text-slate-900 rounded-2xl border-0 shadow-none [&_[cmdk-group-heading]]:!text-slate-500 [&_[cmdk-input-wrapper]]:!border-b [&_[cmdk-input-wrapper]]:!border-white/25 [&_[cmdk-input-wrapper]]:!bg-white/20 [&_[cmdk-list]]:!bg-transparent [&_[cmdk-root]]:!bg-transparent">
+          <CommandInput
+            placeholder={searchPlaceholder}
+            className="h-11 !border-0 !bg-transparent !text-slate-900 placeholder:!text-slate-400"
+          />
+          <CommandList className="max-h-[280px] !bg-transparent [scrollbar-color:rgba(148,163,184,0.35)_transparent] [scrollbar-width:thin]">
+            <CommandEmpty className="py-6 text-center text-sm text-slate-500">{emptyText}</CommandEmpty>
+            <CommandGroup className="!text-slate-900">
+              {options.map((option) => (
+                <CommandItem
+                  key={option}
+                  value={option}
+                  onSelect={() => {
+                    onSelect(option);
+                    setOpen(false);
+                  }}
+                  className="cursor-pointer rounded-lg px-3 py-2 text-sm !text-slate-800 aria-selected:!bg-white/45 aria-selected:!text-slate-900 data-[selected=true]:!bg-white/45 data-[selected=true]:!text-slate-900 data-[selected='true']:!bg-white/45 data-[selected='true']:!text-slate-900"
+                >
+                  <Check className={cx('mr-2 h-4 w-4 shrink-0 text-slate-400', value === option || displayValue === option ? 'opacity-100' : 'opacity-0')} />
+                  <span className="truncate">{option}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function VehicleGarageForm({
   values: v,
@@ -42,12 +144,67 @@ export default function VehicleGarageForm({
   showPricingPreview,
   bookingPackages = [],
   footerHint,
+  enableVehicleDatabase = false,
 }: Props) {
   const set = (patch: Partial<VehicleGarageFormValues>) => {
     onChange((prev) => ({ ...prev, ...patch }));
   };
 
   const rich = variant === 'customer-rich';
+  const [customBrandMode, setCustomBrandMode] = React.useState(false);
+  const [customModelMode, setCustomModelMode] = React.useState(false);
+  const knownBrandModels = enableVehicleDatabase && !customBrandMode ? getModelsForBrand(v.brand) : [];
+  const showCustomBrandInput = enableVehicleDatabase && customBrandMode;
+  const showCustomModelInput = enableVehicleDatabase && (customBrandMode || customModelMode);
+
+  React.useEffect(() => {
+    if (!enableVehicleDatabase || !v.brand) return;
+    if (!vehicleBrands.includes(v.brand)) setCustomBrandMode(true);
+  }, [enableVehicleDatabase, v.brand]);
+
+  React.useEffect(() => {
+    if (!enableVehicleDatabase || customBrandMode || !v.brand || !v.model) return;
+    const models = getModelsForBrand(v.brand);
+    if (models.length > 0 && !models.includes(v.model)) setCustomModelMode(true);
+  }, [customBrandMode, enableVehicleDatabase, v.brand, v.model]);
+
+  React.useEffect(() => {
+    if (!enableVehicleDatabase || customModelMode || !v.model || v.type) return;
+    const inferredType = getVehicleTypeForModel(v.model);
+    if (inferredType) {
+      set({ type: inferredType });
+      onClearError('type');
+    }
+  }, [customModelMode, enableVehicleDatabase, onClearError, v.model, v.type]);
+
+  const handleDatabaseBrandSelect = (brand: string) => {
+    onClearError('brand');
+    onClearError('model');
+    if (brand === 'Other') {
+      setCustomBrandMode(true);
+      setCustomModelMode(false);
+      set({ brand: '', model: '', type: '' });
+      return;
+    }
+
+    setCustomBrandMode(false);
+    setCustomModelMode(false);
+    set({ brand, model: '', type: '' });
+  };
+
+  const handleDatabaseModelSelect = (model: string) => {
+    onClearError('model');
+    if (model === 'Other') {
+      setCustomModelMode(true);
+      set({ model: '' });
+      return;
+    }
+
+    const inferredType = getVehicleTypeForModel(model);
+    setCustomModelMode(false);
+    set({ model, ...(inferredType ? { type: inferredType } : {}) });
+    if (inferredType) onClearError('type');
+  };
 
   const colorHex: Record<string, string> = {
     White: '#e2e8f0',
@@ -82,7 +239,7 @@ export default function VehicleGarageForm({
 
       {/* Preview */}
       {rich ? (
-        <div className="customer-vehicle-preview overflow-hidden rounded-[22px] border bg-white">
+        <div className="customer-vehicle-preview overflow-hidden rounded-[26px] border border-white/70 bg-white/80">
           <div
             className="relative overflow-hidden px-5 py-5"
             style={{
@@ -126,13 +283,13 @@ export default function VehicleGarageForm({
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-3 divide-x divide-slate-100 bg-slate-50/75">
+          <div className="customer-vehicle-preview-stats grid grid-cols-3 gap-2 bg-white/72 p-2">
             {[
               { label: 'Brand', value: v.brand || 'Not set' },
               { label: 'Model', value: v.model || 'Not set' },
               { label: 'Color', value: v.color || 'Not set' },
             ].map((item) => (
-              <div key={item.label} className="min-w-0 px-3 py-3 text-center">
+              <div key={item.label} className="min-w-0 rounded-2xl bg-white/64 px-3 py-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
                 <p className="text-[11px] font-semibold text-slate-400">{item.label}</p>
                 <p className="mt-0.5 truncate text-xs font-bold text-slate-700">{item.value}</p>
               </div>
@@ -371,41 +528,79 @@ export default function VehicleGarageForm({
           >
             Brand <span className="font-bold text-red-500 normal-case">*</span>
           </label>
-          <select
-            value={v.brand}
-            onChange={(e) => {
-              set({ brand: e.target.value });
-              onClearError('brand');
-            }}
-            className={
-              rich
-                ? `w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow,background-color] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${
-                    errors.brand
-                      ? 'border-red-100/95 bg-red-50/60 text-red-800 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]'
-                      : v.brand
-                        ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'
-                        : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'
-                  }`
-                : `w-full appearance-none rounded-lg border px-3 py-2 text-sm outline-none transition-colors ${
-                    errors.brand ? 'border-red-300 bg-red-50 text-red-700' : v.brand ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'
-                  }`
-            }
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`,
-              backgroundPosition: 'right 8px center',
-              backgroundSize: '16px',
-              backgroundRepeat: 'no-repeat',
-              paddingRight: '28px',
-            }}
-          >
-            <option value="">Select brand</option>
-            {v.brand && !CAR_BRANDS.includes(v.brand) && <option value={v.brand}>{v.brand}</option>}
-            {CAR_BRANDS.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
+          {enableVehicleDatabase ? (
+            <div className="space-y-2">
+              <VehicleSearchSelect
+                value={customBrandMode ? 'Other' : v.brand}
+                displayValue={customBrandMode ? v.brand || 'Other brand' : v.brand}
+                placeholder="Select brand"
+                searchPlaceholder="Search brand..."
+                emptyText="No brand found."
+                options={vehicleBrands}
+                onSelect={handleDatabaseBrandSelect}
+                rich={rich}
+                hasError={Boolean(errors.brand)}
+              />
+              {showCustomBrandInput && (
+                <input
+                  type="text"
+                  placeholder="Enter brand name"
+                  value={v.brand}
+                  onChange={(e) => {
+                    set({ brand: e.target.value, model: '' });
+                    onClearError('brand');
+                  }}
+                  className={
+                    rich
+                      ? `w-full rounded-2xl border px-3.5 py-2.5 text-sm text-slate-900 outline-none transition-[border-color,box-shadow,background-color] duration-200 placeholder:text-slate-400/75 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${
+                          errors.brand
+                            ? 'border-red-100/95 bg-red-50/60 focus:border-red-200/90'
+                            : 'border-slate-100 focus:border-slate-200/90'
+                        }`
+                      : `w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${
+                          errors.brand ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'
+                        }`
+                  }
+                />
+              )}
+            </div>
+          ) : (
+            <select
+              value={v.brand}
+              onChange={(e) => {
+                set({ brand: e.target.value });
+                onClearError('brand');
+              }}
+              className={
+                rich
+                  ? `w-full appearance-none rounded-2xl border px-3.5 py-2.5 text-sm outline-none transition-[border-color,box-shadow,background-color] duration-200 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${
+                      errors.brand
+                        ? 'border-red-100/95 bg-red-50/60 text-red-800 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]'
+                        : v.brand
+                          ? 'border-slate-100 text-slate-900 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'
+                          : 'border-slate-100 text-slate-400 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'
+                    }`
+                  : `w-full appearance-none rounded-lg border px-3 py-2 text-sm outline-none transition-colors ${
+                      errors.brand ? 'border-red-300 bg-red-50 text-red-700' : v.brand ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400'
+                    }`
+              }
+              style={{
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%239ca3af' d='M8.12 9.29L12 13.17l3.88-3.88a.996.996 0 1 1 1.41 1.41l-4.59 4.59a.996.996 0 0 1-1.41 0L6.7 10.7a.996.996 0 0 1 0-1.41c.39-.38 1.03-.39 1.42 0z'/%3E%3C/svg%3E")`,
+                backgroundPosition: 'right 8px center',
+                backgroundSize: '16px',
+                backgroundRepeat: 'no-repeat',
+                paddingRight: '28px',
+              }}
+            >
+              <option value="">Select brand</option>
+              {v.brand && !CAR_BRANDS.includes(v.brand) && <option value={v.brand}>{v.brand}</option>}
+              {CAR_BRANDS.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          )}
           {errors.brand && <p className="mt-1 text-[11px] text-red-500">{errors.brand}</p>}
         </div>
         <div>
@@ -460,26 +655,67 @@ export default function VehicleGarageForm({
         >
           Model <span className="font-bold text-red-500 normal-case">*</span>
         </label>
-        <input
-          type="text"
-          placeholder="e.g. Vios, Civic, Ranger"
-          value={v.model}
-          onChange={(e) => {
-            set({ model: e.target.value });
-            onClearError('model');
-          }}
-          className={
-            rich
-              ? `w-full rounded-2xl border px-3.5 py-2.5 text-sm text-slate-900 outline-none transition-[border-color,box-shadow,background-color] duration-200 placeholder:text-slate-400/75 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${
-                  errors.model
-                    ? 'border-red-100/95 bg-red-50/60 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]'
-                    : 'border-slate-100 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'
-                }`
-              : `w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${
-                  errors.model ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'
-                }`
-          }
-        />
+        {enableVehicleDatabase ? (
+          <div className="space-y-2">
+            {!customBrandMode && (
+              <VehicleSearchSelect
+                value={customModelMode ? 'Other' : v.model}
+                displayValue={customModelMode ? v.model || 'Other model' : v.model}
+                placeholder={v.brand ? 'Select model' : 'Select brand first'}
+                searchPlaceholder="Search model..."
+                emptyText="No model found."
+                options={knownBrandModels}
+                onSelect={handleDatabaseModelSelect}
+                rich={rich}
+                hasError={Boolean(errors.model)}
+                disabled={!v.brand || knownBrandModels.length === 0}
+              />
+            )}
+            {showCustomModelInput && (
+              <input
+                type="text"
+                placeholder={customBrandMode ? 'e.g. Vios, Civic, Ranger' : 'Enter model name'}
+                value={v.model}
+                onChange={(e) => {
+                  set({ model: e.target.value });
+                  onClearError('model');
+                }}
+                className={
+                  rich
+                    ? `w-full rounded-2xl border px-3.5 py-2.5 text-sm text-slate-900 outline-none transition-[border-color,box-shadow,background-color] duration-200 placeholder:text-slate-400/75 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${
+                        errors.model
+                          ? 'border-red-100/95 bg-red-50/60 focus:border-red-200/90'
+                          : 'border-slate-100 focus:border-slate-200/90'
+                      }`
+                    : `w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${
+                        errors.model ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'
+                      }`
+                }
+              />
+            )}
+          </div>
+        ) : (
+          <input
+            type="text"
+            placeholder="e.g. Vios, Civic, Ranger"
+            value={v.model}
+            onChange={(e) => {
+              set({ model: e.target.value });
+              onClearError('model');
+            }}
+            className={
+              rich
+                ? `w-full rounded-2xl border px-3.5 py-2.5 text-sm text-slate-900 outline-none transition-[border-color,box-shadow,background-color] duration-200 placeholder:text-slate-400/75 bg-gradient-to-b from-white to-slate-50/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${
+                    errors.model
+                      ? 'border-red-100/95 bg-red-50/60 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]'
+                      : 'border-slate-100 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'
+                  }`
+                : `w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${
+                    errors.model ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'
+                  }`
+            }
+          />
+        )}
         {errors.model && <p className="mt-1 text-[11px] text-red-500">{errors.model}</p>}
       </div>
 

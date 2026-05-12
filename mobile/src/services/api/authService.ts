@@ -97,6 +97,14 @@ const persistSession = async (token: string, user: BackendUser): Promise<void> =
   ]);
 };
 
+const clearLocalSession = async (): Promise<void> => {
+  await Promise.allSettled([
+    chatbotService.clearSession(),
+    firebaseSignOut(auth),
+  ]);
+  await authStorage.clearAll();
+};
+
 const socialLogin = async (firebaseUser: FirebaseUser): Promise<{ token: string; user: BackendUser }> => {
   const email = firebaseUser.email || '';
   if (!email) {
@@ -220,6 +228,40 @@ export const authService = {
   async verifyOtp(email: string, otp: string): Promise<{ success: boolean; message: string }> {
     const response = await apiClient.post('/auth/verify-otp', { email, otp });
     return response.data;
+  },
+
+  /**
+   * Web-aligned customer signup: POST /auth/register with phone, then email OTP.
+   * Does not create a session — user verifies on the verify screen, then logs in.
+   */
+  async registerCustomer(params: {
+    name: string;
+    email: string;
+    password: string;
+    phone: string;
+  }): Promise<{ success: true } | { success: false; message: string; status?: number }> {
+    const email = params.email.trim().toLowerCase();
+    try {
+      const response = await apiClient.post('/auth/register', {
+        name: params.name.trim(),
+        email,
+        password: params.password,
+        phone: params.phone,
+      });
+      const d = response.data;
+      if (d?.success) return { success: true };
+      return {
+        success: false,
+        message: d?.message || 'Registration failed.',
+        status: response.status,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: getApiErrorMessage(err, 'Registration failed.'),
+        status: err?.response?.status,
+      };
+    }
   },
 
   /**
@@ -474,10 +516,11 @@ export const authService = {
       // Ignore backend logout failures; local sign-out still proceeds.
     }
 
-    // Clear AI chat session so the next user starts fresh
-    await chatbotService.clearSession();
-    await firebaseSignOut(auth);
-    await authStorage.clearAll();
+    await clearLocalSession();
+  },
+
+  async clearLocalSession(): Promise<void> {
+    await clearLocalSession();
   },
 
   async updateUserBackendProfile(firebaseUser: FirebaseUser, data: { name?: string, avatar?: string, phone?: string }): Promise<BackendUser> {

@@ -176,16 +176,6 @@ export default function TabLayout() {
         <Tabs.Screen name="track" options={{ title: 'Tracker' }} />
         <Tabs.Screen name="scan" options={{ title: 'AI Scan' }} />
         <Tabs.Screen name="settings" options={{ title: 'Profile' }} />
-
-        {/* ── Hidden routes — prevent Expo Router from inserting them as
-             visible tabs when file-system discovery picks them up. ------- */}
-        <Tabs.Screen name="scan/index"     options={{ href: null }} />
-        <Tabs.Screen name="scan/analyzing" options={{ href: null }} />
-        <Tabs.Screen name="scan/results"   options={{ href: null }} />
-        <Tabs.Screen name="scan/ar-view"   options={{ href: null }} />
-        <Tabs.Screen name="scan/estimate"  options={{ href: null }} />
-        <Tabs.Screen name="scan/confirm"   options={{ href: null }} />
-        <Tabs.Screen name="ai-scan"        options={{ href: null }} />
       </Tabs>
 
       {/* Floating Ask AI button — appears on all customer tabs */}

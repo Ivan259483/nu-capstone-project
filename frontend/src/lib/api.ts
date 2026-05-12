@@ -20,6 +20,8 @@ export const getStoredAuthToken = () => {
         sessionStorage.getItem('autospf_token') ||
         localStorage.getItem('token') ||
         sessionStorage.getItem('token') ||
+        localStorage.getItem('authToken') ||
+        sessionStorage.getItem('authToken') ||
         '';
 
     if (token && token !== 'undefined' && token !== 'null') {
@@ -38,7 +40,52 @@ export const clearStoredAuthToken = () => {
     sessionStorage.removeItem('autospf_token');
     localStorage.removeItem('token');
     sessionStorage.removeItem('token');
+    localStorage.removeItem('authToken');
+    sessionStorage.removeItem('authToken');
 };
+
+/**
+ * When Firebase has a session but `autospf_token` is missing (sync race, offline reload, etc.),
+ * exchange Firebase identity for a backend JWT so authenticated API routes receive `Bearer`.
+ */
+export async function ensureBackendAuthToken(): Promise<string | null> {
+    const existing = getStoredAuthToken();
+    if (existing) return existing;
+
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser?.email) return null;
+
+    try {
+        await firebaseUser.getIdToken(true);
+    } catch {
+        /* non-fatal */
+    }
+
+    try {
+        const syncResp = await fetch(`${BACKEND_API_URL}/auth/social-login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email: firebaseUser.email,
+                name: firebaseUser.displayName || firebaseUser.email.split('@')[0] || 'User',
+                provider: 'google',
+                providerId: firebaseUser.uid,
+                photoURL: firebaseUser.photoURL || undefined,
+            }),
+            signal: AbortSignal.timeout(15_000),
+        });
+        if (!syncResp.ok) return null;
+        const syncJson = (await syncResp.json().catch(() => ({}))) as { data?: { token?: string } };
+        const backendToken = syncJson?.data?.token;
+        if (backendToken && backendToken !== 'undefined' && backendToken !== 'null') {
+            localStorage.setItem('autospf_token', backendToken);
+            return backendToken;
+        }
+    } catch (e) {
+        console.warn('[ensureBackendAuthToken] social-login failed:', e);
+    }
+    return null;
+}
 
 const api = axios.create({
     baseURL: BACKEND_API_URL,
@@ -131,7 +178,7 @@ api.interceptors.response.use(
                         `${BACKEND_API_URL}/auth/social-login`,
                         {
                             email: firebaseUser.email,
-                            name: firebaseUser.displayName,
+                            name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
                             provider: 'google',
                             providerId: firebaseUser.uid,
                             photoURL: firebaseUser.photoURL,

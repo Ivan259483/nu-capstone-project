@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { NotificationService, SystemNotification } from '../lib/notification-service';
 import { toast } from 'sonner';
 import { invalidate } from '../lib/queryCache';
+import { ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
 import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking } from '../lib/phone';
 import { normalizePlateNumber } from '../lib/plate';
@@ -999,8 +1000,11 @@ export default function CustomerDashboard() {
     setSlotsLoading(true);
     setSlotError('');
     try {
+      const slotHeaders: HeadersInit = { Accept: 'application/json' };
+      const slotToken = getStoredAuthToken();
+      if (slotToken) slotHeaders.Authorization = `Bearer ${slotToken}`;
       const res = await fetch(`/api/orders/available-slots?date=${dateIso}`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('authToken')}` }
+        headers: slotHeaders,
       });
       const data = await res.json();
       const {
@@ -1074,7 +1078,7 @@ export default function CustomerDashboard() {
     setMonthAvailLoading(true);
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const token = localStorage.getItem('authToken');
+    const token = getStoredAuthToken();
     const result: Record<string, DayAvailabilityInfo> = {};
 
     // Build list of dates to fetch (skip weekends and past dates)
@@ -1101,8 +1105,10 @@ export default function CustomerDashboard() {
     try {
       await Promise.all(datesToFetch.map(async (iso) => {
         try {
+          const monthHeaders: HeadersInit = { Accept: 'application/json' };
+          if (token) monthHeaders.Authorization = `Bearer ${token}`;
           const res = await fetch(`/api/orders/available-slots?date=${iso}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: monthHeaders,
           });
           const data = await res.json();
           const {
@@ -1314,6 +1320,14 @@ export default function CustomerDashboard() {
     setVehicles(prev => [...prev, optimisticVehicle]);
 
     try {
+      const jwt = await ensureBackendAuthToken();
+      if (!jwt) {
+        setVehicles((prev) => prev.filter((v) => v.id !== optimisticId));
+        setVehicleApiError(
+          'Could not verify your login with the server. Please sign out and sign in again, then add your vehicle.',
+        );
+        return;
+      }
       const { VehicleService } = await import('../lib/vehicle-service');
       const res = await VehicleService.addVehicle({
         plateNumber: plateNorm,
@@ -4605,19 +4619,21 @@ export default function CustomerDashboard() {
                         return (
                           <div
                             key={i}
-                            className="rounded-2xl overflow-hidden flex flex-col group"
+                            className="customer-garage-card rounded-[28px] overflow-hidden flex flex-col group border border-white/65 backdrop-blur-2xl"
                             style={{
-                              background: '#fff',
-                              boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)',
+                              background: 'linear-gradient(180deg, rgba(255,255,255,0.62), rgba(248,250,252,0.34))',
+                              boxShadow: '0 22px 70px -34px rgba(15,23,42,0.32), 0 8px 28px -24px rgba(15,23,42,0.22), inset 0 1px 0 rgba(255,255,255,0.86)',
                               transition: 'box-shadow 0.3s ease, transform 0.3s ease',
+                              WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+                              backdropFilter: 'blur(24px) saturate(180%)',
                             }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 6px rgba(0,0,0,0.06), 0 16px 48px ${theme.glow}`; (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = `0 30px 86px -34px ${theme.glow}, 0 16px 42px -28px rgba(15,23,42,0.34), inset 0 1px 0 rgba(255,255,255,0.92)`; (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 22px 70px -34px rgba(15,23,42,0.32), 0 8px 28px -24px rgba(15,23,42,0.22), inset 0 1px 0 rgba(255,255,255,0.86)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
                           >
                             {/* ── Card Banner ── */}
                             <div
-                              className="relative h-36 flex items-center justify-center overflow-hidden"
-                              style={{ background: `linear-gradient(135deg, ${theme.from} 0%, ${theme.to} 100%)` }}
+                              className="customer-garage-card-banner relative h-36 flex items-center justify-center overflow-hidden"
+                              style={{ background: `linear-gradient(135deg, ${theme.from}e6 0%, ${theme.to}d9 100%)` }}
                             >
                               {/* Decorative circles */}
                               <div className="absolute -top-6 -right-6 w-32 h-32 rounded-full opacity-20" style={{ background: 'rgba(255,255,255,0.3)' }}></div>
@@ -4630,7 +4646,7 @@ export default function CustomerDashboard() {
                               <button
                                 onClick={() => openEditVehicle(v, i)}
                                 className="absolute top-3 left-3 w-7 h-7 rounded-full flex items-center justify-center transition-all"
-                                style={{ background: 'rgba(255,255,255,0.25)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.3)' }}
+                                style={{ background: 'rgba(255,255,255,0.28)', backdropFilter: 'blur(14px) saturate(170%)', WebkitBackdropFilter: 'blur(14px) saturate(170%)', border: '1px solid rgba(255,255,255,0.42)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.42), 0 10px 28px -20px rgba(15,23,42,0.45)' }}
                                 title="Edit vehicle"
                               >
                                 <iconify-icon icon="solar:pen-bold" width="13" style={{ color: theme.text }}></iconify-icon>
@@ -4639,19 +4655,19 @@ export default function CustomerDashboard() {
                               <button
                                 onClick={() => setDeleteConfirmIdx(i)}
                                 className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center transition-all"
-                                style={{ background: 'rgba(255,255,255,0.25)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.3)' }}
+                                style={{ background: 'rgba(255,255,255,0.28)', backdropFilter: 'blur(14px) saturate(170%)', WebkitBackdropFilter: 'blur(14px) saturate(170%)', border: '1px solid rgba(255,255,255,0.42)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.42), 0 10px 28px -20px rgba(15,23,42,0.45)' }}
                                 title="Delete vehicle"
                               >
                                 <iconify-icon icon="solar:trash-bin-minimalistic-bold" width="13" style={{ color: theme.text }}></iconify-icon>
                               </button>
                               {/* Plate number bottom-left */}
-                              <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm border border-white/60 px-2.5 py-1 rounded-lg text-xs font-bold text-slate-800 tracking-widest shadow-sm">
+                              <div className="absolute bottom-3 left-3 bg-white/78 backdrop-blur-xl border border-white/70 px-2.5 py-1 rounded-xl text-xs font-bold text-slate-800 tracking-widest shadow-[0_12px_28px_-20px_rgba(15,23,42,0.45),inset_0_1px_0_rgba(255,255,255,0.8)]">
                                 {v.plate}
                               </div>
                               {/* Type badge bottom-right */}
                               {v.type && (
                                 <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase"
-                                  style={{ background: 'rgba(255,255,255,0.25)', color: theme.text, backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.3)' }}>
+                                  style={{ background: 'rgba(255,255,255,0.28)', color: theme.text, backdropFilter: 'blur(14px) saturate(170%)', WebkitBackdropFilter: 'blur(14px) saturate(170%)', border: '1px solid rgba(255,255,255,0.42)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.42), 0 10px 28px -22px rgba(15,23,42,0.45)' }}>
                                   {v.type}
                                 </div>
                               )}
@@ -4691,7 +4707,7 @@ export default function CustomerDashboard() {
                             </div>
 
                             {/* ── Card Body ── */}
-                            <div className="p-4 flex-1 flex flex-col bg-white">
+                            <div className="customer-garage-card-body p-4 flex-1 flex flex-col bg-white/58 backdrop-blur-xl">
                               <h3 className="font-bold text-[15px] text-slate-900 leading-tight">{v.name}</h3>
                               <div className="flex items-center gap-1.5 mt-1">
                                 <div className="w-3 h-3 rounded-full border border-slate-200 shadow-sm" style={{ background: colorThemes[colorKey]?.from || '#e2e8f0' }}></div>
@@ -4699,18 +4715,18 @@ export default function CustomerDashboard() {
                               </div>
 
                               {/* Actions */}
-                              <div className="mt-4 grid grid-cols-2 gap-1.5 border-t border-slate-100 pt-3">
+                              <div className="customer-garage-actions mt-4 grid grid-cols-2 gap-1.5 pt-3">
                                 <button
                                   onClick={() => openBookingModal(v)}
-                                  className="flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 px-1 rounded-xl transition-all font-medium"
-                                  style={{ background: `linear-gradient(135deg, ${theme.from}22, ${theme.to}33)`, color: theme.to }}
+                                  className="flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 px-1 rounded-2xl transition-all font-medium"
+                                  style={{ background: `linear-gradient(135deg, ${theme.from}1f, ${theme.to}2e)`, color: theme.to, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72), 0 12px 28px -24px rgba(15,23,42,0.24)' }}
                                 >
                                   <iconify-icon icon="solar:calendar-add-linear" width="17"></iconify-icon>
                                   <span className="text-[10px] font-semibold text-center leading-tight">Book Service</span>
                                 </button>
                                 <button
                                   onClick={() => openVehicleHistory(v)}
-                                  className="flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 px-1 text-slate-400 hover:text-slate-700 transition-colors rounded-xl hover:bg-slate-50"
+                                  className="flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 px-1 text-slate-400 hover:text-slate-700 transition-colors rounded-2xl hover:bg-white/56"
                                 >
                                   <iconify-icon icon="solar:history-linear" width="17"></iconify-icon>
                                   <span className="text-[10px] font-semibold text-center leading-tight">View Vehicle History</span>
@@ -5011,6 +5027,7 @@ export default function CustomerDashboard() {
                 apiError={vehicleApiError}
                 showPricingPreview
                 bookingPackages={bookingPackages}
+                enableVehicleDatabase
                 footerHint={
                   <>
                     After you save, open <span className="font-semibold text-slate-800">Book</span> on your vehicle card to schedule a service with these details pre-filled.
@@ -5401,11 +5418,11 @@ export default function CustomerDashboard() {
                 </div>
               ) : bookingStep === 2 ? (
                 /* ── Step 2: Vehicle Details ── */
-                <div className="space-y-4 p-4 sm:p-5">
+                <div className="booking-step2 space-y-4 p-4 sm:p-5">
                   {/* Locked Customer Name */}
                   <div>
                     <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Full Name</p>
-                    <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
+                    <div className="booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-slate-50/95 to-white">
                       <iconify-icon icon="solar:user-bold" width="16" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                       <span className="text-sm font-semibold text-gray-700 flex-1">{user?.name || '—'}</span>
                       <iconify-icon icon="solar:lock-keyhole-bold" width="14" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -5455,7 +5472,7 @@ export default function CustomerDashboard() {
                         {/* Brand */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Brand</p>
-                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
+                          <div className="booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-slate-50/95 to-white">
                             <iconify-icon icon="solar:car-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{formatTitleCaseDisplay(bookingForm.vehicleMake)}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -5464,7 +5481,7 @@ export default function CustomerDashboard() {
                         {/* Model */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Model</p>
-                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
+                          <div className="booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-slate-50/95 to-white">
                             <iconify-icon icon="solar:car-2-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{formatTitleCaseDisplay(bookingForm.vehicleModel)}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -5473,7 +5490,7 @@ export default function CustomerDashboard() {
                         {/* Color */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Color</p>
-                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
+                          <div className="booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-slate-50/95 to-white">
                             <iconify-icon icon="solar:palette-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{formatTitleCaseDisplay(bookingForm.vehicleColor)}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -5482,7 +5499,7 @@ export default function CustomerDashboard() {
                         {/* Plate */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Plate No.</p>
-                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
+                          <div className="booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-slate-50/95 to-white">
                             <iconify-icon icon="solar:tag-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 tracking-widest">{formatPlateDisplay(bookingForm.vehiclePlate)}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -5491,7 +5508,7 @@ export default function CustomerDashboard() {
                         {/* Year */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Year</p>
-                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
+                          <div className="booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-slate-50/95 to-white">
                             <iconify-icon icon="solar:calendar-date-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleYear || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -5500,7 +5517,7 @@ export default function CustomerDashboard() {
                         {/* Type */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Type</p>
-                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
+                          <div className="booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-slate-50/95 to-white">
                             <iconify-icon icon="solar:clipboard-list-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleCategory || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -5511,7 +5528,7 @@ export default function CustomerDashboard() {
                         {/* Transmission */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Transmission</p>
-                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
+                          <div className="booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-slate-50/95 to-white">
                             <iconify-icon icon="solar:settings-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleTransmission || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -5520,7 +5537,7 @@ export default function CustomerDashboard() {
                         {/* Fuel */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Fuel Type</p>
-                          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
+                          <div className="booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-slate-50/95 to-white">
                             <iconify-icon icon="solar:gas-station-bold" width="14" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                             <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{bookingForm.vehicleFuelType || '—'}</span>
                             <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#d1d5db' }}></iconify-icon>
@@ -5676,7 +5693,7 @@ export default function CustomerDashboard() {
                         Edit Service
                       </button>
                     </div>
-                    <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-slate-50/95 to-white shadow-[0_2px_14px_-6px_rgba(15,23,42,0.07)]">
+                    <div className="booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-slate-50/95 to-white">
                       <iconify-icon icon="solar:shield-check-bold" width="16" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
                       <span className="text-sm font-semibold text-gray-700 flex-1">{bookingForm.serviceName || '—'}</span>
                       <span className="text-xs font-bold text-gray-500">₱{bookingForm.servicePrice.toLocaleString()}</span>
@@ -6048,8 +6065,8 @@ export default function CustomerDashboard() {
 
               ) : bookingStep === 5 ? (
                 /* ── Step 5: Terms & Conditions ── */
-                <div className="flex min-h-0 flex-col gap-4 px-4 pb-6 pt-4 sm:px-6">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="booking-step5 flex min-h-0 flex-col gap-4 px-4 pb-6 pt-4 sm:px-6">
+                  <div className="booking-terms-surface bg-white p-4">
                     <h3 className="text-base font-semibold leading-snug tracking-tight text-slate-900">{BOOKING_TERMS_DOCUMENT_TITLE}</h3>
                     <p className="mt-2 text-sm leading-relaxed text-slate-600">{BOOKING_TERMS_INTRO}</p>
                     <p className="mt-3 text-xs text-slate-500">
@@ -6059,7 +6076,7 @@ export default function CustomerDashboard() {
 
                   <div className="min-h-0 shrink-0">
                     <p className="booking-modal-label mb-2">Key points</p>
-                    <ul className="mb-4 list-disc space-y-1.5 rounded-xl border border-slate-100 bg-slate-50/80 py-3 pl-5 pr-4 text-sm leading-relaxed text-slate-700">
+                    <ul className="booking-terms-surface mb-4 list-disc space-y-1.5 bg-slate-50/80 py-3 pl-5 pr-4 text-sm leading-relaxed text-slate-700">
                       {BOOKING_TERMS_SUMMARY.map((line, idx) => (
                         <li key={idx} className="pl-0.5 marker:text-slate-400">{line}</li>
                       ))}
@@ -6076,7 +6093,7 @@ export default function CustomerDashboard() {
                         const el = e.currentTarget;
                         if (el.scrollHeight - el.scrollTop - el.clientHeight <= 28) setBookingTermsReachedEnd(true);
                       }}
-                      className="max-h-[min(420px,56vh)] min-h-[min(260px,36vh)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/90 bg-slate-50/90 px-4 py-3.5 text-sm leading-[1.65] text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] scroll-smooth outline-none"
+                      className="booking-terms-surface booking-terms-scroll max-h-[min(420px,56vh)] min-h-[min(260px,36vh)] overflow-y-auto overscroll-contain bg-slate-50/90 px-4 py-3.5 text-sm leading-[1.65] text-slate-700 scroll-smooth outline-none"
                       style={{ WebkitOverflowScrolling: 'touch' }}
                     >
                       {BOOKING_TERMS_SECTIONS.map((sec) => (
@@ -6094,35 +6111,42 @@ export default function CustomerDashboard() {
                   </div>
 
                   <div
-                    className={`flex items-start gap-3 rounded-xl border-0 px-3.5 py-3.5 shadow-[0_2px_10px_rgba(15,23,42,0.05)] ${
+                    className={`booking-terms-agree flex flex-col gap-3 px-4 py-4 sm:px-4 ${
                       bookingTermsReachedEnd
-                        ? 'bg-white hover:shadow-md focus-within:ring-2 focus-within:ring-[color:var(--booking-focus-ring)]'
-                        : 'bg-slate-50/90 opacity-75'
+                        ? 'is-active bg-white hover:shadow-md focus-within:ring-2 focus-within:ring-[color:var(--booking-focus-ring)]'
+                        : 'is-locked bg-slate-50/90 opacity-75'
                     }`}
                   >
-                    <input
-                      id="tc-checkbox"
-                      type="checkbox"
-                      disabled={!bookingTermsReachedEnd}
-                      checked={bookingAgreed}
-                      onChange={(e) => {
-                        if (!bookingTermsReachedEnd) return;
-                        setBookingAgreed(e.target.checked);
-                      }}
-                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-[color:var(--booking-focus)] focus:ring-2 focus:ring-[color:var(--booking-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50"
-                    />
-                    <div className="min-w-0 flex-1">
+                    <div className="flex items-start gap-3">
+                      <input
+                        id="tc-checkbox"
+                        type="checkbox"
+                        disabled={!bookingTermsReachedEnd}
+                        checked={bookingAgreed}
+                        onChange={(e) => {
+                          if (!bookingTermsReachedEnd) return;
+                          setBookingAgreed(e.target.checked);
+                        }}
+                        className="mt-[3px] h-4 w-4 shrink-0 rounded border-slate-300 accent-[color:var(--booking-focus)] focus:ring-2 focus:ring-[color:var(--booking-focus-ring)] enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                      />
                       <label
                         htmlFor="tc-checkbox"
-                        className={`text-sm leading-relaxed ${bookingTermsReachedEnd ? 'text-slate-600 cursor-pointer' : 'text-slate-400 cursor-not-allowed'}`}
+                        className={`min-w-0 flex-1 text-sm leading-snug text-pretty ${bookingTermsReachedEnd ? 'cursor-pointer text-slate-600' : 'cursor-not-allowed text-slate-400'}`}
                       >
-                        I have read and agree to the <strong className="font-semibold text-slate-900">Terms and Conditions</strong>{' '}
-                        <span className="text-red-600">*</span>
+                        <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
+                          <span>I have read and agree to the</span>
+                          <strong className="font-semibold text-slate-900">Terms and Conditions</strong>
+                          <span className="font-semibold text-red-600" aria-hidden>
+                            *
+                          </span>
+                        </span>
                       </label>
-                      {bookingTermsReachedEnd ? (
+                    </div>
+                    {bookingTermsReachedEnd ? (
+                      <div className="pl-7 sm:pl-7">
                         <button
                           type="button"
-                          className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 underline decoration-indigo-500/35 underline-offset-[3px] hover:decoration-indigo-600"
+                          className="inline-flex items-center gap-1.5 text-left text-xs font-semibold text-indigo-600 underline decoration-indigo-500/35 underline-offset-[3px] transition-colors hover:text-indigo-700 hover:decoration-indigo-600"
                           onClick={() => {
                             setBookingTermsReachedEnd(false);
                             setBookingAgreed(false);
@@ -6131,105 +6155,149 @@ export default function CustomerDashboard() {
                             box?.focus();
                           }}
                         >
-                          <iconify-icon icon="solar:arrow-up-linear" width="14" className="shrink-0" />
+                          <iconify-icon icon="solar:arrow-up-linear" width="14" className="shrink-0 translate-y-px" aria-hidden />
                           Jump to start of terms
                         </button>
-                      ) : null}
-                    </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : (
                 /* ── Step 6: GCash Downpayment ── */
-                <div className="p-4 sm:p-5">
-
-                  {/* Amount Summary Card */}
+                <div className="booking-step6 px-4 pb-6 pt-4 sm:px-6">
                   {(() => {
                     const RESERVATION_FEE = 500;
-                    const balance = bookingForm.servicePrice - RESERVATION_FEE;
+                    const total = Number(bookingForm.servicePrice || 0);
+                    const balance = Math.max(total - RESERVATION_FEE, 0);
                     return (
-                      <div style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 16, border: '1px solid #fde68a' }}>
-                        <div style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <iconify-icon icon="solar:smartphone-bold" width="18" style={{ color: '#fff' }}></iconify-icon>
-                            <div>
-                              <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', margin: 0, fontWeight: 500 }}>Send via GCash Now</p>
-                              <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', margin: 0 }}>Fixed reservation fee to confirm your slot</p>
+                      <div className="booking-step6-payment-card">
+                        <div className="booking-step6-hero">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <div className="booking-step6-icon">
+                              <iconify-icon icon="solar:smartphone-bold" width="22"></iconify-icon>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="booking-step6-eyebrow">Secure GCash reservation</p>
+                              <h3 className="booking-step6-title">Pay the reservation fee to lock your slot.</h3>
+                              <p className="booking-step6-subtitle">
+                                Scan the QR, send the exact amount, then upload your GCash receipt for verification.
+                              </p>
                             </div>
                           </div>
-                          <span style={{ fontSize: 26, fontWeight: 900, color: '#fff', letterSpacing: '-0.03em' }}>₱500</span>
-                        </div>
-                        <div style={{ background: '#fffbeb', padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <iconify-icon icon="solar:shop-bold" width="13" style={{ color: '#92400e' }}></iconify-icon>
-                            <span style={{ fontSize: 11, color: '#92400e', fontWeight: 600 }}>Remaining balance due onsite</span>
+                          <div className="booking-step6-amount">
+                            <span>Due now</span>
+                            <strong>₱{RESERVATION_FEE.toLocaleString()}</strong>
                           </div>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>₱{balance.toLocaleString()}</span>
+                        </div>
+
+                        <div className="booking-step6-ledger">
+                          <div className="booking-step6-ledger-item">
+                            <span>Total service price</span>
+                            <strong>₱{total.toLocaleString()}</strong>
+                          </div>
+                          <div className="booking-step6-ledger-item is-due">
+                            <span>GCash downpayment</span>
+                            <strong>₱{RESERVATION_FEE.toLocaleString()}</strong>
+                          </div>
+                          <div className="booking-step6-ledger-item">
+                            <span>Remaining balance onsite</span>
+                            <strong>₱{balance.toLocaleString()}</strong>
+                          </div>
+                        </div>
+
+                        <div className="booking-step6-flow" aria-label="GCash payment steps">
+                          {[
+                            { icon: 'solar:qr-code-bold', label: 'Scan QR' },
+                            { icon: 'solar:wallet-money-bold', label: 'Send ₱500' },
+                            { icon: 'solar:upload-minimalistic-bold', label: 'Upload receipt' },
+                          ].map((item) => (
+                            <div key={item.label} className="booking-step6-chip">
+                              <iconify-icon icon={item.icon} width="14"></iconify-icon>
+                              <span>{item.label}</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     );
                   })()}
 
-                  {/* QR Code */}
-                  <div className="w-full flex flex-col items-center mb-4">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Scan to Pay via GCash</p>
-                    <div className="p-2 bg-white rounded-2xl shadow-sm border border-gray-100" style={{ boxShadow: '0 4px 20px -5px rgba(0,0,0,0.08)' }}>
-                      <img src="/gcash-qr.png" alt="GCash QR Code" className="w-44 h-44 object-contain rounded-xl" onError={(e) => { e.currentTarget.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=AutoSPFPayment'; }} />
-                    </div>
-                    <p className="text-[10px] text-gray-400 mt-2">Screenshot the QR or scan directly from GCash app</p>
-                  </div>
-
-                  {/* Upload Proof */}
-                  <div className="w-full">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <p className="text-[11px] font-bold text-gray-700 uppercase tracking-wide">Upload GCash Receipt</p>
-                      {!bookingDownpaymentProof && <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>Required</span>}
-                      {bookingDownpaymentProof && <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}><iconify-icon icon="solar:check-circle-bold" width="12"></iconify-icon> Uploaded</span>}
-                    </div>
-                    <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed rounded-xl transition-colors cursor-pointer relative overflow-hidden group" style={{ borderColor: bookingDownpaymentProof ? '#86efac' : '#d1d5db', background: bookingDownpaymentProof ? '#f0fdf4' : '#f9fafb' }}>
-                      <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                        const inputEl = e.target;
-                        const file = inputEl.files?.[0];
-                        if (!file) return;
-                        try {
-                          const compressed = await compressImageForBookingProof(file);
-                          const reader = new FileReader();
-                          reader.onloadend = () => setBookingDownpaymentProof(reader.result as string);
-                          reader.readAsDataURL(compressed);
-                        } catch {
-                          const reader = new FileReader();
-                          reader.onloadend = () => setBookingDownpaymentProof(reader.result as string);
-                          reader.readAsDataURL(file);
-                        }
-                        inputEl.value = '';
-                      }} />
-                      {bookingDownpaymentProof ? (
-                        <>
-                          <img src={bookingDownpaymentProof} alt="Proof" className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-30 transition-opacity" />
-                          <div className="z-10 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-sm flex items-center gap-2">
-                            <iconify-icon icon="solar:check-circle-bold" style={{ color: '#16a34a' }}></iconify-icon>
-                            <span className="text-xs font-semibold text-gray-800">Tap to Change</span>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex flex-col items-center gap-1.5">
-                          <div className="w-9 h-9 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400">
-                            <iconify-icon icon="solar:upload-minimalistic-bold" width="18"></iconify-icon>
-                          </div>
-                          <p className="text-xs font-semibold text-gray-500">Tap to upload GCash receipt</p>
-                          <p className="text-[10px] text-gray-400">JPG or PNG photo of your transaction</p>
+                  <div className="booking-step6-grid">
+                    {/* QR Code - do not change the actual QR asset */}
+                    <section className="booking-step6-qr-card" aria-label="GCash QR payment">
+                      <div className="booking-step6-section-head">
+                        <div>
+                          <p className="booking-step6-label">Scan to pay</p>
+                          <h4>GCash QR</h4>
                         </div>
-                      )}
-                    </label>
-                  </div>
+                        <span className="booking-step6-status-pill">Exact ₱500</span>
+                      </div>
+                      <div className="booking-step6-qr-frame">
+                        <img src="/gcash-qr.png" alt="GCash QR Code" className="h-48 w-48 rounded-2xl object-contain" onError={(e) => { e.currentTarget.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=AutoSPFPayment'; }} />
+                      </div>
+                      <p className="booking-step6-helper">Open GCash, scan this QR, then save your receipt screenshot.</p>
+                    </section>
 
-                  {/* Info note */}
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7, marginTop: 12, padding: '10px 12px', borderRadius: 10, background: '#f0f9ff', border: '1px solid #bae6fd' }}>
-                    <iconify-icon icon="solar:info-circle-bold" width="14" style={{ color: '#0284c7', flexShrink: 0, marginTop: 1 }}></iconify-icon>
-                    <p style={{ fontSize: 10.5, color: '#0369a1', lineHeight: 1.6, margin: 0 }}>
-                      Your booking will be <strong>pending confirmation</strong> until our team verifies your payment. The remaining balance is collected <strong>on the day of your appointment</strong> at our shop.
-                    </p>
-                  </div>
+                    {/* Upload Proof */}
+                    <section className="booking-step6-upload-card">
+                      <div className="booking-step6-section-head">
+                        <div>
+                          <p className="booking-step6-label">Payment proof</p>
+                          <h4>Upload GCash receipt</h4>
+                        </div>
+                        {!bookingDownpaymentProof && <span className="booking-step6-required">Required</span>}
+                        {bookingDownpaymentProof && (
+                          <span className="booking-step6-uploaded">
+                            <iconify-icon icon="solar:check-circle-bold" width="13"></iconify-icon>
+                            Uploaded
+                          </span>
+                        )}
+                      </div>
 
+                      <label className={`booking-step6-upload-dropzone group ${bookingDownpaymentProof ? 'is-uploaded' : ''}`}>
+                        <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                          const inputEl = e.target;
+                          const file = inputEl.files?.[0];
+                          if (!file) return;
+                          try {
+                            const compressed = await compressImageForBookingProof(file);
+                            const reader = new FileReader();
+                            reader.onloadend = () => setBookingDownpaymentProof(reader.result as string);
+                            reader.readAsDataURL(compressed);
+                          } catch {
+                            const reader = new FileReader();
+                            reader.onloadend = () => setBookingDownpaymentProof(reader.result as string);
+                            reader.readAsDataURL(file);
+                          }
+                          inputEl.value = '';
+                        }} />
+                        {bookingDownpaymentProof ? (
+                          <>
+                            <img src={bookingDownpaymentProof} alt="GCash receipt proof" className="absolute inset-0 h-full w-full object-cover opacity-55 transition-opacity group-hover:opacity-35" />
+                            <div className="booking-step6-upload-action">
+                              <iconify-icon icon="solar:check-circle-bold" width="17"></iconify-icon>
+                              <span>Receipt attached - tap to change</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="booking-step6-upload-empty">
+                            <div className="booking-step6-upload-icon">
+                              <iconify-icon icon="solar:upload-minimalistic-bold" width="22"></iconify-icon>
+                            </div>
+                            <p>Tap to upload your GCash receipt</p>
+                            <span>JPG or PNG screenshot of your successful transaction</span>
+                          </div>
+                        )}
+                      </label>
+
+                      <div className="booking-step6-info-card">
+                        <iconify-icon icon="solar:info-circle-bold" width="17"></iconify-icon>
+                        <p>
+                          Your booking stays <strong>pending confirmation</strong> until our team verifies your payment.
+                          The remaining balance is collected <strong>on your appointment day</strong>.
+                        </p>
+                      </div>
+                    </section>
+                  </div>
                 </div>
               )}
             </div>

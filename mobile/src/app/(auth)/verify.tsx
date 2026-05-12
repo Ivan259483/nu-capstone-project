@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,8 +20,11 @@ import PremiumButton from '@/components/ui/PremiumButton';
 
 export default function VerifyScreen() {
   const { colors } = useTheme();
-  // Get the email that was passed from the signup page
-  const { email } = useLocalSearchParams<{ email: string }>();
+  const { email: emailParam } = useLocalSearchParams<{ email?: string | string[] }>();
+  const email = useMemo(() => {
+    if (emailParam == null) return '';
+    return Array.isArray(emailParam) ? (emailParam[0] ?? '') : emailParam;
+  }, [emailParam]);
 
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
@@ -44,7 +47,7 @@ export default function VerifyScreen() {
     setLoading(true);
     try {
       const response = await apiClient.post('/auth/verify-otp', {
-        email,
+        email: email.trim().toLowerCase(),
         otp: token,
       });
 
@@ -113,7 +116,9 @@ export default function VerifyScreen() {
     if (countdown > 0 || !email) return;
     setLoading(true);
     try {
-      const response = await apiClient.post('/auth/send-otp', { email });
+      const response = await apiClient.post('/auth/resend-otp', {
+        email: email.trim().toLowerCase(),
+      });
       if (!response.data?.success) {
         throw new Error(response.data?.message || 'Unable to resend code.');
       }
@@ -148,7 +153,7 @@ export default function VerifyScreen() {
             <Text style={[styles.welcomeSubtext, { color: colors.textSecondary }]}>
               Enter the 6-digit code sent to{'\n'}
               <Text style={{ fontWeight: '700', color: colors.text }}>
-                {email?.toLowerCase()}
+                {email.trim().toLowerCase()}
               </Text>
             </Text>
           </View>

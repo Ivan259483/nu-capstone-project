@@ -99,7 +99,7 @@ function CalendarView() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 page-enter">
       <div className="shrink-0">
-        <h1 className="text-2xl font-bold text-slate-900">Appointments & Scheduling (Smart Calendar)</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Appointment</h1>
         <p className="mt-0.5 text-sm text-slate-500">
           View all bookings, adjust schedules manually, and avoid double booking with server-side slot validation.
         </p>

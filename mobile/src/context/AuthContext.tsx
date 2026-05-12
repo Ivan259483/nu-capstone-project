@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { auth } from '@/config/firebase';
-import { getApiErrorMessage, apiClient } from '@/services/api/client';
+import { getApiErrorMessage, apiClient, setAuthInvalidHandler } from '@/services/api/client';
 import { CUSTOMER_ROLE, getSafeUserRole } from '@/services/api/roles';
 import { authService } from '@/services/api/authService';
 import { authStorage } from '@/services/storage/authStorage';
@@ -89,6 +89,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<MobileProfile | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    setAuthInvalidHandler(async ({ path, message }) => {
+      if (__DEV__) {
+        console.warn(`[AuthContext] Invalid session detected from ${path}: ${message}`);
+      }
+      try {
+        await authService.clearLocalSession();
+        await clearQueue();
+      } catch (error) {
+        console.warn('[AuthContext] Forced sign-out warning:', getApiErrorMessage(error));
+      } finally {
+        setSession(null);
+        setUser(null);
+        setToken(null);
+        setBackendUser(null);
+        setProfile(null);
+      }
+    });
+
+    return () => {
+      setAuthInvalidHandler(null);
+    };
+  }, []);
 
   const applyState = (
     firebaseUser: FirebaseUser | null,

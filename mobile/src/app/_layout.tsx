@@ -155,12 +155,15 @@ import NetInfo from '@react-native-community/netinfo';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { processQueue } from '@/services/offlineQueue';
-import { apiClient } from '@/services/api/client';
+import { apiClient, getApiStatusCode } from '@/services/api/client';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 2,
+      retry: (failureCount, error) => {
+        if (getApiStatusCode(error) === 401) return false;
+        return failureCount < 2;
+      },
       refetchOnWindowFocus: true,
       staleTime: 1000 * 30, // 30 seconds
     },

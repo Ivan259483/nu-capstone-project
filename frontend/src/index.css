@@ -2122,10 +2122,13 @@ html.dark * {
     --booking-accent: #2563eb;
     --booking-focus: #2563eb;
     --booking-focus-ring: rgb(37 99 235 / 0.28);
+    --booking-field-radius: 1rem;
+    --booking-readonly-radius: 1.125rem;
     border: none !important;
     box-shadow:
         0 28px 80px rgba(15, 23, 42, 0.22),
-        0 12px 40px rgba(15, 23, 42, 0.1) !important;
+        0 12px 40px rgba(15, 23, 42, 0.1),
+        0 0 0 1px rgb(226 232 240 / 0.55) !important;
 }
 
 .customer-booking-modal .customer-booking-progress-segment-active {
@@ -2303,40 +2306,215 @@ html.dark * {
 
 .customer-vehicle-form input,
 .customer-vehicle-form select {
-    border-color: rgba(203, 213, 225, 0.64) !important;
+    border-color: rgba(226, 232, 240, 0.78) !important;
+    border-width: 1px !important;
     box-shadow:
-        0 1px 2px rgba(15, 23, 42, 0.035),
+        0 10px 26px -22px rgba(15, 23, 42, 0.2),
+        0 1px 2px rgba(15, 23, 42, 0.025),
         0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
 }
 
 .customer-vehicle-form input:focus,
 .customer-vehicle-form select:focus {
-    border-color: rgba(100, 116, 139, 0.52) !important;
+    border-color: rgba(148, 163, 184, 0.38) !important;
     box-shadow:
-        0 0 0 3px rgba(148, 163, 184, 0.16),
+        0 0 0 4px rgba(148, 163, 184, 0.12),
+        0 12px 30px -22px rgba(15, 23, 42, 0.25),
         0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
 }
 
-.customer-vehicle-preview {
-    border-color: rgba(203, 213, 225, 0.42) !important;
+/* Brand / model combobox (Popover trigger = button — match native select border) */
+.customer-vehicle-form button.customer-vehicle-combobox {
+    border-color: rgba(226, 232, 240, 0.78) !important;
     box-shadow:
-        0 18px 42px rgba(15, 23, 42, 0.075),
+        0 10px 26px -22px rgba(15, 23, 42, 0.2),
+        0 1px 2px rgba(15, 23, 42, 0.025),
+        0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
+    background-color: #ffffff !important;
+    background-image: linear-gradient(to bottom, #ffffff, rgb(248 250 252 / 0.82)) !important;
+}
+
+.customer-vehicle-form button.customer-vehicle-combobox.customer-vehicle-combobox--error {
+    background-color: rgb(254 242 242 / 0.72) !important;
+    background-image: none !important;
+}
+
+.customer-vehicle-form button.customer-vehicle-combobox:focus-visible,
+.customer-vehicle-form button.customer-vehicle-combobox[data-state='open'] {
+    border-color: rgba(148, 163, 184, 0.38) !important;
+    box-shadow:
+        0 0 0 4px rgba(148, 163, 184, 0.12),
+        0 12px 30px -22px rgba(15, 23, 42, 0.25),
+        0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
+}
+
+/* Brand / Model cmdk popover — frosted glass (see-through like native Year list) */
+.vehicle-search-popover {
+    border: none !important;
+    outline: none !important;
+    background-color: rgba(255, 255, 255, 0.45) !important;
+    background-image: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.62) 0%,
+        rgba(255, 255, 255, 0.38) 100%
+    ) !important;
+    backdrop-filter: blur(22px) saturate(185%) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(185%) !important;
+    box-shadow:
+        0 28px 72px -18px rgba(15, 23, 42, 0.22),
+        0 12px 36px -20px rgba(15, 23, 42, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+}
+
+.vehicle-search-popover [cmdk-root] {
+    background-color: transparent !important;
+    color: #0f172a !important;
+}
+
+.vehicle-search-popover [cmdk-list] {
+    background-color: transparent !important;
+}
+
+.vehicle-search-popover [cmdk-group] {
+    background-color: transparent !important;
+    color: #0f172a !important;
+}
+
+.vehicle-search-popover [cmdk-item] {
+    background-color: rgba(255, 255, 255, 0.12) !important;
+    color: #1e293b !important;
+}
+
+.vehicle-search-popover [cmdk-item][aria-selected='true'],
+.vehicle-search-popover [cmdk-item][data-selected='true'],
+.vehicle-search-popover [cmdk-item][data-highlighted] {
+    background-color: rgba(255, 255, 255, 0.52) !important;
+    color: #0f172a !important;
+}
+
+.vehicle-search-popover [cmdk-input] {
+    color: #0f172a !important;
+}
+
+.vehicle-search-popover [cmdk-list]::-webkit-scrollbar {
+    width: 6px;
+}
+
+.vehicle-search-popover [cmdk-list]::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.35);
+    border-radius: 9999px;
+}
+
+.customer-vehicle-preview {
+    border-color: rgba(255, 255, 255, 0.78) !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.76)) !important;
+    box-shadow:
+        0 24px 58px -30px rgba(15, 23, 42, 0.26),
+        0 10px 26px -24px rgba(15, 23, 42, 0.18),
         0 1px 0 rgba(255, 255, 255, 0.9) inset !important;
 }
 
-.customer-vehicle-pricing-panel {
+.customer-vehicle-preview-stats {
     box-shadow:
-        0 16px 38px rgba(15, 23, 42, 0.18),
-        0 1px 0 rgba(255, 255, 255, 0.08) inset,
-        0 0 0 1px rgba(15, 23, 42, 0.16) !important;
+        inset 0 1px 0 rgba(255, 255, 255, 0.86),
+        inset 0 16px 28px -26px rgba(15, 23, 42, 0.16) !important;
+}
+
+.customer-vehicle-pricing-panel {
+    border: none !important;
+    background:
+        radial-gradient(circle at 14% 0%, rgba(249, 115, 22, 0.16), transparent 32%),
+        linear-gradient(145deg, #111827 0%, #162033 48%, #0f172a 100%) !important;
+    box-shadow:
+        0 24px 58px -28px rgba(15, 23, 42, 0.42),
+        0 10px 24px -22px rgba(249, 115, 22, 0.32),
+        0 1px 0 rgba(255, 255, 255, 0.1) inset !important;
 }
 
 .customer-vehicle-price-tile {
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035)) !important;
+    box-shadow:
+        0 10px 28px -26px rgba(0, 0, 0, 0.55),
+        0 1px 0 rgba(255, 255, 255, 0.07) inset !important;
 }
 
 .customer-vehicle-actions {
     border-color: rgba(226, 232, 240, 0.8) !important;
+}
+
+.customer-vehicle-actions button {
+    border-color: rgba(226, 232, 240, 0.7) !important;
+}
+
+/* Customer garage cards — HD glass finish without changing layout */
+.customer-garage-card {
+    position: relative;
+    isolation: isolate;
+}
+
+.customer-garage-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    border-radius: inherit;
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0.08) 38%, rgba(255, 255, 255, 0.24) 100%);
+    opacity: 0.42;
+    mix-blend-mode: screen;
+}
+
+.customer-garage-card::after {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    z-index: 1;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.72),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.customer-garage-card-banner,
+.customer-garage-card-body {
+    position: relative;
+    z-index: 2;
+}
+
+.customer-garage-card-banner::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at 28% 12%, rgba(255, 255, 255, 0.26), transparent 28%),
+        linear-gradient(115deg, rgba(255, 255, 255, 0.36), transparent 32%, rgba(255, 255, 255, 0.1) 68%, transparent 100%);
+    opacity: 0.58;
+}
+
+.customer-garage-card-body {
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.84),
+        inset 0 18px 32px -34px rgba(15, 23, 42, 0.22);
+}
+
+.customer-garage-actions {
+    position: relative;
+}
+
+.customer-garage-actions::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.22), transparent);
 }
 
 /* ── Gold glow ── */
@@ -3089,4 +3267,514 @@ html.dark * {
     text-transform: uppercase;
     letter-spacing: 0.18em;
     color: #64748b;
+}
+
+/* Step 2 “Your details” — smoother field borders and focus */
+.customer-booking-modal .booking-readonly-surface {
+    border-radius: var(--booking-readonly-radius);
+    border: 1px solid rgb(226 232 240 / 0.72);
+    box-shadow:
+        0 2px 14px -8px rgb(15 23 42 / 0.1),
+        inset 0 1px 0 rgb(255 255 255 / 0.82);
+}
+
+.customer-booking-modal .booking-step2 :is(
+        input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+        select
+    ) {
+    border-radius: var(--booking-field-radius) !important;
+    border-color: rgb(226 232 240 / 0.82) !important;
+    box-shadow:
+        0 1px 3px rgb(15 23 42 / 0.045),
+        inset 0 1px 0 rgb(255 255 255 / 0.72) !important;
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.customer-booking-modal .booking-step2 :is(input, select):focus-visible {
+    outline: none;
+    border-color: rgb(203 213 225 / 0.95) !important;
+    box-shadow:
+        0 0 0 3px var(--booking-focus-ring),
+        0 2px 12px -6px rgb(15 23 42 / 0.08),
+        inset 0 1px 0 rgb(255 255 255 / 0.88) !important;
+}
+
+.customer-booking-modal .booking-step2 :is(input.border-red-400, select.border-red-400) {
+    border-color: rgb(248 113 113) !important;
+    box-shadow: 0 1px 4px rgb(239 68 68 / 0.1) !important;
+}
+
+.customer-booking-modal .booking-step2 :is(input.border-red-400, select.border-red-400):focus-visible {
+    border-color: rgb(239 68 68) !important;
+    box-shadow:
+        0 0 0 3px rgb(239 68 68 / 0.22),
+        0 1px 4px rgb(239 68 68 / 0.12) !important;
+}
+
+/* Step 5 — Terms & Conditions cards (match booking modal field surfaces) */
+.customer-booking-modal .booking-step5 .booking-terms-surface {
+    border-radius: var(--booking-readonly-radius);
+    border: 1px solid rgb(226 232 240 / 0.72);
+    box-shadow:
+        0 2px 14px -8px rgb(15 23 42 / 0.09),
+        inset 0 1px 0 rgb(255 255 255 / 0.82);
+}
+
+.customer-booking-modal .booking-step5 .booking-terms-scroll.booking-terms-surface {
+    box-shadow:
+        0 2px 14px -8px rgb(15 23 42 / 0.09),
+        inset 0 1px 0 rgb(255 255 255 / 0.88),
+        inset 0 -14px 22px -20px rgb(15 23 42 / 0.035);
+}
+
+.customer-booking-modal .booking-step5 .booking-terms-agree {
+    border-radius: var(--booking-field-radius);
+    border: 1px solid rgb(226 232 240 / 0.68);
+    box-shadow:
+        0 2px 12px -6px rgb(15 23 42 / 0.07),
+        inset 0 1px 0 rgb(255 255 255 / 0.78);
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease,
+        opacity 0.2s ease;
+}
+
+.customer-booking-modal .booking-step5 .booking-terms-agree.is-locked {
+    border-color: rgb(241 245 249 / 0.95);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.72);
+}
+
+.customer-booking-modal .booking-step5 .booking-terms-agree.is-active:hover {
+    border-color: rgb(203 213 225 / 0.88);
+    box-shadow:
+        0 4px 18px -8px rgb(15 23 42 / 0.1),
+        inset 0 1px 0 rgb(255 255 255 / 0.9);
+}
+
+/* Step 6 — premium GCash downpayment */
+.customer-booking-modal .booking-step6 {
+    background:
+        radial-gradient(circle at 14% 0%, rgba(37, 99, 235, 0.09), transparent 30%),
+        radial-gradient(circle at 88% 14%, rgba(245, 158, 11, 0.12), transparent 28%),
+        linear-gradient(180deg, rgba(248, 250, 252, 0.62), rgba(255, 255, 255, 0.98) 42%);
+}
+
+.customer-booking-modal .booking-step6-payment-card {
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 1rem;
+    border: 1px solid rgba(226, 232, 240, 0.76);
+    border-radius: 1.5rem;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow:
+        0 18px 42px -24px rgba(15, 23, 42, 0.42),
+        0 1px 0 rgba(255, 255, 255, 0.92) inset;
+}
+
+.customer-booking-modal .booking-step6-payment-card::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at 18% 0%, rgba(245, 158, 11, 0.28), transparent 28%),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.44), transparent 34%);
+    opacity: 0.72;
+}
+
+.customer-booking-modal .booking-step6-hero {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.15rem;
+    color: #ffffff;
+    background:
+        radial-gradient(circle at 86% 4%, rgba(251, 191, 36, 0.28), transparent 32%),
+        linear-gradient(135deg, #0f172a 0%, #111827 54%, #1e293b 100%);
+}
+
+.customer-booking-modal .booking-step6-icon {
+    display: inline-flex;
+    width: 3rem;
+    height: 3rem;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border-radius: 1.1rem;
+    color: #ffffff;
+    background: linear-gradient(135deg, #f59e0b, #f97316);
+    box-shadow:
+        0 14px 30px -16px rgba(249, 115, 22, 0.9),
+        0 1px 0 rgba(255, 255, 255, 0.32) inset;
+}
+
+.customer-booking-modal .booking-step6-eyebrow {
+    margin: 0 0 0.2rem;
+    color: rgba(251, 191, 36, 0.92);
+    font-size: 0.66rem;
+    font-weight: 900;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.customer-booking-modal .booking-step6-title {
+    margin: 0;
+    max-width: 28rem;
+    color: #ffffff;
+    font-size: 1.05rem;
+    font-weight: 900;
+    line-height: 1.18;
+    letter-spacing: -0.03em;
+}
+
+.customer-booking-modal .booking-step6-subtitle {
+    margin: 0.4rem 0 0;
+    max-width: 31rem;
+    color: rgba(226, 232, 240, 0.78);
+    font-size: 0.76rem;
+    font-weight: 600;
+    line-height: 1.55;
+}
+
+.customer-booking-modal .booking-step6-amount {
+    display: grid;
+    min-width: 8.6rem;
+    justify-items: end;
+    gap: 0.15rem;
+    border-radius: 1.2rem;
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    background: rgba(255, 255, 255, 0.08);
+    padding: 0.78rem 0.9rem;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+    backdrop-filter: blur(14px);
+}
+
+.customer-booking-modal .booking-step6-amount span {
+    color: rgba(226, 232, 240, 0.72);
+    font-size: 0.62rem;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.customer-booking-modal .booking-step6-amount strong {
+    color: #ffffff;
+    font-size: 1.9rem;
+    font-weight: 950;
+    letter-spacing: -0.05em;
+    line-height: 1;
+}
+
+.customer-booking-modal .booking-step6-ledger {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.55rem;
+    padding: 0.7rem;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.84));
+}
+
+.customer-booking-modal .booking-step6-ledger-item {
+    min-width: 0;
+    border-radius: 1rem;
+    border: 1px solid rgba(226, 232, 240, 0.76);
+    background: rgba(255, 255, 255, 0.74);
+    padding: 0.65rem 0.75rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.customer-booking-modal .booking-step6-ledger-item span {
+    display: block;
+    color: #64748b;
+    font-size: 0.62rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.customer-booking-modal .booking-step6-ledger-item strong {
+    display: block;
+    margin-top: 0.18rem;
+    color: #0f172a;
+    font-size: 0.96rem;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+}
+
+.customer-booking-modal .booking-step6-ledger-item.is-due {
+    border-color: rgba(251, 191, 36, 0.48);
+    background: linear-gradient(180deg, rgba(255, 251, 235, 0.96), rgba(255, 247, 237, 0.86));
+}
+
+.customer-booking-modal .booking-step6-ledger-item.is-due strong {
+    color: #c2410c;
+}
+
+.customer-booking-modal .booking-step6-flow {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0 0.7rem 0.75rem;
+    background: rgba(248, 250, 252, 0.82);
+}
+
+.customer-booking-modal .booking-step6-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    background: rgba(255, 255, 255, 0.78);
+    padding: 0.46rem 0.7rem;
+    color: #475569;
+    font-size: 0.68rem;
+    font-weight: 850;
+    box-shadow: 0 8px 20px -16px rgba(15, 23, 42, 0.24);
+}
+
+.customer-booking-modal .booking-step6-chip iconify-icon {
+    color: #f97316;
+}
+
+.customer-booking-modal .booking-step6-grid {
+    display: grid;
+    grid-template-columns: minmax(15rem, 0.86fr) minmax(0, 1.14fr);
+    gap: 0.9rem;
+}
+
+.customer-booking-modal .booking-step6-qr-card,
+.customer-booking-modal .booking-step6-upload-card {
+    border-radius: 1.45rem;
+    border: 1px solid rgba(226, 232, 240, 0.82);
+    background:
+        radial-gradient(circle at 18% 0%, rgba(219, 234, 254, 0.52), transparent 34%),
+        rgba(255, 255, 255, 0.88);
+    padding: 1rem;
+    box-shadow:
+        0 16px 34px -26px rgba(15, 23, 42, 0.38),
+        0 1px 0 rgba(255, 255, 255, 0.92) inset;
+}
+
+.customer-booking-modal .booking-step6-section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.customer-booking-modal .booking-step6-label {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 0.6rem;
+    font-weight: 900;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.customer-booking-modal .booking-step6-section-head h4 {
+    margin: 0.12rem 0 0;
+    color: #0f172a;
+    font-size: 0.92rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+}
+
+.customer-booking-modal .booking-step6-status-pill,
+.customer-booking-modal .booking-step6-required,
+.customer-booking-modal .booking-step6-uploaded {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.3rem;
+    border-radius: 999px;
+    padding: 0.34rem 0.58rem;
+    font-size: 0.62rem;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.customer-booking-modal .booking-step6-status-pill {
+    border: 1px solid rgba(251, 191, 36, 0.54);
+    background: rgba(255, 251, 235, 0.92);
+    color: #b45309;
+}
+
+.customer-booking-modal .booking-step6-required {
+    border: 1px solid rgba(248, 113, 113, 0.24);
+    background: rgba(254, 242, 242, 0.94);
+    color: #dc2626;
+}
+
+.customer-booking-modal .booking-step6-uploaded {
+    border: 1px solid rgba(52, 211, 153, 0.34);
+    background: rgba(236, 253, 245, 0.96);
+    color: #059669;
+}
+
+.customer-booking-modal .booking-step6-qr-frame {
+    position: relative;
+    display: flex;
+    width: min(100%, 15.4rem);
+    min-height: 15.4rem;
+    align-items: center;
+    justify-content: center;
+    margin: 0.9rem auto 0.75rem;
+    border-radius: 1.65rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.9));
+    box-shadow:
+        0 22px 42px -28px rgba(15, 23, 42, 0.48),
+        0 0 0 7px rgba(248, 250, 252, 0.82),
+        inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.customer-booking-modal .booking-step6-helper {
+    margin: 0;
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 650;
+    line-height: 1.55;
+    text-align: center;
+}
+
+.customer-booking-modal .booking-step6-upload-dropzone {
+    position: relative;
+    display: flex;
+    min-height: 11.9rem;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    margin-top: 0.9rem;
+    border-radius: 1.35rem;
+    border: 1.5px dashed rgba(148, 163, 184, 0.62);
+    background:
+        radial-gradient(circle at 50% 0%, rgba(219, 234, 254, 0.42), transparent 44%),
+        rgba(248, 250, 252, 0.78);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+    transition:
+        border-color 0.22s ease,
+        box-shadow 0.22s ease,
+        transform 0.22s ease,
+        background 0.22s ease;
+}
+
+.customer-booking-modal .booking-step6-upload-dropzone:hover {
+    border-color: rgba(37, 99, 235, 0.42);
+    background:
+        radial-gradient(circle at 50% 0%, rgba(219, 234, 254, 0.68), transparent 48%),
+        rgba(248, 250, 252, 0.94);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.9),
+        0 12px 28px -24px rgba(15, 23, 42, 0.42);
+}
+
+.customer-booking-modal .booking-step6-upload-dropzone.is-uploaded {
+    border-color: rgba(52, 211, 153, 0.62);
+    border-style: solid;
+    background: rgba(236, 253, 245, 0.92);
+}
+
+.customer-booking-modal .booking-step6-upload-empty {
+    display: grid;
+    justify-items: center;
+    gap: 0.36rem;
+    padding: 1rem;
+    text-align: center;
+}
+
+.customer-booking-modal .booking-step6-upload-icon {
+    display: inline-flex;
+    width: 3.25rem;
+    height: 3.25rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    color: #64748b;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow:
+        0 12px 26px -20px rgba(15, 23, 42, 0.42),
+        0 1px 0 rgba(255, 255, 255, 0.92) inset;
+}
+
+.customer-booking-modal .booking-step6-upload-empty p {
+    margin: 0;
+    color: #334155;
+    font-size: 0.84rem;
+    font-weight: 900;
+}
+
+.customer-booking-modal .booking-step6-upload-empty span {
+    color: #94a3b8;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.customer-booking-modal .booking-step6-upload-action {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    padding: 0.72rem 1rem;
+    color: #065f46;
+    font-size: 0.76rem;
+    font-weight: 900;
+    box-shadow:
+        0 14px 30px -22px rgba(15, 23, 42, 0.5),
+        0 1px 0 rgba(255, 255, 255, 0.9) inset;
+    backdrop-filter: blur(10px);
+}
+
+.customer-booking-modal .booking-step6-info-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    margin-top: 0.9rem;
+    border-radius: 1.1rem;
+    border: 1px solid rgba(125, 211, 252, 0.48);
+    background:
+        linear-gradient(180deg, rgba(240, 249, 255, 0.92), rgba(239, 246, 255, 0.84));
+    padding: 0.82rem 0.9rem;
+    color: #0369a1;
+}
+
+.customer-booking-modal .booking-step6-info-card iconify-icon {
+    flex: 0 0 auto;
+    margin-top: 0.12rem;
+    color: #0284c7;
+}
+
+.customer-booking-modal .booking-step6-info-card p {
+    margin: 0;
+    color: #075985;
+    font-size: 0.74rem;
+    font-weight: 650;
+    line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+    .customer-booking-modal .booking-step6-hero,
+    .customer-booking-modal .booking-step6-section-head {
+        flex-direction: column;
+    }
+
+    .customer-booking-modal .booking-step6-amount {
+        width: 100%;
+        justify-items: start;
+    }
+
+    .customer-booking-modal .booking-step6-ledger,
+    .customer-booking-modal .booking-step6-grid {
+        grid-template-columns: 1fr;
+    }
 }
