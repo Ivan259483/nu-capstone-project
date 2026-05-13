@@ -17,6 +17,7 @@ export interface CalendarBooking {
   totalPrice?: number;
   totalAmount?: number;
   paymentProofUrl?: string;
+  hasPaymentProof?: boolean;
   bookingReference?: string;
 }
 

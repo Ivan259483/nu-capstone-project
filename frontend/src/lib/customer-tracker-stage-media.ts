@@ -3,6 +3,13 @@
  * Keep in sync with QC `serviceTrackingStage` / backend `tracker.controller.js`.
  */
 
+import {
+  TRACKER_PHOTO_SLOT_KEYS,
+  normalizeTrackerSlotKey,
+  TRACKER_PHOTO_SLOT_LABELS,
+  type TrackerPhotoSlotKey,
+} from './tracker-gate-photo-slots';
+
 export type TrackerMediaStage =
   | 'confirmed'
   | 'received'
@@ -54,17 +61,53 @@ export const DEFAULT_TRACKER_STAGE_DESCRIPTION: Record<TrackerMediaStage, string
 
 export type TrackerStageMediaEntry = {
   stage: string;
+  slot?: string;
   photoUrl?: string;
   description?: string;
   uploadedAt?: string;
   uploadedBy?: string;
 };
 
+export type TrackerStageMediaWithDisplaySlot = TrackerStageMediaEntry & { displaySlot: TrackerPhotoSlotKey };
+
+/** Ordered gate photos (up to five) for customer UI. Legacy slotless row maps to front only. */
+export function listTrackerStageMediaForStage(
+  booking: { trackerStageMedia?: TrackerStageMediaEntry[] } | null | undefined,
+  stage: TrackerMediaStage | null | undefined
+): TrackerStageMediaWithDisplaySlot[] {
+  if (!stage || !booking?.trackerStageMedia?.length) return [];
+  const rows = booking.trackerStageMedia.filter((e) => e.stage === stage && String(e.photoUrl || '').trim());
+  const out: TrackerStageMediaWithDisplaySlot[] = [];
+  let consumedLegacy = false;
+  for (const slot of TRACKER_PHOTO_SLOT_KEYS) {
+    const explicit = rows.find((r) => normalizeTrackerSlotKey(r.slot) === slot);
+    let row: TrackerStageMediaEntry | undefined = explicit;
+    if (!row && slot === 'front') {
+      row = rows.find((r) => !normalizeTrackerSlotKey(r.slot) && !consumedLegacy);
+      if (row) consumedLegacy = true;
+    }
+    if (row) out.push({ ...row, displaySlot: slot });
+  }
+  return out;
+}
+
+export function getCustomerStageSlotPhotos(
+  booking: { trackerStageMedia?: TrackerStageMediaEntry[] } | null | undefined,
+  stage: TrackerMediaStage | null | undefined
+): { url: string; label: string }[] {
+  return listTrackerStageMediaForStage(booking, stage).map((r) => ({
+    url: (r.photoUrl || '').trim(),
+    label: TRACKER_PHOTO_SLOT_LABELS[r.displaySlot],
+  }));
+}
+
 export function findTrackerStageMedia(
   booking: { trackerStageMedia?: TrackerStageMediaEntry[] } | null | undefined,
   stage: TrackerMediaStage | null | undefined
 ): TrackerStageMediaEntry | null {
   if (!stage || !booking?.trackerStageMedia?.length) return null;
+  const ordered = listTrackerStageMediaForStage(booking, stage);
+  if (ordered.length) return ordered[0];
   return booking.trackerStageMedia.find((e) => e.stage === stage) || null;
 }
 
@@ -74,8 +117,8 @@ export function resolveTrackerStageDescription(
   stage: TrackerMediaStage | null | undefined
 ): string {
   if (!stage) return '';
-  const row = findTrackerStageMedia(booking, stage);
-  const custom = (row?.description || '').trim();
+  const rows = listTrackerStageMediaForStage(booking, stage);
+  const custom = rows.map((r) => (r.description || '').trim()).find(Boolean);
   if (custom) return custom;
   return DEFAULT_TRACKER_STAGE_DESCRIPTION[stage] || '';
 }

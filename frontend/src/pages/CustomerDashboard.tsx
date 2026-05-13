@@ -19,7 +19,7 @@ import {
 } from '../lib/booking-terms';
 import {
   DASHBOARD_TRACKER_STEP_MEDIA_STAGE,
-  findTrackerStageMedia,
+  getCustomerStageSlotPhotos,
   resolveTrackerStageDescription,
 } from '../lib/customer-tracker-stage-media';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
@@ -153,6 +153,86 @@ const formatPlateDisplay = (value: unknown, fallback = '—') => {
 };
 
 const TRACKER_ESTIMATED_SERVICE_MINUTES = 210;
+/** Must match backend QC gate `REQUIRED_GATE_PHOTOS` (5 slots per gate). */
+const TRACKER_REQUIRED_GATE_PHOTOS = 5;
+
+/** Bookings that may appear on the customer live tracker (dashboard + tracker tab). */
+const CUSTOMER_TRACKER_STATUS_SET = new Set([
+  'approved',
+  'confirmed',
+  'assigned',
+  'received',
+  'in_progress',
+  'in-progress',
+  'ready_for_payment',
+  'completed',
+  'paid',
+]);
+
+/** Prefer fine-grained QC stage when ranking which booking to show. */
+const CUSTOMER_TRACKER_STAGE_RANK: Record<string, number> = {
+  confirmed: 0,
+  received: 1,
+  in_progress: 2,
+  quality_check: 3,
+  ready_pickup: 4,
+  completed: 5,
+  released: 6,
+};
+
+const CUSTOMER_TRACKER_STATUS_FALLBACK_RANK: Record<string, number> = {
+  approved: 0,
+  confirmed: 0,
+  assigned: 0,
+  received: 1,
+  in_progress: 2,
+  'in-progress': 2,
+  ready_for_payment: 4,
+  completed: 5,
+  paid: 5,
+  released: 6,
+  done: 6,
+};
+
+function normTrackerStr(s: unknown) {
+  return String(s ?? '').trim().toLowerCase().replace(/-/g, '_');
+}
+
+/** True when this booking should surface the technician/QC live tracker (excludes fully paid / receipt issued). */
+function bookingShowsCustomerLiveTracker(b: unknown): boolean {
+  const row = b as Record<string, unknown> | null | undefined;
+  if (!row) return false;
+  if (String(row.paymentStatus ?? '').toLowerCase() === 'paid') return false;
+  return CUSTOMER_TRACKER_STATUS_SET.has(normTrackerStr(row.status));
+}
+
+/**
+ * Pick the booking furthest along the live pipeline. `myBookings` is sorted newest-first;
+ * a plain `find()` often returned a newer `approved` row instead of the older in-shop job
+ * that QC advanced to `quality_check` / `ready_pickup`.
+ */
+function pickCustomerLiveTrackerBooking(bookings: unknown[] | null | undefined): any | undefined {
+  if (!bookings?.length) return undefined;
+  const candidates = (bookings as any[]).filter(bookingShowsCustomerLiveTracker);
+  if (!candidates.length) return undefined;
+  const rankOf = (b: any) => {
+    const ts = normTrackerStr(b?.serviceTrackingStage);
+    if (ts && CUSTOMER_TRACKER_STAGE_RANK[ts] !== undefined) {
+      return CUSTOMER_TRACKER_STAGE_RANK[ts] + 0.001;
+    }
+    return CUSTOMER_TRACKER_STATUS_FALLBACK_RANK[normTrackerStr(b?.status)] ?? 0;
+  };
+  const sorted = [...candidates].sort((a, b) => {
+    const d = rankOf(b) - rankOf(a);
+    if (d !== 0) return d;
+    const tb = new Date(b?.serviceTrackingUpdatedAt || b?.updatedAt || b?.createdAt || 0).getTime();
+    const ta = new Date(a?.serviceTrackingUpdatedAt || a?.updatedAt || a?.createdAt || 0).getTime();
+    return tb - ta;
+  });
+  const best = sorted[0];
+
+  return best;
+}
 
 function parseClockTimeToMinutes(value: unknown): number | null {
   const raw = String(value ?? '').trim();
@@ -373,9 +453,13 @@ export default function CustomerDashboard() {
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   // Payment History lightbox
   const [paymentLightboxUrl, setPaymentLightboxUrl] = useState<string | null>(null);
+  const [orderReceiptPdfUrl, setOrderReceiptPdfUrl] = useState<string | null>(null);
+  const orderReceiptPdfUrlRef = useRef<string | null>(null);
   /** Inline/base64 tracker photos cannot open in a new tab — use overlay instead. */
   const [trackerEvidenceLightbox, setTrackerEvidenceLightbox] = useState<{ url: string; title: string } | null>(null);
 
+  /** Prevents overlapping GET /bookings calls (poll + socket debounce) from stacking and timing out together. */
+  const bookingsLoadLockRef = useRef(false);
   /** Socket-driven silent refetch — avoids full page reload; see bookings `load()` effect. */
   const loadBookingsRef = useRef<((opts?: { silent?: boolean }) => Promise<void>) | null>(null);
   const silentBookingsRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -388,25 +472,61 @@ export default function CustomerDashboard() {
     }, 400);
   }, []);
 
+  const closeCustomerOrderReceiptPdf = useCallback(() => {
+    setOrderReceiptPdfUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      orderReceiptPdfUrlRef.current = null;
+      return null;
+    });
+  }, []);
+
+  const openCustomerOrderReceiptPdf = useCallback(async (orderId: string) => {
+    const t = toast.loading('Opening receipt…');
+    try {
+      await ensureBackendAuthToken();
+      const { BillingService } = await import('../lib/billing-service');
+      const blob = await BillingService.getOrderReceiptPdfBlob(orderId);
+      toast.dismiss(t);
+      setOrderReceiptPdfUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        const next = URL.createObjectURL(blob);
+        orderReceiptPdfUrlRef.current = next;
+        return next;
+      });
+    } catch (e: unknown) {
+      toast.dismiss(t);
+      const msg = e instanceof Error ? e.message : 'Could not open receipt';
+      toast.error(msg);
+    }
+  }, []);
+
+  useEffect(() => {
+    orderReceiptPdfUrlRef.current = orderReceiptPdfUrl;
+  }, [orderReceiptPdfUrl]);
+
+  useEffect(() => () => {
+    const u = orderReceiptPdfUrlRef.current;
+    if (u) URL.revokeObjectURL(u);
+  }, []);
+
   // ── Real-time tracker updates via useLiveJobs socket ─────────────────────────
   // When QC advances a stage, the backend emits booking:status to user:${id} room.
-  // We ONLY patch serviceTrackingStage (and staff assignments) — never status.
-  // Patching status from socket events caused the 'Booking Not Confirmed' bug:
-  // ready_pickup was emitting status:'completed', hasActiveBooking → false,
-  // the live tracker hid, and any old rejected order surfaced instead.
-  // Status stays authoritative from HTTP refetch (poll + debounced silent load below).
+  // When QC/POS emits status (e.g. ready_for_payment) or payment fields, merge so the tracker stays in sync between polls.
   const handleBookingStatus = useCallback((event: BookingStatusEvent) => {
-    const { bookingId, serviceTrackingStage, serviceStaffAssignments, trackerStageMedia } = event;
+    const { bookingId, serviceTrackingStage, serviceStaffAssignments, trackerStageMedia, status, paymentStatus, invoiceId } = event;
     if (!bookingId) return;
     console.log('[TRACKER] booking:status → patching stage:', { bookingId, serviceTrackingStage });
     setMyBookings((prev: any[]) =>
       prev.map((b: any) => {
-        const id = b.id || b._id;
-        if (id !== bookingId) return b;
+        const id = String(b.id ?? b._id ?? '');
+        const bid = String(bookingId ?? '');
+        if (id !== bid) return b;
         return {
           ...b,
-          // Only update the fine-grained tracking stage — let polling handle status
           ...(serviceTrackingStage !== undefined ? { serviceTrackingStage } : {}),
+          ...(status !== undefined ? { status } : {}),
+          ...(paymentStatus !== undefined ? { paymentStatus } : {}),
+          ...(invoiceId !== undefined ? { invoiceId } : {}),
           ...(serviceStaffAssignments?.length ? { serviceStaffAssignments } : {}),
           ...(trackerStageMedia !== undefined ? { trackerStageMedia } : {}),
         };
@@ -504,110 +624,74 @@ export default function CustomerDashboard() {
 
   useEffect(() => {
     if (!user) return;
-    const fetchCustomerStats = async () => {
-      try {
-        const { OrderService } = await import('../lib/order-service');
-        const res = await OrderService.getAllOrders({ suppressErrorToast: true });
-        if (!res.success || !Array.isArray(res.data)) return;
 
-        // Filter orders belonging to the current customer.
-        // Normalize both sides to strings — customer ObjectId serializes as string from API.
-        const myId = String(user.id || user._id || '');
-        const myOrders = res.data
-          .filter((o: any) => {
-            const custId = String(
-              o.customerId || o.customer?._id || o.customer || ''
-            );
-            return custId === myId || o.customerName === user.name;
-          })
-          .sort((a: any, b: any) =>
-            new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-          );
+    const myOrders = [...myBookings].sort(
+      (a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
 
-        // Current status: find active booking (in-progress, assigned, checked-in, etc.)
-        // 'completed' means service done, car still in shop — show it as active.
-        const activeStatuses = ['in-progress', 'assigned', 'checked-in', 'processing', 'confirmed', 'approved', 'in_progress', 'received', 'completed'];
-        const activeOrder = myOrders.find((o: any) => activeStatuses.includes(o.status));
-        let currentStatus = '';
-        if (activeOrder) {
-          const statusMap: Record<string, string> = {
-            'in-progress': 'In Shop — In Progress', 'in_progress': 'In Shop — In Progress',
-            'assigned': 'Assigned — Waiting', 'checked-in': 'Checked In',
-            'processing': 'Processing', 'confirmed': 'Confirmed — Scheduled',
-            'approved': 'Approved — Scheduled', 'received': 'Vehicle Received',
-            'completed': 'Ready for Pickup ✓',
-          };
-          currentStatus = statusMap[activeOrder.status] || activeOrder.status;
-          if (activeOrder.serviceName && activeOrder.serviceName !== 'Service') {
-            currentStatus = `In Shop — ${activeOrder.serviceName}`;
-          }
-        }
+    const norm = (s: unknown) => String(s || '').toLowerCase();
 
-        // Next appointment: find the nearest future booking with 'pending' or 'confirmed' status
-        const upcomingStatuses = ['pending', 'confirmed', 'assigned'];
-        const upcoming = myOrders
-          .filter((o: any) => upcomingStatuses.includes(o.status) && o.date)
-          .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        let nextAppointment = '';
-        if (upcoming.length > 0) {
-          const d = new Date(upcoming[0].date);
-          const timeStr = upcoming[0].time || '';
-          nextAppointment = `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${timeStr ? `, ${timeStr}` : ''}`;
-        }
-
-        // Last service: most recent completed/released booking
-        const doneStatuses = ['completed', 'released', 'done', 'delivered'];
-        const completed = myOrders
-          .filter((o: any) => doneStatuses.includes(o.status))
-          .sort((a: any, b: any) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
-        let lastService = '';
-        if (completed.length > 0) {
-          const ls = completed[0];
-          const dateStr = new Date(ls.updatedAt || ls.createdAt).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-          lastService = `${ls.serviceName || 'Service'} (${dateStr})`;
-        }
-
-        // Loyalty points: 50 pts per completed booking
-        const loyaltyPoints = completed.length * 50;
-
-        // ── hasActiveBooking: show tracker whenever the car is still in the shop ──
-        // 'completed' = QC done, service complete, car STILL IN SHOP (ready for pickup).
-        // 'released'  = car physically handed back to customer (truly done, hide tracker).
-        // We must include 'completed' here — removing it was the root bug that caused
-        // the 'Booking Not Confirmed' card to surface from an old rejected booking.
-        const trackerStatuses = [
-          'approved', 'confirmed', 'assigned',
-          'received', 'in_progress', 'in-progress',
-          'completed',  // ← service done, car ready for pickup — tracker stays visible
-        ];
-        const trackerOrder = myOrders.find((o: any) => trackerStatuses.includes(o.status));
-        setHasActiveBooking(!!trackerOrder);
-
-        // Approved/Confirmed/Assigned — booking is locked in, waiting for vehicle to arrive
-        const approvedOrder = myOrders.find((o: any) => ['approved', 'confirmed', 'assigned'].includes(o.status));
-        setApprovedBooking(approvedOrder || null);
-
-        // Pending confirmation — show waiting screen instead of tracker
-        const pendingOrder = myOrders.find((o: any) => o.status === 'pending_confirmation');
-        setPendingConfirmationBooking(pendingOrder || null);
-
-        // Rejected — only show re-book card if the MOST RECENT order is rejected.
-        // Old rejected orders buried behind completed/released ones should never
-        // resurface — the customer has already moved on to newer bookings.
-        const mostRecent = myOrders[0]; // already sorted newest-first by caller
-        const rejected = mostRecent?.status === 'rejected' ? mostRecent : null;
-        setRejectedBooking(rejected);
-
-        setCustomerStats({ currentStatus, nextAppointment, lastService, loyaltyPoints });
-      } catch (err) {
-        console.warn('[CustomerDashboard] Failed to fetch stats:', err);
+    const activeStatuses = ['in-progress', 'assigned', 'checked-in', 'processing', 'confirmed', 'approved', 'in_progress', 'received', 'completed', 'ready_for_payment'];
+    const activeOrder = myOrders.find((o: any) => {
+      if (String(o?.paymentStatus || '').toLowerCase() === 'paid') return false;
+      return activeStatuses.includes(norm(o.status));
+    });
+    let currentStatus = '';
+    if (activeOrder) {
+      const statusMap: Record<string, string> = {
+        'in-progress': 'In Shop — In Progress', 'in_progress': 'In Shop — In Progress',
+        'assigned': 'Assigned — Waiting', 'checked-in': 'Checked In',
+        'processing': 'Processing', 'confirmed': 'Confirmed — Scheduled',
+        'approved': 'Approved — Scheduled', 'received': 'Vehicle Received',
+        'ready_for_payment': 'Balance due at shop',
+        'completed': 'Ready for Pickup ✓',
+      };
+      currentStatus = statusMap[norm(activeOrder.status)] || activeOrder.status;
+      if (activeOrder.serviceName && activeOrder.serviceName !== 'Service') {
+        currentStatus = `In Shop — ${activeOrder.serviceName}`;
       }
-    };
-    fetchCustomerStats();
-    // Auto-refresh stats every 5 seconds for live updates
-    const interval = setInterval(fetchCustomerStats, 5000);
-    return () => clearInterval(interval);
-  }, [user]);
+    }
+
+    const upcomingStatuses = ['pending_confirmation', 'pending', 'confirmed', 'approved', 'assigned'];
+    const upcoming = myOrders
+      .filter((o: any) => upcomingStatuses.includes(norm(o.status)) && (o.date || o.bookingDate))
+      .sort((a: any, b: any) => new Date(a.date || a.bookingDate).getTime() - new Date(b.date || b.bookingDate).getTime());
+    let nextAppointment = '';
+    if (upcoming.length > 0) {
+      const d = new Date(upcoming[0].date || upcoming[0].bookingDate);
+      const timeStr = upcoming[0].time || upcoming[0].bookingTime || '';
+      nextAppointment = `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${timeStr ? `, ${timeStr}` : ''}`;
+    }
+
+    const doneStatuses = ['completed', 'released', 'done', 'delivered'];
+    const completed = myOrders
+      .filter((o: any) => doneStatuses.includes(norm(o.status)))
+      .sort((a: any, b: any) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+    let lastService = '';
+    if (completed.length > 0) {
+      const ls = completed[0];
+      const dateStr = new Date(ls.updatedAt || ls.createdAt).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+      lastService = `${ls.serviceName || 'Service'} (${dateStr})`;
+    }
+
+    const loyaltyPoints = completed.length * 50;
+
+    const trackerOrder = pickCustomerLiveTrackerBooking(myBookings);
+    setHasActiveBooking(!!trackerOrder);
+
+    const approvedOrder = myOrders.find((o: any) => ['approved', 'confirmed', 'assigned'].includes(norm(o.status)));
+    setApprovedBooking(approvedOrder || null);
+
+    // Pending GCash: show only when nothing is on the live tracker path yet (same gate as approved/rejected cards).
+    const pendingOrder = myOrders.find((o: any) => norm(o.status) === 'pending_confirmation');
+    setPendingConfirmationBooking(pendingOrder || null);
+
+    const mostRecent = myOrders[0];
+    const rejected = norm(mostRecent?.status) === 'rejected' ? mostRecent : null;
+    setRejectedBooking(rejected);
+
+    setCustomerStats({ currentStatus, nextAppointment, lastService, loyaltyPoints });
+  }, [myBookings, user]);
 
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -1558,9 +1642,11 @@ export default function CustomerDashboard() {
 
   // Fetch My Bookings whenever section opens — with socket-driven instant updates
   useEffect(() => {
-    if (!['dashboard', 'bookings', 'documents', 'rewards', 'tracker'].includes(activeSection) || !user) return;
+    if (!['dashboard', 'bookings', 'documents', 'rewards', 'tracker', 'payments'].includes(activeSection) || !user) return;
 
     const load = async (opts?: { silent?: boolean }) => {
+      if (bookingsLoadLockRef.current) return;
+      bookingsLoadLockRef.current = true;
       const silent = !!opts?.silent;
       // ── Bust cache before every fetch so polling always gets fresh data ──
       // The cache TTL (5s) matches the poll interval, meaning the cache would
@@ -1609,8 +1695,12 @@ export default function CustomerDashboard() {
           }));
           setActivities(nextActivities);
         }
-      } catch (e) { console.warn('[MyBookings]', e); }
-      if (!silent) setMyBookingsLoading(false);
+      } catch (e) {
+        console.warn('[MyBookings]', e);
+      } finally {
+        bookingsLoadLockRef.current = false;
+        if (!silent) setMyBookingsLoading(false);
+      }
     };
 
     // Expose load so socket handlers can trigger a silent refetch (no loading spinner).
@@ -1708,6 +1798,16 @@ export default function CustomerDashboard() {
     };
     navigate(urlMap[section]);
   };
+
+  useEffect(() => {
+    if (activeSection !== 'tracker' || !user || myBookingsLoading) return;
+    if (myBookings.length === 0) return;
+    if (!pickCustomerLiveTrackerBooking(myBookings)) {
+      setActiveSection('dashboard');
+      setIsSidebarOpen(false);
+      navigate('/customer/dashboard', { replace: true });
+    }
+  }, [activeSection, myBookings, myBookingsLoading, user, navigate]);
 
   const openScanStudio = (vehicle?: any) => {
     if (!AI_INSPECTION_HISTORY_ENABLED) return;
@@ -2013,6 +2113,7 @@ export default function CustomerDashboard() {
                 </span>
               )}
             </button>
+            {pickCustomerLiveTrackerBooking(myBookings) && (
             <button
               onClick={() => nav('tracker')}
               className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'tracker' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
@@ -2022,6 +2123,7 @@ export default function CustomerDashboard() {
               <iconify-icon icon="solar:routing-2-linear" width="20" className="shrink-0"></iconify-icon>
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Live Tracker</span>
             </button>
+            )}
 
             <button
               onClick={() => nav('documents')}
@@ -2677,6 +2779,7 @@ export default function CustomerDashboard() {
                                       Cancel booking
                                     </button>
                                   ) : <div />}
+                                  {bookingShowsCustomerLiveTracker(booking) ? (
                                   <button
                                     onClick={() => nav('tracker')}
                                     className="flex items-center gap-2 text-sm font-bold text-white px-5 py-2.5 rounded-2xl transition-all hover:-translate-y-0.5 hover:shadow-lg"
@@ -2684,6 +2787,11 @@ export default function CustomerDashboard() {
                                     <iconify-icon icon="solar:map-arrow-right-bold" width="15"></iconify-icon>
                                     Track Service
                                   </button>
+                                  ) : String(booking?.paymentStatus || '').toLowerCase() === 'paid' ? (
+                                    <span className="text-[11px] font-semibold text-slate-400 px-2 py-1 text-right">Paid — see Payment History</span>
+                                  ) : (
+                                    <div />
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -3464,7 +3572,7 @@ export default function CustomerDashboard() {
                     <p className="text-sm text-slate-500 mt-0.5">All reservation fees and full payments per booking.</p>
                   </div>
                   <span className="text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded-full px-3 py-1">
-                    {myBookings.filter((b: any) => !['pending','cancelled','failed'].includes(b.status)).length} booking{myBookings.filter((b: any) => !['pending','cancelled','failed'].includes(b.status)).length !== 1 ? 's' : ''}
+                    {myBookings.filter((b: any) => !['pending', 'cancelled', 'failed'].includes(normTrackerStr(b?.status))).length} booking{myBookings.filter((b: any) => !['pending', 'cancelled', 'failed'].includes(normTrackerStr(b?.status))).length !== 1 ? 's' : ''}
                   </span>
                 </div>
 
@@ -3472,19 +3580,22 @@ export default function CustomerDashboard() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                     <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Total Bookings</p>
-                    <p className="text-2xl font-bold text-slate-900">{myBookings.filter((b: any) => !['pending','cancelled','failed'].includes(b.status)).length}</p>
+                    <p className="text-2xl font-bold text-slate-900">{myBookings.filter((b: any) => !['pending', 'cancelled', 'failed'].includes(normTrackerStr(b?.status))).length}</p>
                   </div>
                   <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                     <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Reservation Fees</p>
                     <p className="text-2xl font-bold text-indigo-600">
-                      ₱{(myBookings.filter((b: any) => ['approved','confirmed','received','in_progress','completed','released','paid'].includes(b.status)).length * 500).toLocaleString()}
+                      ₱{(myBookings.filter((b: any) => ['approved', 'confirmed', 'received', 'in_progress', 'completed', 'released', 'paid'].includes(normTrackerStr(b?.status))).length * 500).toLocaleString()}
                     </p>
                   </div>
                   <div className="col-span-2 sm:col-span-1 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                     <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Full Payments</p>
                     <p className="text-2xl font-bold text-emerald-600">
                       ₱{myBookings
-                          .filter((b: any) => b.paymentStatus === 'paid' || ['completed','released'].includes(b.status))
+                          .filter((b: any) => {
+                            const s = normTrackerStr(b?.status);
+                            return String(b.paymentStatus || '').toLowerCase() === 'paid' || ['completed', 'released', 'paid'].includes(s);
+                          })
                           .reduce((sum: number, b: any) => sum + Number(b.totalPrice || b.totalAmount || 0), 0)
                           .toLocaleString()}
                     </p>
@@ -3492,7 +3603,7 @@ export default function CustomerDashboard() {
                 </div>
 
                 {/* Payment List */}
-                {myBookings.filter((b: any) => !['pending','cancelled','failed'].includes(b.status)).length === 0 ? (
+                    {myBookings.filter((b: any) => !['pending', 'cancelled', 'failed'].includes(normTrackerStr(b?.status))).length === 0 ? (
                   <div className="bg-white border border-slate-200 rounded-xl p-10 text-center shadow-sm">
                     <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-50">
                       <iconify-icon icon="solar:card-2-linear" width="24" className="text-slate-300"></iconify-icon>
@@ -3503,10 +3614,11 @@ export default function CustomerDashboard() {
                 ) : (
                   <div className="space-y-3">
                     {[...myBookings]
-                      .filter((b: any) => !['pending','cancelled','failed'].includes(b.status))
+                      .filter((b: any) => !['pending', 'cancelled', 'failed'].includes(normTrackerStr(b?.status)))
                       .sort((a: any, b: any) => new Date(b.createdAt || b.date || 0).getTime() - new Date(a.createdAt || a.date || 0).getTime())
                       .map((b: any) => {
                         const orderId = b.id || b._id;
+                        const st = normTrackerStr(b?.status);
                         const total = Number(b.totalPrice || b.totalAmount || 0);
                         const remaining = Math.max(total - 500, 0);
                         const vehicle = [b.vehicleYear, b.vehicleMake, b.vehicleModel].filter(Boolean).join(' ') || b.vehicleInfo || '—';
@@ -3515,16 +3627,16 @@ export default function CustomerDashboard() {
                         const proofUrl: string | null = (b as any).paymentProofUrl || (b as any).downpaymentProof || null;
 
                         const resvBadge = (() => {
-                          if (['approved','confirmed','received','in_progress','completed','released','paid'].includes(b.status))
+                          if (['approved', 'confirmed', 'received', 'in_progress', 'completed', 'released', 'paid'].includes(st))
                             return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">✓ Approved</span>;
-                          if (b.status === 'rejected')
+                          if (st === 'rejected')
                             return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700 border border-red-200">✕ Rejected</span>;
                           return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 border border-amber-200">⏳ Pending</span>;
                         })();
 
-                        // Treat as paid if: paymentStatus is 'paid' OR order is completed/released
+                        // Treat as paid if: paymentStatus is 'paid' OR order is completed/released/paid
                         // (handles existing orders created before the paymentStatus=paid backend fix)
-                        const isFullyPaid = b.paymentStatus === 'paid' || ['completed', 'released'].includes(b.status);
+                        const isFullyPaid = String(b.paymentStatus || '').toLowerCase() === 'paid' || ['completed', 'released', 'paid'].includes(st);
                         const fullBadge = isFullyPaid
                           ? <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">✓ Paid</span>
                           : <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-600 border border-amber-200">Pending</span>;
@@ -3585,9 +3697,21 @@ export default function CustomerDashboard() {
                                     <p className="text-[10px] text-slate-400">Paid onsite upon service completion</p>
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-3 ml-auto">
-                                  {fullBadge}
-                                  <span className="text-sm font-bold text-slate-900 w-16 text-right">
+                                <div className="flex items-center gap-2 ml-auto flex-wrap justify-end">
+                                  <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
+                                    {fullBadge}
+                                    {isFullyPaid && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void openCustomerOrderReceiptPdf(String(orderId))}
+                                        className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100 transition-colors"
+                                      >
+                                        <iconify-icon icon="solar:bill-list-linear" width="12"></iconify-icon>
+                                        View receipt
+                                      </button>
+                                    )}
+                                  </div>
+                                  <span className="text-sm font-bold text-slate-900 min-w-[4.5rem] text-right tabular-nums">
                                     {remaining > 0 ? `₱${remaining.toLocaleString()}` : '—'}
                                   </span>
                                 </div>
@@ -3602,6 +3726,30 @@ export default function CustomerDashboard() {
                           </div>
                         );
                       })}
+                  </div>
+                )}
+
+                {orderReceiptPdfUrl && (
+                  <div
+                    className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+                    onClick={closeCustomerOrderReceiptPdf}
+                  >
+                    <div
+                      className="relative w-full max-w-3xl flex flex-col rounded-2xl bg-white shadow-2xl overflow-hidden max-h-[90vh]"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                        <p className="text-sm font-bold text-slate-800">Payment receipt</p>
+                        <button
+                          type="button"
+                          onClick={closeCustomerOrderReceiptPdf}
+                          className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+                        >
+                          Close
+                        </button>
+                      </div>
+                      <iframe title="Receipt PDF" src={orderReceiptPdfUrl} className="w-full flex-1 min-h-[70vh] border-0 bg-slate-100" />
+                    </div>
                   </div>
                 )}
 
@@ -3674,7 +3822,7 @@ export default function CustomerDashboard() {
             ) : activeSection === 'tracker' ? (
               /* ═══ Live Tracker ═══ */
               (() => {
-                const activeBooking = myBookings.find(b => ['confirmed', 'received', 'in_progress', 'in-progress', 'completed', 'paid'].includes(b.status));
+                const activeBooking = pickCustomerLiveTrackerBooking(myBookings);
                 const TRACKER_STEPS = [
                   { id: 'confirmed', label: 'Appointment Confirmed', icon: 'solar:calendar-bold' },
                   { id: 'received', label: 'Vehicle Arrive', icon: 'solar:garage-bold' },
@@ -3684,6 +3832,7 @@ export default function CustomerDashboard() {
                 ];
                 // Match premium dashboard tracker: QC `serviceTrackingStage` drives substeps; status is fallback.
                 const trackingStage = (activeBooking as any)?.serviceTrackingStage;
+                const tsKey = normTrackerStr(trackingStage);
                 const stageMap: Record<string, number> = {
                   confirmed: 0,
                   received: 1,
@@ -3691,6 +3840,7 @@ export default function CustomerDashboard() {
                   quality_check: 3,
                   ready_pickup: 4,
                   completed: 4,
+                  released: 4,
                 };
                 const status = activeBooking ? String(activeBooking.status || '').toLowerCase() : '';
                 const statusFallback: Record<string, number> = {
@@ -3700,16 +3850,30 @@ export default function CustomerDashboard() {
                   received: 1,
                   in_progress: 2,
                   'in-progress': 2,
+                  ready_for_payment: 4,
                   completed: 4,
                   paid: 4,
                   released: 4,
                   done: 4,
                 };
-                const currentStep = activeBooking
+                const rawStep = activeBooking
                   ? (trackingStage
-                    ? (stageMap[trackingStage] ?? 0)
+                    ? (stageMap[tsKey] ?? 0)
                     : (statusFallback[status] ?? 0))
                   : -1;
+                const qcGatePhotoCount = activeBooking
+                  ? getCustomerStageSlotPhotos(activeBooking as any, 'quality_check').length
+                  : 0;
+                let currentStep = rawStep;
+                if (activeBooking && tsKey === 'quality_check' && qcGatePhotoCount >= TRACKER_REQUIRED_GATE_PHOTOS) {
+                  currentStep = Math.max(currentStep, TRACKER_STEPS.length - 1);
+                }
+                const readyPickupCountSimple = activeBooking
+                  ? getCustomerStageSlotPhotos(activeBooking as any, 'ready_pickup').length
+                  : 0;
+                if (activeBooking && readyPickupCountSimple >= TRACKER_REQUIRED_GATE_PHOTOS) {
+                  currentStep = Math.max(currentStep, TRACKER_STEPS.length - 1);
+                }
 
                 return (
                   <div className="max-w-3xl mx-auto pb-12 space-y-6">
@@ -3787,16 +3951,43 @@ export default function CustomerDashboard() {
                                       <p className={`text-sm font-semibold ${isDone ? 'text-emerald-700' : isActive ? 'text-slate-900' : 'text-slate-400'}`}>{step.label}</p>
                                       {(() => {
                                         const apiStage = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[step.id];
-                                        const media = findTrackerStageMedia(activeBooking as any, apiStage);
                                         const desc = resolveTrackerStageDescription(activeBooking as any, apiStage);
-                                        const photo = (media?.photoUrl || '').trim();
+                                        const shots = apiStage ? getCustomerStageSlotPhotos(activeBooking as any, apiStage) : [];
                                         return (
                                           <>
                                             <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">{desc}</p>
-                                            {photo && (isDone || isActive) ? (
-                                              <a href={photo} target="_blank" rel="noopener noreferrer" className="mt-2 block rounded-lg border border-slate-200 overflow-hidden max-w-xs">
-                                                <img src={photo} alt="" className="w-full h-28 object-cover" />
-                                              </a>
+                                            {shots.length > 0 && (isDone || isActive) ? (
+                                              <div className="mt-2 grid grid-cols-2 gap-2 max-w-xs">
+                                                {shots.map((s) => (
+                                                  <div key={s.label} className="min-w-0">
+                                                    <p className="text-[10px] font-semibold text-slate-500 truncate mb-0.5">{s.label}</p>
+                                                    {isNonNavigableImageSrc(s.url) ? (
+                                                      <button
+                                                        type="button"
+                                                        className="block w-full rounded-lg border border-slate-200 overflow-hidden focus:outline-none focus:ring-2 focus:ring-orange-200"
+                                                        aria-label={`${step.label} — ${s.label}`}
+                                                        onClick={() =>
+                                                          setTrackerEvidenceLightbox({
+                                                            url: s.url,
+                                                            title: `${step.label} — ${s.label}`,
+                                                          })
+                                                        }
+                                                      >
+                                                        <img src={s.url} alt="" className="w-full h-24 object-cover" />
+                                                      </button>
+                                                    ) : (
+                                                      <a
+                                                        href={s.url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="block rounded-lg border border-slate-200 overflow-hidden"
+                                                      >
+                                                        <img src={s.url} alt="" className="w-full h-24 object-cover" />
+                                                      </a>
+                                                    )}
+                                                  </div>
+                                                ))}
+                                              </div>
                                             ) : null}
                                           </>
                                         );
@@ -4250,11 +4441,14 @@ export default function CustomerDashboard() {
 
                 {/* ── Live Service Tracker ── */}
                 {hasActiveBooking && (() => {
-                  const activeBooking = myBookings.find((b: any) =>
-                    ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress', 'completed'].includes(b.status)
-                  );
-                  const status = activeBooking ? activeBooking.status.toLowerCase() : '';
+                  const activeBooking = pickCustomerLiveTrackerBooking(myBookings);
+                  const status = activeBooking ? String(activeBooking.status || '').toLowerCase() : '';
                   const trackingStage = (activeBooking as any)?.serviceTrackingStage;
+                  const tsKey = normTrackerStr(trackingStage);
+                  const paymentPaid = String(activeBooking?.paymentStatus || '').toLowerCase() === 'paid';
+                  const postPayComplete =
+                    paymentPaid &&
+                    (status === 'completed' || status === 'released' || tsKey === 'released');
                   const stageMap: Record<string, number> = {
                     'confirmed': 0,
                     'received': 1,
@@ -4262,19 +4456,22 @@ export default function CustomerDashboard() {
                     'quality_check': 3,
                     'ready_pickup': 4,
                     'completed':     4,
+                    'released':      4,
                   };
                   const statusFallback: Record<string, number> = {
                     'approved': 0, 'confirmed': 0, 'assigned': 0,
                     'received': 1,
                     'in_progress': 2, 'in-progress': 2,
+                    'ready_for_payment': 4,
                     'completed': 4,
                     'paid': 4, 'released': 4, 'done': 4
                   };
                   const currentStepIdx = trackingStage
-                    ? (stageMap[trackingStage] ?? 0)
+                    ? (stageMap[tsKey] ?? 0)
                     : (statusFallback[status] ?? 0);
 
-                  const isFullyComplete = status === 'completed' || status === 'paid' || status === 'released' || trackingStage === 'ready_pickup' || trackingStage === 'completed';
+                  const isFullyComplete = status === 'completed' || status === 'paid' || status === 'released'
+                    || tsKey === 'ready_pickup' || tsKey === 'completed';
                   const STEPS = [
                     { id: 'confirmed', label: 'Appointment Confirmed', short: 'Confirmed', sub: 'Booking secured', detail: 'Appointment locked and ready for shop intake.', icon: 'solar:calendar-bold', time: formatTrackerClockLabel(activeBooking?.bookingTime), mediaId: 'confirmed' },
                     { id: 'received', label: 'Vehicle Arrived', short: 'Arrived', sub: 'Shop intake complete', detail: 'Vehicle is checked in and prepared for the service bay.', icon: 'solar:garage-bold', time: '25%', mediaId: 'received' },
@@ -4282,11 +4479,28 @@ export default function CustomerDashboard() {
                     { id: 'completed', label: 'Quality Check', short: 'QC Review', sub: 'Final inspection', detail: 'QC verifies finish quality before pickup readiness.', icon: 'solar:shield-check-bold', time: '75%', mediaId: 'completed' },
                     { id: 'paid', label: 'Ready for Pickup', short: 'Pickup', sub: 'Handover ready', detail: 'Final handover is ready for customer pickup.', icon: 'solar:car-bold', time: '100%', mediaId: 'paid' },
                   ] as const;
-                  const activeIdx = Math.min(Math.max(currentStepIdx, 0), STEPS.length - 1);
-                  const pct = Math.round((activeIdx / (STEPS.length - 1)) * 100);
+
+                  const qcGatePhotoCountDash = activeBooking
+                    ? getCustomerStageSlotPhotos(activeBooking as any, 'quality_check').length
+                    : 0;
+                  let displayStepIdx = currentStepIdx;
+                  if (activeBooking && tsKey === 'quality_check' && qcGatePhotoCountDash >= TRACKER_REQUIRED_GATE_PHOTOS) {
+                    displayStepIdx = Math.max(displayStepIdx, STEPS.length - 1);
+                  }
+                  const readyPickupGateCountDash = activeBooking
+                    ? getCustomerStageSlotPhotos(activeBooking as any, 'ready_pickup').length
+                    : 0;
+                  if (activeBooking && readyPickupGateCountDash >= TRACKER_REQUIRED_GATE_PHOTOS) {
+                    displayStepIdx = Math.max(displayStepIdx, STEPS.length - 1);
+                  }
+
+                  const activeIdx = Math.min(Math.max(displayStepIdx, 0), STEPS.length - 1);
+                  const pct = postPayComplete ? 100 : Math.round((activeIdx / (STEPS.length - 1)) * 100);
                   const activeStep = STEPS[activeIdx] || STEPS[0];
-                  const nextStep = isFullyComplete ? null : STEPS[Math.min(activeIdx + 1, STEPS.length - 1)];
-                  const etaLabel = isFullyComplete ? 'Ready now' : formatTrackerEtaLabel(activeBooking?.bookingTime);
+                  const nextStep = postPayComplete || isFullyComplete || activeIdx >= STEPS.length - 1
+                    ? null
+                    : STEPS[activeIdx + 1];
+                  const etaLabel = postPayComplete ? 'Paid' : isFullyComplete ? 'Ready now' : formatTrackerEtaLabel(activeBooking?.bookingTime);
                   const updatedLabel = formatTrackerUpdatedLabel(activeBooking?.serviceTrackingUpdatedAt || activeBooking?.updatedAt || activeBooking?.createdAt);
                   const serviceTitle = displayServiceTitle(activeBooking?.serviceName || activeBooking?.serviceType || activeBooking?.packageName, 'AutoSPF+ service');
                   const vehicleTitle = [
@@ -4308,7 +4522,9 @@ export default function CustomerDashboard() {
                   const rewardProgressLabel = nextRewardTier
                     ? `${new Intl.NumberFormat(undefined).format(pointsToNextRewardTier)} pts to ${nextRewardTier.name}`
                     : 'Top tier active';
-                  const stageNote = nextStep
+                  const stageNote = postPayComplete
+                    ? 'Payment confirmed — thank you for choosing AutoSPF+. Your digital receipt reference is below.'
+                    : nextStep
                     ? `${activeStep.detail} Next checkpoint: ${nextStep.label}.`
                     : activeStep.detail;
                   const trackerMotionStyle = {
@@ -4325,7 +4541,7 @@ export default function CustomerDashboard() {
                               <span className="customer-live-dot" />
                               <span>Live Tracking</span>
 	                            </div>
-	                            <h2>Service In Progress</h2>
+	                            <h2>{postPayComplete ? 'Service complete' : isFullyComplete ? 'Ready for pickup' : activeStep.label}</h2>
 	                            <p>{serviceTitle} / {vehicleTitle}</p>
 	                            <div className="customer-live-chip-row" aria-label="Live tracker details">
 	                              <span>
@@ -4375,8 +4591,8 @@ export default function CustomerDashboard() {
 	                              </div>
 	                            </div>
 	                            <div className="customer-live-progress-caption">
-	                              <strong>{activeStep.label}</strong>
-	                              <span>{nextStep ? `Next: ${nextStep.short}` : 'Pickup ready'}</span>
+	                              <strong>{postPayComplete ? 'Service complete' : activeStep.label}</strong>
+	                              <span>{postPayComplete ? 'Receipt issued' : nextStep ? `Next: ${nextStep.short}` : 'Pickup ready'}</span>
 	                            </div>
 
 	                            <div className="customer-live-summary-list">
@@ -4399,7 +4615,7 @@ export default function CustomerDashboard() {
                             <div className="customer-live-status-topline">
                               <div>
                                 <span>Current Stage</span>
-                                <strong>{isFullyComplete ? 'Ready for Pickup' : activeStep.label}</strong>
+                                <strong>{postPayComplete ? 'Service complete' : isFullyComplete ? 'Ready for Pickup' : activeStep.label}</strong>
                               </div>
                               <div>
                                 <span>Step</span>
@@ -4412,8 +4628,8 @@ export default function CustomerDashboard() {
                               <div className="customer-live-rail-fill" style={{ width: `${pct}%` }} />
                               <div className="customer-live-rail-markers">
                                 {STEPS.map((step, i) => {
-                                  const isDone = i < activeIdx || (isFullyComplete && i === activeIdx);
-                                  const isActive = !isFullyComplete && i === activeIdx;
+                                  const isDone = postPayComplete || i < activeIdx || (isFullyComplete && i === activeIdx);
+                                  const isActive = !postPayComplete && !isFullyComplete && i === activeIdx;
                                   return (
                                     <span
                                       key={step.id}
@@ -4428,8 +4644,8 @@ export default function CustomerDashboard() {
 	                            </div>
 	                            <div className="customer-live-rail-labels" aria-hidden="true">
 	                              {STEPS.map((step, i) => {
-	                                const isDone = i < activeIdx || (isFullyComplete && i === activeIdx);
-	                                const isActive = !isFullyComplete && i === activeIdx;
+	                                const isDone = postPayComplete || i < activeIdx || (isFullyComplete && i === activeIdx);
+	                                const isActive = !postPayComplete && !isFullyComplete && i === activeIdx;
 	                                return (
 	                                  <span
 	                                    key={step.id}
@@ -4457,13 +4673,13 @@ export default function CustomerDashboard() {
 
                         <div className="customer-live-step-grid">
                           {STEPS.map((step, i) => {
-                            const isDone = i < activeIdx || (isFullyComplete && i === activeIdx);
-                            const isActive = !isFullyComplete && i === activeIdx;
+                            const isDone = postPayComplete || i < activeIdx || (isFullyComplete && i === activeIdx);
+                            const isActive = !postPayComplete && !isFullyComplete && i === activeIdx;
                             const mediaStageKey = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[step.mediaId];
-                            const media = findTrackerStageMedia(activeBooking as any, mediaStageKey);
-                            const photo = (media?.photoUrl || '').trim();
+                            const shots = mediaStageKey ? getCustomerStageSlotPhotos(activeBooking as any, mediaStageKey) : [];
                             const caption = resolveTrackerStageDescription(activeBooking as any, mediaStageKey);
                             const statusLabel = isDone ? 'Complete' : isActive ? 'Live now' : 'Upcoming';
+                            const hasPhotos = shots.length > 0;
 
                             return (
 	                              <article
@@ -4486,28 +4702,52 @@ export default function CustomerDashboard() {
 	                                  <div className="customer-live-step-time">{step.time}</div>
 	                                </div>
 
-	                                {(photo || isDone || isActive) && (
+	                                {(hasPhotos || isDone || isActive) && (
 	                                  <div className="customer-live-step-evidence">
 	                                    <div className="customer-live-evidence-meta">
 	                                      <span>Customer Evidence</span>
-	                                      <strong>{photo ? 'Photo posted' : isActive ? 'Upload pending' : 'Awaiting photo'}</strong>
+	                                      <strong>
+                                        {hasPhotos
+                                          ? `${shots.length} photo${shots.length === 1 ? '' : 's'}`
+                                          : isActive
+                                            ? 'Upload pending'
+                                            : 'Awaiting photo'}
+                                      </strong>
 	                                    </div>
-	                                    <p>{caption || (photo ? 'Vehicle photo received.' : step.detail)}</p>
-	                                    {photo ? (
-                                      isNonNavigableImageSrc(photo) ? (
-                                        <button
-                                          type="button"
-                                          className="customer-live-evidence-thumb"
-                                          aria-label={`${step.label} vehicle photo — enlarge`}
-                                          onClick={() => setTrackerEvidenceLightbox({ url: photo, title: step.label })}
-                                        >
-                                          <img src={photo} alt="" />
-                                        </button>
-                                      ) : (
-                                        <a href={photo} target="_blank" rel="noopener noreferrer" aria-label={`${step.label} vehicle photo`}>
-                                          <img src={photo} alt="" />
-                                        </a>
-                                      )
+	                                    <p>{caption || (hasPhotos ? 'Vehicle photos received.' : step.detail)}</p>
+	                                    {hasPhotos ? (
+                                      <div className="customer-live-evidence-grid mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                        {shots.map((shot) => (
+                                          <div key={shot.label} className="min-w-0">
+                                            <p className="text-[10px] font-semibold text-slate-500 truncate mb-1">{shot.label}</p>
+                                            {isNonNavigableImageSrc(shot.url) ? (
+                                              <button
+                                                type="button"
+                                                className="customer-live-evidence-thumb"
+                                                aria-label={`${step.label} — ${shot.label} — enlarge`}
+                                                onClick={() =>
+                                                  setTrackerEvidenceLightbox({
+                                                    url: shot.url,
+                                                    title: `${step.label} — ${shot.label}`,
+                                                  })
+                                                }
+                                              >
+                                                <img src={shot.url} alt="" />
+                                              </button>
+                                            ) : (
+                                              <a
+                                                href={shot.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                aria-label={`${step.label} — ${shot.label}`}
+                                                className="customer-live-evidence-thumb"
+                                              >
+                                                <img src={shot.url} alt="" />
+                                              </a>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
                                     ) : (
                                       <div className="customer-live-photo-placeholder">
                                         <iconify-icon icon="solar:camera-minimalistic-bold" width="18"></iconify-icon>
@@ -4528,6 +4768,15 @@ export default function CustomerDashboard() {
                           </span>
                           <strong>{pct}% complete</strong>
                         </div>
+                        {postPayComplete && (activeBooking as any)?.invoiceId && (
+                          <div className="customer-live-footer" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 8, paddingTop: 12 }}>
+                            <span>
+                              <iconify-icon icon="solar:bill-list-bold" width="14"></iconify-icon>
+                              Digital receipt
+                            </span>
+                            <strong style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{String((activeBooking as any).invoiceId)}</strong>
+                          </div>
+                        )}
                       </div>
                     </section>
                   );

@@ -24,9 +24,9 @@ import { UserService } from '@/lib/user-service';
 import type { Booking, User } from '@/types';
 import {
   LIVE_TRACKER_STEP_MEDIA_STAGE,
-  findTrackerStageMedia,
   resolveTrackerStageDescription,
   type LiveTrackerStepId,
+  getCustomerStageSlotPhotos,
 } from '@/lib/customer-tracker-stage-media';
 import { isNonNavigableImageSrc } from '@/lib/non-navigable-image-url';
 import { getLiveTrackerStepIndex } from '@/lib/customer-live-tracker-step';
@@ -51,7 +51,8 @@ type ResolvedTrackerStep = TrackerStep & {
   timestamp?: string;
   helperText?: string;
   customerDescription?: string;
-  stagePhotoUrl?: string;
+  /** Up to five angle photos for this tracker step */
+  stageSlotPhotos: { url: string; label: string }[];
 };
 
 const TRACKER_STEPS: TrackerStep[] = [
@@ -293,8 +294,7 @@ function getResolvedSteps(booking: Booking | null, estimatedCompletion?: string 
 
   return TRACKER_STEPS.map((step, index) => {
     const apiStage = LIVE_TRACKER_STEP_MEDIA_STAGE[step.id as LiveTrackerStepId];
-    const media = findTrackerStageMedia(booking as any, apiStage);
-    const stagePhotoUrl = (media?.photoUrl || '').trim();
+    const stageSlotPhotos = apiStage ? getCustomerStageSlotPhotos(booking as any, apiStage) : [];
     let customerDescription = '';
     if (step.id === 'awaiting_vehicle') {
       customerDescription =
@@ -309,7 +309,7 @@ function getResolvedSteps(booking: Booking | null, estimatedCompletion?: string 
         state: 'completed' as const,
         timestamp: formatStepTimestamp(timestamps[step.id as keyof typeof timestamps], bookingBaseDate),
         customerDescription,
-        stagePhotoUrl,
+        stageSlotPhotos,
       };
     }
 
@@ -329,7 +329,7 @@ function getResolvedSteps(booking: Booking | null, estimatedCompletion?: string 
         timestamp: formatStepTimestamp(timestamps[step.id as keyof typeof timestamps], bookingBaseDate),
         helperText,
         customerDescription,
-        stagePhotoUrl,
+        stageSlotPhotos,
       };
     }
 
@@ -337,7 +337,7 @@ function getResolvedSteps(booking: Booking | null, estimatedCompletion?: string 
       ...step,
       state: 'pending' as const,
       customerDescription,
-      stagePhotoUrl: '',
+      stageSlotPhotos: [],
     };
   });
 }
@@ -439,6 +439,39 @@ export default function CustomerLiveTrackerPage() {
       }, 350);
     };
 
+    const patchActiveBookingFromSocket = (event: {
+      bookingId?: string;
+      orderId?: string;
+      serviceTrackingStage?: string | null;
+      serviceStaffAssignments?: any[];
+      trackerStageMedia?: any[];
+      updatedAt?: string;
+    }) => {
+      const targetId = String(event.bookingId || event.orderId || '').trim();
+      if (!targetId || activeBookingIdRef.current !== targetId) return false;
+
+      setActiveBooking((prev) => {
+        if (!prev) return prev;
+        const prevId = String(prev.id || (prev as any)._id || '').trim();
+        if (prevId !== targetId) return prev;
+        return {
+          ...prev,
+          ...(event.serviceTrackingStage !== undefined
+            ? { serviceTrackingStage: event.serviceTrackingStage }
+            : {}),
+          ...(event.serviceStaffAssignments !== undefined
+            ? { serviceStaffAssignments: event.serviceStaffAssignments }
+            : {}),
+          ...(event.trackerStageMedia !== undefined
+            ? { trackerStageMedia: event.trackerStageMedia }
+            : {}),
+          ...(event.updatedAt ? { updatedAt: event.updatedAt } : {}),
+        };
+      });
+
+      return true;
+    };
+
     // Shared socket: same events as dashboard — silent HTTP refetch (no reload)
     const socket = getSharedSocket();
     const handleDbChange = (payload: any) => {
@@ -448,8 +481,16 @@ export default function CustomerLiveTrackerPage() {
       }
     };
     socket.on('db_change', handleDbChange);
-    socket.on('booking:status', bumpFromSocket);
-    socket.on('orderUpdated', bumpFromSocket);
+    const handleBookingStatus = (event: any) => {
+      const patched = patchActiveBookingFromSocket(event || {});
+      if (!patched) bumpFromSocket();
+    };
+    const handleOrderUpdated = (event: any) => {
+      const patched = patchActiveBookingFromSocket(event || {});
+      if (!patched) bumpFromSocket();
+    };
+    socket.on('booking:status', handleBookingStatus);
+    socket.on('orderUpdated', handleOrderUpdated);
 
     // Visibility / focus refresh
     let visTimer: ReturnType<typeof setTimeout> | null = null;
@@ -480,8 +521,8 @@ export default function CustomerLiveTrackerPage() {
       window.clearInterval(refreshInterval);
       if (socketBumpTimer) clearTimeout(socketBumpTimer);
       socket.off('db_change', handleDbChange);
-      socket.off('booking:status', bumpFromSocket);
-      socket.off('orderUpdated', bumpFromSocket);
+      socket.off('booking:status', handleBookingStatus);
+      socket.off('orderUpdated', handleOrderUpdated);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleVisibility);
       if (visTimer) clearTimeout(visTimer);
@@ -1475,38 +1516,56 @@ export default function CustomerLiveTrackerPage() {
                                       <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                                         {step.customerDescription}
                                       </p>
-                                      {step.stagePhotoUrl ? (
-                                        <div className="mt-3 flex items-start gap-2 rounded-xl border border-slate-200/90 bg-slate-50/80 p-2">
-                                          <Camera size={14} className="text-slate-400 shrink-0 mt-0.5" aria-hidden />
-                                          {isNonNavigableImageSrc(step.stagePhotoUrl) ? (
-                                            <button
-                                              type="button"
-                                              className="block min-w-0 flex-1 cursor-zoom-in text-left rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2"
-                                              aria-label={`${step.title} photo — enlarge`}
-                                              onClick={() =>
-                                                setStagePhotoLightbox({ url: step.stagePhotoUrl!, title: step.title })
-                                              }
-                                            >
-                                              <img
-                                                src={step.stagePhotoUrl}
-                                                alt={`${step.title} update`}
-                                                className="w-full max-h-48 rounded-lg object-cover border border-slate-200/80"
-                                              />
-                                            </button>
-                                          ) : (
-                                            <a
-                                              href={step.stagePhotoUrl}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="block min-w-0 flex-1"
-                                            >
-                                              <img
-                                                src={step.stagePhotoUrl}
-                                                alt={`${step.title} update`}
-                                                className="w-full max-h-48 rounded-lg object-cover border border-slate-200/80"
-                                              />
-                                            </a>
-                                          )}
+                                      {step.stageSlotPhotos.length > 0 ? (
+                                        <div className="mt-3 rounded-xl border border-slate-200/90 bg-slate-50/80 p-2">
+                                          <div className="mb-2 flex items-center gap-2 px-1">
+                                            <Camera size={14} className="text-slate-400 shrink-0" aria-hidden />
+                                            <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                                              Service photos
+                                            </span>
+                                          </div>
+                                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                            {step.stageSlotPhotos.map((shot) => (
+                                              <div key={shot.label} className="min-w-0">
+                                                <p className="truncate text-[10px] font-semibold text-slate-500 mb-1">
+                                                  {shot.label}
+                                                </p>
+                                                {isNonNavigableImageSrc(shot.url) ? (
+                                                  <button
+                                                    type="button"
+                                                    className="block w-full cursor-zoom-in rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-1"
+                                                    aria-label={`${step.title} — ${shot.label} — enlarge`}
+                                                    onClick={() =>
+                                                      setStagePhotoLightbox({
+                                                        url: shot.url,
+                                                        title: `${step.title} — ${shot.label}`,
+                                                      })
+                                                    }
+                                                  >
+                                                    <img
+                                                      src={shot.url}
+                                                      alt=""
+                                                      className="aspect-square w-full rounded-lg object-cover border border-slate-200/80"
+                                                    />
+                                                  </button>
+                                                ) : (
+                                                  <a
+                                                    href={shot.url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="block w-full"
+                                                    aria-label={`${step.title} — ${shot.label}`}
+                                                  >
+                                                    <img
+                                                      src={shot.url}
+                                                      alt=""
+                                                      className="aspect-square w-full rounded-lg object-cover border border-slate-200/80"
+                                                    />
+                                                  </a>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
                                         </div>
                                       ) : null}
                                       <p className="text-[11px] text-slate-400 mt-2">{step.timestamp}</p>

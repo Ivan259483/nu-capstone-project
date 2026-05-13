@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import axios from 'axios';
 import { toast } from 'sonner';
 import { createPortal } from 'react-dom';
 import {
@@ -26,7 +27,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
-import { normalizeBooking } from '@/lib/order-service';
+import { OrderService, normalizeBooking } from '@/lib/order-service';
 import { isEncryptedPlateToken } from '@/lib/salesData';
 import { isLikelyInternalVehiclePlate } from '@/lib/vehicle-display';
 
@@ -75,6 +76,49 @@ const formatPlate = (value: unknown, fallback = '—') => {
 };
 
 const getProofUrl = (booking: any) => booking.paymentProofUrl || booking.downpaymentProof || '';
+
+/** Stable Mongo ObjectId string for API paths (avoids `[object Object]` from EJSON `$oid` shapes). */
+function mongoOrderIdString(booking: { _id?: unknown; id?: unknown }): string {
+  const raw = booking._id ?? booking.id;
+  if (raw == null || raw === '') return '';
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    return /^[a-f0-9]{24}$/i.test(s) ? s : '';
+  }
+  if (typeof raw === 'object' && raw !== null && '$oid' in (raw as Record<string, unknown>)) {
+    const oid = String((raw as { $oid?: string }).$oid || '').trim();
+    return /^[a-f0-9]{24}$/i.test(oid) ? oid : '';
+  }
+  try {
+    const s = String((raw as { toString?: () => string }).toString?.() ?? '').trim();
+    return /^[a-f0-9]{24}$/i.test(s) ? s : '';
+  } catch {
+    return '';
+  }
+}
+const APPROVAL_PENDING_STATUSES = ['pending_confirmation'];
+const APPROVAL_APPROVED_STATUSES = ['approved', 'confirmed'];
+const APPROVAL_REJECTED_STATUSES = ['rejected'];
+const APPROVAL_VISIBLE_STATUSES = [...APPROVAL_PENDING_STATUSES, ...APPROVAL_APPROVED_STATUSES, ...APPROVAL_REJECTED_STATUSES];
+
+const isPendingApprovalStatus = (status: unknown) => APPROVAL_PENDING_STATUSES.includes(String(status || '').toLowerCase());
+const isApprovedApprovalStatus = (status: unknown) => APPROVAL_APPROVED_STATUSES.includes(String(status || '').toLowerCase());
+const isRejectedApprovalStatus = (status: unknown) => APPROVAL_REJECTED_STATUSES.includes(String(status || '').toLowerCase());
+const isApprovalVisibleStatus = (status: unknown) => APPROVAL_VISIBLE_STATUSES.includes(String(status || '').toLowerCase());
+
+const toApprovalListBooking = (raw: any) => {
+  const normalized = normalizeBooking(raw);
+  return {
+    ...normalized,
+    paymentProofUrl: undefined,
+    downpaymentProof: undefined,
+  };
+};
+
+const applyApprovalScope = (rows: any[]) =>
+  rows
+    .map(toApprovalListBooking)
+    .filter((booking) => isApprovalVisibleStatus(booking.status));
 
 const getTotal = (booking: any) => Number(booking.totalPrice || booking.totalAmount || 0);
 
@@ -243,8 +287,11 @@ function ProofPreview({
 }
 
 // ─── GCash Proof Modal ───────────────────────────────────────────────────────
-function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
-  booking: any; onClose: () => void;
+function ProofModal({ booking, loading, error, onClose, onApprove, onReject, acting }: {
+  booking: any;
+  loading?: boolean;
+  error?: string;
+  onClose: () => void;
   onApprove: () => void; onReject: () => void; acting: boolean;
 }) {
   const total = getTotal(booking);
@@ -261,7 +308,14 @@ function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
 
       <div className="relative grid max-h-[92vh] w-full max-w-6xl grid-cols-1 overflow-hidden rounded-[28px] bg-white shadow-[0_34px_100px_rgba(15,23,42,0.34)] animate-in fade-in zoom-in-95 duration-200 lg:grid-cols-[minmax(0,1fr)_390px]">
         <div className="min-h-0 bg-slate-950 p-3 sm:p-4">
-          <ProofPreview proofUrl={proofUrl} interactive={false} />
+          {loading ? (
+            <div className="flex h-[calc(100vh-220px)] max-h-[680px] min-h-[420px] w-full flex-col items-center justify-center gap-3 rounded-[24px] bg-slate-950 text-white">
+              <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-white/80">Loading proof</p>
+            </div>
+          ) : (
+            <ProofPreview proofUrl={proofUrl} interactive={false} />
+          )}
         </div>
 
         <aside className="flex min-h-0 flex-col bg-white shadow-[inset_16px_0_32px_-28px_rgba(15,23,42,0.08)]">
@@ -295,6 +349,12 @@ function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
 
             <PayBreakdown total={total} />
 
+            {error ? (
+              <div className="mt-4 rounded-2xl border-0 bg-rose-50 px-4 py-3 text-xs font-semibold leading-relaxed text-rose-800 shadow-sm shadow-rose-500/12">
+                Failed to load the latest GCash proof. You can retry by closing and reopening this review.
+              </div>
+            ) : null}
+
             <div className="mt-4 rounded-2xl border-0 bg-amber-50 px-4 py-3 text-xs font-semibold leading-relaxed text-amber-900 shadow-sm shadow-amber-600/12">
               <div className="mb-2 flex items-center gap-2 font-black">
                 <AlertTriangle size={16} className="text-amber-600" />
@@ -307,7 +367,7 @@ function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
           <div className="grid gap-3 bg-slate-50/85 p-5 shadow-[inset_0_8px_16px_-12px_rgba(15,23,42,0.06)]">
             <button
               onClick={onApprove}
-              disabled={acting}
+              disabled={acting || loading}
               className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 text-sm font-black text-white shadow-lg shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {acting ? (
@@ -324,7 +384,7 @@ function ProofModal({ booking, onClose, onApprove, onReject, acting }: {
             </button>
             <button
               onClick={onReject}
-              disabled={acting}
+              disabled={acting || loading}
               className="flex h-11 items-center justify-center gap-2 rounded-2xl border-0 bg-white px-4 text-sm font-black text-rose-600 shadow-sm shadow-rose-500/12 transition-all hover:bg-rose-50/90 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
             >
               <XCircle size={17} strokeWidth={2.5} />
@@ -349,13 +409,82 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
   const [showModal, setShowModal] = useState(false);
   const [rejectMode, setRejectMode] = useState(false);
   const [reason, setReason] = useState('');
-  const id = booking._id || booking.id;
+  const [detailBooking, setDetailBooking] = useState<any | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  /** Bumps when a new load starts or modal closes so stale async work cannot clear state after abort. */
+  const detailLoadGenRef = useRef(0);
+  const proofFetchAbortRef = useRef<AbortController | null>(null);
+  const mongoId = mongoOrderIdString(booking);
+  const id = mongoId || String(booking._id ?? booking.id ?? '').trim();
   const total = getTotal(booking);
   const balance = Math.max(0, total - DOWNPAYMENT);
-  const proofUrl = getProofUrl(booking);
   const ref = booking.bookingReference || booking.orderNumber || id?.slice(-8) || '—';
   const customerName = booking.customerName || 'Customer';
   const serviceLabel = booking.serviceType || booking.serviceName || '—';
+  const modalBooking = detailBooking || booking;
+
+  const loadBookingDetail = useCallback(async () => {
+    if (!id) return;
+    const myGen = ++detailLoadGenRef.current;
+    proofFetchAbortRef.current?.abort();
+    proofFetchAbortRef.current = new AbortController();
+    const signal = proofFetchAbortRef.current.signal;
+    setDetailLoading(true);
+    setDetailError('');
+    try {
+      const [s0, s1] = await Promise.allSettled([
+        OrderService.getOrderApprovalPreview(id, { signal }),
+        OrderService.getOrderGcashProofFields(id, { signal }),
+      ]);
+
+      if (signal.aborted || detailLoadGenRef.current !== myGen) return;
+
+      if (s0.status === 'rejected') {
+        if (axios.isCancel(s0.reason)) return;
+        throw s0.reason;
+      }
+      if (s1.status === 'rejected' && axios.isCancel(s1.reason)) return;
+
+      const res = s0.value;
+      const pr = s1.status === 'fulfilled' ? s1.value : { success: false as const, data: undefined };
+      const d = res?.data as Record<string, unknown> | undefined;
+      const pd = (pr?.success && pr?.data ? pr.data : {}) as {
+        downpaymentProof?: string;
+        paymentProofUrl?: string;
+      };
+
+      if (!res?.success || !res.data) {
+        setDetailError(res?.message || 'Failed to load booking proof.');
+        return;
+      }
+
+      const merged = {
+        ...res.data,
+        downpaymentProof: pd?.downpaymentProof ?? (d?.downpaymentProof as string | undefined),
+        paymentProofUrl: pd?.paymentProofUrl ?? (d?.paymentProofUrl as string | undefined),
+        hasPaymentProof: Boolean(
+          pd?.downpaymentProof ||
+            pd?.paymentProofUrl ||
+            d?.downpaymentProof ||
+            d?.paymentProofUrl
+        ),
+      };
+      setDetailBooking(merged);
+      setDetailLoading(false);
+    } catch (e) {
+      if (axios.isCancel(e) || detailLoadGenRef.current !== myGen) return;
+      setDetailError('Failed to load booking proof.');
+    } finally {
+      if (detailLoadGenRef.current !== myGen) return;
+      setDetailLoading(false);
+    }
+  }, [id]);
+
+  const openProofReview = useCallback(() => {
+    setShowModal(true);
+    void loadBookingDetail();
+  }, [loadBookingDetail]);
 
   const doApprove = async () => {
     setActing(true);
@@ -376,8 +505,26 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
   return (
     <>
       {showModal && (
-        <ProofModal booking={booking} onClose={() => setShowModal(false)}
-          onApprove={doApprove} onReject={() => { setShowModal(false); setRejectMode(true); }} acting={acting} />
+        <ProofModal
+          booking={modalBooking}
+          loading={detailLoading}
+          error={detailError}
+          onClose={() => {
+            proofFetchAbortRef.current?.abort();
+            detailLoadGenRef.current += 1;
+            setShowModal(false);
+            setDetailBooking(null);
+            setDetailError('');
+          }}
+          onApprove={doApprove}
+          onReject={() => {
+            proofFetchAbortRef.current?.abort();
+            detailLoadGenRef.current += 1;
+            setShowModal(false);
+            setRejectMode(true);
+          }}
+          acting={acting}
+        />
       )}
       <div className={`booking-approval-card overflow-hidden rounded-[28px] border-0 bg-white shadow-[0_4px_20px_rgba(15,23,42,0.06),0_20px_48px_-20px_rgba(15,23,42,0.1)] transition-all duration-300 relative group
           ${leaving ? 'opacity-0 translate-x-12 scale-95 pointer-events-none' : 'opacity-100 translate-x-0 scale-100'}
@@ -454,7 +601,7 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
               {!rejectMode ? (
                 <div className="booking-approval-action-bar flex flex-col gap-3 rounded-[22px] border-0 bg-white p-3 shadow-[0_2px_10px_rgba(15,23,42,0.05),0_14px_36px_-14px_rgba(15,23,42,0.1)] sm:flex-row">
                   <button
-                    onClick={() => setShowModal(true)}
+                    onClick={openProofReview}
                     className="flex h-12 flex-[2] items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:bg-emerald-700 active:scale-[0.99]"
                   >
                     <CheckCircle2 size={18} strokeWidth={2.6} />
@@ -505,17 +652,40 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
               )}
             </div>
 
-            <div className="booking-proof-rail rounded-[26px] border-0 bg-slate-50/75 p-3 shadow-inner">
-              <div className="mb-3 flex items-center justify-between px-1">
+            <div className="booking-proof-rail rounded-[26px] border-0 bg-slate-50/75 p-4 shadow-inner">
+              <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">GCash proof</p>
-                  <p className="mt-0.5 text-xs font-bold text-slate-700">Receipt screenshot</p>
+                  <p className="mt-0.5 text-xs font-bold text-slate-700">Receipt loads on demand</p>
                 </div>
                 <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.13em] text-slate-500 shadow-sm shadow-slate-900/8">
-                  Tap to zoom
+                  Fast queue
                 </span>
               </div>
-              <ProofPreview proofUrl={proofUrl} onOpen={() => setShowModal(true)} compact />
+              <div className="mt-4 flex h-[240px] flex-col items-center justify-center rounded-[24px] bg-white text-center shadow-[0_8px_24px_-12px_rgba(15,23,42,0.12)]">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg shadow-slate-950/15">
+                  {detailLoading ? (
+                    <div className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  ) : (
+                    <ImageIcon size={22} />
+                  )}
+                </div>
+                <p className="mt-4 text-sm font-black text-slate-900">
+                  {detailLoading ? 'Loading proof…' : 'Open proof review'}
+                </p>
+                <p className="mt-1 max-w-[220px] text-xs font-semibold leading-relaxed text-slate-500">
+                  We load the full GCash screenshot only when someone inspects this reservation.
+                </p>
+                <button
+                  type="button"
+                  onClick={openProofReview}
+                  disabled={detailLoading}
+                  className="mt-4 inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-xs font-black uppercase tracking-[0.1em] text-white transition hover:bg-slate-800 disabled:opacity-60"
+                >
+                  <Eye size={14} />
+                  View proof
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -564,41 +734,77 @@ export default function BookingApprovalsPage() {
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
+  const fetchAll = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setLoading(true);
     try {
-      const { OrderService } = await import('@/lib/order-service');
-      const res = await OrderService.getAllOrders({ suppressErrorToast: true });
+      const res = await OrderService.getAllOrders({ suppressErrorToast: true, fresh: true });
       if (res.success && Array.isArray(res.data)) {
-        setAllBookings(res.data.filter((o: any) =>
-          ['pending_confirmation', 'approved', 'rejected'].includes(o.status)
-        ));
+        setAllBookings(applyApprovalScope(res.data));
       }
     } catch { /* silent */ }
-    setLoading(false);
+    finally {
+      if (!silent) setLoading(false);
+    }
   }, []);
-
-  const APPROVAL_STATUSES = ['pending_confirmation', 'approved', 'rejected'];
 
   useEffect(() => {
     fetchAll();
 
     // ── 60s backup polling — true last-resort if socket is silent ────────
     const interval = setInterval(() => {
-      import('@/lib/order-service').then(({ OrderService }) =>
-        OrderService.getAllOrders({ suppressErrorToast: true }).then(res => {
-          if (res.success && Array.isArray(res.data)) {
-            setAllBookings(res.data.filter((o: any) =>
-              APPROVAL_STATUSES.includes(o.status)
-            ));
-          }
-        })
-      ).catch(() => {});
+      void fetchAll({ silent: true });
     }, 60_000);
 
-    // ── Shared socket: instant state patch from fullDocument ──────────────
-    // No HTTP call — we use the document already embedded in the socket event.
     const socket = getSharedSocket();
+    socket.emit('join_room', 'booking:approvals');
+
+    const upsertScopedBooking = (incoming: any) => {
+      const booking = toApprovalListBooking(incoming);
+      const docId = String(booking._id || booking.id || '');
+      if (!docId) return;
+
+      setAllBookings((prev) => {
+        const existsAt = prev.findIndex((b) => String(b._id || b.id) === docId);
+
+        if (!isApprovalVisibleStatus(booking.status)) {
+          return existsAt >= 0 ? prev.filter((_, i) => i !== existsAt) : prev;
+        }
+
+        if (existsAt >= 0) {
+          const next = [...prev];
+          next[existsAt] = { ...next[existsAt], ...booking };
+          return next;
+        }
+
+        return [booking, ...prev];
+      });
+    };
+
+    const handleApprovalQueueUpdate = (payload: any) => {
+      const docId = String(payload?.bookingId || payload?.booking?._id || payload?.booking?.id || '');
+      const nextStatus = payload?.booking?.status ?? payload?.status;
+
+      if (!docId) return;
+
+      if (payload?.type === 'remove') {
+        setAllBookings((prev) => prev.filter((b) => String(b._id || b.id) !== docId));
+        return;
+      }
+
+      if (payload?.booking) {
+        upsertScopedBooking(payload.booking);
+        return;
+      }
+
+      if (!isApprovalVisibleStatus(nextStatus)) {
+        setAllBookings((prev) => prev.filter((b) => String(b._id || b.id) !== docId));
+        return;
+      }
+
+      void fetchAll({ silent: true });
+    };
+
+    // ── Shared socket fallback: patch from fullDocument when available ────
     const handleDbChange = (payload: any) => {
       if (payload.collection !== 'orders') return;
 
@@ -607,13 +813,7 @@ export default function BookingApprovalsPage() {
       // Fallback to HTTP only if fullDocument is absent
       if (!fullDocument && operationType !== 'delete') {
         console.warn('[BookingApprovals] db_change missing fullDocument — fallback HTTP fetch');
-        import('@/lib/order-service').then(({ OrderService }) =>
-          OrderService.getAllOrders({ suppressErrorToast: true }).then(res => {
-            if (res.success && Array.isArray(res.data)) {
-              setAllBookings(res.data.filter((o: any) => APPROVAL_STATUSES.includes(o.status)));
-            }
-          })
-        ).catch(() => {});
+        void fetchAll({ silent: true });
         return;
       }
 
@@ -625,26 +825,10 @@ export default function BookingApprovalsPage() {
         return;
       }
 
-      const normalized = normalizeBooking(fullDocument);
-      const inScope = APPROVAL_STATUSES.includes(normalized.status ?? '');
-
-      setAllBookings(prev => {
-        const existsAt = prev.findIndex(b => String(b._id || b.id) === docId);
-        if (!inScope) {
-          // Status moved out of approval scope (e.g. confirmed) — remove it
-          return existsAt >= 0 ? prev.filter((_, i) => i !== existsAt) : prev;
-        }
-        if (existsAt >= 0) {
-          // Update existing
-          const next = [...prev];
-          next[existsAt] = { ...normalized, _id: fullDocument._id };
-          return next;
-        }
-        // New document in scope — prepend
-        return [{ ...normalized, _id: fullDocument._id }, ...prev];
-      });
+      upsertScopedBooking(fullDocument);
       console.log('[BookingApprovals] db_change', operationType, '→ patched', docId);
     };
+    socket.on('booking:approval-updated', handleApprovalQueueUpdate);
     socket.on('db_change', handleDbChange);
 
     // ── Tab visibility / focus refresh ───────────────────────────────────
@@ -654,15 +838,7 @@ export default function BookingApprovalsPage() {
         if (visTimer) clearTimeout(visTimer);
         visTimer = setTimeout(() => {
           console.log('[BookingApprovals] Tab visible → silent refetch');
-          import('@/lib/order-service').then(({ OrderService }) =>
-            OrderService.getAllOrders({ suppressErrorToast: true }).then(res => {
-              if (res.success && Array.isArray(res.data)) {
-                setAllBookings(res.data.filter((o: any) =>
-                  ['pending_confirmation', 'approved', 'rejected'].includes(o.status)
-                ));
-              }
-            })
-          ).catch(() => {});
+          void fetchAll({ silent: true });
         }, 500);
       }
     };
@@ -671,6 +847,7 @@ export default function BookingApprovalsPage() {
 
     return () => {
       clearInterval(interval);
+      socket.off('booking:approval-updated', handleApprovalQueueUpdate);
       socket.off('db_change', handleDbChange);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleVisibility);
@@ -679,11 +856,11 @@ export default function BookingApprovalsPage() {
   }, [fetchAll]);
 
   const pending = useMemo(
-    () => sortPendingApprovalsFifo(allBookings.filter((b) => b.status === 'pending_confirmation')),
+    () => sortPendingApprovalsFifo(allBookings.filter((b) => isPendingApprovalStatus(b.status))),
     [allBookings]
   );
-  const approved = allBookings.filter(b => b.status === 'approved');
-  const rejected = allBookings.filter(b => b.status === 'rejected');
+  const approved = useMemo(() => allBookings.filter((b) => isApprovedApprovalStatus(b.status)), [allBookings]);
+  const rejected = useMemo(() => allBookings.filter((b) => isRejectedApprovalStatus(b.status)), [allBookings]);
 
   const handleApprove = async (id: string, name: string) => {
     const data = await apiPatch(`/api/orders/${id}/approve`);
@@ -727,7 +904,7 @@ export default function BookingApprovalsPage() {
             </p>
           </div>
           <button
-            onClick={fetchAll}
+            onClick={() => { void fetchAll(); }}
             disabled={loading}
             className="inline-flex h-11 items-center gap-2 rounded-2xl border-0 bg-white px-4 text-xs font-black text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.05),0_10px_28px_-10px_rgba(15,23,42,0.1)] transition-all hover:-translate-y-0.5 hover:bg-blue-50/90 hover:text-blue-700 hover:shadow-[0_6px_20px_-8px_rgba(37,99,235,0.15)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >

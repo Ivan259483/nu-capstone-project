@@ -169,9 +169,37 @@ async function findClosureForDate(dateStr) {
     .lean();
 }
 
-async function loadActiveBookings(excludeOrderId = null) {
+/**
+ * Known string shapes for `bookingDate` that still normalize to the same
+ * YYYY-MM-DD in aggregateBookingsForDate. Keeps the Mongo filter index-friendly
+ * ($in of small literals) instead of scanning all slot-consuming orders.
+ */
+function buildBookingDateMatchValues(normalizedYyyyMmDd) {
+  if (!normalizedYyyyMmDd || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedYyyyMmDd)) {
+    return [];
+  }
+  const values = new Set([normalizedYyyyMmDd]);
+  const [y, mo, d] = normalizedYyyyMmDd.split('-').map(Number);
+  if (y && mo && d) {
+    values.add(`${y}/${String(mo).padStart(2, '0')}/${String(d).padStart(2, '0')}`);
+    values.add(`${mo}/${d}/${y}`);
+    values.add(`${String(mo).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y}`);
+  }
+  return [...values];
+}
+
+/**
+ * Slot-consuming orders for one calendar day only (see getDateAvailabilitySnapshot).
+ * Previously this loaded every active booking app-wide and filtered in JS — O(n)
+ * on the whole orders collection and the main cause of slow /available-slots.
+ */
+async function loadActiveBookingsForDate(normalizedDate, excludeOrderId = null) {
+  const dateValues = buildBookingDateMatchValues(normalizedDate);
+  if (dateValues.length === 0) return [];
+
   const query = {
     status: { $in: SLOT_CONSUMING_STATUSES },
+    bookingDate: { $in: dateValues },
     ...(excludeOrderId ? { _id: { $ne: excludeOrderId } } : {}),
   };
 
@@ -238,7 +266,7 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
   const config = await getAvailabilityConfig();
   const daySchedule = getDaySchedule(config.recurringSchedule, normalizedDate);
   const closure = await findClosureForDate(normalizedDate);
-  const bookings = await loadActiveBookings(excludeOrderId);
+  const bookings = await loadActiveBookingsForDate(normalizedDate, excludeOrderId);
   const { bookedCount, bookedCountByTime, bookedTimes } = aggregateBookingsForDate(bookings, normalizedDate);
 
   const slotsLimit = Math.max(0, Number(daySchedule?.slots || 0));
@@ -334,7 +362,7 @@ export async function getBookedTimeStringsForDate(bookingDate) {
   const normalizedDate = normalizeBookingDate(bookingDate);
   if (!normalizedDate) return [];
 
-  const bookings = await loadActiveBookings();
+  const bookings = await loadActiveBookingsForDate(normalizedDate);
   return aggregateBookingsForDate(bookings, normalizedDate).bookedTimes;
 }
 

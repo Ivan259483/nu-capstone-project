@@ -44,32 +44,35 @@ export default function QCTopbar({ sidebarCollapsed }: Props) {
             )}
           </button>
           {notifOpen && (
-            <div className="absolute right-0 top-12 w-80 bg-white rounded-2xl shadow-xl shadow-slate-200/60 z-50 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100">
-                <span className="text-sm font-semibold text-slate-800 tracking-tight">Notifications</span>
-                <button className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors">Mark all read</button>
+            <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-2xl bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.18),0_8px_24px_-8px_rgba(15,23,42,0.08)]">
+              <div className="flex items-center justify-between bg-white px-4 py-3.5">
+                <span className="text-sm font-semibold tracking-tight text-slate-800">Notifications</span>
+                <button className="text-xs font-medium text-blue-600 transition-colors hover:text-blue-700">Mark all read</button>
               </div>
-              <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
+              <div className="max-h-72 space-y-1 overflow-y-auto px-2 pb-1 pt-0">
                 {notifications.length > 0 ? notifications.map((n) => (
-                  <div key={n.id} className={`px-4 py-3.5 flex gap-3 items-start hover:bg-slate-50 cursor-pointer transition-colors ${n.unread ? 'bg-blue-50/40' : ''}`}>
-                    <div className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${n.unread ? 'bg-blue-500' : 'bg-transparent'}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-slate-700 leading-snug">{n.title}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{n.time}</p>
+                  <div
+                    key={n.id}
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-slate-50/90 ${n.unread ? 'bg-blue-50/50' : ''}`}
+                  >
+                    <div className={`mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full ${n.unread ? 'bg-blue-500' : 'bg-transparent'}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm leading-snug text-slate-700">{n.title}</p>
+                      <p className="mt-0.5 text-xs text-slate-400">{n.time}</p>
                     </div>
                   </div>
                 )) : (
                   <div className="px-4 py-10 text-center">
-                    <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center mx-auto mb-3">
+                    <div className="mx-auto mb-3 flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100/90 shadow-[0_4px_14px_-6px_rgba(15,23,42,0.08)]">
                       <Bell size={14} className="text-slate-400" />
                     </div>
                     <p className="text-sm font-medium text-slate-500">No notifications</p>
-                    <p className="text-xs text-slate-400 mt-1">You're all caught up</p>
+                    <p className="mt-1 text-xs text-slate-400">You're all caught up</p>
                   </div>
                 )}
               </div>
-              <div className="px-4 py-3 border-t border-slate-100 text-center">
-                <button className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors">View all notifications</button>
+              <div className="bg-slate-50/40 px-4 py-3 text-center">
+                <button className="text-xs font-medium text-blue-600 transition-colors hover:text-blue-700">View all notifications</button>
               </div>
             </div>
           )}
@@ -94,12 +97,12 @@ export default function QCTopbar({ sidebarCollapsed }: Props) {
             <ChevronDown size={13} className="text-slate-400 hidden md:block" />
           </button>
           {profileOpen && (
-            <div className="absolute right-0 top-12 w-48 bg-white rounded-2xl shadow-xl shadow-slate-200/60 z-50 overflow-hidden">
-              <div className="px-4 py-3.5 border-b border-slate-100">
-                <p className="text-sm font-semibold text-slate-800 tracking-tight">{user?.name || 'Quality Inspector'}</p>
-                <p className="text-xs text-slate-400 mt-0.5 truncate">{user?.email || ''}</p>
+            <div className="absolute right-0 top-12 z-50 w-48 overflow-hidden rounded-2xl bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.18),0_8px_24px_-8px_rgba(15,23,42,0.08)]">
+              <div className="bg-white px-4 py-3.5">
+                <p className="text-sm font-semibold tracking-tight text-slate-800">{user?.name || 'Quality Inspector'}</p>
+                <p className="mt-0.5 truncate text-xs text-slate-400">{user?.email || ''}</p>
               </div>
-              <div className="p-1.5">
+              <div className="bg-slate-50/35 p-1.5">
                 <button className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">Profile Settings</button>
                 <button className="w-full text-left px-3 py-2 text-sm text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" onClick={() => { setProfileOpen(false); logout(); }}>Sign Out</button>
               </div>

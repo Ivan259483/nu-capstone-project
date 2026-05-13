@@ -56,48 +56,50 @@ function EmptyRows({ icon: Icon, label }: { icon: React.ElementType; label: stri
   );
 }
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
+// ── Stat card (white surface; color only on icon) ─────────────────────────────
 interface StatCardProps {
   label: string;
   value: string;
   sub: string;
   icon: React.ElementType;
-  gradient: string;
-  iconBg: string;
   iconColor: string;
   hero?: boolean;
 }
 
-function StatCard({ label, value, sub, icon: Icon, gradient, iconBg, iconColor, hero }: StatCardProps) {
+function StatCard({ label, value, sub, icon: Icon, iconColor, hero }: StatCardProps) {
+  const cardShadow = hero
+    ? 'shadow-[0_12px_40px_-12px_rgba(15,23,42,0.1)]'
+    : 'shadow-[0_8px_28px_-8px_rgba(15,23,42,0.08)] hover:shadow-[0_14px_36px_-10px_rgba(15,23,42,0.1)]';
+
   if (hero) {
     return (
-      <div className={`sm:col-span-2 rounded-2xl bg-white p-6 flex flex-col justify-between min-h-[136px] relative overflow-hidden shadow-sm shadow-slate-200/50`}>
-        <div className="absolute inset-0 rounded-2xl" style={{ background: gradient, opacity: 0.45 }} />
-        <div className="relative flex items-start justify-between">
+      <div
+        className={`relative flex min-h-[136px] sm:col-span-2 flex-col justify-between overflow-hidden rounded-2xl bg-white p-6 ${cardShadow} transition-shadow`}
+      >
+        <div className="flex items-start justify-between">
           <div>
-            <p className="text-xs font-medium tracking-widest text-slate-500 uppercase">{label}</p>
-            <p className="text-4xl font-semibold mt-2.5 tabular-nums text-slate-800">{value}</p>
+            <p className="text-xs font-medium uppercase tracking-widest text-slate-500">{label}</p>
+            <p className="mt-2.5 text-4xl font-semibold tabular-nums text-slate-800">{value}</p>
           </div>
-          <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${iconBg} shadow-sm`}>
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100/90 shadow-[0_2px_10px_-4px_rgba(15,23,42,0.08)]">
             <Icon size={20} className={iconColor} />
           </div>
         </div>
-        <p className="relative text-xs text-slate-400 mt-2">{sub}</p>
+        <p className="mt-2 text-xs text-slate-400">{sub}</p>
       </div>
     );
   }
   return (
-    <div className="rounded-2xl bg-white p-5 flex flex-col justify-between relative overflow-hidden shadow-sm shadow-slate-200/50 hover:shadow-md transition-shadow">
-      <div className="absolute inset-0 rounded-2xl" style={{ background: gradient, opacity: 0.35 }} />
-      <div className="relative flex items-center justify-between">
-        <p className="text-[11px] font-medium tracking-widest text-slate-400 uppercase">{label}</p>
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${iconBg}`}>
+    <div className={`relative flex flex-col justify-between overflow-hidden rounded-2xl bg-white p-5 transition-shadow ${cardShadow}`}>
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400">{label}</p>
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100/90 shadow-[0_2px_8px_-2px_rgba(15,23,42,0.06)]">
           <Icon size={14} className={iconColor} />
         </div>
       </div>
-      <div className="relative mt-3">
+      <div className="mt-3">
         <p className="text-4xl font-semibold tabular-nums text-slate-800">{value}</p>
-        <p className="text-xs text-slate-400 mt-1.5">{sub}</p>
+        <p className="mt-1.5 text-xs text-slate-400">{sub}</p>
       </div>
     </div>
   );
@@ -170,14 +172,12 @@ export default function QCDashboardView({ onNavigate, onSelectJob, stats, statsL
           value={v(stats.awaiting)}
           sub={stats.awaiting > 0 ? `${stats.awaiting} jobs need your sign-off` : 'Queue is clear'}
           icon={ClipboardList}
-          gradient="linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)"
-          iconBg="bg-amber-100"
           iconColor="text-amber-600"
         />
-        <StatCard label="Approved Today" value={v(stats.approvedToday)} sub="Jobs completed" icon={CheckCircle2} gradient="linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)" iconBg="bg-emerald-100" iconColor="text-emerald-600" />
-        <StatCard label="Returned for Correction" value={v(stats.returned)} sub="Needs rework" icon={RotateCcw} gradient="linear-gradient(135deg, #ffe4e6 0%, #fecdd3 100%)" iconBg="bg-rose-100" iconColor="text-rose-600" />
-        <StatCard label="AI Detections Pending" value={v(stats.aiPending)} sub="Flagged items" icon={ScanSearch} gradient="linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)" iconBg="bg-orange-100" iconColor="text-orange-600" />
-        <StatCard label="Avg Review Time" value={statsLoading ? '—' : stats.avgReviewTime} sub="Per job" icon={Timer} gradient="linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)" iconBg="bg-violet-100" iconColor="text-violet-600" />
+        <StatCard label="Approved Today" value={v(stats.approvedToday)} sub="Jobs completed" icon={CheckCircle2} iconColor="text-emerald-600" />
+        <StatCard label="Returned for Correction" value={v(stats.returned)} sub="Needs rework" icon={RotateCcw} iconColor="text-rose-600" />
+        <StatCard label="AI Detections Pending" value={v(stats.aiPending)} sub="Flagged items" icon={ScanSearch} iconColor="text-orange-600" />
+        <StatCard label="Avg Review Time" value={statsLoading ? '—' : stats.avgReviewTime} sub="Per job" icon={Timer} iconColor="text-violet-600" />
       </div>
 
       {/* Charts Row */}

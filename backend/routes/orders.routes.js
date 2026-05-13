@@ -13,7 +13,7 @@ import {
   SUPPLIER_MANAGER_ROLES,
   POS_MANAGER_ROLES,
 } from '../constants/roles.js';
-import { getBilling, putBilling, checkoutBilling } from '../controllers/billing.controller.js';
+import { getBilling, putBilling, checkoutBilling, getOrderReceiptPdf } from '../controllers/billing.controller.js';
 
 const router = express.Router();
 
@@ -72,6 +72,16 @@ router.get('/', orderController.getAllOrders);
  * @access Private
  */
 router.get('/available-slots', orderController.getAvailableSlots);
+
+/**
+ * @route GET /api/orders/:orderId/billing/receipt-pdf
+ * @desc Latest checkout invoice as PDF (customer owner or POS)
+ */
+router.get(
+  '/:orderId/billing/receipt-pdf',
+  authorize(...CUSTOMER_ROLES, ...POS_MANAGER_ROLES),
+  getOrderReceiptPdf
+);
 
 /**
  * @route GET /api/orders/:orderId/billing
@@ -146,6 +156,28 @@ router.get('/:id/waiver-pdf', authorize(...CUSTOMER_ROLES, ...STAFF_ROLES, ...FU
  * @access Private - Admin
  */
 router.post('/:id/waiver-reminder', authorize(...FULL_ADMIN_ROLES), orderController.sendWaiverReminder);
+
+/**
+ * @route GET /api/orders/:id/approval-preview
+ * @desc Lean booking + GCash proof for Sales review (avoids multi‑MB full documents)
+ * @access Private — booking managers & POS
+ */
+router.get(
+  '/:id/approval-preview',
+  authorize(...BOOKING_MANAGER_ROLES, ...POS_MANAGER_ROLES),
+  orderController.getOrderApprovalPreview
+);
+
+/**
+ * @route GET /api/orders/:id/gcash-proof-fields
+ * @desc GCash receipt strings only (may be large; separate from approval-preview)
+ * @access Private — booking managers & POS
+ */
+router.get(
+  '/:id/gcash-proof-fields',
+  authorize(...BOOKING_MANAGER_ROLES, ...POS_MANAGER_ROLES),
+  orderController.getOrderGcashProofFields
+);
 
 /**
  * @route GET /api/orders/:id
@@ -303,6 +335,16 @@ router.post(
   authorize(...trackerController.TRACKER_STAGE_MEDIA_ROLES),
   handleTrackerStagePhotoUpload,
   trackerController.postTrackerStagePhotoUpload
+);
+
+/**
+ * @route DELETE /api/orders/:id/stage-photo
+ * @desc Remove one gate slot photo (query: stage, slot)
+ */
+router.delete(
+  '/:id/stage-photo',
+  authorize(...trackerController.TRACKER_STAGE_MEDIA_ROLES),
+  trackerController.deleteTrackerStagePhoto
 );
 
 /**

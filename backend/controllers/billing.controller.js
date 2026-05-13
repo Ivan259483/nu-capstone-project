@@ -6,6 +6,8 @@ import InvoiceRecord from '../models/invoiceRecord.model.js';
 import { computeBillingTotals, normalizeMoney } from '../utils/billingTotals.js';
 import { runPosCheckoutCore } from './payment.controller.js';
 import { logActivity } from '../utils/logActivity.utils.js';
+import { buildInvoicePdfBuffer } from '../utils/pdf.utils.js';
+import { isCustomerRole, isPosManagerRole } from '../constants/roles.js';
 
 function mapLineItem(raw) {
   let serviceId = null;
@@ -139,6 +141,7 @@ export const getBilling = async (req, res, next) => {
         order: orderId,
         lineItems: [],
         status: 'pending',
+        downpayment: normalizeMoney(order.downPaymentAmount || 0),
       });
     }
     applyComputed(billing);
@@ -383,6 +386,49 @@ export const checkoutBilling = async (req, res, next) => {
     if (err.statusCode === 400) {
       return res.status(400).json({ success: false, message: err.message });
     }
+    next(err);
+  }
+};
+
+/**
+ * GET /api/orders/:orderId/billing/receipt-pdf
+ * PDF receipt for the latest checkout invoice — order owner (customer) or POS staff.
+ */
+export const getOrderReceiptPdf = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    if (!mongoose.isValidObjectId(orderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid order id' });
+    }
+
+    const role = req.user?.role;
+    if (!isCustomerRole(role) && !isPosManagerRole(role)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const order = await Order.findById(orderId).select('customer').lean();
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const ownerId = order.customer?.toString?.() || '';
+    if (isCustomerRole(role) && ownerId !== String(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const inv = await InvoiceRecord.findOne({ order: orderId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!inv?.snapshot) {
+      return res.status(404).json({ success: false, message: 'Receipt not available yet' });
+    }
+
+    const buf = buildInvoicePdfBuffer(inv.snapshot);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="receipt-${encodeURIComponent(orderId)}.pdf"`);
+    return res.send(buf);
+  } catch (err) {
     next(err);
   }
 };

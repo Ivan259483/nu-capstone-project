@@ -117,6 +117,43 @@ export const BillingService = {
     }
   },
 
+  /** PDF blob for customer / sales — uses order-scoped route (not /invoices/.../pdf). */
+  getOrderReceiptPdfBlob: async (orderId: string) => {
+    try {
+      const { data, headers } = await api.get(`/orders/${encodeURIComponent(orderId)}/billing/receipt-pdf`, {
+        responseType: 'blob',
+        meta: { suppressErrorToast: true } as any,
+      });
+      const ct = String(headers['content-type'] || '');
+      if (ct.includes('application/json')) {
+        const text = await (data as Blob).text();
+        let msg = 'Receipt not available';
+        try {
+          const j = JSON.parse(text) as { message?: string };
+          if (j?.message) msg = j.message;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg);
+      }
+      return data as Blob;
+    } catch (error: any) {
+      const blob = error?.response?.data;
+      if (blob instanceof Blob) {
+        const t = await blob.text();
+        let parsed: { message?: string } | null = null;
+        try {
+          parsed = JSON.parse(t) as { message?: string };
+        } catch {
+          parsed = null;
+        }
+        if (parsed?.message) throw new Error(parsed.message);
+        throw new Error('Receipt not available');
+      }
+      throw new Error(error?.response?.data?.message || error?.message || 'Receipt not available');
+    }
+  },
+
   getInvoicePdfUrl: (invoiceNumber: string) =>
     `/api/invoices/${encodeURIComponent(invoiceNumber)}/pdf`,
 };

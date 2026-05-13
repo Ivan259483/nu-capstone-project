@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { CheckCircle2 } from 'lucide-react';
 import CustomerVehiclePanel from './CustomerVehiclePanel';
 import ServiceCartPanel from './ServiceCartPanel';
 import PaymentSummaryPanel from './PaymentSummaryPanel';
 import ReceiptModal from './ReceiptModal';
 import BillingWorkspace from '@/components/sales/billing/BillingWorkspace';
 import InvoiceA4, { type InvoiceA4Snapshot } from '@/components/sales/billing/InvoiceA4';
-import { Customer, Vehicle, CartItem } from '@/lib/salesData';
+import { Customer, Vehicle, CartItem, formatPeso } from '@/lib/salesData';
 import { useServices, VehicleType, getEffectivePrice } from '@/hooks/useServices';
 import { BillingService } from '@/lib/billing-service';
+import { computeBillingTotals, type BillingLineItem } from '@/lib/billingTotals';
 import { toast } from 'sonner';
 import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
 import { DEFAULT_SPF_ADDON_PRICES } from '@/lib/service-pricing';
@@ -49,9 +51,25 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> =
   assigned:         { bg: 'bg-indigo-50', text: 'text-indigo-700', dot: 'bg-indigo-500' },
   received:         { bg: 'bg-amber-50',  text: 'text-amber-700',  dot: 'bg-amber-500' },
   in_progress:      { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-500' },
+  ready_for_payment: { bg: 'bg-amber-50',  text: 'text-amber-800',  dot: 'bg-amber-500' },
   completed:        { bg: 'bg-green-50',  text: 'text-green-700',  dot: 'bg-green-500' },
   pending_confirmation: { bg: 'bg-yellow-50', text: 'text-yellow-700', dot: 'bg-yellow-400' },
 };
+
+/** When billing + order have no stored reservation, assume ₱500 for booking-linked POS checkout. */
+const BOOKING_RESERVATION_DP_FALLBACK = 500;
+
+function resolvePosDownpayment(
+  billingDownpayment: unknown,
+  orderDownPaymentAmount: unknown,
+  isBookingOrder: boolean
+): number {
+  const fromBilling = Math.max(0, Number(billingDownpayment) || 0);
+  if (fromBilling > 0) return fromBilling;
+  const fromOrder = Math.max(0, Number(orderDownPaymentAmount) || 0);
+  if (fromOrder > 0) return fromOrder;
+  return isBookingOrder ? BOOKING_RESERVATION_DP_FALLBACK : 0;
+}
 
 function getToken() {
   return (
@@ -64,7 +82,14 @@ function getToken() {
 }
 
 // ── Check-In Queue (compact collapsible strip) ────────────────────────────────
-function CheckInQueuePanel({ onSelectBooking }: { onSelectBooking: (b: any) => void }) {
+function CheckInQueuePanel({
+  onSelectBooking,
+  refreshKey = 0,
+}: {
+  onSelectBooking: (b: any) => void;
+  /** Increment after POS checkout so the strip refetches without manual refresh. */
+  refreshKey?: number;
+}) {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState<string | null>(null);
@@ -77,7 +102,12 @@ function CheckInQueuePanel({ onSelectBooking }: { onSelectBooking: (b: any) => v
       const res = await OrderService.getAllOrders({ suppressErrorToast: true });
       if (res.success && Array.isArray(res.data)) {
         const queue = res.data
-          .filter((b: any) => ['confirmed', 'approved', 'assigned', 'received', 'in_progress', 'completed'].includes((b.status || '').toLowerCase()))
+          .filter((b: any) => {
+            if (String(b.paymentStatus || '').toLowerCase() === 'paid') return false;
+            const st = (b.status || '').toLowerCase();
+            if (['released', 'paid', 'cancelled'].includes(st)) return false;
+            return ['confirmed', 'approved', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed'].includes(st);
+          })
           .sort((a: any, b: any) => (a.bookingTime || '').localeCompare(b.bookingTime || ''));
         setBookings(queue);
       }
@@ -85,7 +115,9 @@ function CheckInQueuePanel({ onSelectBooking }: { onSelectBooking: (b: any) => v
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadBookings(); }, [loadBookings]);
+  useEffect(() => {
+    void loadBookings();
+  }, [loadBookings, refreshKey]);
 
   const handleCheckIn = async (b: any) => {
     const id = b._id || b.id;
@@ -104,7 +136,10 @@ function CheckInQueuePanel({ onSelectBooking }: { onSelectBooking: (b: any) => v
   };
 
   const totalToday = bookings.length;
-  const readyToPay = bookings.filter((b: any) => ['completed', 'ready_for_payment'].includes(b.status)).length;
+  const readyToPay = bookings.filter((b: any) => {
+    if (String(b.paymentStatus || '').toLowerCase() === 'paid') return false;
+    return ['completed', 'ready_for_payment'].includes((b.status || '').toLowerCase());
+  }).length;
 
   return (
     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, boxShadow: '0 1px 6px rgba(0,0,0,.05)', overflow: 'hidden', flexShrink: 0 }}>
@@ -181,7 +216,9 @@ function CheckInQueuePanel({ onSelectBooking }: { onSelectBooking: (b: any) => v
               const colors = STATUS_COLORS[st] || STATUS_COLORS.confirmed;
               const isChecking = checkingIn === id;
               const canCheckIn = ['confirmed', 'approved', 'assigned'].includes(st);
-              const isReadyToPay = ['completed', 'ready_for_payment'].includes(st);
+              const isReadyToPay =
+                String(b.paymentStatus || '').toLowerCase() !== 'paid' &&
+                ['completed', 'ready_for_payment'].includes(st);
               return (
                 <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderTop: '1px solid #f8fafc' }}>
                   <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#3b82f6,#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
@@ -193,7 +230,11 @@ function CheckInQueuePanel({ onSelectBooking }: { onSelectBooking: (b: any) => v
                       <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20 }} className={`${colors.bg} ${colors.text}`}>
                         {st.replace('_', ' ')}
                       </span>
-                      {isReadyToPay && <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, background: '#fffbeb', color: '#b45309' }}>💰 Ready to Pay</span>}
+                      {isReadyToPay && (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, background: '#fffbeb', color: '#b45309' }}>
+                          {st === 'ready_for_payment' ? 'Balance due' : 'Ready to Pay'}
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
                       {b.vehiclePlate || '—'} · {b.serviceType || b.serviceName || '—'} · <strong style={{ color: '#2563eb' }}>{b.bookingTime || '—'}</strong>
@@ -255,6 +296,8 @@ export default function POSWorkspace() {
   const [vatAmount, setVatAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [showReceipt, setShowReceipt] = useState(false);
+  const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
+  const [paymentConfirmAmountLabel, setPaymentConfirmAmountLabel] = useState('');
   const [processing, setProcessing] = useState(false);
   const [completedTxnId, setCompletedTxnId] = useState<string>('');
   /** Snapshot for receipt after payment (cart is cleared in same flow). */
@@ -274,7 +317,10 @@ export default function POSWorkspace() {
   const [unpaidOrders, setUnpaidOrders] = useState<any[]>([]);
   const [unpaidOrdersLoading, setUnpaidOrdersLoading] = useState(false);
   const [billingSyncNonce, setBillingSyncNonce] = useState(0);
+  /** Reservation / GCash downpayment applied to balance-due (from billing or order; booking fallback ₱500). */
+  const [posReservationDownpayment, setPosReservationDownpayment] = useState(0);
   const [invoiceSnap, setInvoiceSnap] = useState<InvoiceA4Snapshot | null>(null);
+  const [checkInQueueTick, setCheckInQueueTick] = useState(0);
 
   const effectiveOrderId = linkedOrderId ?? posBillingOrderId;
 
@@ -314,15 +360,20 @@ export default function POSWorkspace() {
   /** Load server billing lines (or order.items) into POS cart + payment summary. */
   const hydrateCartFromOrder = useCallback(async (orderId: string) => {
     try {
-      const billRes = await BillingService.getBilling(orderId);
-      if (
-        billRes.success &&
-        'data' in billRes &&
-        billRes.data &&
-        Array.isArray(billRes.data.lineItems) &&
-        billRes.data.lineItems.length > 0
-      ) {
-        const items: CartItem[] = billRes.data.lineItems.map((li: any, i: number) => {
+      const { OrderService } = await import('@/lib/order-service');
+      const [billRes, ordRes] = await Promise.all([
+        BillingService.getBilling(orderId),
+        OrderService.getOrderById(orderId),
+      ]);
+      const order = ordRes.success ? (ordRes.data as any) : null;
+      const bd =
+        billRes.success && 'data' in billRes && billRes.data ? (billRes.data as any) : null;
+      setPosReservationDownpayment(
+        resolvePosDownpayment(bd?.downpayment, order?.downPaymentAmount, Boolean(orderId))
+      );
+
+      if (bd && Array.isArray(bd.lineItems) && bd.lineItems.length > 0) {
+        const items: CartItem[] = bd.lineItems.map((li: any, i: number) => {
           const sid = li.serviceId ? String(li.serviceId) : `billing-line-${orderId}-${i}`;
           const svc = li.serviceId ? services.find((s) => s._id === String(li.serviceId)) : undefined;
           return {
@@ -336,27 +387,24 @@ export default function POSWorkspace() {
           };
         });
         setCartItems(items);
-        const d = billRes.data.discount;
+        const d = bd.discount;
         if (d?.discountType === 'fixed' && Number(d.value) > 0) {
           setDiscount(Number(d.value));
         } else {
           setDiscount(0);
         }
-        setVatAmount(Math.max(0, Number(billRes.data.taxVatAmount) || 0));
+        setVatAmount(Math.max(0, Number(bd.taxVatAmount) || 0));
         setBillingSyncNonce((n) => n + 1);
         return;
       }
 
-      const { OrderService } = await import('@/lib/order-service');
-      const ordRes = await OrderService.getOrderById(orderId);
-      if (!ordRes.success || !ordRes.data) {
+      if (!order) {
         setCartItems([]);
         setDiscount(0);
         setVatAmount(0);
         setBillingSyncNonce((n) => n + 1);
         return;
       }
-      const order = ordRes.data as any;
       const rawItems = order.items || [];
       if (rawItems.length > 0) {
         const mapped: CartItem[] = rawItems.map((it: any, i: number) => {
@@ -408,6 +456,7 @@ export default function POSWorkspace() {
       toast.error('Could not load order line items');
       setCartItems([]);
       setVatAmount(0);
+      setPosReservationDownpayment(0);
     }
   }, [services]);
 
@@ -420,13 +469,13 @@ export default function POSWorkspace() {
           discount: discount > 0 ? { discountType: 'fixed' as const, value: discount } : undefined,
           taxVatAmount: vatAmount,
           additionalFees: 0,
-          downpayment: 0,
+          downpayment: posReservationDownpayment,
         });
         if (put.success) setBillingSyncNonce((n) => n + 1);
       })();
     }, 450);
     return () => window.clearTimeout(t);
-  }, [effectiveOrderId, cartItems, discount, vatAmount, buildLineItemsFromCart]);
+  }, [effectiveOrderId, cartItems, discount, vatAmount, buildLineItemsFromCart, posReservationDownpayment]);
 
   const onBillingCheckoutSuccess = useCallback(
     async ({ invoiceNumber }: { invoiceNumber: string; pdfUrl: string }) => {
@@ -440,7 +489,9 @@ export default function POSWorkspace() {
       setReceiptData(null);
       setLinkedOrderId(null);
       setPosBillingOrderId(null);
+      setPosReservationDownpayment(0);
       loadUnpaidOrders();
+      setCheckInQueueTick((n) => n + 1);
     },
     [loadUnpaidOrders]
   );
@@ -587,10 +638,37 @@ export default function POSWorkspace() {
   const subtotal = cartItems.reduce((sum, c) => sum + c.price * c.quantity, 0);
   const total = Math.max(0, subtotal - discount + vatAmount);
 
-  const handleProcessPayment = async () => {
+  const handleProcessPayment = () => {
     if (!selectedCustomer) { toast.error('Please select a customer before processing payment.'); return; }
     if (!selectedVehicle) { toast.error('Please select a vehicle for this transaction.'); return; }
     if (cartItems.length === 0) { toast.error('Add at least one service to proceed.'); return; }
+
+    const lineItemsForConfirm = buildLineItemsFromCart() as BillingLineItem[];
+    const confirmBalance = effectiveOrderId
+      ? computeBillingTotals({
+          lineItems: lineItemsForConfirm,
+          discount:
+            discount > 0 ? { discountType: 'fixed' as const, value: discount } : { discountType: 'fixed' as const, value: 0 },
+          taxVatAmount: vatAmount,
+          additionalFees: 0,
+          downpayment: posReservationDownpayment,
+        }).balanceDue
+      : total;
+
+    setPaymentConfirmAmountLabel(
+      effectiveOrderId
+        ? `Balance due: ${formatPeso(confirmBalance)}`
+        : `Total: ${formatPeso(confirmBalance)}`
+    );
+    setShowPaymentConfirm(true);
+  };
+
+  const executeConfirmedPayment = async () => {
+    setShowPaymentConfirm(false);
+    if (!selectedCustomer || !selectedVehicle) {
+      toast.error('Customer or vehicle missing. Reload the order and try again.');
+      return;
+    }
     setProcessing(true);
     try {
       if (effectiveOrderId) {
@@ -600,7 +678,7 @@ export default function POSWorkspace() {
           discount: discount > 0 ? { discountType: 'fixed' as const, value: discount } : undefined,
           taxVatAmount: vatAmount,
           additionalFees: 0,
-          downpayment: 0,
+          downpayment: posReservationDownpayment,
         });
         if (!put.success || !('data' in put) || !put.data) {
           toast.error((put as { message?: string }).message || 'Could not update billing');
@@ -644,7 +722,9 @@ export default function POSWorkspace() {
           setVatAmount(0);
           setLinkedOrderId(null);
           setPosBillingOrderId(null);
+          setPosReservationDownpayment(0);
           loadUnpaidOrders();
+          setCheckInQueueTick((n) => n + 1);
         }
         setProcessing(false);
         return;
@@ -695,7 +775,6 @@ export default function POSWorkspace() {
       }
     } catch (err: any) {
       console.error('POS Payment Error:', err);
-      // Fallback: still show receipt but warn
       const fallbackId = `TXN-LOCAL-${Date.now()}`;
       setReceiptData({
         txnId: fallbackId,
@@ -723,10 +802,12 @@ export default function POSWorkspace() {
     setVatAmount(0);
     setPaymentMethod('cash');
     setShowReceipt(false);
+    setShowPaymentConfirm(false);
     setCompletedTxnId('');
     setReceiptData(null);
     setLinkedOrderId(null);
     setPosBillingOrderId(null);
+    setPosReservationDownpayment(0);
     setInvoiceSnap(null);
   };
 
@@ -747,7 +828,7 @@ export default function POSWorkspace() {
       ` }} />
       <div className="h-full flex flex-col gap-3">
         {/* Check-In Queue — compact collapsible strip */}
-        <CheckInQueuePanel onSelectBooking={handleSelectBooking} />
+        <CheckInQueuePanel onSelectBooking={handleSelectBooking} refreshKey={checkInQueueTick} />
 
         <div
           className="shrink-0 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
@@ -792,7 +873,7 @@ export default function POSWorkspace() {
             <CustomerVehiclePanel
               selectedCustomer={selectedCustomer}
               selectedVehicle={selectedVehicle}
-              onSelectCustomer={(c) => { setSelectedCustomer(c); setSelectedVehicle(null); setManualVehicleType(null); setLinkedOrderId(null); setPosBillingOrderId(null); setInvoiceSnap(null); }}
+              onSelectCustomer={(c) => { setSelectedCustomer(c); setSelectedVehicle(null); setManualVehicleType(null); setLinkedOrderId(null); setPosBillingOrderId(null); setInvoiceSnap(null); setPosReservationDownpayment(0); }}
               onSelectVehicle={(v) => { setSelectedVehicle(v); setManualVehicleType(null); }}
             />
           </div>
@@ -850,6 +931,44 @@ export default function POSWorkspace() {
             )}
           </div>
         </div>
+
+        {showPaymentConfirm && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+              <div className="p-5 text-center">
+                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <CheckCircle2 size={24} className="text-blue-700" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 mb-1">Confirm payment</h3>
+                <p className="text-sm text-slate-700 font-medium mb-1">
+                  Are you sure you want to confirm this payment?
+                </p>
+                {paymentConfirmAmountLabel ? (
+                  <p className="text-xs text-slate-500 mb-4">{paymentConfirmAmountLabel}</p>
+                ) : (
+                  <p className="text-xs text-slate-500 mb-4">&nbsp;</p>
+                )}
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowPaymentConfirm(false)}
+                    className="flex-1 rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void executeConfirmedPayment()}
+                    disabled={processing}
+                    className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+                  >
+                    Yes, confirm
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {showReceipt && selectedCustomer && selectedVehicle && (
           <ReceiptModal

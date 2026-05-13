@@ -518,6 +518,7 @@ export default function QCDashboardPanel() {
     return 'dashboard';
   });
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const loadQcSummary = activeView !== 'live-tracker';
 
   // Persist active view so remounts don't reset to dashboard
   const navigateTo = useCallback((view: QCView) => {
@@ -539,10 +540,11 @@ export default function QCDashboardPanel() {
     updateChecklist,
     updateServiceStatus,
     uploadTrackerStagePhoto,
+    deleteTrackerStagePhoto,
     assignServiceStaff,
     addStaffNote,
     refetchAll,
-  } = useQCData();
+  } = useQCData({ loadSummary: loadQcSummary });
 
   // Pending count for sidebar badge — only jobs not yet approved
   const pendingCount = jobs.filter((j) => j.status === 'pending-review' || j.status === 'in-review').length;
@@ -626,8 +628,8 @@ export default function QCDashboardPanel() {
             // Only block the whole view before the first /qc/jobs payload — refetches stay silent (no pulse skeleton).
             loading={jobsLoading && jobs.length === 0}
             onAdvance={updateServiceStatus}
-            onSaveStaff={assignServiceStaff}
             onUploadStagePhoto={uploadTrackerStagePhoto}
+            onDeleteTrackerStagePhoto={deleteTrackerStagePhoto}
             onAddStaffNote={addStaffNote}
           />
         );

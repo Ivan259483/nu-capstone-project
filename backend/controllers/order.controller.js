@@ -166,10 +166,23 @@ const generateBookingReference = () => {
  * Bulk dashboard lists (sales / ops / admin POS views) fetch hundreds of orders.
  * Full documents often include multi‑MB inline tracker photos (`data:image/...`)
  * and heavy workflow payloads — killing JSON parse time and bandwidth.
- * Customers & assigned detailers keep full projections (small result sets).
+ * Customers use the same lite shape but **include** `trackerStageMedia` so the live tracker can render QC photos
+ * (see `ORDER_LIST_LITE_CUSTOMER_PROJECTION`). Other lite roles still omit tracker rows for bandwidth.
  */
 const ORDER_LIST_LITE_PROJECTION =
+  '-damageAnnotations -damagePhotos -photos -ingressChecklist -customerWaiver -serviceProper -qcChecklist -egressData -operationsChecklist -warrantyAndReceipt -workflow -jobOrder -staffNotes -rating -inventoryReservation -serviceSteps -trackerStageMedia -legalCompliance -paymentProofUrl -downpaymentProof';
+
+/** Like lite list but keeps `trackerStageMedia` so customer dashboard / live tracker can show QC stage photos. */
+const ORDER_LIST_LITE_CUSTOMER_PROJECTION =
+  '-damageAnnotations -damagePhotos -photos -ingressChecklist -customerWaiver -serviceProper -qcChecklist -egressData -operationsChecklist -warrantyAndReceipt -workflow -jobOrder -staffNotes -rating -inventoryReservation -serviceSteps -legalCompliance -paymentProofUrl -downpaymentProof';
+
+/** Sales GCash review: same exclusions as lite lists but KEEP inline proof fields (still omits multi‑MB blobs). */
+const ORDER_APPROVAL_PREVIEW_PROJECTION =
   '-damageAnnotations -damagePhotos -photos -ingressChecklist -customerWaiver -serviceProper -qcChecklist -egressData -operationsChecklist -warrantyAndReceipt -workflow -jobOrder -staffNotes -rating -inventoryReservation -serviceSteps -trackerStageMedia -legalCompliance';
+
+/** Modal context only — proof loaded via `getOrderGcashProofFields` so the first round-trip stays small and Axios can finish. */
+const ORDER_APPROVAL_CONTEXT_PROJECTION =
+  `${ORDER_APPROVAL_PREVIEW_PROJECTION} -downpaymentProof -paymentProofUrl -notes`;
 
 const formatBookingDto = (orderDoc) => {
   if (!orderDoc) return null;
@@ -233,6 +246,7 @@ const formatBookingDto = (orderDoc) => {
     customerId,
     serviceName,
     bookingReference: order.bookingReference || order.orderNumber,
+    hasPaymentProof: Boolean(order.paymentProofUrl || order.downpaymentProof || order.status === 'pending_confirmation'),
     date: order.date || order.bookingDate || '',
     time: order.time || order.bookingTime || '',
     vehicleInfo: vehicleInfo || '',
@@ -260,6 +274,33 @@ const formatBookingDto = (orderDoc) => {
   };
 };
 
+const toApprovalQueueBookingDto = (orderDoc) => {
+  const booking = formatBookingDto(orderDoc);
+  if (!booking) return null;
+
+  return {
+    ...booking,
+    paymentProofUrl: undefined,
+    downpaymentProof: undefined,
+  };
+};
+
+const emitBookingApprovalQueueUpdate = (orderDoc) => {
+  try {
+    const booking = toApprovalQueueBookingDto(orderDoc);
+    if (!booking) return;
+    const io = getIO();
+    io.to('booking:approvals').emit('booking:approval-updated', {
+      type: 'upsert',
+      bookingId: booking.id || booking._id,
+      booking,
+      status: booking.status,
+    });
+  } catch (error) {
+    console.warn('Socket not initialized for booking approvals update:', error.message);
+  }
+};
+
 /**
  * Get all orders
  */
@@ -278,7 +319,9 @@ export const getAllOrders = async (req, res, next) => {
     const query = {};
     if (status) query.status = status;
     if (includeArchived !== 'true') {
-      query.archived = { $ne: true };
+      // `$ne: true` often prevents index use on `archived`. Match non-active rows explicitly:
+      // false (schema default), null, or missing field — all treated as not archived.
+      query.$or = [{ archived: false }, { archived: null }];
     }
 
     const canonicalRole = normalizeToCanonical(req.user.role);
@@ -303,12 +346,16 @@ export const getAllOrders = async (req, res, next) => {
     const useLiteListPayload =
       isPosManagerRole(req.user.role) ||
       isBookingManagerRole(req.user.role) ||
-      canonicalRole === 'staff_quality_checker';
+      canonicalRole === 'staff_quality_checker' ||
+      isCustomerRole(req.user.role);
 
     let orderQuery = Order.find(query);
 
     if (useLiteListPayload) {
-      orderQuery = orderQuery.select(ORDER_LIST_LITE_PROJECTION);
+      const listProjection = isCustomerRole(req.user.role)
+        ? ORDER_LIST_LITE_CUSTOMER_PROJECTION
+        : ORDER_LIST_LITE_PROJECTION;
+      orderQuery = orderQuery.select(listProjection);
     }
 
     orderQuery = orderQuery
@@ -512,6 +559,101 @@ export const getOrderById = async (req, res, next) => {
     res.json({
       success: true,
       data: formatBookingDto(order),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Lean order payload for Sales GCash proof review.
+ * Full `getOrderById` documents can exceed multi‑MB JSON (workflow + tracker media + inline proof),
+ * which breaks the browser/axios path — this route keeps proof + booking context only.
+ */
+export const getOrderApprovalPreview = async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.id)
+      .select(ORDER_APPROVAL_CONTEXT_PROJECTION)
+      .populate('customer', 'name email phone avatar')
+      .populate('items.product', 'name price')
+      .populate('assignedDetailer', 'name email');
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    const customerId = typeof order.customer === 'object'
+      ? order.customer?._id?.toString?.()
+      : order.customer?.toString?.();
+    const assignedDetailerId = typeof order.assignedDetailer === 'object'
+      ? order.assignedDetailer?._id?.toString?.()
+      : order.assignedDetailer?.toString?.();
+
+    const canViewOrder =
+      isBookingManagerRole(req.user.role) ||
+      isPosManagerRole(req.user.role) ||
+      (isCustomerRole(req.user.role) && customerId === req.user.id) ||
+      (isServiceStaffRole(req.user.role) && assignedDetailerId === req.user.id);
+
+    if (!canViewOrder) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied',
+      });
+    }
+
+    const dto = formatBookingDto(order);
+
+    res.json({
+      success: true,
+      data: dto,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GCash receipt payload only (may be large base64). Split from approval-preview so the modal context loads first.
+ */
+export const getOrderGcashProofFields = async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.id)
+      .select('customer assignedDetailer downpaymentProof paymentProofUrl')
+      .lean();
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    const customerId = order.customer?.toString?.() || '';
+    const assignedDetailerId = order.assignedDetailer?.toString?.() || '';
+
+    const canViewOrder =
+      isBookingManagerRole(req.user.role) ||
+      isPosManagerRole(req.user.role) ||
+      (isCustomerRole(req.user.role) && customerId === req.user.id) ||
+      (isServiceStaffRole(req.user.role) && assignedDetailerId === req.user.id);
+
+    if (!canViewOrder) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied',
+      });
+    }
+
+    const downpaymentProof = order.downpaymentProof || null;
+    const paymentProofUrl = order.paymentProofUrl || null;
+
+    res.json({
+      success: true,
+      data: { downpaymentProof, paymentProofUrl },
     });
   } catch (error) {
     next(error);
@@ -760,6 +902,10 @@ export const createOrder = async (req, res, next) => {
     // Auto-assign was removed to prevent unconfirmed bookings entering the service queue.
 
     await order.save();
+
+    if (resolvedPaymentProof) {
+      emitBookingApprovalQueueUpdate(order);
+    }
 
     // ⚠️ Bug #3 fix: Wrapped debug log in dev-only guard — never runs in production.
     if (process.env.NODE_ENV === 'development') {
@@ -2378,6 +2524,7 @@ export const operateCheckIn = async (req, res, next) => {
 
     order.status = 'received';
     await order.save();
+    emitBookingApprovalQueueUpdate(order);
 
     const io = getIO();
     io.emit('orderUpdated', { orderId: order._id, status: order.status });
@@ -2817,6 +2964,7 @@ export const approveBooking = async (req, res, next) => {
       { _id: order._id },
       { $unset: { downpaymentProof: '', paymentProofUrl: '' } }
     );
+    emitBookingApprovalQueueUpdate(order);
 
     emitCustomerStatusUpdate(order);
 
@@ -2888,6 +3036,7 @@ export const rejectBooking = async (req, res, next) => {
       { _id: order._id },
       { $unset: { downpaymentProof: '', paymentProofUrl: '' } }
     );
+    emitBookingApprovalQueueUpdate(order);
 
     // Emit booking_updated for calendar real-time refresh
     try {

@@ -15,6 +15,8 @@ export interface BookingStatusEvent {
     serviceTrackingStage?: string | null;
     serviceStaffAssignments?: any[];
     trackerStageMedia?: any[];
+    paymentStatus?: string;
+    invoiceId?: string | null;
     updatedAt?: string;
 }
 

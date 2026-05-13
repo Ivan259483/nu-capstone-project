@@ -124,6 +124,7 @@ export const normalizeBooking = (raw: any): Booking => {
         // GCash payment proof — must be preserved for Sales approval flow
         downpaymentProof: raw?.downpaymentProof,
         paymentProofUrl: raw?.paymentProofUrl,
+        hasPaymentProof: raw?.hasPaymentProof ?? Boolean(raw?.paymentProofUrl || raw?.downpaymentProof),
         rejectionReason: raw?.rejectionReason,
         bookingReference: raw?.bookingReference,
         // ── Live Service Tracking (QC-controlled) ──────────────────
@@ -145,7 +146,10 @@ export const OrderService = {
      * Maps MongoDB _id to frontend id for consistency.
      * @returns {Promise<{success: boolean, data: Booking[]}>}
      */
-    async getAllOrders(options?: { suppressErrorToast?: boolean }) {
+    async getAllOrders(options?: { suppressErrorToast?: boolean; fresh?: boolean }) {
+        if (options?.fresh) {
+            invalidate('/bookings');
+        }
         const requestConfig: any = {
             params: {
                 limit: 1000,
@@ -179,6 +183,39 @@ export const OrderService = {
         if (response.data.success && response.data.data) {
             response.data.data = normalizeBooking(response.data.data);
         }
+        return response.data;
+    },
+
+    /**
+     * Sales modal context (no inline GCash base64 — load proof via getOrderGcashProofFields).
+     */
+    async getOrderApprovalPreview(id: string, opts?: { signal?: AbortSignal }) {
+        const sid = String(id || '').trim();
+        if (!sid) {
+            return { success: false, message: 'Missing order id' };
+        }
+        const response = await api.get(`/bookings/${encodeURIComponent(sid)}/approval-preview`, {
+            signal: opts?.signal,
+            timeout: 90_000,
+            meta: { suppressErrorToast: true } as any,
+        } as any);
+        if (response.data.success && response.data.data) {
+            response.data.data = normalizeBooking(response.data.data);
+        }
+        return response.data;
+    },
+
+    /** GCash receipt strings only (may be large). */
+    async getOrderGcashProofFields(id: string, opts?: { signal?: AbortSignal }) {
+        const sid = String(id || '').trim();
+        if (!sid) {
+            return { success: false, message: 'Missing order id' };
+        }
+        const response = await api.get(`/bookings/${encodeURIComponent(sid)}/gcash-proof-fields`, {
+            signal: opts?.signal,
+            timeout: 300_000,
+            meta: { suppressErrorToast: true } as any,
+        } as any);
         return response.data;
     },
 

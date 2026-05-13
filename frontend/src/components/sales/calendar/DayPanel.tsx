@@ -210,7 +210,15 @@ function BookingCard({
           />
         </div>
       )}
-      {isPending && !booking.paymentProofUrl && (
+      {isPending && !booking.paymentProofUrl && Boolean(booking.hasPaymentProof) && (
+        <div className="border-t border-slate-100/60 px-4 pb-4 pt-3">
+          <div className="flex items-center gap-2 rounded-xl bg-blue-50/90 px-3 py-2.5 shadow-[0_1px_8px_-4px_rgba(59,130,246,0.15)] ring-1 ring-blue-200/40">
+            <AlertCircle size={12} className="flex-shrink-0 text-blue-600" />
+            <span className="text-[11px] font-medium text-blue-800">Payment proof is available in Booking Approvals</span>
+          </div>
+        </div>
+      )}
+      {isPending && !booking.paymentProofUrl && !booking.hasPaymentProof && (
         <div className="border-t border-slate-100/60 px-4 pb-4 pt-3">
           <div className="flex items-center gap-2 rounded-xl bg-amber-50/90 px-3 py-2.5 shadow-[0_1px_8px_-4px_rgba(245,158,11,0.15)] ring-1 ring-amber-200/40">
             <AlertCircle size={12} className="flex-shrink-0 text-amber-600" />

@@ -2,7 +2,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/environment.js';
 import { handleSocketMessage } from '../controllers/chatbot.controller.js';
-import { isAdminDashboardRole } from '../constants/roles.js';
+import { isAdminDashboardRole, isBookingManagerRole, isPosManagerRole } from '../constants/roles.js';
 import User from '../models/user.model.js';
 import { sendExpoPushNotification } from './push.utils.js';
 import { decrypt } from './encryption.utils.js';
@@ -103,6 +103,9 @@ export const initSocket = (httpServer) => {
     }
     if (isAdminDashboardRole(socket.user?.role)) {
       socket.join('admin:chat');
+    }
+    if (isBookingManagerRole(socket.user?.role) || isPosManagerRole(socket.user?.role)) {
+      socket.join('booking:approvals');
     }
 
     // Allow clients to join rooms dynamically

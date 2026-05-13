@@ -4,8 +4,14 @@ import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { generateQCPDF } from '../utils/pdf.utils.js';
 import Notification from '../models/notification.model.js';
+import {
+  TRACKER_GATE_STAGES,
+  countGatePhotos,
+  REQUIRED_GATE_PHOTOS,
+} from '../utils/trackerGatePhotos.utils.js';
+import { applyPickupGateCompleteSideEffects } from '../utils/readyPickupPaymentFlow.utils.js';
 
-const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed', 'released'];
+const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
 const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
 const QC_APPROVED_TRACKER_STAGES = ['ready_pickup', 'completed', 'released'];
 const QC_JOBS_DEFAULT_LIMIT = 20;
@@ -31,8 +37,31 @@ const QC_JOBS_PROJECTION = [
   'serviceProper.completedAt',
   'qcCompletedAt',
   'serviceTrackingStage',
+  'serviceTrackingUpdatedAt',
   'serviceStaffAssignments',
+  'trackerStageMedia.stage',
+  'trackerStageMedia.slot',
+  'trackerStageMedia.description',
+  'trackerStageMedia.uploadedAt',
+  'trackerStageMedia.uploadedBy',
+  'paymentStatus',
+  'invoiceId',
 ].join(' ');
+
+function buildSlimTrackerStageMedia(media) {
+  return (Array.isArray(media) ? media : [])
+    .filter(Boolean)
+    .map((entry) => ({
+      stage: entry.stage,
+      ...(entry.slot ? { slot: entry.slot } : {}),
+      ...(typeof entry.description === 'string' && entry.description.trim()
+        ? { description: entry.description.trim() }
+        : {}),
+      ...(entry.uploadedAt ? { uploadedAt: entry.uploadedAt } : {}),
+      ...(entry.uploadedBy ? { uploadedBy: entry.uploadedBy } : {}),
+      hasPhoto: entry.stage !== 'confirmed',
+    }));
+}
 
 const getQCApprovedOutcomeConditions = () => [
   { qcCompletedAt: { $exists: true, $ne: null } },
@@ -151,10 +180,12 @@ export const getQCJobs = async (req, res, next) => {
         orderStatus: o.status,                                          // raw backend status
         serviceTrackingStage: o.serviceTrackingStage || null,           // QC-controlled fine stage
         currentGate: o.serviceTrackingStage || null,
-        serviceTrackingUpdatedAt: null,
+        serviceTrackingUpdatedAt: o.serviceTrackingUpdatedAt || null,
         serviceTrackingUpdatedBy: null,
         serviceStaffAssignments: o.serviceStaffAssignments || [],        // assigned named staff
-        trackerStageMedia: [],
+        trackerStageMedia: buildSlimTrackerStageMedia(o.trackerStageMedia),
+        paymentStatus: o.paymentStatus || 'unpaid',
+        invoiceId: o.invoiceId || null,
         aiFlag,
         priority: elapsedMinutes > 120 ? 'high' : elapsedMinutes > 60 ? 'medium' : 'normal',
         // Raw order data for detail view
@@ -212,8 +243,8 @@ export const getQCStats = async (req, res, next) => {
     tomorrow.setDate(today.getDate() + 1);
 
     // All statuses that represent active or completed service work
-    const ACTIVE_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'completed', 'released'];
-    const QUEUE_STATUSES  = ['approved', 'confirmed', 'assigned', 'received', 'in_progress'];
+    const ACTIVE_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
+    const QUEUE_STATUSES  = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment'];
 
     const [
       awaitingCount,
@@ -419,6 +450,13 @@ export const approveJob = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
+    if (order.status === 'ready_for_payment') {
+      return res.status(400).json({
+        success: false,
+        message: 'Balance is due at POS. Process payment before QC completion.',
+      });
+    }
+
     // Allow quality_check stage orders too — QC presses Approve after QC step
     if (!['in_progress', 'completed', 'received', 'quality_check'].includes(order.status)) {
       return res.status(400).json({
@@ -613,6 +651,33 @@ export const updateServiceStatus = async (req, res, next) => {
     const order = await Order.findById(id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
+    const gateMediaStages = new Set(TRACKER_GATE_STAGES);
+    if (gateMediaStages.has(stage)) {
+      const uploaded = countGatePhotos(order, stage);
+      if (uploaded < REQUIRED_GATE_PHOTOS) {
+        return res.status(400).json({
+          success: false,
+          message: '5 photos required before advancing',
+          error: '5 photos required before advancing',
+          uploaded,
+          required: REQUIRED_GATE_PHOTOS,
+        });
+      }
+    }
+
+    if (stage === 'released') {
+      const uploaded = countGatePhotos(order, 'ready_pickup');
+      if (uploaded < REQUIRED_GATE_PHOTOS) {
+        return res.status(400).json({
+          success: false,
+          message: '5 photos required before advancing',
+          error: '5 photos required before advancing',
+          uploaded,
+          required: REQUIRED_GATE_PHOTOS,
+        });
+      }
+    }
+
     // Store fine-grained tracking stage on the order
     order.serviceTrackingStage = stage;
     order.serviceTrackingUpdatedAt = new Date();
@@ -628,11 +693,14 @@ export const updateServiceStatus = async (req, res, next) => {
       received:       'received',
       in_progress:    'in_progress',
       quality_check:  'in_progress',   // still actively in service
-      ready_pickup:   'in_progress',   // ready but vehicle not yet released
       completed:      'completed',     // set by approveJob
       released:       'released',      // vehicle handed back — hides customer tracker
     };
-    order.status = stageToStatus[stage] ?? order.status;
+    if (stage === 'ready_pickup') {
+      await applyPickupGateCompleteSideEffects(order);
+    } else {
+      order.status = stageToStatus[stage] ?? order.status;
+    }
 
     if (QC_APPROVED_TRACKER_STAGES.includes(stage) && !order.qcCompletedAt) {
       order.qcCompletedAt = new Date();
@@ -653,6 +721,8 @@ export const updateServiceStatus = async (req, res, next) => {
         orderId: order._id,
         status: order.status,
         serviceTrackingStage: stage,
+        paymentStatus: order.paymentStatus || null,
+        invoiceId: order.invoiceId || null,
         trackerStageMedia: order.trackerStageMedia || [],
       });
       // Targeted event for the customer's live tracker
@@ -664,6 +734,8 @@ export const updateServiceStatus = async (req, res, next) => {
           bookingId: order._id.toString(),
           status: order.status,
           serviceTrackingStage: stage,
+          paymentStatus: order.paymentStatus || null,
+          invoiceId: order.invoiceId || null,
           serviceStaffAssignments: order.serviceStaffAssignments || [],
           trackerStageMedia: order.trackerStageMedia || [],
           updatedAt: new Date().toISOString(),

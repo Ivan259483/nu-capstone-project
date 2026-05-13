@@ -142,6 +142,7 @@ export interface Booking {
     // GCash / payment proof fields
     downpaymentProof?: string;
     paymentProofUrl?: string;
+    hasPaymentProof?: boolean;
     rejectionReason?: string;
     assignedDetailer?: User | string | null; // Populated or ID
     customerStatus?: 'received' | 'washing' | 'detailing' | 'ready' | 'queued' | 'in-progress' | 'finishing';
@@ -198,10 +199,12 @@ export interface Booking {
   /** Live tracker stage photos / notes (QC uploads) — see `customer-tracker-stage-media.ts`. */
   trackerStageMedia?: {
     stage: string;
+    slot?: string;
     photoUrl?: string;
     description?: string;
     uploadedAt?: string;
     uploadedBy?: string;
+    hasPhoto?: boolean;
   }[];
   // ═══ Workflow Pipeline ═══
     workflowStep?: number;

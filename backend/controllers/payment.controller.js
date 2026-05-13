@@ -995,8 +995,15 @@ export const runPosCheckoutCore = async ({
   order.totalPrice = grandTotal;
   order.totalAmount = grandTotal;
   const prevPosStatus = order.status;
-  if (['pending', 'confirmed', 'assigned', 'processing', 'in-progress'].includes(order.status)) {
+  if (
+    ['pending', 'confirmed', 'assigned', 'processing', 'in-progress', 'in_progress', 'ready_for_payment'].includes(
+      order.status
+    )
+  ) {
     order.status = 'completed';
+  }
+  if (prevPosStatus === 'ready_for_payment' || order.serviceTrackingStage === 'ready_pickup') {
+    order.serviceTrackingStage = 'released';
   }
   order.customerStatus = 'ready';
   order.customerStatusUpdatedAt = new Date();
@@ -1065,8 +1072,11 @@ export const runPosCheckoutCore = async ({
       io.to(`user:${customerId.toString()}`).emit('booking:status', {
         bookingId: order._id.toString(),
         status: order.status,
-        customerStatus: order.customerStatus,
+        serviceTrackingStage: order.serviceTrackingStage || null,
         paymentStatus: 'paid',
+        invoiceId: order.invoiceId || null,
+        customerStatus: order.customerStatus,
+        trackerStageMedia: order.trackerStageMedia || [],
         updatedAt: new Date().toISOString(),
       });
     }

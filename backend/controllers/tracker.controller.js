@@ -1,17 +1,27 @@
 /**
- * Live tracker — per-stage customer photos & notes (QC / service staff).
- * PATCH /api/orders/:id/stage-photo — JSON { stage, photoUrl?, description? }
- * POST  /api/orders/:id/stage-photo — multipart: stage, description?, photo (file → Cloudinary)
+ * Live tracker — per-stage + slot customer photos & notes (QC / service staff).
+ * PATCH /api/orders/:id/stage-photo — JSON { stage, slot?, photoUrl?, description? }
+ * POST  /api/orders/:id/stage-photo — multipart: stage, slot?, description?, photo
+ * DELETE /api/orders/:id/stage-photo?stage=&slot=
  */
 import Order from '../models/order.model.js';
 import { getIO } from '../utils/socket.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { uploadVehicleScanImages } from '../utils/cloudinaryStorage.utils.js';
 import { SERVICE_OPERATION_ROLES } from '../constants/roles.js';
+import {
+  TRACKER_GATE_STAGES,
+  normalizePhotoSlot,
+} from '../utils/trackerGatePhotos.utils.js';
+import {
+  applyPickupGateCompleteSideEffects,
+  revertReadyForPaymentIfPickupIncomplete,
+} from '../utils/readyPickupPaymentFlow.utils.js';
 
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
 const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'];
 const INLINE_STAGE_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+const FAST_INLINE_STAGE_PHOTO_MAX_BYTES = 1024 * 1024;
 const INLINE_STAGE_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 
 export const TRACKER_STAGE_MEDIA_ROLES = [...SERVICE_OPERATION_ROLES];
@@ -48,7 +58,61 @@ function buildInlineStagePhotoUrl(file) {
   return `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
 }
 
-function upsertTrackerStageMedia(order, { stage, photoUrl, description, actorName, actorId }) {
+function isGateStage(stage) {
+  return TRACKER_GATE_STAGES.includes(stage);
+}
+
+function wantsFastInlineUpload(req) {
+  const value = String(req.body?.fastInline || req.body?.preferInline || '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'fast'].includes(value);
+}
+
+/** Index of row to update for (stage, slot), or merge legacy slotless row into `front`. */
+function findGateMediaIndex(order, stage, normalizedSlot) {
+  const list = order.trackerStageMedia || [];
+  const idx = list.findIndex(
+    (e) => e.stage === stage && normalizePhotoSlot(e.slot) === normalizedSlot
+  );
+  if (idx >= 0) return idx;
+  if (normalizedSlot === 'front') {
+    return list.findIndex(
+      (e) =>
+        e.stage === stage &&
+        String(e.photoUrl || '').trim() &&
+        !normalizePhotoSlot(e.slot)
+    );
+  }
+  return -1;
+}
+
+function upsertTrackerStageMediaGate(order, { stage, slot, photoUrl, description, actorName, actorId }) {
+  if (!order.trackerStageMedia) order.trackerStageMedia = [];
+  const desc = typeof description === 'string' ? description.trim().slice(0, 2000) : '';
+  const url = typeof photoUrl === 'string' ? photoUrl.trim() : '';
+  const idx = findGateMediaIndex(order, stage, slot);
+  const base = {
+    stage,
+    slot,
+    photoUrl: url,
+    description: desc,
+    uploadedAt: new Date(),
+    uploadedBy: actorName || String(actorId || 'staff'),
+  };
+  if (idx >= 0) {
+    const prev = order.trackerStageMedia[idx];
+    order.trackerStageMedia[idx] = {
+      ...prev,
+      ...base,
+      slot,
+      photoUrl: url || prev.photoUrl || '',
+    };
+  } else {
+    order.trackerStageMedia.push(base);
+  }
+}
+
+/** Single row per `confirmed` (no slot). */
+function upsertTrackerStageMediaConfirmed(order, { stage, photoUrl, description, actorName, actorId }) {
   if (!order.trackerStageMedia) order.trackerStageMedia = [];
   const desc = typeof description === 'string' ? description.trim().slice(0, 2000) : '';
   const url = typeof photoUrl === 'string' ? photoUrl.trim() : '';
@@ -80,19 +144,24 @@ function emitTrackerStageMediaUpdate(order) {
       orderId: order._id.toString(),
       status: order.status,
       serviceTrackingStage: order.serviceTrackingStage || null,
+      paymentStatus: order.paymentStatus || null,
+      invoiceId: order.invoiceId || null,
       trackerStageMedia: media,
       updatedAt: new Date().toISOString(),
     };
     io.emit('orderUpdated', payload);
 
-    const customerId = typeof order.customer === 'object'
-      ? order.customer?._id?.toString?.()
-      : order.customer?.toString?.();
+    const customerId =
+      typeof order.customer === 'object'
+        ? order.customer?._id?.toString?.()
+        : order.customer?.toString?.();
     if (customerId) {
       io.to(`user:${customerId}`).emit('booking:status', {
         bookingId: order._id.toString(),
         status: order.status,
         serviceTrackingStage: order.serviceTrackingStage || null,
+        paymentStatus: order.paymentStatus || null,
+        invoiceId: order.invoiceId || null,
         serviceStaffAssignments: order.serviceStaffAssignments || [],
         trackerStageMedia: media,
         updatedAt: new Date().toISOString(),
@@ -103,14 +172,74 @@ function emitTrackerStageMediaUpdate(order) {
   }
 }
 
+function queueCloudinaryStagePhotoBackfill({
+  orderId,
+  stage,
+  slot,
+  inlineUrl,
+  file,
+  description,
+  actorName,
+  actorId,
+}) {
+  if (!file?.buffer?.length || !inlineUrl) return;
+
+  setImmediate(async () => {
+    try {
+      const urls = await uploadVehicleScanImages([file], { folder: 'live-tracker-stages' });
+      const hostedUrl = urls[0] || '';
+      if (!hostedUrl) return;
+
+      const order = await Order.findById(orderId);
+      if (!order) return;
+
+      let idx = -1;
+      if (isGateStage(stage)) {
+        idx = findGateMediaIndex(order, stage, slot);
+      } else {
+        idx = (order.trackerStageMedia || []).findIndex((e) => e.stage === stage);
+      }
+
+      if (idx < 0 || order.trackerStageMedia[idx]?.photoUrl !== inlineUrl) return;
+
+      if (isGateStage(stage)) {
+        upsertTrackerStageMediaGate(order, {
+          stage,
+          slot,
+          photoUrl: hostedUrl,
+          description,
+          actorName,
+          actorId,
+        });
+      } else {
+        upsertTrackerStageMediaConfirmed(order, {
+          stage,
+          photoUrl: hostedUrl,
+          description,
+          actorName,
+          actorId,
+        });
+      }
+
+      order.markModified('trackerStageMedia');
+      await order.save({ validateBeforeSave: false });
+      emitTrackerStageMediaUpdate(order);
+    } catch (error) {
+      console.warn(
+        `[tracker] Background Cloudinary stage photo upload failed: ${cloudinaryErrorMessage(error)}`
+      );
+    }
+  });
+}
+
 /**
  * PATCH /api/orders/:id/stage-photo
- * Body: { stage, photoUrl?, description? }
+ * Body: { stage, slot?, photoUrl?, description? }
  */
 export const patchTrackerStagePhoto = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { stage, photoUrl, description } = req.body || {};
+    const { stage, photoUrl, description, slot: rawSlot } = req.body || {};
 
     if (!TRACKER_MEDIA_STAGES.includes(stage)) {
       return res.status(400).json({
@@ -127,29 +256,57 @@ export const patchTrackerStagePhoto = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'photoUrl must be a valid https URL' });
     }
 
-    if (stage !== 'confirmed' && !url) {
-      return res.status(400).json({ success: false, message: 'photoUrl is required for this stage' });
+    if (isGateStage(stage)) {
+      const slot = normalizePhotoSlot(rawSlot);
+      if (!slot) {
+        return res.status(400).json({
+          success: false,
+          message: `slot is required for stage ${stage}. Use one of: front, rear, left, right, close_up`,
+        });
+      }
+      if (!url) {
+        return res.status(400).json({ success: false, message: 'photoUrl is required for this stage' });
+      }
+      upsertTrackerStageMediaGate(order, {
+        stage,
+        slot,
+        photoUrl: url,
+        description,
+        actorName: req.user?.name,
+        actorId: req.user?.id,
+      });
+    } else {
+      if (stage !== 'confirmed' && !url) {
+        return res.status(400).json({ success: false, message: 'photoUrl is required for this stage' });
+      }
+
+      if (stage === 'confirmed' && !url && !(typeof description === 'string' && description.trim())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Provide a description or photoUrl for confirmed stage',
+        });
+      }
+
+      upsertTrackerStageMediaConfirmed(order, {
+        stage,
+        photoUrl: url,
+        description,
+        actorName: req.user?.name,
+        actorId: req.user?.id,
+      });
     }
 
-    if (stage === 'confirmed' && !url && !(typeof description === 'string' && description.trim())) {
-      return res.status(400).json({ success: false, message: 'Provide a description or photoUrl for confirmed stage' });
+    if (stage === 'ready_pickup') {
+      await applyPickupGateCompleteSideEffects(order);
     }
 
-    upsertTrackerStageMedia(order, {
-      stage,
-      photoUrl: url,
-      description,
-      actorName: req.user?.name,
-      actorId: req.user?.id,
-    });
-
-    await order.save();
+    await order.save({ validateBeforeSave: false });
     emitTrackerStageMediaUpdate(order);
 
     logActivity({
       req,
-      type: 'system',
-      module: 'LiveTracker',
+      type: 'booking_updated',
+      module: 'Service',
       action: 'Stage media updated',
       description: `${req.user?.name || 'Staff'} updated tracker stage media (${stage}) for order ${order.orderNumber || id}.`,
       status: 'success',
@@ -169,13 +326,14 @@ export const patchTrackerStagePhoto = async (req, res, next) => {
 
 /**
  * POST /api/orders/:id/stage-photo
- * multipart/form-data: stage (required), description (optional), photo (file, optional if photoUrl in body is not used)
+ * multipart/form-data: stage (required), slot (required for gate stages), description?, photo
  */
 export const postTrackerStagePhotoUpload = async (req, res, next) => {
   try {
     const { id } = req.params;
     const stage = req.body?.stage;
     const description = req.body?.description;
+    const rawSlot = req.body?.slot;
 
     if (!TRACKER_MEDIA_STAGES.includes(stage)) {
       return res.status(400).json({
@@ -187,19 +345,36 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
     const order = await Order.findById(id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
+    let slot = null;
+    if (isGateStage(stage)) {
+      slot = normalizePhotoSlot(rawSlot);
+      if (!slot) {
+        return res.status(400).json({
+          success: false,
+          message: `slot is required for stage ${stage}. Use one of: front, rear, left, right, close_up`,
+        });
+      }
+    }
+
     let photoUrl = '';
     let storage = 'none';
     if (req.file?.buffer) {
-      try {
-        const urls = await uploadVehicleScanImages([req.file], { folder: 'live-tracker-stages' });
-        photoUrl = urls[0] || '';
-        storage = photoUrl ? 'cloudinary' : 'none';
-      } catch (uploadError) {
-        console.warn(
-          `[tracker] Cloudinary stage photo upload failed; using inline fallback: ${cloudinaryErrorMessage(uploadError)}`
-        );
+      const useFastInline = wantsFastInlineUpload(req) && req.file.buffer.length <= FAST_INLINE_STAGE_PHOTO_MAX_BYTES;
+      if (useFastInline) {
         photoUrl = buildInlineStagePhotoUrl(req.file);
-        storage = 'inline';
+        storage = 'inline_fast';
+      } else {
+        try {
+          const urls = await uploadVehicleScanImages([req.file], { folder: 'live-tracker-stages' });
+          photoUrl = urls[0] || '';
+          storage = photoUrl ? 'cloudinary' : 'none';
+        } catch (uploadError) {
+          console.warn(
+            `[tracker] Cloudinary stage photo upload failed; using inline fallback: ${cloudinaryErrorMessage(uploadError)}`
+          );
+          photoUrl = buildInlineStagePhotoUrl(req.file);
+          storage = 'inline';
+        }
       }
     }
 
@@ -211,26 +386,54 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Provide a photo or a description for confirmed stage' });
     }
 
-    upsertTrackerStageMedia(order, {
-      stage,
-      photoUrl,
-      description,
-      actorName: req.user?.name,
-      actorId: req.user?.id,
-    });
+    if (isGateStage(stage)) {
+      upsertTrackerStageMediaGate(order, {
+        stage,
+        slot,
+        photoUrl,
+        description,
+        actorName: req.user?.name,
+        actorId: req.user?.id,
+      });
+    } else {
+      upsertTrackerStageMediaConfirmed(order, {
+        stage,
+        photoUrl,
+        description,
+        actorName: req.user?.name,
+        actorId: req.user?.id,
+      });
+    }
 
-    await order.save();
+    if (stage === 'ready_pickup') {
+      await applyPickupGateCompleteSideEffects(order);
+    }
+
+    await order.save({ validateBeforeSave: false });
     emitTrackerStageMediaUpdate(order);
+
+    if (storage === 'inline_fast') {
+      queueCloudinaryStagePhotoBackfill({
+        orderId: order._id,
+        stage,
+        slot,
+        inlineUrl: photoUrl,
+        file: req.file,
+        description,
+        actorName: req.user?.name,
+        actorId: req.user?.id,
+      });
+    }
 
     logActivity({
       req,
-      type: 'system',
-      module: 'LiveTracker',
+      type: 'booking_updated',
+      module: 'Service',
       action: 'Stage photo uploaded',
       description: `${req.user?.name || 'Staff'} uploaded tracker stage media (${stage}) for order ${order.orderNumber || id}.`,
       status: 'success',
       referenceId: order._id,
-      metadata: { stage, storage },
+      metadata: { stage, slot, storage },
     });
 
     res.json({
@@ -242,6 +445,76 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
     if (error?.statusCode) {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/orders/:id/stage-photo?stage=&slot=
+ */
+export const deleteTrackerStagePhoto = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const stage = req.query?.stage || req.body?.stage;
+    const rawSlot = req.query?.slot || req.body?.slot;
+
+    if (!TRACKER_MEDIA_STAGES.includes(stage)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid stage. Use one of: ${TRACKER_MEDIA_STAGES.join(', ')}`,
+      });
+    }
+
+    if (!isGateStage(stage)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only gate stages support slot delete (received, in_progress, quality_check, ready_pickup)',
+      });
+    }
+
+    const slot = normalizePhotoSlot(rawSlot);
+    if (!slot) {
+      return res.status(400).json({
+        success: false,
+        message: 'slot query is required (front, rear, left, right, close_up)',
+      });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    const idx = findGateMediaIndex(order, stage, slot);
+    if (idx < 0) {
+      return res.status(404).json({ success: false, message: 'No photo for that stage and slot' });
+    }
+
+    order.trackerStageMedia.splice(idx, 1);
+    order.markModified('trackerStageMedia');
+
+    if (stage === 'ready_pickup') {
+      revertReadyForPaymentIfPickupIncomplete(order);
+    }
+
+    await order.save({ validateBeforeSave: false });
+    emitTrackerStageMediaUpdate(order);
+
+    logActivity({
+      req,
+      type: 'booking_updated',
+      module: 'Service',
+      action: 'Stage photo removed',
+      description: `${req.user?.name || 'Staff'} removed tracker slot (${stage}/${slot}) for order ${order.orderNumber || id}.`,
+      status: 'success',
+      referenceId: order._id,
+      metadata: { stage, slot },
+    });
+
+    res.json({
+      success: true,
+      message: 'Stage photo removed',
+      data: { id: order._id, trackerStageMedia: order.trackerStageMedia },
+    });
+  } catch (error) {
     next(error);
   }
 };

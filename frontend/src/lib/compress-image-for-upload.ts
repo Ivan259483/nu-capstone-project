@@ -15,6 +15,20 @@ export type CompressImageOptions = {
   minQuality?: number;
 };
 
+function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((b) => resolve(b), 'image/jpeg', quality);
+  });
+}
+
+function fileFromJpegBlob(file: File, blob: Blob): File {
+  const base = file.name.replace(/\.[^.]+$/, '') || 'tracker-photo';
+  return new File([blob], `${base}.jpg`, {
+    type: 'image/jpeg',
+    lastModified: Date.now(),
+  });
+}
+
 function loadHtmlImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -91,32 +105,86 @@ export async function compressImageForUpload(file: File, options?: CompressImage
     ctx.drawImage(htmlImg!, 0, 0, w, h);
   }
 
-  const toBlob = (q: number) =>
-    new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((b) => resolve(b), 'image/jpeg', q);
-    });
-
   let quality = INITIAL_JPEG_QUALITY;
-  let blob = await toBlob(quality);
+  let blob = await canvasToJpegBlob(canvas, quality);
   while (blob && blob.size > TARGET_MAX_BYTES && quality > minQ) {
     quality -= 0.07;
-    blob = await toBlob(quality);
+    blob = await canvasToJpegBlob(canvas, quality);
   }
 
   if (!blob || blob.size >= file.size) {
     return file;
   }
 
-  const base = file.name.replace(/\.[^.]+$/, '') || 'tracker-photo';
-  return new File([blob], `${base}.jpg`, {
-    type: 'image/jpeg',
-    lastModified: Date.now(),
-  });
+  return fileFromJpegBlob(file, blob);
 }
 
-/** Tracker stage photos — larger, slightly higher quality cap. */
+async function compressImageForLiveTrackerFast(file: File): Promise<File> {
+  if (!file.type.startsWith('image/')) return file;
+  if (file.type === 'image/gif') return file;
+  if (file.size < 75 * 1024) return file;
+
+  let bitmap: ImageBitmap | null = null;
+  let htmlImg: HTMLImageElement | null = null;
+
+  try {
+    if (typeof createImageBitmap === 'function') {
+      bitmap = await createImageBitmap(file);
+    } else {
+      htmlImg = await loadHtmlImage(file);
+    }
+  } catch {
+    try {
+      htmlImg = await loadHtmlImage(file);
+    } catch {
+      return file;
+    }
+  }
+
+  const srcW = bitmap?.width ?? htmlImg!.naturalWidth;
+  const srcH = bitmap?.height ?? htmlImg!.naturalHeight;
+  if (!srcW || !srcH) {
+    bitmap?.close();
+    return file;
+  }
+
+  const maxEdgePx = 720;
+  const scale = Math.min(1, maxEdgePx / Math.max(srcW, srcH));
+  const w = Math.max(1, Math.round(srcW * scale));
+  const h = Math.max(1, Math.round(srcH * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { alpha: false });
+  if (!ctx) {
+    bitmap?.close();
+    return file;
+  }
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'low';
+  if (bitmap) {
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close();
+  } else {
+    ctx.drawImage(htmlImg!, 0, 0, w, h);
+  }
+
+  let blob = await canvasToJpegBlob(canvas, 0.56);
+  if (blob && blob.size > 180 * 1024) {
+    blob = await canvasToJpegBlob(canvas, 0.42);
+  }
+
+  if (!blob || blob.size >= file.size) return file;
+  return fileFromJpegBlob(file, blob);
+}
+
+/** Tracker stage photos — fast small copy so customer live tracker updates quickly. */
 export async function compressImageForTrackerUpload(file: File): Promise<File> {
-  return compressImageForUpload(file);
+  return compressImageForLiveTrackerFast(file);
 }
 
 /**

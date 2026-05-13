@@ -61,6 +61,7 @@ const orderSchema = new mongoose.Schema(
         'queued',
         'received',
         'in_progress',
+        'ready_for_payment', // Pickup photos complete; balance due at POS
         'completed',
         'paid',
         'released',
@@ -325,12 +326,18 @@ const orderSchema = new mongoose.Schema(
       assignedBy: String,
     }],
 
-    /** Per live-tracker stage: staff photo + optional note (customer-facing). */
+    /** Per live-tracker stage + angle slot: staff photo + optional note (customer-facing). */
     trackerStageMedia: [{
       stage: {
         type: String,
         enum: ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'],
         required: true,
+      },
+      /** Gate stages use front|rear|left|right|close_up; confirmed rows omit slot. */
+      slot: {
+        type: String,
+        enum: ['front', 'rear', 'left', 'right', 'close_up'],
+        required: false,
       },
       photoUrl: { type: String, default: '' },
       description: { type: String, default: '' },
@@ -403,6 +410,8 @@ orderSchema.index({ serviceTrackingStage: 1, status: 1 });             // Live t
 orderSchema.index({ archived: 1, status: 1, createdAt: -1 });          // Active QC jobs by archive flag + recency
 orderSchema.index({ status: 1, archived: 1, createdAt: -1 });         // Admin status + recency (getAllOrders)
 orderSchema.index({ bookingDate: 1, bookingTime: 1, status: 1 });     // Available slots lookup
+// Slot service filters { status: $in, bookingDate: $in } — prefix { bookingDate: 1 } is used; kept explicit for Atlas/SRV planners
+orderSchema.index({ bookingDate: 1, status: 1 });
 orderSchema.index({ archived: 1, createdAt: -1 });                    // Archived orders listing
 orderSchema.index({ bookingReference: 1 }, { unique: true, sparse: true }); // Booking ref lookup
 
