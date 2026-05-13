@@ -296,8 +296,8 @@ export const buildDetailedReceiptHtml = (receipt: DetailedReceipt) => {
         ${optionalRow('Discount', receipt.discount, true)}
         <div class="summary-row muted"><span>VAT / Tax</span><strong>${escapeHtml(formatPeso(receipt.tax))}</strong></div>
         ${optionalRow('Additional fees', receipt.additionalFees)}
-        ${optionalRow('Downpayment', receipt.downpayment, true)}
-        <div class="summary-row total"><span>Total Paid</span><strong>${escapeHtml(formatPeso(receipt.total))}</strong></div>
+        ${optionalRow('Less reservation (paid earlier)', receipt.downpayment, true)}
+        <div class="summary-row total"><span>Balance collected</span><strong>${escapeHtml(formatPeso(receipt.total))}</strong></div>
         ${receipt.balanceDue > 0 ? `<div class="summary-row muted"><span>Balance Due</span><strong>${escapeHtml(formatPeso(receipt.balanceDue))}</strong></div>` : ''}
       </section>
 
@@ -453,7 +453,7 @@ export const downloadDetailedReceiptPdf = (receipt: DetailedReceipt) => {
     ['Discount', receipt.discount, true],
     ['VAT / Tax', receipt.tax],
     ['Additional fees', receipt.additionalFees],
-    ['Downpayment', receipt.downpayment, true],
+    ['Less reservation (paid earlier)', receipt.downpayment, true],
   ].filter(([, value]) => value !== 0) as Array<[string, number, boolean?]>;
 
   ensureSpace(150);
@@ -475,7 +475,7 @@ export const downloadDetailedReceiptPdf = (receipt: DetailedReceipt) => {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15);
   doc.setTextColor(29, 78, 216);
-  doc.text('Total Paid', summaryX, y);
+  doc.text('Balance collected', summaryX, y);
   rightText(formatPdfMoney(receipt.total), pageW - margin, y);
   y += 20;
   if (receipt.balanceDue > 0) {

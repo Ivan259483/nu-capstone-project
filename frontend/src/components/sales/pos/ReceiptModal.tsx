@@ -167,7 +167,7 @@ export default function ReceiptModal({
                 <span className="font-tabular">{formatPeso(vatAmount)}</span>
               </div>
               <div className="flex justify-between text-base font-bold text-slate-900 pt-1 border-t border-slate-200">
-                <span>Total Paid</span>
+                <span>Balance collected</span>
                 <span className="font-tabular text-blue-700">{formatPeso(total)}</span>
               </div>
               <div className="flex justify-between text-xs text-slate-500">

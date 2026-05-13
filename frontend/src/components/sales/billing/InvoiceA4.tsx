@@ -136,26 +136,34 @@ export default function InvoiceA4({
             <span className="text-slate-600">Subtotal</span>
             <span>{formatPeso(c?.subtotal ?? 0)}</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-slate-600">Discount</span>
-            <span>−{formatPeso(c?.discountTotal ?? 0)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-600">VAT / tax</span>
-            <span>{formatPeso(c?.taxVatTotal ?? 0)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-600">Fees</span>
-            <span>{formatPeso(c?.additionalFeesTotal ?? 0)}</span>
-          </div>
+          {(c?.discountTotal ?? 0) > 0 && (
+            <div className="flex justify-between">
+              <span className="text-slate-600">Discount</span>
+              <span>−{formatPeso(c?.discountTotal ?? 0)}</span>
+            </div>
+          )}
+          {(c?.taxVatTotal ?? 0) !== 0 && (
+            <div className="flex justify-between">
+              <span className="text-slate-600">VAT / tax</span>
+              <span>{formatPeso(c?.taxVatTotal ?? 0)}</span>
+            </div>
+          )}
+          {(c?.additionalFeesTotal ?? 0) !== 0 && (
+            <div className="flex justify-between">
+              <span className="text-slate-600">Fees</span>
+              <span>{formatPeso(c?.additionalFeesTotal ?? 0)}</span>
+            </div>
+          )}
           <div className="flex justify-between font-bold border-t border-slate-200 pt-2">
-            <span>Grand total</span>
+            <span>Service total</span>
             <span>{formatPeso(c?.grandTotal ?? 0)}</span>
           </div>
-          <div className="flex justify-between text-amber-800 font-semibold">
-            <span>Downpayment</span>
-            <span>{formatPeso(snapshot.downpayment ?? 0)}</span>
-          </div>
+          {(snapshot.downpayment ?? 0) > 0 && (
+            <div className="flex justify-between text-amber-800 font-semibold">
+              <span>Less reservation (paid earlier)</span>
+              <span>−{formatPeso(snapshot.downpayment ?? 0)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-amber-900 font-bold">
             <span>Balance due</span>
             <span>{formatPeso(c?.balanceDue ?? 0)}</span>

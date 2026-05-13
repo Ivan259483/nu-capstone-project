@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { uploadBufferToCloudinary } from './cloudinaryStorage.utils.js';
+import { normalizeMoney } from './billingTotals.js';
 
 export const generateTermsAndConditionsPDF = async (order, signatureBase64) => {
   try {
@@ -383,16 +384,41 @@ export const buildInvoicePdfBuffer = (snapshot) => {
 
   ensure(160);
   const summaryX = pageW - margin - 250;
-  const summaryRows = [
-    ['Subtotal', computed.subtotal],
-    ['Discount', computed.discountTotal ? -Number(computed.discountTotal) : 0],
-    ['VAT / Tax', computed.taxVatTotal],
-    ['Additional fees', computed.additionalFeesTotal],
-    ['Downpayment', snapshot.downpayment ? -Number(snapshot.downpayment) : 0],
-  ].filter(([, value]) => Number(value || 0) !== 0);
+  const dp = normalizeMoney(snapshot.downpayment || 0);
+  const collected = normalizeMoney(
+    payment.amountCollected ??
+      payment.amountPaid ??
+      computed.balanceDue ??
+      computed.grandTotal ??
+      0
+  );
+  const grandTotal = normalizeMoney(computed.grandTotal ?? computed.subtotal ?? 0);
+  const disc = Number(computed.discountTotal || 0);
+  const tax = Number(computed.taxVatTotal || 0);
+  const fees = Number(computed.additionalFeesTotal || 0);
+
+  /** Readable breakdown: parts → service total → prior reservation credit → amount taken at POS. */
+  const summaryRows = [];
+  const sub = Number(computed.subtotal || 0);
+  summaryRows.push(['Subtotal', sub]);
+  if (disc > 0) summaryRows.push(['Discount', -disc]);
+  if (tax !== 0) summaryRows.push(['VAT / Tax', tax]);
+  if (fees !== 0) summaryRows.push(['Additional fees', fees]);
+
+  const showServiceTotal =
+    dp > 0 || disc > 0 || tax !== 0 || fees !== 0 || Math.abs(grandTotal - sub) > 0.01;
+  if (showServiceTotal) {
+    summaryRows.push(['Service total (after discount & fees)', grandTotal]);
+  }
+  if (dp > 0) summaryRows.push(['Less reservation / downpayment (paid earlier)', -dp]);
+
+  const summaryRowsFiltered = summaryRows.filter(([label, value]) => {
+    if (String(label).includes('Service total')) return showServiceTotal;
+    return Number(value || 0) !== 0;
+  });
 
   doc.setFontSize(10);
-  for (const [label, value] of summaryRows) {
+  for (const [label, value] of summaryRowsFiltered) {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
     doc.text(label, summaryX, y);
@@ -409,9 +435,20 @@ export const buildInvoicePdfBuffer = (snapshot) => {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15);
   doc.setTextColor(29, 78, 216);
-  doc.text('Total Paid', summaryX, y);
-  right(money(payment.amountCollected ?? computed.balanceDue ?? computed.grandTotal));
+  doc.text('Balance collected (this visit)', summaryX, y);
+  right(money(collected));
   y += 20;
+  if (dp > 0 && grandTotal > 0) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    const settled = normalizeMoney(collected + dp);
+    const note = `Online reservation ${money(dp)} + amount above = ${money(settled)} service total.`;
+    doc.text(note, summaryX, y, { maxWidth: pageW - margin - summaryX });
+    y += 22;
+  } else {
+    y += 4;
+  }
 
   const balanceRemaining = Number(payment.balanceRemaining ?? 0);
   if (balanceRemaining > 0) {
