@@ -1,4 +1,5 @@
 import type { Booking } from '@/types';
+import { bumpCustomerTrackerIndexForInProgressGateComplete, bumpCustomerTrackerIndexForReceivedGateComplete } from './customer-tracker-stage-media';
 
 /**
  * Same pipeline as `TRACKER_STEPS` in CustomerLiveTrackerPage — keep indices in sync.
@@ -21,7 +22,13 @@ export function getLiveTrackerStepIndex(booking: Booking | null | undefined): nu
   if (!booking) return 0;
 
   const trackingStage = (booking as { serviceTrackingStage?: string }).serviceTrackingStage;
+  const status = String(booking.status || '').toLowerCase();
+  const customerStatus = String(booking.customerStatus || '').toLowerCase();
+
+  let idx: number;
+
   if (trackingStage && typeof trackingStage === 'string') {
+    const tsKey = trackingStage.trim().toLowerCase().replace(/-/g, '_');
     const stageMap: Record<string, number> = {
       confirmed: 1,
       received: 2,
@@ -30,24 +37,50 @@ export function getLiveTrackerStepIndex(booking: Booking | null | undefined): nu
       ready_pickup: 5,
       completed: 5,
     };
-    if (stageMap[trackingStage] !== undefined) return stageMap[trackingStage];
-  }
-
-  const status = String(booking.status || '').toLowerCase();
-  const customerStatus = String(booking.customerStatus || '').toLowerCase();
-
-  if (status === 'paid' || customerStatus === 'ready') return 5;
-  if (status === 'completed' || customerStatus === 'finishing') return 4;
-  if (
+    if (stageMap[tsKey] !== undefined) {
+      idx = stageMap[tsKey];
+    } else if (status === 'paid' || customerStatus === 'ready') {
+      idx = 5;
+    } else if (status === 'completed' || customerStatus === 'finishing') {
+      idx = 4;
+    } else if (
+      status === 'in_progress'
+      || status === 'in-progress'
+      || customerStatus === 'washing'
+      || customerStatus === 'detailing'
+      || customerStatus === 'in-progress'
+    ) {
+      idx = 3;
+    } else if (status === 'received') {
+      idx = 2;
+    } else if (status === 'confirmed' || status === 'assigned') {
+      idx = 1;
+    } else {
+      idx = 0;
+    }
+  } else if (status === 'paid' || customerStatus === 'ready') {
+    idx = 5;
+  } else if (status === 'completed' || customerStatus === 'finishing') {
+    idx = 4;
+  } else if (
     status === 'in_progress'
     || status === 'in-progress'
     || customerStatus === 'washing'
     || customerStatus === 'detailing'
     || customerStatus === 'in-progress'
   ) {
-    return 3;
+    idx = 3;
+  } else if (status === 'received') {
+    idx = 2;
+  } else if (status === 'confirmed' || status === 'assigned') {
+    idx = 1;
+  } else {
+    idx = 0;
   }
-  if (status === 'received') return 2;
-  if (status === 'confirmed' || status === 'assigned') return 1;
-  return 0;
+
+  return bumpCustomerTrackerIndexForInProgressGateComplete(
+    booking,
+    bumpCustomerTrackerIndexForReceivedGateComplete(booking, idx, 'fullpage6'),
+    'fullpage6'
+  );
 }

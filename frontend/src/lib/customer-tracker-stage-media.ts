@@ -122,3 +122,51 @@ export function resolveTrackerStageDescription(
   if (custom) return custom;
   return DEFAULT_TRACKER_STAGE_DESCRIPTION[stage] || '';
 }
+
+/** Five angle slots filled — same threshold as QC gate advance. */
+export const CUSTOMER_TRACKER_GATE_MIN_PHOTOS = 5;
+
+/**
+ * When `serviceTrackingStage` (or coarse `status`) still says "received" but all intake
+ * photos exist, treat the pipeline as at least the next step so the customer UI matches
+ * evidence (mirrors dashboard bumps for quality_check / ready_pickup).
+ */
+export function bumpCustomerTrackerIndexForReceivedGateComplete(
+  booking: { trackerStageMedia?: TrackerStageMediaEntry[]; serviceTrackingStage?: string; status?: string } | null | undefined,
+  baseIndex: number,
+  pipeline: 'dashboard5' | 'fullpage6'
+): number {
+  if (!booking) return baseIndex;
+  const tsKey = String(booking.serviceTrackingStage ?? '').trim().toLowerCase().replace(/-/g, '_');
+  const status = String(booking.status ?? '').trim().toLowerCase().replace(/-/g, '_');
+  if (getCustomerStageSlotPhotos(booking, 'received').length < CUSTOMER_TRACKER_GATE_MIN_PHOTOS) {
+    return baseIndex;
+  }
+  const stageLagsEvidence = tsKey === 'received' || (!tsKey && status === 'received');
+  if (!stageLagsEvidence) return baseIndex;
+  const minAfterIntake = pipeline === 'dashboard5' ? 2 : 3;
+  return Math.max(baseIndex, minAfterIntake);
+}
+
+/**
+ * When `serviceTrackingStage` is still `in_progress` but all service-bay photos exist, the QC
+ * UI is already on the Quality Check gate — advance the customer display to the QC step.
+ */
+export function bumpCustomerTrackerIndexForInProgressGateComplete(
+  booking: { trackerStageMedia?: TrackerStageMediaEntry[]; serviceTrackingStage?: string; status?: string } | null | undefined,
+  baseIndex: number,
+  pipeline: 'dashboard5' | 'fullpage6'
+): number {
+  if (!booking) return baseIndex;
+  const tsKey = String(booking.serviceTrackingStage ?? '').trim().toLowerCase().replace(/-/g, '_');
+  const status = String(booking.status ?? '').trim().toLowerCase().replace(/-/g, '_');
+  if (getCustomerStageSlotPhotos(booking, 'in_progress').length < CUSTOMER_TRACKER_GATE_MIN_PHOTOS) {
+    return baseIndex;
+  }
+  const stageLagsEvidence =
+    tsKey === 'in_progress'
+    || (!tsKey && (status === 'in_progress' || status === 'in-progress'));
+  if (!stageLagsEvidence) return baseIndex;
+  const minAfterWork = pipeline === 'dashboard5' ? 3 : 4;
+  return Math.max(baseIndex, minAfterWork);
+}

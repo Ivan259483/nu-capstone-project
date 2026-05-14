@@ -120,6 +120,31 @@ const TRACKER_GATES: TrackerGate[] = [
 ];
 
 const TRACKER_GATE_STAGE_IDS = TRACKER_GATES.map((gate) => gate.id);
+
+/** Matches backend / QC `serviceTrackingStage` advance order (confirmed is implicit first). */
+const SERVICE_STAGE_ADVANCE_ORDER: ServiceStage[] = [
+  'confirmed',
+  'received',
+  'in_progress',
+  'quality_check',
+  'ready_pickup',
+];
+
+function getNextPipelineServiceStage(job: QCJob): ServiceStage | null {
+  const rawJobStage = String((job as any).serviceTrackingStage || 'confirmed').toLowerCase();
+  const orderKey = (['approved', 'assigned'].includes(rawJobStage) ? 'confirmed' : rawJobStage) as ServiceStage;
+  const orderIdx = SERVICE_STAGE_ADVANCE_ORDER.indexOf(orderKey);
+  if (orderIdx < 0 || orderIdx >= SERVICE_STAGE_ADVANCE_ORDER.length - 1) return null;
+  return SERVICE_STAGE_ADVANCE_ORDER[orderIdx + 1];
+}
+
+function displayNameForPipelineStage(stage: ServiceStage): string {
+  const gate = TRACKER_GATES.find((g) => g.id === stage);
+  if (gate) return gate.label;
+  if (stage === 'confirmed') return 'Appointment confirmed';
+  return toTitleCase(stage.replace(/_/g, ' '));
+}
+
 const TRACKED_ORDER_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
 const CUSTOMER_UPDATE_STALE_MS = 24 * 60 * 60 * 1000;
 
@@ -723,12 +748,16 @@ function GateActionBar({
   const tracker = getTrackerState(job);
   const mediaList = getMediaList(job);
   const currentStage = tracker.currentGate.id;
+  /** Require 5/5 on the gate shown in the upload grid — not the previous pipeline stage. */
   const gateReady = gateHasAllSlots(mediaList, currentStage);
   const readyPickupComplete = gateHasAllSlots(mediaList, 'ready_pickup');
   const canRelease = tracker.isComplete && !tracker.isReleased;
-  const advanceLabel = tracker.nextGate
-    ? `Complete gate & advance to ${tracker.nextGate.label}`
-    : 'Complete gate & mark Ready for Pickup';
+  const posPaymentDone = String((job as any).paymentStatus || '').toLowerCase() === 'paid';
+  const nextPipelineStage = getNextPipelineServiceStage(job);
+  const advanceLabel =
+    !nextPipelineStage || tracker.isComplete
+      ? 'Complete gate & mark Ready for Pickup'
+      : `Complete gate & advance to ${displayNameForPipelineStage(nextPipelineStage)}`;
 
   const advanceGate = async () => {
     if (!tracker.isComplete && !gateReady) {
@@ -745,8 +774,18 @@ function GateActionBar({
       return;
     }
 
+    if (tracker.isComplete && readyPickupComplete && !tracker.isReleased && !posPaymentDone) {
+      toast.error('POS payment required', {
+        description: 'Collect the full balance in Sales POS before releasing the vehicle to the customer.',
+      });
+      return;
+    }
+
     setAdvancing(true);
-    const target = tracker.isComplete ? ('released' as ServiceStage) : currentStage;
+    const nextFromPipeline = getNextPipelineServiceStage(job);
+    const target = tracker.isComplete
+      ? ('released' as ServiceStage)
+      : ((nextFromPipeline || currentStage) as ServiceStage);
     const ok = await onAdvance(job.id, target);
     if (ok) onLocalStageUpdate(job.id, target);
     setAdvancing(false);
@@ -767,17 +806,21 @@ function GateActionBar({
             <button
               type="button"
               onClick={() => advanceGate()}
-              disabled={advancing || tracker.isReleased || !readyPickupComplete}
+              disabled={advancing || tracker.isReleased || !readyPickupComplete || !posPaymentDone}
               className={`inline-flex h-11 min-w-[220px] items-center justify-center gap-2 rounded-2xl px-4 text-sm font-black transition disabled:opacity-50 ${
                 tracker.isReleased
                   ? 'bg-slate-100 text-slate-400 ring-1 ring-slate-200'
-                  : readyPickupComplete
+                  : readyPickupComplete && posPaymentDone
                     ? 'bg-[#E8650A] text-white shadow-md hover:opacity-95'
                     : 'bg-slate-200 text-slate-500 ring-1 ring-slate-300/80'
               }`}
             >
               {advancing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {canRelease ? 'Mark vehicle as released' : 'Vehicle released'}
+              {canRelease
+                ? posPaymentDone
+                  ? 'Mark vehicle as released'
+                  : 'Awaiting POS payment'
+                : 'Vehicle released'}
             </button>
           ) : (
             <button

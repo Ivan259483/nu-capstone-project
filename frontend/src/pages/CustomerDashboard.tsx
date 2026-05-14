@@ -19,6 +19,8 @@ import {
 } from '../lib/booking-terms';
 import {
   DASHBOARD_TRACKER_STEP_MEDIA_STAGE,
+  bumpCustomerTrackerIndexForInProgressGateComplete,
+  bumpCustomerTrackerIndexForReceivedGateComplete,
   getCustomerStageSlotPhotos,
   resolveTrackerStageDescription,
 } from '../lib/customer-tracker-stage-media';
@@ -515,7 +517,6 @@ export default function CustomerDashboard() {
   const handleBookingStatus = useCallback((event: BookingStatusEvent) => {
     const { bookingId, serviceTrackingStage, serviceStaffAssignments, trackerStageMedia, status, paymentStatus, invoiceId } = event;
     if (!bookingId) return;
-    console.log('[TRACKER] booking:status → patching stage:', { bookingId, serviceTrackingStage });
     setMyBookings((prev: any[]) =>
       prev.map((b: any) => {
         const id = String(b.id ?? b._id ?? '');
@@ -3626,13 +3627,25 @@ export default function CustomerDashboard() {
                         const formattedDate = dateStr ? new Date(dateStr).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
                         const proofUrl: string | null = (b as any).paymentProofUrl || (b as any).downpaymentProof || null;
 
-                        const resvBadge = (() => {
-                          if (['approved', 'confirmed', 'received', 'in_progress', 'completed', 'released', 'paid'].includes(st))
-                            return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">✓ Approved</span>;
-                          if (st === 'rejected')
-                            return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700 border border-red-200">✕ Rejected</span>;
-                          return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 border border-amber-200">⏳ Pending</span>;
-                        })();
+                        const reservationStatesPaid = [
+                          'approved',
+                          'confirmed',
+                          'assigned',
+                          'received',
+                          'in_progress',
+                          'ready_for_payment',
+                          'completed',
+                          'released',
+                          'paid',
+                        ];
+                        const reservationPaid = reservationStatesPaid.includes(st) || Boolean(proofUrl);
+                        const resvBadge = reservationPaid ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">Paid</span>
+                        ) : st === 'rejected' ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700 border border-red-200">Rejected</span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 border border-amber-200">Pending</span>
+                        );
 
                         // Treat as paid if: paymentStatus is 'paid' OR order is completed/released/paid
                         // (handles existing orders created before the paymentStatus=paid backend fix)
@@ -3874,6 +3887,8 @@ export default function CustomerDashboard() {
                 if (activeBooking && readyPickupCountSimple >= TRACKER_REQUIRED_GATE_PHOTOS) {
                   currentStep = Math.max(currentStep, TRACKER_STEPS.length - 1);
                 }
+                currentStep = bumpCustomerTrackerIndexForReceivedGateComplete(activeBooking, currentStep, 'dashboard5');
+                currentStep = bumpCustomerTrackerIndexForInProgressGateComplete(activeBooking, currentStep, 'dashboard5');
 
                 return (
                   <div className="max-w-3xl mx-auto pb-12 space-y-6">
@@ -4493,7 +4508,8 @@ export default function CustomerDashboard() {
                   if (activeBooking && readyPickupGateCountDash >= TRACKER_REQUIRED_GATE_PHOTOS) {
                     displayStepIdx = Math.max(displayStepIdx, STEPS.length - 1);
                   }
-
+                  displayStepIdx = bumpCustomerTrackerIndexForReceivedGateComplete(activeBooking, displayStepIdx, 'dashboard5');
+                  displayStepIdx = bumpCustomerTrackerIndexForInProgressGateComplete(activeBooking, displayStepIdx, 'dashboard5');
                   const activeIdx = Math.min(Math.max(displayStepIdx, 0), STEPS.length - 1);
                   const pct = postPayComplete ? 100 : Math.round((activeIdx / (STEPS.length - 1)) * 100);
                   const activeStep = STEPS[activeIdx] || STEPS[0];

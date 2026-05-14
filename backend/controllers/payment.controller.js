@@ -995,15 +995,23 @@ export const runPosCheckoutCore = async ({
   order.totalPrice = grandTotal;
   order.totalAmount = grandTotal;
   const prevPosStatus = order.status;
-  if (
-    ['pending', 'confirmed', 'assigned', 'processing', 'in-progress', 'in_progress', 'ready_for_payment'].includes(
-      order.status
-    )
-  ) {
-    order.status = 'completed';
-  }
-  if (prevPosStatus === 'ready_for_payment' || order.serviceTrackingStage === 'ready_pickup') {
+  const prevTrackingStage = order.serviceTrackingStage;
+  // Full balance collected at POS → vehicle released for customer (live tracker hides, payment history shows paid).
+  const fullySettled = balanceRemaining <= 0;
+  if (fullySettled) {
+    order.status = 'released';
     order.serviceTrackingStage = 'released';
+  } else {
+    if (
+      ['pending', 'confirmed', 'assigned', 'processing', 'in-progress', 'in_progress', 'ready_for_payment'].includes(
+        order.status
+      )
+    ) {
+      order.status = 'completed';
+    }
+    if (prevPosStatus === 'ready_for_payment' || prevTrackingStage === 'ready_pickup') {
+      order.serviceTrackingStage = 'released';
+    }
   }
   order.customerStatus = 'ready';
   order.customerStatusUpdatedAt = new Date();
@@ -1011,7 +1019,7 @@ export const runPosCheckoutCore = async ({
 
   await applyInventoryDeductions(order);
 
-  if (prevPosStatus !== order.status) {
+  if (prevPosStatus !== order.status || String(prevTrackingStage || '') !== String(order.serviceTrackingStage || '')) {
     onOrderStatusChange(order, prevPosStatus, req.user).catch((err) =>
       console.error('[WORKFLOW] Orchestrator error in runPosCheckoutCore:', err.message)
     );

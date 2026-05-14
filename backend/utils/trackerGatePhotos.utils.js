@@ -49,3 +49,18 @@ export function gatePhotosProgress(order, stage) {
     required: REQUIRED_GATE_PHOTOS,
   };
 }
+
+/**
+ * When PATCHing `serviceTrackingStage` forward into a gate stage, photos must be
+ * complete for the gate being *left* (the previous gate in the pipeline), not the
+ * destination gate — staff uploads the next gate's angles after the stage advances.
+ * @param {string} targetStage next `serviceTrackingStage` value
+ * @returns {string|null} stage key for `countGatePhotos`, or null if `targetStage` is not a gate
+ */
+export function gatePhotoStageToValidateForAdvance(targetStage) {
+  const s = String(targetStage || '').trim();
+  if (!TRACKER_GATE_STAGES.includes(s)) return null;
+  const idx = TRACKER_GATE_STAGES.indexOf(s);
+  if (idx <= 0) return 'received';
+  return TRACKER_GATE_STAGES[idx - 1];
+}

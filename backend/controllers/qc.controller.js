@@ -8,6 +8,7 @@ import {
   TRACKER_GATE_STAGES,
   countGatePhotos,
   REQUIRED_GATE_PHOTOS,
+  gatePhotoStageToValidateForAdvance,
 } from '../utils/trackerGatePhotos.utils.js';
 import { applyPickupGateCompleteSideEffects } from '../utils/readyPickupPaymentFlow.utils.js';
 
@@ -653,7 +654,8 @@ export const updateServiceStatus = async (req, res, next) => {
 
     const gateMediaStages = new Set(TRACKER_GATE_STAGES);
     if (gateMediaStages.has(stage)) {
-      const uploaded = countGatePhotos(order, stage);
+      const validateStage = gatePhotoStageToValidateForAdvance(stage);
+      const uploaded = countGatePhotos(order, validateStage);
       if (uploaded < REQUIRED_GATE_PHOTOS) {
         return res.status(400).json({
           success: false,
@@ -666,6 +668,12 @@ export const updateServiceStatus = async (req, res, next) => {
     }
 
     if (stage === 'released') {
+      if (String(order.paymentStatus || '').toLowerCase() !== 'paid') {
+        return res.status(400).json({
+          success: false,
+          message: 'Collect the final balance in Sales POS before releasing the vehicle to the customer.',
+        });
+      }
       const uploaded = countGatePhotos(order, 'ready_pickup');
       if (uploaded < REQUIRED_GATE_PHOTOS) {
         return res.status(400).json({
