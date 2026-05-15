@@ -22,6 +22,7 @@ export interface NotificationsResponse {
 export const NotificationService = {
     getNotifications: async (): Promise<NotificationsResponse> => {
         try {
+            const response = await api.get('/notifications');
             return response.data as NotificationsResponse;
         } catch (error: any) {
             return {

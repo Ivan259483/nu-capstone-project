@@ -573,6 +573,43 @@ export const getActiveJobs = async (req, res, next) => {
   }
 };
 
+/** Same scope as qc.controller shop-floor jobs — QC/live tracker may read without being assignedDetailer. */
+const FLOOR_QC_READ_ORDER_STATUSES = [
+  'approved',
+  'confirmed',
+  'assigned',
+  'received',
+  'in_progress',
+  'ready_for_payment',
+  'completed',
+  'released',
+];
+
+function canServiceStaffViewShopFloorOrder(userRole, order) {
+  if (!isServiceStaffRole(userRole)) return false;
+  if (order.archived === true) return false;
+  const st = String(order.status || '');
+  return FLOOR_QC_READ_ORDER_STATUSES.includes(st);
+}
+
+/** Shared GET guard: booking/POS admins, customer (own), assigned detailer, or QC on active shop-floor orders. */
+function canViewOrderWithRoleConstraints(reqUser, order) {
+  const customerId = typeof order.customer === 'object'
+    ? order.customer?._id?.toString?.()
+    : order.customer?.toString?.();
+  const assignedDetailerId = typeof order.assignedDetailer === 'object'
+    ? order.assignedDetailer?._id?.toString?.()
+    : order.assignedDetailer?.toString?.();
+
+  return (
+    isBookingManagerRole(reqUser.role) ||
+    isPosManagerRole(reqUser.role) ||
+    (isCustomerRole(reqUser.role) && customerId === reqUser.id) ||
+    (isServiceStaffRole(reqUser.role) && assignedDetailerId === reqUser.id) ||
+    canServiceStaffViewShopFloorOrder(reqUser.role, order)
+  );
+}
+
 /**
  * Get order by ID
  */
@@ -590,20 +627,7 @@ export const getOrderById = async (req, res, next) => {
       });
     }
 
-    const customerId = typeof order.customer === 'object'
-      ? order.customer?._id?.toString?.()
-      : order.customer?.toString?.();
-    const assignedDetailerId = typeof order.assignedDetailer === 'object'
-      ? order.assignedDetailer?._id?.toString?.()
-      : order.assignedDetailer?.toString?.();
-
-    const canViewOrder =
-      isBookingManagerRole(req.user.role) ||
-      isPosManagerRole(req.user.role) ||
-      (isCustomerRole(req.user.role) && customerId === req.user.id) ||
-      (isServiceStaffRole(req.user.role) && assignedDetailerId === req.user.id);
-
-    if (!canViewOrder) {
+    if (!canViewOrderWithRoleConstraints(req.user, order)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied',
@@ -639,20 +663,7 @@ export const getOrderApprovalPreview = async (req, res, next) => {
       });
     }
 
-    const customerId = typeof order.customer === 'object'
-      ? order.customer?._id?.toString?.()
-      : order.customer?.toString?.();
-    const assignedDetailerId = typeof order.assignedDetailer === 'object'
-      ? order.assignedDetailer?._id?.toString?.()
-      : order.assignedDetailer?.toString?.();
-
-    const canViewOrder =
-      isBookingManagerRole(req.user.role) ||
-      isPosManagerRole(req.user.role) ||
-      (isCustomerRole(req.user.role) && customerId === req.user.id) ||
-      (isServiceStaffRole(req.user.role) && assignedDetailerId === req.user.id);
-
-    if (!canViewOrder) {
+    if (!canViewOrderWithRoleConstraints(req.user, order)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied',
@@ -676,7 +687,7 @@ export const getOrderApprovalPreview = async (req, res, next) => {
 export const getOrderGcashProofFields = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id)
-      .select('customer assignedDetailer downpaymentProof paymentProofUrl')
+      .select('customer assignedDetailer downpaymentProof paymentProofUrl status archived')
       .lean();
 
     if (!order) {
@@ -686,16 +697,7 @@ export const getOrderGcashProofFields = async (req, res, next) => {
       });
     }
 
-    const customerId = order.customer?.toString?.() || '';
-    const assignedDetailerId = order.assignedDetailer?.toString?.() || '';
-
-    const canViewOrder =
-      isBookingManagerRole(req.user.role) ||
-      isPosManagerRole(req.user.role) ||
-      (isCustomerRole(req.user.role) && customerId === req.user.id) ||
-      (isServiceStaffRole(req.user.role) && assignedDetailerId === req.user.id);
-
-    if (!canViewOrder) {
+    if (!canViewOrderWithRoleConstraints(req.user, order)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied',
