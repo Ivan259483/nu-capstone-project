@@ -6,6 +6,7 @@ import {
   formatTransactionStatusLabel,
   getPaymentMethodLabel,
 } from '@/lib/salesData';
+import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
 
 export type DetailedReceiptLine = {
   name: string;
@@ -133,7 +134,7 @@ export const receiptFromTransaction = (txn: Transaction): DetailedReceipt => {
     customerName: txn.customerName,
     customerPhone: txn.customerPhone,
     customerEmail: txn.customerEmail,
-    vehiclePlate: txn.vehiclePlate,
+    vehiclePlate: sanitizeVehiclePlate(txn.vehiclePlate || ''),
     vehicleInfo: txn.vehicleInfo,
     lineItems,
     subtotal: safeNumber(txn.subtotal || computedSubtotal),
@@ -169,7 +170,7 @@ export const receiptFromBooking = (booking: Booking): DetailedReceipt => {
     customerName: booking.customerName || booking.customer?.name || 'Customer',
     customerPhone: booking.customerPhone || booking.customer?.phone,
     customerEmail: booking.customer?.email,
-    vehiclePlate: booking.vehiclePlate,
+    vehiclePlate: sanitizeVehiclePlate(booking.vehiclePlate || ''),
     vehicleInfo,
     lineItems,
     subtotal,
@@ -235,7 +236,9 @@ export const buildDetailedReceiptHtml = (receipt: DetailedReceipt) => {
       td { text-align: right; padding: 12px 8px; border-bottom: 1px solid #edf2f7; vertical-align: top; }
       td:first-child span { display: block; margin-top: 3px; color: #64748b; font-size: 10px; }
       .summary { width: 320px; margin: 22px 0 0 auto; }
-      .summary-row { display: flex; justify-content: space-between; padding: 7px 0; font-size: 12px; }
+      .summary-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 7px 0; font-size: 12px; }
+      .summary-row > span:first-child { flex: 1; min-width: 0; padding-right: 8px; line-height: 1.4; word-break: break-word; }
+      .summary-row > strong { flex-shrink: 0; white-space: nowrap; text-align: right; font-weight: 700; }
       .summary-row.muted { color: #475569; }
       .total { border-top: 1px solid #cbd5e1; margin-top: 6px; padding-top: 12px; font-size: 20px; font-weight: 800; color: #1d4ed8; }
       .payment { margin-top: 20px; border-top: 1px dashed #cbd5e1; padding-top: 16px; }
@@ -296,7 +299,7 @@ export const buildDetailedReceiptHtml = (receipt: DetailedReceipt) => {
         ${optionalRow('Discount', receipt.discount, true)}
         <div class="summary-row muted"><span>VAT / Tax</span><strong>${escapeHtml(formatPeso(receipt.tax))}</strong></div>
         ${optionalRow('Additional fees', receipt.additionalFees)}
-        ${optionalRow('Less reservation (paid earlier)', receipt.downpayment, true)}
+        ${optionalRow('Less reservation / downpayment (paid earlier)', receipt.downpayment, true)}
         <div class="summary-row total"><span>Balance collected</span><strong>${escapeHtml(formatPeso(receipt.total))}</strong></div>
         ${receipt.balanceDue > 0 ? `<div class="summary-row muted"><span>Balance Due</span><strong>${escapeHtml(formatPeso(receipt.balanceDue))}</strong></div>` : ''}
       </section>
@@ -453,31 +456,43 @@ export const downloadDetailedReceiptPdf = (receipt: DetailedReceipt) => {
     ['Discount', receipt.discount, true],
     ['VAT / Tax', receipt.tax],
     ['Additional fees', receipt.additionalFees],
-    ['Less reservation (paid earlier)', receipt.downpayment, true],
+    ['Less reservation / downpayment (paid earlier)', receipt.downpayment, true],
   ].filter(([, value]) => value !== 0) as Array<[string, number, boolean?]>;
 
   ensureSpace(150);
   const summaryX = pageW - margin - 250;
-  doc.setFontSize(10);
-  for (const [label, value, neg] of summaryRows) {
+  const amountColumnW = 200;
+  const labelMaxW = pageW - margin - summaryX - amountColumnW - 8;
+
+  const drawSummaryLabelValue = (label: string, valueText: string, opts: { fontSize?: number; labelRgb?: [number, number, number]; valueRgb?: [number, number, number] } = {}) => {
+    const fs = opts.fontSize ?? 10;
+    const labelRgb = opts.labelRgb ?? [71, 85, 105];
+    const valueRgb = opts.valueRgb ?? [15, 23, 42];
+    doc.setFontSize(fs);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(71, 85, 105);
-    doc.text(label, summaryX, y);
+    doc.setTextColor(...labelRgb);
+    const labelLines = doc.splitTextToSize(String(label), Math.max(80, labelMaxW));
+    doc.text(labelLines, summaryX, y);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    rightText(`${neg ? '-' : ''}${formatPdfMoney(value)}`, pageW - margin, y);
-    y += 17;
+    doc.setTextColor(...valueRgb);
+    rightText(valueText, pageW - margin, y);
+    const lineGap = fs >= 14 ? 17 : 13;
+    y += Math.max(lineGap, labelLines.length * lineGap);
+  };
+
+  for (const [label, value, neg] of summaryRows) {
+    const valueStr = `${neg ? '-' : ''}${formatPdfMoney(value)}`;
+    drawSummaryLabelValue(label, valueStr);
   }
   y += 4;
   doc.setDrawColor(203, 213, 225);
   doc.line(summaryX, y, pageW - margin, y);
   y += 22;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.setTextColor(29, 78, 216);
-  doc.text('Balance collected', summaryX, y);
-  rightText(formatPdfMoney(receipt.total), pageW - margin, y);
-  y += 20;
+  drawSummaryLabelValue('Balance collected', formatPdfMoney(receipt.total), {
+    fontSize: 15,
+    labelRgb: [29, 78, 216],
+    valueRgb: [29, 78, 216],
+  });
   if (receipt.balanceDue > 0) {
     doc.setFontSize(10);
     doc.setTextColor(71, 85, 105);

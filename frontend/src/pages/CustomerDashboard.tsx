@@ -7272,12 +7272,12 @@ export default function CustomerDashboard() {
           onClick={() => setVehicleHistoryOpen(false)}
         >
           <div
-            className="bg-white rounded-xl w-full max-w-md shadow-2xl overflow-hidden"
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl shadow-slate-900/15 overflow-hidden"
             onClick={e => e.stopPropagation()}
             style={{ animation: 'modalIn .2s ease-out', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
                   <iconify-icon icon="solar:car-bold" width="18" style={{ color: '#475569' }}></iconify-icon>
@@ -7333,7 +7333,10 @@ export default function CustomerDashboard() {
                       ? new Date(order.bookingDate || order.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                       : '—';
                     return (
-                      <div key={i} className="border border-gray-100 rounded-xl p-4 hover:border-gray-200 transition-colors">
+                      <div
+                        key={i}
+                        className="rounded-2xl p-4 bg-gradient-to-br from-slate-50 to-slate-100/60 shadow-[0_2px_12px_-4px_rgba(15,23,42,0.08)] hover:shadow-[0_6px_20px_-6px_rgba(15,23,42,0.12)] transition-shadow duration-200"
+                      >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
                             <p className="text-[14px] font-semibold text-gray-900 truncate">{order.serviceType || order.serviceName || 'Service'}</p>
@@ -7358,10 +7361,10 @@ export default function CustomerDashboard() {
 
             {/* Footer */}
             {!vehicleHistoryLoading && vehicleHistoryOrders.length > 0 && (
-              <div className="px-5 py-4 border-t border-gray-100 shrink-0">
+              <div className="px-5 pt-3 pb-5 shrink-0 bg-gradient-to-t from-white via-white to-slate-50/30">
                 <button
                   onClick={() => { setVehicleHistoryOpen(false); openBookingModal(vehicleHistoryVehicle); }}
-                  className="w-full py-2.5 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-gray-700 transition-colors flex items-center justify-center gap-2"
+                  className="w-full py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20"
                 >
                   <iconify-icon icon="solar:calendar-add-linear" width="16"></iconify-icon>
                   Book Again

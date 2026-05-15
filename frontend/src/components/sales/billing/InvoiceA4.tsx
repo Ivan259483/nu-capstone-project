@@ -131,42 +131,42 @@ export default function InvoiceA4({
           </tbody>
         </table>
 
-        <div className="mt-8 ml-auto w-64 space-y-1.5 text-sm">
-          <div className="flex justify-between">
-            <span className="text-slate-600">Subtotal</span>
-            <span>{formatPeso(c?.subtotal ?? 0)}</span>
+        <div className="mt-8 ml-auto w-72 max-w-full space-y-1.5 text-sm">
+          <div className="flex justify-between gap-4 items-start">
+            <span className="text-slate-600 shrink min-w-0 break-words text-left">Subtotal</span>
+            <span className="tabular-nums shrink-0 text-right whitespace-nowrap">{formatPeso(c?.subtotal ?? 0)}</span>
           </div>
           {(c?.discountTotal ?? 0) > 0 && (
-            <div className="flex justify-between">
-              <span className="text-slate-600">Discount</span>
-              <span>−{formatPeso(c?.discountTotal ?? 0)}</span>
+            <div className="flex justify-between gap-4 items-start">
+              <span className="text-slate-600 shrink min-w-0 break-words text-left">Discount</span>
+              <span className="tabular-nums shrink-0 text-right whitespace-nowrap">−{formatPeso(c?.discountTotal ?? 0)}</span>
             </div>
           )}
           {(c?.taxVatTotal ?? 0) !== 0 && (
-            <div className="flex justify-between">
-              <span className="text-slate-600">VAT / tax</span>
-              <span>{formatPeso(c?.taxVatTotal ?? 0)}</span>
+            <div className="flex justify-between gap-4 items-start">
+              <span className="text-slate-600 shrink min-w-0 break-words text-left">VAT / tax</span>
+              <span className="tabular-nums shrink-0 text-right whitespace-nowrap">{formatPeso(c?.taxVatTotal ?? 0)}</span>
             </div>
           )}
           {(c?.additionalFeesTotal ?? 0) !== 0 && (
-            <div className="flex justify-between">
-              <span className="text-slate-600">Fees</span>
-              <span>{formatPeso(c?.additionalFeesTotal ?? 0)}</span>
+            <div className="flex justify-between gap-4 items-start">
+              <span className="text-slate-600 shrink min-w-0 break-words text-left">Fees</span>
+              <span className="tabular-nums shrink-0 text-right whitespace-nowrap">{formatPeso(c?.additionalFeesTotal ?? 0)}</span>
             </div>
           )}
-          <div className="flex justify-between font-bold border-t border-slate-200 pt-2">
-            <span>Service total</span>
-            <span>{formatPeso(c?.grandTotal ?? 0)}</span>
+          <div className="flex justify-between gap-4 items-start font-bold border-t border-slate-200 pt-2">
+            <span className="shrink min-w-0 break-words text-left">Service total</span>
+            <span className="tabular-nums shrink-0 text-right whitespace-nowrap">{formatPeso(c?.grandTotal ?? 0)}</span>
           </div>
           {(snapshot.downpayment ?? 0) > 0 && (
-            <div className="flex justify-between text-amber-800 font-semibold">
-              <span>Less reservation (paid earlier)</span>
-              <span>−{formatPeso(snapshot.downpayment ?? 0)}</span>
+            <div className="flex justify-between gap-4 items-start text-amber-800 font-semibold">
+              <span className="shrink min-w-0 break-words text-left leading-snug">Less reservation / downpayment (paid earlier)</span>
+              <span className="tabular-nums shrink-0 text-right whitespace-nowrap">−{formatPeso(snapshot.downpayment ?? 0)}</span>
             </div>
           )}
-          <div className="flex justify-between text-amber-900 font-bold">
-            <span>Balance due</span>
-            <span>{formatPeso(c?.balanceDue ?? 0)}</span>
+          <div className="flex justify-between gap-4 items-start text-amber-900 font-bold">
+            <span className="shrink min-w-0 break-words text-left">Balance due</span>
+            <span className="tabular-nums shrink-0 text-right whitespace-nowrap">{formatPeso(c?.balanceDue ?? 0)}</span>
           </div>
         </div>
 

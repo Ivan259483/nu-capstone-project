@@ -13,6 +13,8 @@ interface Props {
   /** Manual VAT in peso (same as POS payment summary). */
   vatAmount: number;
   total: number;
+  /** Reservation / GCash credited before this POS payment (for receipt line item). */
+  reservationApplied?: number;
   paymentMethod: string;
   onClose: () => void;
   onNewTransaction: () => void;
@@ -21,6 +23,7 @@ interface Props {
 export default function ReceiptModal({
   txnId, customer, vehicle, cartItems,
   subtotal, discount, vatAmount, total, paymentMethod,
+  reservationApplied = 0,
   onClose, onNewTransaction,
 }: Props) {
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -116,10 +119,12 @@ export default function ReceiptModal({
                 <Phone size={10} className="text-slate-400" />
                 <span className="text-xs text-slate-600">{customer.phone}</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <Mail size={10} className="text-slate-400" />
-                <span className="text-xs text-slate-600">{customer.email}</span>
-              </div>
+              {customer.email ? (
+                <div className="flex items-center gap-1.5">
+                  <Mail size={10} className="text-slate-400" />
+                  <span className="text-xs text-slate-600">{customer.email}</span>
+                </div>
+              ) : null}
               <div className="flex items-center gap-1.5 mt-1">
                 <Car size={10} className="text-slate-400" />
                 <span className="text-xs text-slate-600">
@@ -166,9 +171,15 @@ export default function ReceiptModal({
                 <span>VAT</span>
                 <span className="font-tabular">{formatPeso(vatAmount)}</span>
               </div>
-              <div className="flex justify-between text-base font-bold text-slate-900 pt-1 border-t border-slate-200">
-                <span>Balance collected</span>
-                <span className="font-tabular text-blue-700">{formatPeso(total)}</span>
+              {reservationApplied > 0 && (
+                <div className="flex justify-between text-xs text-amber-800 font-medium gap-3">
+                  <span className="min-w-0 flex-1 leading-snug">Less reservation / downpayment (paid earlier)</span>
+                  <span className="font-tabular shrink-0 whitespace-nowrap">−{formatPeso(reservationApplied)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-base font-bold text-slate-900 pt-1 border-t border-slate-200 gap-3">
+                <span className="min-w-0 flex-1">Balance collected</span>
+                <span className="font-tabular text-blue-700 shrink-0 whitespace-nowrap">{formatPeso(total)}</span>
               </div>
               <div className="flex justify-between text-xs text-slate-500">
                 <span>Payment Method</span>

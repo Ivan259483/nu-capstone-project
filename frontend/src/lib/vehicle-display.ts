@@ -7,10 +7,8 @@ export function isLikelyInternalVehiclePlate(plate: string): boolean {
   if (s.length < 12) return false;
   // e.g. "033afd38...fc4f58fd:b0aa7..."
   if (/^[0-9a-f]{8,}(:[0-9a-f]+)+$/i.test(s)) return true;
-  // Mongo ObjectId or similar used as surrogate "plate"
-  if (s.length === 24 && /^[0-9a-f]+$/i.test(s)) return true;
-  // long hex-only blob
-  if (s.length >= 32 && /^[0-9a-f]+$/i.test(s)) return true;
+  // Mongo ObjectId (24), MD5 (32), or truncated / variant hex ids (24–40+) stored by mistake as "plate"
+  if (s.length >= 24 && /^[0-9a-f]+$/i.test(s)) return true;
   return false;
 }
 

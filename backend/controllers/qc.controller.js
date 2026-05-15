@@ -1,5 +1,5 @@
 import Order from '../models/order.model.js';
-import { decrypt } from '../utils/encryption.utils.js';
+import { resolvePlainVehiclePlate } from '../utils/vehiclePlate.utils.js';
 import { getIO } from '../utils/socket.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
@@ -21,32 +21,6 @@ const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
 const QC_APPROVED_TRACKER_STAGES = ['ready_pickup', 'completed', 'released'];
 const QC_JOBS_DEFAULT_LIMIT = 20;
 const QC_JOBS_MAX_LIMIT = 100;
-
-/**
- * `Order.find().lean()` bypasses Mongoose `post('init')` decryption — mirror
- * `formatBookingDto` in order.controller.js so QC sees the real plate, not ciphertext.
- * Also drops 24-char hex blobs that are sometimes stored by mistake (e.g. vehicle ObjectId).
- */
-function resolvePlainVehiclePlate(raw) {
-  if (!raw || typeof raw !== 'string') return '';
-  const safeDecrypt = (val) => {
-    if (!val || typeof val !== 'string') return val;
-    if (/^[0-9a-f]{32}:[0-9a-f]+$/i.test(val)) {
-      try {
-        return decrypt(val);
-      } catch {
-        return val;
-      }
-    }
-    return val;
-  };
-  const decrypted = safeDecrypt(raw);
-  const encBlobPattern = /^[0-9a-f]{32}:[0-9a-f]+$/i;
-  const couldNotDecrypt = encBlobPattern.test(String(decrypted || ''));
-  const plain = couldNotDecrypt ? '' : String(decrypted || '').trim();
-  if (/^[a-f0-9]{24}$/i.test(plain)) return '';
-  return plain;
-}
 
 const QC_JOBS_PROJECTION = [
   'orderNumber',

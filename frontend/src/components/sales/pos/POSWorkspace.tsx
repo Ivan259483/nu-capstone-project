@@ -309,6 +309,8 @@ export default function POSWorkspace() {
     vatAmount: number;
     total: number;
     paymentMethod: string;
+    /** Reservation / GCash credited before this POS payment (for receipt line item). */
+    reservationApplied?: number;
   } | null>(null);
   /** When set, Pay uses billing checkout for this existing order (queue / booking). */
   const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
@@ -709,6 +711,7 @@ export default function POSWorkspace() {
             vatAmount,
             total: balanceDue,
             paymentMethod,
+            reservationApplied: posReservationDownpayment,
           });
           setCompletedTxnId(txnId);
           setShowReceipt(true);
@@ -763,6 +766,7 @@ export default function POSWorkspace() {
           vatAmount,
           total,
           paymentMethod,
+          reservationApplied: 0,
         });
         setCompletedTxnId(txnId);
         setShowReceipt(true);
@@ -784,6 +788,7 @@ export default function POSWorkspace() {
         vatAmount,
         total,
         paymentMethod,
+        reservationApplied: 0,
       });
       setCompletedTxnId(fallbackId);
       setShowReceipt(true);
@@ -980,6 +985,7 @@ export default function POSWorkspace() {
             discount={receiptDiscount}
             vatAmount={receiptVat}
             total={receiptTotal}
+            reservationApplied={receiptSnap?.reservationApplied ?? 0}
             paymentMethod={receiptPm}
             onClose={() => {
               setShowReceipt(false);

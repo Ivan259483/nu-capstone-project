@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { uploadBufferToCloudinary } from './cloudinaryStorage.utils.js';
 import { normalizeMoney } from './billingTotals.js';
+import { resolvePlainVehiclePlate } from './vehiclePlate.utils.js';
 
 export const generateTermsAndConditionsPDF = async (order, signatureBase64) => {
   try {
@@ -274,6 +275,10 @@ export const buildInvoicePdfBuffer = (snapshot) => {
   const issuedAt = snapshot.issuedAt ? new Date(snapshot.issuedAt) : new Date();
   const paidAt = snapshot.paidAt || snapshot.payment?.paidAt ? new Date(snapshot.paidAt || snapshot.payment?.paidAt) : null;
   const vehicle = snapshot.vehicle || {};
+  /** Re-resolve at render time so old snapshots with internal hex in `plate` still print cleanly. */
+  const plateForPdf = resolvePlainVehiclePlate(
+    typeof vehicle.plate === 'string' ? vehicle.plate : String(vehicle.plate || '')
+  );
   const payment = snapshot.payment || {};
   const computed = snapshot.computed || {};
 
@@ -337,9 +342,12 @@ export const buildInvoicePdfBuffer = (snapshot) => {
   const customerRows = [
     ['Customer', snapshot.customerName || 'Customer'],
     ['Phone', snapshot.customerPhone || '-'],
-    ['Plate', vehicle.plate || '-'],
-    ['Vehicle', [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || '-'],
   ];
+  if (plateForPdf) customerRows.push(['Plate', plateForPdf]);
+  customerRows.push([
+    'Vehicle',
+    [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || '-',
+  ]);
 
   const detailsH = drawInfoBox(margin, 'Transaction Details', detailsRows);
   const customerH = drawInfoBox(margin + boxW + 18, 'Customer & Vehicle', customerRows);
@@ -417,27 +425,39 @@ export const buildInvoicePdfBuffer = (snapshot) => {
     return Number(value || 0) !== 0;
   });
 
-  doc.setFontSize(10);
-  for (const [label, value] of summaryRowsFiltered) {
+  const amountColumnW = 200;
+  const labelMaxW = pageW - margin - summaryX - amountColumnW - 8;
+
+  const drawSummaryLabelValue = (label, valueText, opts = {}) => {
+    const fs = opts.fontSize ?? 10;
+    const labelRgb = opts.labelColor || [71, 85, 105];
+    const valueRgb = opts.valueColor || [15, 23, 42];
+    doc.setFontSize(fs);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(71, 85, 105);
-    doc.text(label, summaryX, y);
+    doc.setTextColor(...labelRgb);
+    const labelLines = doc.splitTextToSize(String(label), Math.max(80, labelMaxW));
+    doc.text(labelLines, summaryX, y);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    right(Number(value) < 0 ? `-${money(Math.abs(Number(value)))}` : money(value));
-    y += 17;
+    doc.setTextColor(...valueRgb);
+    right(valueText, pageW - margin, y);
+    const lineGap = fs >= 14 ? 17 : 13;
+    y += Math.max(lineGap, labelLines.length * lineGap);
+  };
+
+  for (const [label, value] of summaryRowsFiltered) {
+    const valueStr = Number(value) < 0 ? `-${money(Math.abs(Number(value)))}` : money(value);
+    drawSummaryLabelValue(label, valueStr);
   }
 
   y += 4;
   doc.setDrawColor(203, 213, 225);
   doc.line(summaryX, y, pageW - margin, y);
   y += 22;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.setTextColor(29, 78, 216);
-  doc.text('Balance collected (this visit)', summaryX, y);
-  right(money(collected));
-  y += 20;
+  drawSummaryLabelValue('Balance collected (this visit)', money(collected), {
+    fontSize: 15,
+    labelColor: [29, 78, 216],
+    valueColor: [29, 78, 216],
+  });
   if (dp > 0 && grandTotal > 0) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);

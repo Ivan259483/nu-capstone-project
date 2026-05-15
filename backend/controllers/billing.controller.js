@@ -7,6 +7,7 @@ import { computeBillingTotals, normalizeMoney } from '../utils/billingTotals.js'
 import { runPosCheckoutCore } from './payment.controller.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { buildInvoicePdfBuffer } from '../utils/pdf.utils.js';
+import { resolvePlainVehiclePlate } from '../utils/vehiclePlate.utils.js';
 import { isCustomerRole, isPosManagerRole } from '../constants/roles.js';
 
 function mapLineItem(raw) {
@@ -103,7 +104,7 @@ function buildInvoiceSnapshot({ invoiceNumber, order, billing, computed }) {
       year: order.vehicleYear,
       make: order.vehicleMake,
       model: order.vehicleModel,
-      plate: order.vehiclePlate,
+      plate: resolvePlainVehiclePlate(order.vehiclePlate),
     },
     lineItems: billing.lineItems.map((li) => ({
       name: li.name,
