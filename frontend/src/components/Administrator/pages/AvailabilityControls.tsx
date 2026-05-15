@@ -302,7 +302,7 @@ export default function AvailabilityControls() {
       const normalized = normalizeSchedule(res?.data);
       setHoursSchedule(normalized);
       setRecurringSchedule(normalized);
-      toast.success('Operating hours and slots saved.');
+      toast.success('Operating hours and per-time slot capacity saved.');
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to save operating hours.'));
     } finally {
@@ -532,7 +532,7 @@ export default function AvailabilityControls() {
 
       <section className="ah-card-section p-5">
         <h3 className="text-sm font-semibold text-slate-900">Operating Hours & Slots</h3>
-        <p className="mt-1 text-xs text-slate-600">Configure day-level hours and max daily booking capacity.</p>
+        <p className="mt-1 text-xs text-slate-600">Configure day-level hours and capacity for each generated time slot.</p>
         <div className="mt-4 overflow-x-auto rounded-2xl bg-white shadow-[0_2px_12px_-4px_rgba(15,23,42,0.08),0_0_0_1px_rgba(226,232,240,0.55)]">
           <table className="ah-table min-w-[760px]">
             <thead>
@@ -541,7 +541,7 @@ export default function AvailabilityControls() {
                 <th>Open</th>
                 <th>From</th>
                 <th>To</th>
-                <th>Daily slots</th>
+                <th>Capacity per time slot</th>
               </tr>
             </thead>
             <tbody>

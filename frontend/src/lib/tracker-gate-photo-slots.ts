@@ -19,6 +19,30 @@ export const TRACKER_PHOTO_SLOT_SHORT: Record<TrackerPhotoSlotKey, string> = {
   close_up: 'CLOSE-UP',
 };
 
+/** Vehicle Arrive — 6th slot (Quality Checker live tracker only). */
+export const TRACKER_PREASSESSMENT_SLOT_KEY = 'preassessment_form' as const;
+
+/** Quality Check gate — single checklist / inspection photo. */
+export const TRACKER_QC_FORM_SLOT_KEY = 'qc_form' as const;
+
+export type StaffGateSlotKey =
+  | TrackerPhotoSlotKey
+  | typeof TRACKER_PREASSESSMENT_SLOT_KEY
+  | typeof TRACKER_QC_FORM_SLOT_KEY;
+
+export const TRACKER_GATE_STANDARD_SLOT_COUNT = 5;
+export const TRACKER_RECEIVED_QC_SLOT_COUNT = 6;
+export const TRACKER_QUALITY_CHECK_GATE_SLOT_COUNT = 1;
+
+export const PREASSESSMENT_SLOT_SHORT = 'CHECKLIST PHOTO';
+export const PREASSESSMENT_SLOT_HINT = 'Photo of signed checklist';
+
+export const QC_FORM_SLOT_SHORT = 'QC FORM / CHECKLIST';
+export const QC_FORM_SLOT_HINT = 'Photo of completed QC checklist / signed inspection';
+
+const PREASSESSMENT_ALIASES = new Set(['preassessment_form', 'checklist_photo', 'checklist']);
+const QC_FORM_ALIASES = new Set(['qc_form', 'qc_checklist', 'final_inspection']);
+
 type GateStage = 'received' | 'in_progress' | 'quality_check' | 'ready_pickup';
 
 /** Per-gate helper copy under each slot (customer-facing tone). */
@@ -38,11 +62,11 @@ export const TRACKER_SLOT_PROMPTS: Record<GateStage, Record<TrackerPhotoSlotKey,
     close_up: 'Detail work close-up',
   },
   quality_check: {
-    front: 'Front after service',
-    rear: 'Rear after service',
-    left: 'Left side QC',
-    right: 'Right side QC',
-    close_up: 'Finish quality close-up',
+    front: 'QC checklist (legacy)',
+    rear: 'QC checklist (legacy)',
+    left: 'QC checklist (legacy)',
+    right: 'QC checklist (legacy)',
+    close_up: 'QC checklist (legacy)',
   },
   ready_pickup: {
     front: 'Front final',
@@ -59,6 +83,35 @@ export function normalizeTrackerSlotKey(raw: string | undefined | null): Tracker
   return null;
 }
 
+/** Staff upload grid: includes checklist slot on Vehicle Arrive for QC viewers. */
+export function normalizeStaffGateSlot(raw: string | undefined | null, stage?: string | null): StaffGateSlotKey | null {
+  const st = String(stage || '').trim();
+  const s = String(raw || '').trim().toLowerCase().replace(/-/g, '_');
+  if (PREASSESSMENT_ALIASES.has(s) && st === 'received') {
+    return 'preassessment_form';
+  }
+  if (QC_FORM_ALIASES.has(s) && st === 'quality_check') {
+    return 'qc_form';
+  }
+  return normalizeTrackerSlotKey(raw);
+}
+
+export function requiredSlotsCountForGate(gateStage: string, viewerIsQualityChecker: boolean): number {
+  if (gateStage === 'quality_check') return TRACKER_QUALITY_CHECK_GATE_SLOT_COUNT;
+  if (gateStage === 'received' && viewerIsQualityChecker) return TRACKER_RECEIVED_QC_SLOT_COUNT;
+  return TRACKER_GATE_STANDARD_SLOT_COUNT;
+}
+
+export function orderedStaffGateSlots(gateStage: string, viewerIsQualityChecker: boolean): StaffGateSlotKey[] {
+  if (gateStage === 'quality_check') {
+    return [TRACKER_QC_FORM_SLOT_KEY];
+  }
+  if (gateStage === 'received' && viewerIsQualityChecker) {
+    return [...TRACKER_PHOTO_SLOT_KEYS, TRACKER_PREASSESSMENT_SLOT_KEY];
+  }
+  return [...TRACKER_PHOTO_SLOT_KEYS];
+}
+
 export function isGatePhotoStage(stage: string): stage is GateStage {
   return stage === 'received' || stage === 'in_progress' || stage === 'quality_check' || stage === 'ready_pickup';
 }
@@ -66,4 +119,11 @@ export function isGatePhotoStage(stage: string): stage is GateStage {
 export function slotPromptForGate(stage: string, slot: TrackerPhotoSlotKey): string {
   if (!isGatePhotoStage(stage)) return '';
   return TRACKER_SLOT_PROMPTS[stage][slot] || '';
+}
+
+/** Hint under staff gate upload tiles (includes special slots). */
+export function slotPromptForStaffGateSlot(stage: string, slot: StaffGateSlotKey): string {
+  if (slot === TRACKER_QC_FORM_SLOT_KEY) return QC_FORM_SLOT_HINT;
+  if (slot === TRACKER_PREASSESSMENT_SLOT_KEY) return PREASSESSMENT_SLOT_HINT;
+  return slotPromptForGate(stage, slot as TrackerPhotoSlotKey);
 }

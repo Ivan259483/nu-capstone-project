@@ -6,7 +6,10 @@
 import {
   TRACKER_PHOTO_SLOT_KEYS,
   normalizeTrackerSlotKey,
+  normalizeStaffGateSlot,
   TRACKER_PHOTO_SLOT_LABELS,
+  TRACKER_PREASSESSMENT_SLOT_KEY,
+  TRACKER_QC_FORM_SLOT_KEY,
   type TrackerPhotoSlotKey,
 } from './tracker-gate-photo-slots';
 
@@ -68,25 +71,68 @@ export type TrackerStageMediaEntry = {
   uploadedBy?: string;
 };
 
-export type TrackerStageMediaWithDisplaySlot = TrackerStageMediaEntry & { displaySlot: TrackerPhotoSlotKey };
+/** Five exterior/detail angles plus optional Vehicle Arrive checklist; Quality Check uses qc_form only. */
+export type CustomerTrackerDisplaySlot =
+  | TrackerPhotoSlotKey
+  | typeof TRACKER_PREASSESSMENT_SLOT_KEY
+  | typeof TRACKER_QC_FORM_SLOT_KEY;
 
-/** Ordered gate photos (up to five) for customer UI. Legacy slotless row maps to front only. */
+export type TrackerStageMediaWithDisplaySlot = TrackerStageMediaEntry & { displaySlot: CustomerTrackerDisplaySlot };
+
+const PREASSESSMENT_CUSTOMER_LABEL = 'Pre-assessment checklist';
+export const QC_FORM_CUSTOMER_LABEL = 'QC Form';
+
+/** Five angle slots filled for received / in_progress / ready_pickup — same threshold as those QC gates. */
+export const CUSTOMER_TRACKER_GATE_MIN_PHOTOS = 5;
+
+/** Minimum slot rows per gate for customer evidence (matches backend gate rules). */
+export function customerGateMinSlotCount(stage: TrackerMediaStage): number {
+  if (stage === 'quality_check') return 1;
+  return CUSTOMER_TRACKER_GATE_MIN_PHOTOS;
+}
+
+/** Ordered gate photos for customer UI (five angles; Vehicle Arrive may add a 6th checklist row; Quality Check is one qc_form row). Legacy slotless row maps to front only. */
 export function listTrackerStageMediaForStage(
   booking: { trackerStageMedia?: TrackerStageMediaEntry[] } | null | undefined,
   stage: TrackerMediaStage | null | undefined
 ): TrackerStageMediaWithDisplaySlot[] {
   if (!stage || !booking?.trackerStageMedia?.length) return [];
   const rows = booking.trackerStageMedia.filter((e) => e.stage === stage && String(e.photoUrl || '').trim());
+
+  if (stage === 'quality_check') {
+    const qcFormRow = rows.find((r) => normalizeStaffGateSlot(r.slot, stage) === TRACKER_QC_FORM_SLOT_KEY);
+    if (qcFormRow) return [{ ...qcFormRow, displaySlot: TRACKER_QC_FORM_SLOT_KEY }];
+    const legacy = rows.find((r) => {
+      const sl = normalizeStaffGateSlot(r.slot, stage);
+      return sl === null ? !normalizeTrackerSlotKey(r.slot) : TRACKER_PHOTO_SLOT_KEYS.includes(sl as TrackerPhotoSlotKey);
+    });
+    if (legacy) return [{ ...legacy, displaySlot: TRACKER_QC_FORM_SLOT_KEY }];
+    return [];
+  }
+
   const out: TrackerStageMediaWithDisplaySlot[] = [];
   let consumedLegacy = false;
   for (const slot of TRACKER_PHOTO_SLOT_KEYS) {
     const explicit = rows.find((r) => normalizeTrackerSlotKey(r.slot) === slot);
     let row: TrackerStageMediaEntry | undefined = explicit;
     if (!row && slot === 'front') {
-      row = rows.find((r) => !normalizeTrackerSlotKey(r.slot) && !consumedLegacy);
+      row = rows.find((r) => {
+        if (consumedLegacy) return false;
+        if (normalizeTrackerSlotKey(r.slot)) return false;
+        if (stage === 'received' && normalizeStaffGateSlot(r.slot, stage) === TRACKER_PREASSESSMENT_SLOT_KEY) {
+          return false;
+        }
+        return true;
+      });
       if (row) consumedLegacy = true;
     }
     if (row) out.push({ ...row, displaySlot: slot });
+  }
+  if (stage === 'received') {
+    const preRow = rows.find((r) => normalizeStaffGateSlot(r.slot, stage) === TRACKER_PREASSESSMENT_SLOT_KEY);
+    if (preRow) {
+      out.push({ ...preRow, displaySlot: TRACKER_PREASSESSMENT_SLOT_KEY });
+    }
   }
   return out;
 }
@@ -97,7 +143,12 @@ export function getCustomerStageSlotPhotos(
 ): { url: string; label: string }[] {
   return listTrackerStageMediaForStage(booking, stage).map((r) => ({
     url: (r.photoUrl || '').trim(),
-    label: TRACKER_PHOTO_SLOT_LABELS[r.displaySlot],
+    label:
+      r.displaySlot === TRACKER_PREASSESSMENT_SLOT_KEY
+        ? PREASSESSMENT_CUSTOMER_LABEL
+        : r.displaySlot === TRACKER_QC_FORM_SLOT_KEY
+          ? QC_FORM_CUSTOMER_LABEL
+          : TRACKER_PHOTO_SLOT_LABELS[r.displaySlot as TrackerPhotoSlotKey],
   }));
 }
 
@@ -122,9 +173,6 @@ export function resolveTrackerStageDescription(
   if (custom) return custom;
   return DEFAULT_TRACKER_STAGE_DESCRIPTION[stage] || '';
 }
-
-/** Five angle slots filled — same threshold as QC gate advance. */
-export const CUSTOMER_TRACKER_GATE_MIN_PHOTOS = 5;
 
 /**
  * When `serviceTrackingStage` (or coarse `status`) still says "received" but all intake

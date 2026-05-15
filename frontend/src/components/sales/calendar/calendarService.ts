@@ -51,6 +51,7 @@ export async function fetchSlotRange(start: string, end: string): Promise<RangeS
 // GET /api/slots?date=YYYY-MM-DD
 export interface SlotDetail {
   time: string;
+  label?: string;
   capacity: number;
   booked: number;
   available: number;
@@ -86,6 +87,51 @@ export async function fetchBookingsByDate(date: string): Promise<CalendarBooking
     const bDate = b.bookingDate || '';
     return bDate === date || bDate.startsWith(date);
   });
+}
+
+export interface AvailabilityClosure {
+  _id: string;
+  fromDate: string;
+  toDate: string;
+  reason?: string;
+  note?: string;
+}
+
+export async function fetchAvailabilityClosures(): Promise<AvailabilityClosure[]> {
+  const res = await fetch('/api/admin/availability/closures', { headers: authHeaders() });
+  if (res.status === 401 || res.status === 403) return [];
+  if (!res.ok) throw new Error(`Closure fetch failed: ${res.status}`);
+  const json = await res.json();
+  return Array.isArray(json) ? json as AvailabilityClosure[] : [];
+}
+
+export async function createAvailabilityClosure(date: string, note?: string): Promise<AvailabilityClosure> {
+  const res = await fetch('/api/admin/availability/closures', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      fromDate: date,
+      toDate: date,
+      reason: 'Custom',
+      note: note || 'Blocked from Sales calendar',
+    }),
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(json?.error || json?.message || `Closure create failed: ${res.status}`);
+  }
+  return json as AvailabilityClosure;
+}
+
+export async function deleteAvailabilityClosure(id: string): Promise<void> {
+  const res = await fetch(`/api/admin/availability/closures/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => null);
+    throw new Error(json?.error || json?.message || `Closure delete failed: ${res.status}`);
+  }
 }
 
 // ── Approve a booking ──────────────────────────────────────────────────────────

@@ -6,6 +6,8 @@ import {
   Bell,
   CalendarPlus,
   Check,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   Clock3,
   LogOut,
@@ -28,8 +30,9 @@ import {
   type LiveTrackerStepId,
   getCustomerStageSlotPhotos,
 } from '@/lib/customer-tracker-stage-media';
-import { isNonNavigableImageSrc } from '@/lib/non-navigable-image-url';
 import { getLiveTrackerStepIndex } from '@/lib/customer-live-tracker-step';
+import { getTrackerPipelineProgressPct } from '@/lib/tracker-pipeline-progress';
+import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '@/lib/cloudinary-delivery-url';
 
 const BRAND_ORANGE = '#E8650A';
 const LUXURY_EASE = [0.22, 1, 0.36, 1] as const;
@@ -382,7 +385,11 @@ export default function CustomerLiveTrackerPage() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
-  const [stagePhotoLightbox, setStagePhotoLightbox] = useState<{ url: string; title: string } | null>(null);
+  const [stagePhotoLightbox, setStagePhotoLightbox] = useState<{
+    stepTitle: string;
+    items: { url: string; label: string }[];
+    index: number;
+  } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeBooking, setActiveBooking] = useState<Booking | null>(null);
   const [detailer, setDetailer] = useState<User | null>(null);
@@ -400,6 +407,32 @@ export default function CustomerLiveTrackerPage() {
 
     fetchNotifications();
   }, []);
+
+  useEffect(() => {
+    if (!stagePhotoLightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setStagePhotoLightbox(null);
+        return;
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setStagePhotoLightbox((prev) => {
+          if (!prev || prev.index <= 0) return prev;
+          return { ...prev, index: prev.index - 1 };
+        });
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setStagePhotoLightbox((prev) => {
+          if (!prev || prev.index >= prev.items.length - 1) return prev;
+          return { ...prev, index: prev.index + 1 };
+        });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [stagePhotoLightbox !== null]);
 
   useEffect(() => {
     if (!user) return;
@@ -590,7 +623,12 @@ export default function CustomerLiveTrackerPage() {
   const vehicleLabel = getVehicleLabel(activeBooking);
   const bayAssignment = getBayAssignment(activeBooking);
   const currentStageTitle = resolvedSteps.find((step) => step.state === 'active')?.title || TRACKER_STEPS[0].title;
-  const trackerProgress = activeBooking ? ((getLiveTrackerStepIndex(activeBooking) + 1) / TRACKER_STEPS.length) * 100 : 0;
+  const trackerProgress = activeBooking
+    ? getTrackerPipelineProgressPct({
+        serviceTrackingStage: (activeBooking as { serviceTrackingStage?: string }).serviceTrackingStage,
+        status: activeBooking.status,
+      })
+    : 0;
   const isAwaitingVehicle = activeBooking && ['approved', 'confirmed', 'assigned'].includes(String(activeBooking.status || '').toLowerCase());
   const liveStatusMeta = isLoading
     ? {
@@ -1521,52 +1559,50 @@ export default function CustomerLiveTrackerPage() {
                                           <div className="mb-2 flex items-center gap-2 px-1">
                                             <Camera size={14} className="text-slate-400 shrink-0" aria-hidden />
                                             <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-                                              Service photos
+                                              {step.id === 'completed' ? 'QC Form' : 'Service photos'}
                                             </span>
                                           </div>
-                                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                            {step.stageSlotPhotos.map((shot) => (
+                                          <div
+                                            className={
+                                              step.id === 'completed'
+                                                ? 'grid grid-cols-1 gap-2 max-w-xs'
+                                                : 'grid grid-cols-2 gap-2 sm:grid-cols-3'
+                                            }
+                                          >
+                                            {step.stageSlotPhotos.map((shot, shotIdx) => (
                                               <div key={shot.label} className="min-w-0">
                                                 <p className="truncate text-[10px] font-semibold text-slate-500 mb-1">
                                                   {shot.label}
                                                 </p>
-                                                {isNonNavigableImageSrc(shot.url) ? (
-                                                  <button
-                                                    type="button"
-                                                    className="block w-full cursor-zoom-in rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-1"
-                                                    aria-label={`${step.title} — ${shot.label} — enlarge`}
-                                                    onClick={() =>
-                                                      setStagePhotoLightbox({
-                                                        url: shot.url,
-                                                        title: `${step.title} — ${shot.label}`,
-                                                      })
-                                                    }
-                                                  >
-                                                    <img
-                                                      src={shot.url}
-                                                      alt=""
-                                                      className="aspect-square w-full rounded-lg object-cover border border-slate-200/80"
-                                                    />
-                                                  </button>
-                                                ) : (
-                                                  <a
-                                                    href={shot.url}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="block w-full"
-                                                    aria-label={`${step.title} — ${shot.label}`}
-                                                  >
-                                                    <img
-                                                      src={shot.url}
-                                                      alt=""
-                                                      className="aspect-square w-full rounded-lg object-cover border border-slate-200/80"
-                                                    />
-                                                  </a>
-                                                )}
+                                                <button
+                                                  type="button"
+                                                  className="block w-full cursor-zoom-in rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-1"
+                                                  aria-label={`${step.title} — ${shot.label} — enlarge`}
+                                                  onClick={() =>
+                                                    setStagePhotoLightbox({
+                                                      stepTitle: step.title,
+                                                      items: step.stageSlotPhotos.map((x) => ({ url: x.url, label: x.label })),
+                                                      index: shotIdx,
+                                                    })
+                                                  }
+                                                >
+                                                  <img
+                                                    src={toCloudinaryEvidenceThumbUrl(
+                                                      shot.url,
+                                                      typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+                                                    )}
+                                                    alt=""
+                                                    className="aspect-square w-full rounded-lg object-cover border border-slate-200/80"
+                                                  />
+                                                </button>
                                               </div>
                                             ))}
                                           </div>
                                         </div>
+                                      ) : isActive && step.id === 'completed' ? (
+                                        <p className="text-xs text-slate-600 mt-3 leading-relaxed">
+                                          Upload pending — awaiting QC form photo from the shop.
+                                        </p>
                                       ) : null}
                                       <p className="text-[11px] text-slate-400 mt-2">{step.timestamp}</p>
                                     </>
@@ -1684,15 +1720,25 @@ export default function CustomerLiveTrackerPage() {
         </div>
       </div>
 
-      {stagePhotoLightbox && (
+      {stagePhotoLightbox && (() => {
+        const lb = stagePhotoLightbox;
+        const current = lb.items[lb.index];
+        if (!current) return null;
+        const total = lb.items.length;
+        const canPrev = lb.index > 0;
+        const canNext = lb.index < total - 1;
+        const ariaTitle = `${lb.stepTitle} — ${current.label}`;
+        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+        const hiResSrc = toCloudinaryHighResDeliveryUrl(current.url, dpr);
+        return (
         <div
           className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
           role="dialog"
           aria-modal="true"
-          aria-label={stagePhotoLightbox.title}
+          aria-label={ariaTitle}
           onClick={() => setStagePhotoLightbox(null)}
         >
-          <div className="relative max-w-4xl w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="relative max-w-4xl w-full max-h-[90vh] flex flex-col px-10 sm:px-12" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               onClick={() => setStagePhotoLightbox(null)}
@@ -1700,15 +1746,54 @@ export default function CustomerLiveTrackerPage() {
             >
               Close
             </button>
-            <img
-              src={stagePhotoLightbox.url}
-              alt=""
-              className="w-full max-h-[min(85vh,900px)] object-contain rounded-2xl shadow-2xl border border-white/10 bg-slate-950/40"
-            />
-            <p className="text-center text-white/65 text-xs mt-3 font-medium">{stagePhotoLightbox.title}</p>
+            <div className="relative flex w-full items-center justify-center">
+              {total > 1 && (
+                <button
+                  type="button"
+                  disabled={!canPrev}
+                  aria-label="Previous photo"
+                  onClick={() =>
+                    setStagePhotoLightbox((p) =>
+                      p && p.index > 0 ? { ...p, index: p.index - 1 } : p,
+                    )
+                  }
+                  className="absolute left-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg transition hover:bg-black/60 disabled:pointer-events-none disabled:opacity-25 sm:h-11 sm:w-11"
+                >
+                  <ChevronLeft size={22} strokeWidth={2.5} aria-hidden />
+                </button>
+              )}
+              <img
+                key={hiResSrc}
+                src={hiResSrc}
+                alt=""
+                className="w-full max-h-[min(85vh,900px)] object-contain rounded-2xl shadow-2xl border border-white/10 bg-slate-950/40"
+              />
+              {total > 1 && (
+                <button
+                  type="button"
+                  disabled={!canNext}
+                  aria-label="Next photo"
+                  onClick={() =>
+                    setStagePhotoLightbox((p) =>
+                      p && p.index < p.items.length - 1 ? { ...p, index: p.index + 1 } : p,
+                    )
+                  }
+                  className="absolute right-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg transition hover:bg-black/60 disabled:pointer-events-none disabled:opacity-25 sm:h-11 sm:w-11"
+                >
+                  <ChevronRight size={22} strokeWidth={2.5} aria-hidden />
+                </button>
+              )}
+            </div>
+            <p className="text-center text-white/85 text-xs mt-3 font-medium">{ariaTitle}</p>
+            {total > 1 && (
+              <p className="text-center text-white/50 text-[11px] mt-1 font-medium tabular-nums">
+                {lb.index + 1} / {total} — arrows or ← → keys
+              </p>
+            )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       <style>{`
         @keyframes ring {

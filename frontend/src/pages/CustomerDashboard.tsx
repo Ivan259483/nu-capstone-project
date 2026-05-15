@@ -21,12 +21,15 @@ import {
   DASHBOARD_TRACKER_STEP_MEDIA_STAGE,
   bumpCustomerTrackerIndexForInProgressGateComplete,
   bumpCustomerTrackerIndexForReceivedGateComplete,
+  CUSTOMER_TRACKER_GATE_MIN_PHOTOS,
+  customerGateMinSlotCount,
   getCustomerStageSlotPhotos,
   resolveTrackerStageDescription,
 } from '../lib/customer-tracker-stage-media';
+import { getTrackerPipelineProgressPct } from '../lib/tracker-pipeline-progress';
+import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '../lib/cloudinary-delivery-url';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
 import { compressImageForBookingProof } from '../lib/compress-image-for-upload';
-import { isNonNavigableImageSrc } from '../lib/non-navigable-image-url';
 import VehicleGarageForm from '@/components/shared/VehicleGarageForm';
 import {
   ADD_VEHICLE_TYPE_LABELS,
@@ -154,10 +157,6 @@ const formatPlateDisplay = (value: unknown, fallback = '—') => {
   return formatted || fallback;
 };
 
-const TRACKER_ESTIMATED_SERVICE_MINUTES = 210;
-/** Must match backend QC gate `REQUIRED_GATE_PHOTOS` (5 slots per gate). */
-const TRACKER_REQUIRED_GATE_PHOTOS = 5;
-
 /** Bookings that may appear on the customer live tracker (dashboard + tracker tab). */
 const CUSTOMER_TRACKER_STATUS_SET = new Set([
   'approved',
@@ -271,12 +270,6 @@ function formatTrackerClockLabel(value: unknown, fallback = '--'): string {
     return raw && raw !== '--' ? raw : fallback;
   }
   return formatMinutesAsLocaleTime(minutes);
-}
-
-function formatTrackerEtaLabel(value: unknown): string {
-  const start = parseClockTimeToMinutes(value);
-  if (start == null) return 'ETA updating';
-  return `Est. ${formatMinutesAsLocaleTime(start + TRACKER_ESTIMATED_SERVICE_MINUTES)}`;
 }
 
 function formatTrackerUpdatedLabel(value: unknown): string {
@@ -457,8 +450,12 @@ export default function CustomerDashboard() {
   const [paymentLightboxUrl, setPaymentLightboxUrl] = useState<string | null>(null);
   const [orderReceiptPdfUrl, setOrderReceiptPdfUrl] = useState<string | null>(null);
   const orderReceiptPdfUrlRef = useRef<string | null>(null);
-  /** Inline/base64 tracker photos cannot open in a new tab — use overlay instead. */
-  const [trackerEvidenceLightbox, setTrackerEvidenceLightbox] = useState<{ url: string; title: string } | null>(null);
+  /** Tracker evidence photos — in-page gallery (arrow keys + prev/next). */
+  const [trackerEvidenceLightbox, setTrackerEvidenceLightbox] = useState<{
+    stepTitle: string;
+    items: { url: string; label: string }[];
+    index: number;
+  } | null>(null);
 
   /** Prevents overlapping GET /bookings calls (poll + socket debounce) from stacking and timing out together. */
   const bookingsLoadLockRef = useRef(false);
@@ -510,6 +507,32 @@ export default function CustomerDashboard() {
     const u = orderReceiptPdfUrlRef.current;
     if (u) URL.revokeObjectURL(u);
   }, []);
+
+  useEffect(() => {
+    if (!trackerEvidenceLightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setTrackerEvidenceLightbox(null);
+        return;
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setTrackerEvidenceLightbox((prev) => {
+          if (!prev || prev.index <= 0) return prev;
+          return { ...prev, index: prev.index - 1 };
+        });
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setTrackerEvidenceLightbox((prev) => {
+          if (!prev || prev.index >= prev.items.length - 1) return prev;
+          return { ...prev, index: prev.index + 1 };
+        });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [trackerEvidenceLightbox !== null]);
 
   // ── Real-time tracker updates via useLiveJobs socket ─────────────────────────
   // When QC advances a stage, the backend emits booking:status to user:${id} room.
@@ -969,11 +992,19 @@ export default function CustomerDashboard() {
   const [step2Errors, setStep2Errors] = useState<Record<string, string>>({});
   // Structured per-slot statuses for the selected date
   type SlotStatus = 'AVAILABLE' | 'FULL' | 'CLOSED';
-  type TimeSlot = { time: string; status: SlotStatus };
+  type TimeSlot = { time: string; label?: string; status: SlotStatus };
   type DayAvailabilityStatus = 'available' | 'full' | 'closed';
   type AvailableSlotsPayload = {
     success?: boolean;
     bookedSlots?: string[];
+    slots?: {
+      time?: string;
+      label?: string;
+      status?: string;
+      available?: number;
+      booked?: number;
+      capacity?: number;
+    }[];
     unavailable?: boolean;
     errorCode?: string | null;
     message?: string | null;
@@ -998,13 +1029,32 @@ export default function CustomerDashboard() {
     message: string;
     remaining: number | null;
     bookedSlots: string[];
+    slots: NonNullable<AvailableSlotsPayload['slots']>;
   } => {
     const bookedSlots = Array.isArray(payload?.bookedSlots) ? payload.bookedSlots : [];
+    const slots = Array.isArray(payload?.slots) ? payload.slots : [];
     const unavailable = !!payload?.unavailable;
     const errorCode = typeof payload?.errorCode === 'string' ? payload.errorCode : null;
     const message = (payload?.message || payload?.error || '').toString().trim();
     const remaining = typeof payload?.remaining === 'number' ? payload.remaining : null;
-    return { unavailable, errorCode, message, remaining, bookedSlots };
+    return { unavailable, errorCode, message, remaining, bookedSlots, slots };
+  };
+
+  const normalizeBookingTimeKey = (value: string) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const twentyFour = raw.match(/^(\d{1,2}):(\d{2})$/);
+    if (twentyFour) {
+      return `${String(Number(twentyFour[1])).padStart(2, '0')}:${twentyFour[2]}`;
+    }
+    const twelveHour = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!twelveHour) return raw.toLowerCase();
+    let hour = Number(twelveHour[1]);
+    const minute = twelveHour[2];
+    const period = twelveHour[3].toUpperCase();
+    if (period === 'AM' && hour === 12) hour = 0;
+    if (period === 'PM' && hour !== 12) hour += 12;
+    return `${String(hour).padStart(2, '0')}:${minute}`;
   };
 
   const openBookingModal = async (preSelectedVehicle?: any, options?: { presetPackageId?: string }) => {
@@ -1098,6 +1148,7 @@ export default function CustomerDashboard() {
         message: availabilityMessage,
         remaining,
         bookedSlots: apiBooked,
+        slots: apiSlots,
       } = parseAvailableSlotsPayload(data);
       setBookedSlots(apiBooked);
 
@@ -1119,27 +1170,56 @@ export default function CustomerDashboard() {
         return h;
       };
 
-      const derived: TimeSlot[] = BOOKING_TIMES.map((t) => {
-        if (unavailable) {
-          const status: SlotStatus = errorCode === 'DATE_FULL' ? 'FULL' : 'CLOSED';
-          return { time: t, status };
+      const deriveStatusFromApiSlot = (slot: NonNullable<AvailableSlotsPayload['slots']>[number]): SlotStatus => {
+        if (unavailable && errorCode !== 'DATE_FULL') return 'CLOSED';
+        if (String(slot.status || '').toUpperCase() === 'FULL' || Number(slot.available ?? 0) <= 0) {
+          return 'FULL';
         }
-        if (typeof remaining === 'number' && remaining <= 0) {
-          return { time: t, status: 'FULL' as SlotStatus };
-        }
-        if (apiBooked.includes(t)) return { time: t, status: 'FULL' as SlotStatus };
         if (isToday) {
-          const slotHour = parseHour(t);
+          const slotHour = parseHour(String(slot.label || slot.time || ''));
           const isPastSlot = slotHour < currentHour || (slotHour === currentHour && currentMin >= 0);
-          if (isPastSlot) return { time: t, status: 'CLOSED' as SlotStatus };
+          if (isPastSlot) return 'CLOSED';
         }
-        return { time: t, status: 'AVAILABLE' as SlotStatus };
-      });
+        return 'AVAILABLE';
+      };
+
+      const derived: TimeSlot[] = apiSlots.length > 0
+        ? apiSlots
+          .reduce<TimeSlot[]>((rows, slot) => {
+            const displayTime = String(slot.label || slot.time || '').trim();
+            if (!displayTime) return rows;
+            rows.push({
+              time: displayTime,
+              label: displayTime,
+              status: deriveStatusFromApiSlot(slot),
+            });
+            return rows;
+          }, [])
+        : BOOKING_TIMES.map((t) => {
+          if (unavailable) {
+            const status: SlotStatus = errorCode === 'DATE_FULL' ? 'FULL' : 'CLOSED';
+            return { time: t, status };
+          }
+          if (typeof remaining === 'number' && remaining <= 0) {
+            return { time: t, status: 'FULL' as SlotStatus };
+          }
+          if (apiBooked.some((booked) => normalizeBookingTimeKey(booked) === normalizeBookingTimeKey(t))) {
+            return { time: t, status: 'FULL' as SlotStatus };
+          }
+          if (isToday) {
+            const slotHour = parseHour(t);
+            const isPastSlot = slotHour < currentHour || (slotHour === currentHour && currentMin >= 0);
+            if (isPastSlot) return { time: t, status: 'CLOSED' as SlotStatus };
+          }
+          return { time: t, status: 'AVAILABLE' as SlotStatus };
+        });
       setSlotStatuses(derived);
 
       // Check if the currently selected time became unavailable
       if (currentSelectedTime) {
-        const nowStatus = derived.find(s => s.time === currentSelectedTime)?.status;
+        const nowStatus = derived.find(
+          s => normalizeBookingTimeKey(s.time) === normalizeBookingTimeKey(currentSelectedTime)
+        )?.status;
         if (nowStatus && nowStatus !== 'AVAILABLE') {
           const msg = `"${currentSelectedTime}" is no longer available. Please select another time.`;
           setSlotError(msg);
@@ -1166,19 +1246,18 @@ export default function CustomerDashboard() {
     const token = getStoredAuthToken();
     const result: Record<string, DayAvailabilityInfo> = {};
 
-    // Build list of dates to fetch (skip weekends and past dates)
+    // Build list of dates to fetch. Backend owns recurring closures/weekend rules.
     const datesToFetch: string[] = [];
     for (let d = 1; d <= daysInMonth; d++) {
       const date = new Date(year, month, d);
       const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const isWeekend = date.getDay() === 0 || date.getDay() === 6;
       const isPast = date < today;
-      if (isWeekend || isPast) {
+      if (isPast) {
         result[iso] = {
           status: 'closed',
           unavailable: true,
-          errorCode: isPast ? 'PAST_DATE' : 'CLOSED_BY_RECURRING_DAY',
-          reason: isPast ? 'Past date is no longer available for booking.' : 'The shop is closed on this day.',
+          errorCode: 'PAST_DATE',
+          reason: 'Past date is no longer available for booking.',
           remaining: 0,
         };
       } else {
@@ -1202,12 +1281,16 @@ export default function CustomerDashboard() {
             message: availabilityMessage,
             remaining,
             bookedSlots: booked,
+            slots: apiSlots,
           } = parseAvailableSlotsPayload(data);
 
           let status: DayAvailabilityStatus = 'available';
           if (unavailable) {
             status = errorCode === 'DATE_FULL' ? 'full' : 'closed';
-          } else if ((typeof remaining === 'number' && remaining <= 0) || booked.length >= BOOKING_TIMES.length) {
+          } else if (
+            (apiSlots.length > 0 && apiSlots.every((slot) => String(slot.status || '').toUpperCase() === 'FULL' || Number(slot.available ?? 0) <= 0)) ||
+            (apiSlots.length === 0 && ((typeof remaining === 'number' && remaining <= 0) || booked.length >= BOOKING_TIMES.length))
+          ) {
             status = 'full';
           }
 
@@ -2059,7 +2142,7 @@ export default function CustomerDashboard() {
           >
             <iconify-icon
               icon="solar:alt-arrow-left-linear"
-              width="16"
+              width="18"
               className="customer-sidebar-toggle-chevron"
             ></iconify-icon>
           </button>
@@ -3878,13 +3961,13 @@ export default function CustomerDashboard() {
                   ? getCustomerStageSlotPhotos(activeBooking as any, 'quality_check').length
                   : 0;
                 let currentStep = rawStep;
-                if (activeBooking && tsKey === 'quality_check' && qcGatePhotoCount >= TRACKER_REQUIRED_GATE_PHOTOS) {
+                if (activeBooking && tsKey === 'quality_check' && qcGatePhotoCount >= customerGateMinSlotCount('quality_check')) {
                   currentStep = Math.max(currentStep, TRACKER_STEPS.length - 1);
                 }
                 const readyPickupCountSimple = activeBooking
                   ? getCustomerStageSlotPhotos(activeBooking as any, 'ready_pickup').length
                   : 0;
-                if (activeBooking && readyPickupCountSimple >= TRACKER_REQUIRED_GATE_PHOTOS) {
+                if (activeBooking && readyPickupCountSimple >= CUSTOMER_TRACKER_GATE_MIN_PHOTOS) {
                   currentStep = Math.max(currentStep, TRACKER_STEPS.length - 1);
                 }
                 currentStep = bumpCustomerTrackerIndexForReceivedGateComplete(activeBooking, currentStep, 'dashboard5');
@@ -3968,41 +4051,38 @@ export default function CustomerDashboard() {
                                         const apiStage = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[step.id];
                                         const desc = resolveTrackerStageDescription(activeBooking as any, apiStage);
                                         const shots = apiStage ? getCustomerStageSlotPhotos(activeBooking as any, apiStage) : [];
+                                        const thumbDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+                                        const qcEvidenceGrid =
+                                          apiStage === 'quality_check' ? 'mt-2 grid max-w-xs grid-cols-1 gap-2' : 'mt-2 grid grid-cols-2 gap-2 max-w-xs';
                                         return (
                                           <>
                                             <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">{desc}</p>
                                             {shots.length > 0 && (isDone || isActive) ? (
-                                              <div className="mt-2 grid grid-cols-2 gap-2 max-w-xs">
-                                                {shots.map((s) => (
+                                              <div className={qcEvidenceGrid}>
+                                                {shots.map((s, shotIdx) => (
                                                   <div key={s.label} className="min-w-0">
                                                     <p className="text-[10px] font-semibold text-slate-500 truncate mb-0.5">{s.label}</p>
-                                                    {isNonNavigableImageSrc(s.url) ? (
-                                                      <button
-                                                        type="button"
-                                                        className="block w-full rounded-lg border border-slate-200 overflow-hidden focus:outline-none focus:ring-2 focus:ring-orange-200"
-                                                        aria-label={`${step.label} — ${s.label}`}
-                                                        onClick={() =>
-                                                          setTrackerEvidenceLightbox({
-                                                            url: s.url,
-                                                            title: `${step.label} — ${s.label}`,
-                                                          })
-                                                        }
-                                                      >
-                                                        <img src={s.url} alt="" className="w-full h-24 object-cover" />
-                                                      </button>
-                                                    ) : (
-                                                      <a
-                                                        href={s.url}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="block rounded-lg border border-slate-200 overflow-hidden"
-                                                      >
-                                                        <img src={s.url} alt="" className="w-full h-24 object-cover" />
-                                                      </a>
-                                                    )}
+                                                    <button
+                                                      type="button"
+                                                      className="block w-full cursor-zoom-in rounded-lg border border-slate-200 overflow-hidden focus:outline-none focus:ring-2 focus:ring-orange-200"
+                                                      aria-label={`${step.label} — ${s.label} — enlarge`}
+                                                      onClick={() =>
+                                                        setTrackerEvidenceLightbox({
+                                                          stepTitle: step.label,
+                                                          items: shots.map((x) => ({ url: x.url, label: x.label })),
+                                                          index: shotIdx,
+                                                        })
+                                                      }
+                                                    >
+                                                      <img src={toCloudinaryEvidenceThumbUrl(s.url, thumbDpr)} alt="" className="w-full h-24 object-cover" />
+                                                    </button>
                                                   </div>
                                                 ))}
                                               </div>
+                                            ) : isActive && apiStage === 'quality_check' && shots.length === 0 ? (
+                                              <p className="text-xs text-amber-700 mt-2 font-medium leading-snug">
+                                                Upload pending — awaiting QC form photo from the shop.
+                                              </p>
                                             ) : null}
                                           </>
                                         );
@@ -4499,24 +4579,28 @@ export default function CustomerDashboard() {
                     ? getCustomerStageSlotPhotos(activeBooking as any, 'quality_check').length
                     : 0;
                   let displayStepIdx = currentStepIdx;
-                  if (activeBooking && tsKey === 'quality_check' && qcGatePhotoCountDash >= TRACKER_REQUIRED_GATE_PHOTOS) {
+                  if (activeBooking && tsKey === 'quality_check' && qcGatePhotoCountDash >= customerGateMinSlotCount('quality_check')) {
                     displayStepIdx = Math.max(displayStepIdx, STEPS.length - 1);
                   }
                   const readyPickupGateCountDash = activeBooking
                     ? getCustomerStageSlotPhotos(activeBooking as any, 'ready_pickup').length
                     : 0;
-                  if (activeBooking && readyPickupGateCountDash >= TRACKER_REQUIRED_GATE_PHOTOS) {
+                  if (activeBooking && readyPickupGateCountDash >= CUSTOMER_TRACKER_GATE_MIN_PHOTOS) {
                     displayStepIdx = Math.max(displayStepIdx, STEPS.length - 1);
                   }
                   displayStepIdx = bumpCustomerTrackerIndexForReceivedGateComplete(activeBooking, displayStepIdx, 'dashboard5');
                   displayStepIdx = bumpCustomerTrackerIndexForInProgressGateComplete(activeBooking, displayStepIdx, 'dashboard5');
                   const activeIdx = Math.min(Math.max(displayStepIdx, 0), STEPS.length - 1);
-                  const pct = postPayComplete ? 100 : Math.round((activeIdx / (STEPS.length - 1)) * 100);
+                  const pct = postPayComplete
+                    ? 100
+                    : getTrackerPipelineProgressPct({
+                        serviceTrackingStage: trackingStage,
+                        status: activeBooking?.status,
+                      });
                   const activeStep = STEPS[activeIdx] || STEPS[0];
                   const nextStep = postPayComplete || isFullyComplete || activeIdx >= STEPS.length - 1
                     ? null
                     : STEPS[activeIdx + 1];
-                  const etaLabel = postPayComplete ? 'Paid' : isFullyComplete ? 'Ready now' : formatTrackerEtaLabel(activeBooking?.bookingTime);
                   const updatedLabel = formatTrackerUpdatedLabel(activeBooking?.serviceTrackingUpdatedAt || activeBooking?.updatedAt || activeBooking?.createdAt);
                   const serviceTitle = displayServiceTitle(activeBooking?.serviceName || activeBooking?.serviceType || activeBooking?.packageName, 'AutoSPF+ service');
                   const vehicleTitle = [
@@ -4575,13 +4659,6 @@ export default function CustomerDashboard() {
 	                            </div>
 	                          </div>
 	                          <div className="customer-live-header-actions">
-	                            <div className="customer-live-eta">
-	                              <iconify-icon icon="solar:clock-circle-bold" width="16"></iconify-icon>
-	                              <div>
-	                                <strong>{etaLabel}</strong>
-	                                <span>Estimated pickup</span>
-	                              </div>
-	                            </div>
 	                            <button
 	                              type="button"
 	                              onClick={() => nav('tracker')}
@@ -4693,14 +4770,21 @@ export default function CustomerDashboard() {
                             const isActive = !postPayComplete && !isFullyComplete && i === activeIdx;
                             const mediaStageKey = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[step.mediaId];
                             const shots = mediaStageKey ? getCustomerStageSlotPhotos(activeBooking as any, mediaStageKey) : [];
+                            const thumbDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
                             const caption = resolveTrackerStageDescription(activeBooking as any, mediaStageKey);
                             const statusLabel = isDone ? 'Complete' : isActive ? 'Live now' : 'Upcoming';
                             const hasPhotos = shots.length > 0;
+                            const isQcEvidence = mediaStageKey === 'quality_check';
+                            /** Booking confirmation is informational only — no customer photo slot or "awaiting" state. */
+                            const suppressEvidencePanel = step.id === 'confirmed' && !hasPhotos;
+                            const evidenceGridClass = isQcEvidence
+                              ? 'customer-live-evidence-grid mt-2 grid max-w-xs grid-cols-1 gap-2'
+                              : 'customer-live-evidence-grid mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3';
 
                             return (
 	                              <article
 	                                key={step.id}
-	                                className={`customer-live-step ${isDone ? 'is-done' : ''} ${isActive ? 'is-active' : ''}`}
+	                                className={`customer-live-step ${isDone ? 'is-done' : ''} ${isActive ? 'is-active' : ''}${suppressEvidencePanel ? ' customer-live-step--confirmation' : ''}`}
 	                                aria-current={isActive ? 'step' : undefined}
 	                                style={{ '--live-step-delay': `${i * 95}ms` } as React.CSSProperties}
 	                              >
@@ -4718,13 +4802,51 @@ export default function CustomerDashboard() {
 	                                  <div className="customer-live-step-time">{step.time}</div>
 	                                </div>
 
-	                                {(hasPhotos || isDone || isActive) && (
+	                                {suppressEvidencePanel ? (
+	                                  <div className="customer-live-confirm-summary" role="region" aria-label="Booking confirmation details">
+	                                    <p className="customer-live-confirm-summary-lead">{caption || step.detail}</p>
+	                                    <dl className="customer-live-confirm-summary-grid">
+	                                      <div className="customer-live-confirm-summary-tile">
+	                                        <dt>Service</dt>
+	                                        <dd>{serviceTitle}</dd>
+	                                      </div>
+	                                      <div className="customer-live-confirm-summary-tile">
+	                                        <dt>Vehicle</dt>
+	                                        <dd>{vehicleTitle}</dd>
+	                                        {vehicleMeta && vehicleMeta !== 'Vehicle profile syncing' ? (
+	                                          <dd className="customer-live-confirm-summary-meta">{vehicleMeta}</dd>
+	                                        ) : null}
+	                                      </div>
+	                                      <div className="customer-live-confirm-summary-tile">
+	                                        <dt>Schedule</dt>
+	                                        <dd>
+	                                          {[
+	                                            activeBooking?.bookingDate || (activeBooking as any)?.date,
+	                                            activeBooking?.bookingTime || (activeBooking as any)?.time,
+	                                          ]
+	                                            .map((x) => String(x || '').trim())
+	                                            .filter(Boolean)
+	                                            .join(' · ') || 'We will remind you before your slot'}
+	                                        </dd>
+	                                      </div>
+	                                      <div className="customer-live-confirm-summary-tile">
+	                                        <dt>Reference</dt>
+	                                        <dd className="customer-live-confirm-summary-ref">{referenceLabel}</dd>
+	                                      </div>
+	                                    </dl>
+	                                    <p className="customer-live-confirm-summary-foot">
+	                                      Bring your reference to reception for a quick check-in.
+	                                    </p>
+	                                  </div>
+	                                ) : (hasPhotos || isDone || isActive) ? (
 	                                  <div className="customer-live-step-evidence">
 	                                    <div className="customer-live-evidence-meta">
-	                                      <span>Customer Evidence</span>
+	                                      <span>{isQcEvidence ? 'QC Form' : 'Customer Evidence'}</span>
 	                                      <strong>
                                         {hasPhotos
-                                          ? `${shots.length} photo${shots.length === 1 ? '' : 's'}`
+                                          ? isQcEvidence
+                                            ? '1 photo'
+                                            : `${shots.length} photo${shots.length === 1 ? '' : 's'}`
                                           : isActive
                                             ? 'Upload pending'
                                             : 'Awaiting photo'}
@@ -4732,35 +4854,24 @@ export default function CustomerDashboard() {
 	                                    </div>
 	                                    <p>{caption || (hasPhotos ? 'Vehicle photos received.' : step.detail)}</p>
 	                                    {hasPhotos ? (
-                                      <div className="customer-live-evidence-grid mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                        {shots.map((shot) => (
+                                      <div className={evidenceGridClass}>
+                                        {shots.map((shot, shotIdx) => (
                                           <div key={shot.label} className="min-w-0">
                                             <p className="text-[10px] font-semibold text-slate-500 truncate mb-1">{shot.label}</p>
-                                            {isNonNavigableImageSrc(shot.url) ? (
-                                              <button
-                                                type="button"
-                                                className="customer-live-evidence-thumb"
-                                                aria-label={`${step.label} — ${shot.label} — enlarge`}
-                                                onClick={() =>
-                                                  setTrackerEvidenceLightbox({
-                                                    url: shot.url,
-                                                    title: `${step.label} — ${shot.label}`,
-                                                  })
-                                                }
-                                              >
-                                                <img src={shot.url} alt="" />
-                                              </button>
-                                            ) : (
-                                              <a
-                                                href={shot.url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                aria-label={`${step.label} — ${shot.label}`}
-                                                className="customer-live-evidence-thumb"
-                                              >
-                                                <img src={shot.url} alt="" />
-                                              </a>
-                                            )}
+                                            <button
+                                              type="button"
+                                              className="customer-live-evidence-thumb cursor-zoom-in"
+                                              aria-label={`${step.label} — ${shot.label} — enlarge`}
+                                              onClick={() =>
+                                                setTrackerEvidenceLightbox({
+                                                  stepTitle: step.label,
+                                                  items: shots.map((x) => ({ url: x.url, label: x.label })),
+                                                  index: shotIdx,
+                                                })
+                                              }
+                                            >
+                                              <img src={toCloudinaryEvidenceThumbUrl(shot.url, thumbDpr)} alt="" />
+                                            </button>
                                           </div>
                                         ))}
                                       </div>
@@ -4771,7 +4882,7 @@ export default function CustomerDashboard() {
                                       </div>
                                     )}
                                   </div>
-                                )}
+	                                ) : null}
                               </article>
                             );
                           })}
@@ -5461,9 +5572,41 @@ export default function CustomerDashboard() {
                       <div>
                         {[
                           { icon: 'solar:user-bold', label: 'Owner', value: user?.name || '—' },
-                          { icon: 'solar:car-bold', label: 'Model', value: formatVehicleMakeModelDisplay(bookingForm.vehicleMake, bookingForm.vehicleModel) },
-                          { icon: 'solar:palette-bold', label: 'Color', value: formatTitleCaseDisplay(bookingForm.vehicleColor) },
-                          { icon: 'solar:tag-bold', label: 'Plate', value: formatPlateDisplay(bookingForm.vehiclePlate) },
+                          { icon: 'solar:tag-bold', label: 'Plate number', value: formatPlateDisplay(bookingForm.vehiclePlate) },
+                          { icon: 'solar:car-bold', label: 'Brand & model', value: formatVehicleMakeModelDisplay(bookingForm.vehicleMake, bookingForm.vehicleModel) },
+                          {
+                            icon: 'solar:calendar-date-bold',
+                            label: 'Year',
+                            value: (bookingForm.vehicleYear || '').trim() || '—',
+                          },
+                          {
+                            icon: 'solar:clipboard-list-bold',
+                            label: 'Vehicle type',
+                            value: (bookingForm.vehicleCategory || '').trim()
+                              ? formatTitleCaseDisplay(bookingForm.vehicleCategory)
+                              : '—',
+                          },
+                          {
+                            icon: 'solar:palette-bold',
+                            label: 'Color',
+                            value: (bookingForm.vehicleColor || '').trim()
+                              ? formatTitleCaseDisplay(bookingForm.vehicleColor)
+                              : '—',
+                          },
+                          {
+                            icon: 'solar:settings-bold',
+                            label: 'Transmission',
+                            value: (bookingForm.vehicleTransmission || '').trim()
+                              ? formatTitleCaseDisplay(bookingForm.vehicleTransmission)
+                              : '—',
+                          },
+                          {
+                            icon: 'solar:gas-station-bold',
+                            label: 'Fuel type',
+                            value: (bookingForm.vehicleFuelType || '').trim()
+                              ? formatTitleCaseDisplay(bookingForm.vehicleFuelType)
+                              : '—',
+                          },
                         ].map(({ icon, label, value }) => (
                           <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #f8fafc' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -6242,9 +6385,41 @@ export default function CustomerDashboard() {
                     </div>
                     <div style={{ padding: '4px 0' }}>
                       {[
-                        { icon: 'solar:car-bold', label: 'Brand & Model', value: formatVehicleMakeModelDisplay(bookingForm.vehicleMake, bookingForm.vehicleModel) },
-                        { icon: 'solar:palette-bold', label: 'Color', value: formatTitleCaseDisplay(bookingForm.vehicleColor) },
-                        { icon: 'solar:tag-bold', label: 'Plate', value: formatPlateDisplay(bookingForm.vehiclePlate) },
+                        { icon: 'solar:tag-bold', label: 'Plate number', value: formatPlateDisplay(bookingForm.vehiclePlate) },
+                        { icon: 'solar:car-bold', label: 'Brand & model', value: formatVehicleMakeModelDisplay(bookingForm.vehicleMake, bookingForm.vehicleModel) },
+                        {
+                          icon: 'solar:calendar-date-bold',
+                          label: 'Year',
+                          value: (bookingForm.vehicleYear || '').trim() || '—',
+                        },
+                        {
+                          icon: 'solar:clipboard-list-bold',
+                          label: 'Vehicle type',
+                          value: (bookingForm.vehicleCategory || '').trim()
+                            ? formatTitleCaseDisplay(bookingForm.vehicleCategory)
+                            : '—',
+                        },
+                        {
+                          icon: 'solar:palette-bold',
+                          label: 'Color',
+                          value: (bookingForm.vehicleColor || '').trim()
+                            ? formatTitleCaseDisplay(bookingForm.vehicleColor)
+                            : '—',
+                        },
+                        {
+                          icon: 'solar:settings-bold',
+                          label: 'Transmission',
+                          value: (bookingForm.vehicleTransmission || '').trim()
+                            ? formatTitleCaseDisplay(bookingForm.vehicleTransmission)
+                            : '—',
+                        },
+                        {
+                          icon: 'solar:gas-station-bold',
+                          label: 'Fuel type',
+                          value: (bookingForm.vehicleFuelType || '').trim()
+                            ? formatTitleCaseDisplay(bookingForm.vehicleFuelType)
+                            : '—',
+                        },
                       ].map(({ icon, label, value }) => (
                         <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f8fafc' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -6771,16 +6946,26 @@ export default function CustomerDashboard() {
         </div>
       )}
 
-      {/* Tracker stage photo (inline/base64 fallbacks — full view in-page) */}
-      {trackerEvidenceLightbox && (
+      {/* Tracker stage photos — in-page gallery */}
+      {trackerEvidenceLightbox && (() => {
+        const lb = trackerEvidenceLightbox;
+        const current = lb.items[lb.index];
+        if (!current) return null;
+        const total = lb.items.length;
+        const canPrev = lb.index > 0;
+        const canNext = lb.index < total - 1;
+        const ariaTitle = `${lb.stepTitle} — ${current.label}`;
+        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+        const hiResSrc = toCloudinaryHighResDeliveryUrl(current.url, dpr);
+        return (
         <div
           className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
           role="dialog"
           aria-modal="true"
-          aria-label={trackerEvidenceLightbox.title}
+          aria-label={ariaTitle}
           onClick={() => setTrackerEvidenceLightbox(null)}
         >
-          <div className="relative max-w-4xl w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="relative max-w-4xl w-full max-h-[90vh] flex flex-col px-10 sm:px-12" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               onClick={() => setTrackerEvidenceLightbox(null)}
@@ -6789,15 +6974,54 @@ export default function CustomerDashboard() {
               <iconify-icon icon="solar:close-circle-linear" width="20"></iconify-icon>
               Close
             </button>
-            <img
-              src={trackerEvidenceLightbox.url}
-              alt=""
-              className="w-full max-h-[min(85vh,900px)] object-contain rounded-2xl shadow-2xl border border-white/10 bg-slate-950/40"
-            />
-            <p className="text-center text-white/65 text-xs mt-3 font-medium">{trackerEvidenceLightbox.title}</p>
+            <div className="relative flex w-full items-center justify-center">
+              {total > 1 && (
+                <button
+                  type="button"
+                  disabled={!canPrev}
+                  aria-label="Previous photo"
+                  onClick={() =>
+                    setTrackerEvidenceLightbox((p) =>
+                      p && p.index > 0 ? { ...p, index: p.index - 1 } : p,
+                    )
+                  }
+                  className="absolute left-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg transition hover:bg-black/60 disabled:pointer-events-none disabled:opacity-25 sm:h-11 sm:w-11"
+                >
+                  <iconify-icon icon="solar:alt-arrow-left-bold" width="22"></iconify-icon>
+                </button>
+              )}
+              <img
+                key={hiResSrc}
+                src={hiResSrc}
+                alt=""
+                className="w-full max-h-[min(85vh,900px)] object-contain rounded-2xl shadow-2xl border border-white/10 bg-slate-950/40"
+              />
+              {total > 1 && (
+                <button
+                  type="button"
+                  disabled={!canNext}
+                  aria-label="Next photo"
+                  onClick={() =>
+                    setTrackerEvidenceLightbox((p) =>
+                      p && p.index < p.items.length - 1 ? { ...p, index: p.index + 1 } : p,
+                    )
+                  }
+                  className="absolute right-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg transition hover:bg-black/60 disabled:pointer-events-none disabled:opacity-25 sm:h-11 sm:w-11"
+                >
+                  <iconify-icon icon="solar:alt-arrow-right-bold" width="22"></iconify-icon>
+                </button>
+              )}
+            </div>
+            <p className="text-center text-white/85 text-xs mt-3 font-medium">{ariaTitle}</p>
+            {total > 1 && (
+              <p className="text-center text-white/50 text-[11px] mt-1 font-medium tabular-nums">
+                {lb.index + 1} / {total} — use arrows or keys ← →
+              </p>
+            )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Feedback Modal */}
       {feedbackOpen && (

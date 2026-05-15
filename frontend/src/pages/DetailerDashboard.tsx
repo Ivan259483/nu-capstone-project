@@ -1383,7 +1383,7 @@ export default function DetailerDashboard() {
                             whileTap={{ scale: 0.9 }}
                             title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                         >
-                            {sidebarCollapsed ? <ChevronRight style={{ width: 12, height: 12 }} /> : <ChevronLeft style={{ width: 12, height: 12 }} />}
+                            {sidebarCollapsed ? <ChevronRight style={{ width: 16, height: 16 }} strokeWidth={2.5} /> : <ChevronLeft style={{ width: 16, height: 16 }} strokeWidth={2.5} />}
                         </motion.button>
                     </div>
 

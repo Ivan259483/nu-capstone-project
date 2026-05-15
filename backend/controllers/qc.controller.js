@@ -1,4 +1,5 @@
 import Order from '../models/order.model.js';
+import { decrypt } from '../utils/encryption.utils.js';
 import { getIO } from '../utils/socket.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
@@ -9,14 +10,44 @@ import {
   countGatePhotos,
   REQUIRED_GATE_PHOTOS,
   gatePhotoStageToValidateForAdvance,
+  requiredGatePhotosForValidation,
 } from '../utils/trackerGatePhotos.utils.js';
+import { normalizeToCanonical } from '../constants/roles.js';
 import { applyPickupGateCompleteSideEffects } from '../utils/readyPickupPaymentFlow.utils.js';
+import { isSlotConsumingStatus, releaseBookingSlot } from '../services/slot.service.js';
 
 const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
 const QC_APPROVED_ORDER_STATUSES = ['completed', 'released'];
 const QC_APPROVED_TRACKER_STAGES = ['ready_pickup', 'completed', 'released'];
 const QC_JOBS_DEFAULT_LIMIT = 20;
 const QC_JOBS_MAX_LIMIT = 100;
+
+/**
+ * `Order.find().lean()` bypasses Mongoose `post('init')` decryption — mirror
+ * `formatBookingDto` in order.controller.js so QC sees the real plate, not ciphertext.
+ * Also drops 24-char hex blobs that are sometimes stored by mistake (e.g. vehicle ObjectId).
+ */
+function resolvePlainVehiclePlate(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  const safeDecrypt = (val) => {
+    if (!val || typeof val !== 'string') return val;
+    if (/^[0-9a-f]{32}:[0-9a-f]+$/i.test(val)) {
+      try {
+        return decrypt(val);
+      } catch {
+        return val;
+      }
+    }
+    return val;
+  };
+  const decrypted = safeDecrypt(raw);
+  const encBlobPattern = /^[0-9a-f]{32}:[0-9a-f]+$/i;
+  const couldNotDecrypt = encBlobPattern.test(String(decrypted || ''));
+  const plain = couldNotDecrypt ? '' : String(decrypted || '').trim();
+  if (/^[a-f0-9]{24}$/i.test(plain)) return '';
+  return plain;
+}
+
 const QC_JOBS_PROJECTION = [
   'orderNumber',
   'bookingReference',
@@ -47,6 +78,10 @@ const QC_JOBS_PROJECTION = [
   'trackerStageMedia.uploadedBy',
   'paymentStatus',
   'invoiceId',
+  'bookingDate',
+  'bookingTime',
+  'qcHandoffSheet',
+  'warrantyAndReceipt.existingFwsAndShade',
 ].join(' ');
 
 function buildSlimTrackerStageMedia(media) {
@@ -159,6 +194,9 @@ export const getQCJobs = async (req, res, next) => {
         .filter(Boolean)
         .join(' ') || 'Unknown Vehicle';
 
+      const platePlain = resolvePlainVehiclePlate(o.vehiclePlate);
+      const existingFwsAndShade = String(o.warrantyAndReceipt?.existingFwsAndShade || '').trim();
+
       return {
         id: o._id.toString(),
         jobId: o.orderNumber || o.bookingReference || o._id.toString(),
@@ -168,7 +206,8 @@ export const getQCJobs = async (req, res, next) => {
         vehicle: vehicleStr,
         vehicleInfo: vehicleStr,
         make: o.vehicleMake || '',
-        plate: o.vehiclePlate || '',
+        plate: platePlain,
+        existingFwsAndShade,
         service: o.serviceType || 'Service',
         serviceType: o.serviceType || 'Service',
         technician: technicianName,
@@ -204,6 +243,25 @@ export const getQCJobs = async (req, res, next) => {
         customerPhone: '',
         customerEmail: '',
         customerNotes: o.notes || '',
+        bookingDate: o.bookingDate || '',
+        bookingTime: o.bookingTime || '',
+        qcHandoffSheet: o.qcHandoffSheet && typeof o.qcHandoffSheet === 'object'
+          ? {
+              clientName: String(o.qcHandoffSheet.clientName || ''),
+              serviceDate: String(o.qcHandoffSheet.serviceDate || ''),
+              makeModel: String(o.qcHandoffSheet.makeModel || ''),
+              plateNo: String(o.qcHandoffSheet.plateNo || ''),
+              tintShadeInstalled: String(o.qcHandoffSheet.tintShadeInstalled || ''),
+              installer: String(o.qcHandoffSheet.installer || ''),
+            }
+          : {
+              clientName: '',
+              serviceDate: '',
+              makeModel: '',
+              plateNo: '',
+              tintShadeInstalled: '',
+              installer: '',
+            },
       };
     });
 
@@ -466,6 +524,28 @@ export const approveJob = async (req, res, next) => {
       });
     }
 
+    const actorRole = normalizeToCanonical(req.user?.role);
+    const qcUploaded = countGatePhotos(order, 'quality_check');
+    const qcRequired = requiredGatePhotosForValidation('quality_check', actorRole);
+    if (qcUploaded < qcRequired) {
+      return res.status(400).json({
+        success: false,
+        message: `${qcRequired} QC form photo required before approving this job.`,
+        uploaded: qcUploaded,
+        required: qcRequired,
+      });
+    }
+
+    const readyUploaded = countGatePhotos(order, 'ready_pickup');
+    if (readyUploaded < REQUIRED_GATE_PHOTOS) {
+      return res.status(400).json({
+        success: false,
+        message: `${REQUIRED_GATE_PHOTOS} final output photos required before approving this job.`,
+        uploaded: readyUploaded,
+        required: REQUIRED_GATE_PHOTOS,
+      });
+    }
+
     // Generate QC PDF (non-blocking on failure)
     try {
       const qcUrl = await generateQCPDF(order);
@@ -484,13 +564,16 @@ export const approveJob = async (req, res, next) => {
     order.serviceTrackingStage = 'ready_pickup';
     order.serviceTrackingUpdatedAt = new Date();
     order.serviceTrackingUpdatedBy = req.user?.name || 'QC Checker';
-    order.status = 'completed';
     order.qcCompletedAt = new Date();
-    // ── Mark full payment as paid when QC approves/releases the car ──────
-    // The reservation fee was already paid (downpayment). The full service
-    // payment is considered settled at the point QC clears the vehicle.
-    order.paymentStatus = 'paid';
+    if (String(order.paymentStatus || '').toLowerCase() === 'paid') {
+      order.status = 'completed';
+    } else {
+      order.status = 'ready_for_payment';
+    }
     await order.save();
+    if (isSlotConsumingStatus(prevStatus) && !isSlotConsumingStatus(order.status)) {
+      await releaseBookingSlot(order.bookingDate, order.bookingTime);
+    }
 
     // ── Emit real-time update to customer ───────────────────────────
     try {
@@ -499,6 +582,7 @@ export const approveJob = async (req, res, next) => {
       io.emit('orderUpdated', {
         orderId: order._id,
         status: order.status,
+        paymentStatus: order.paymentStatus || null,
         trackerStageMedia: order.trackerStageMedia || [],
       });
       // Targeted event for the customer's live tracker
@@ -508,8 +592,9 @@ export const approveJob = async (req, res, next) => {
       if (customerId) {
         io.to(`user:${customerId}`).emit('booking:status', {
           bookingId: order._id.toString(),
-          status: 'completed',
+          status: order.status,
           serviceTrackingStage: 'ready_pickup',
+          paymentStatus: order.paymentStatus || null,
           serviceStaffAssignments: order.serviceStaffAssignments || [],
           trackerStageMedia: order.trackerStageMedia || [],
           updatedAt: new Date().toISOString(),
@@ -534,7 +619,7 @@ export const approveJob = async (req, res, next) => {
       status: 'success',
     });
 
-    res.json({ success: true, message: 'Job approved successfully', data: { id: order._id, status: order.status, serviceTrackingStage: 'ready_pickup' } });
+    res.json({ success: true, message: 'Job approved successfully', data: { id: order._id, status: order.status, serviceTrackingStage: 'ready_pickup', paymentStatus: order.paymentStatus || null } });
   } catch (error) {
     next(error);
   }
@@ -652,17 +737,20 @@ export const updateServiceStatus = async (req, res, next) => {
     const order = await Order.findById(id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
+    const previousStatus = order.status;
     const gateMediaStages = new Set(TRACKER_GATE_STAGES);
+    const actorRole = normalizeToCanonical(req.user?.role);
     if (gateMediaStages.has(stage)) {
       const validateStage = gatePhotoStageToValidateForAdvance(stage);
       const uploaded = countGatePhotos(order, validateStage);
-      if (uploaded < REQUIRED_GATE_PHOTOS) {
+      const requiredPhotos = requiredGatePhotosForValidation(validateStage, actorRole);
+      if (uploaded < requiredPhotos) {
         return res.status(400).json({
           success: false,
-          message: '5 photos required before advancing',
-          error: '5 photos required before advancing',
+          message: `${requiredPhotos} photos required before advancing`,
+          error: `${requiredPhotos} photos required before advancing`,
           uploaded,
-          required: REQUIRED_GATE_PHOTOS,
+          required: requiredPhotos,
         });
       }
     }
@@ -720,6 +808,9 @@ export const updateServiceStatus = async (req, res, next) => {
     }
 
     await order.save();
+    if (isSlotConsumingStatus(previousStatus) && !isSlotConsumingStatus(order.status)) {
+      await releaseBookingSlot(order.bookingDate, order.bookingTime);
+    }
 
     // ── Emit real-time updates ──────────────────────────────────
     try {
@@ -854,6 +945,72 @@ export const assignServiceStaff = async (req, res, next) => {
       success: true,
       message: 'Staff assignments saved',
       data: { id: order._id, serviceStaffAssignments: order.serviceStaffAssignments },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const QC_HANDOFF_KEYS = ['clientName', 'serviceDate', 'makeModel', 'plateNo', 'tintShadeInstalled', 'installer'];
+
+/**
+ * PATCH /api/qc/jobs/:id/handoff-sheet
+ * Persist QC live-tracker "Vehicle information" handoff fields.
+ */
+export const updateQCHandoffSheet = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+
+    const order = await Order.findById(id);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    const nextSheet = { ...(order.qcHandoffSheet || {}) };
+    for (const key of QC_HANDOFF_KEYS) {
+      if (body[key] !== undefined && body[key] !== null) {
+        nextSheet[key] = String(body[key]).trim();
+      }
+    }
+    nextSheet.updatedAt = new Date();
+    nextSheet.updatedBy = req.user?.name || 'QC Checker';
+    order.qcHandoffSheet = nextSheet;
+    order.markModified('qcHandoffSheet');
+    await order.save();
+
+    try {
+      const io = getIO();
+      io.emit('orderUpdated', {
+        orderId: order._id,
+        qcHandoffSheet: order.qcHandoffSheet,
+      });
+      const customerId =
+        typeof order.customer === 'object' ? order.customer?._id?.toString?.() : order.customer?.toString?.();
+      if (customerId) {
+        io.to(`user:${customerId}`).emit('booking:status', {
+          bookingId: order._id.toString(),
+          status: order.status,
+          serviceTrackingStage: order.serviceTrackingStage || null,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch (e) {
+      console.warn('[QC] Socket emit failed (handoff-sheet):', e.message);
+    }
+
+    logActivity({
+      req,
+      type: 'qc_handoff_sheet',
+      module: 'QualityChecker',
+      action: 'QC_HANDOFF_SHEET_UPDATE',
+      description: `QC updated handoff sheet for ${order.orderNumber || order._id}`,
+      referenceId: order._id,
+      status: 'success',
+    });
+
+    res.json({
+      success: true,
+      message: 'Handoff details saved',
+      data: { id: order._id, qcHandoffSheet: order.qcHandoffSheet },
     });
   } catch (error) {
     next(error);

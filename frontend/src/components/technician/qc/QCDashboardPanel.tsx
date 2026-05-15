@@ -542,6 +542,7 @@ export default function QCDashboardPanel() {
     uploadTrackerStagePhoto,
     deleteTrackerStagePhoto,
     assignServiceStaff,
+    saveQCHandoffSheet,
     addStaffNote,
     refetchAll,
   } = useQCData({ loadSummary: loadQcSummary });
@@ -631,6 +632,7 @@ export default function QCDashboardPanel() {
             onUploadStagePhoto={uploadTrackerStagePhoto}
             onDeleteTrackerStagePhoto={deleteTrackerStagePhoto}
             onAddStaffNote={addStaffNote}
+            onSaveQCHandoffSheet={saveQCHandoffSheet}
           />
         );
 

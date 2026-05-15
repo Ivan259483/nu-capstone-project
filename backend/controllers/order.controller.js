@@ -25,8 +25,15 @@ import {
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { decrypt } from '../utils/encryption.utils.js';
+import { countGatePhotos, REQUIRED_GATE_PHOTOS } from '../utils/trackerGatePhotos.utils.js';
 import {
   getDateAvailabilitySnapshot,
+  isSlotConsumingStatus,
+  normalizeBookingDate,
+  normalizeBookingTime,
+  releaseBookingSlot,
+  reserveBookingSlot,
+  syncBookingSlotCounter,
   validateSlotAvailability,
 } from '../services/slot.service.js';
 
@@ -301,6 +308,45 @@ const emitBookingApprovalQueueUpdate = (orderDoc) => {
   }
 };
 
+function hasReservationPaymentProof(orderOrBody = {}) {
+  const proof =
+    orderOrBody.downpaymentProof ||
+    orderOrBody.paymentProofUrl ||
+    orderOrBody.downpaymentProofInput ||
+    orderOrBody.paymentProofUrlInput ||
+    '';
+  return typeof proof === 'string' && proof.trim().length > 0;
+}
+
+function getNormalizedSlotPair(date, time) {
+  const normalizedDate = normalizeBookingDate(date);
+  const normalizedTime = normalizeBookingTime(time);
+  if (!normalizedDate || !normalizedTime) return null;
+  return { date: normalizedDate, time: normalizedTime };
+}
+
+function getOrderSlotPair(order) {
+  return getNormalizedSlotPair(order?.bookingDate, order?.bookingTime);
+}
+
+function sameSlotPair(a, b) {
+  return Boolean(a && b && a.date === b.date && a.time === b.time);
+}
+
+async function releaseOrderSlotIfConsumed(orderLike) {
+  if (!orderLike || !isSlotConsumingStatus(orderLike.status)) return;
+  await releaseBookingSlot(orderLike.bookingDate, orderLike.bookingTime);
+}
+
+function slotErrorResponsePayload(slotCheck, fallbackCode = 'SLOT_FULL') {
+  return {
+    success: false,
+    errorCode: slotCheck.errorCode || fallbackCode,
+    message: slotCheck.message || 'Selected time slot is no longer available.',
+    error: slotCheck.error || slotCheck.message || 'Selected time slot is no longer available.',
+  };
+}
+
 /**
  * Get all orders
  */
@@ -421,20 +467,28 @@ export const getAvailableSlots = async (req, res, next) => {
       '4:00 PM', '5:00 PM',
     ];
 
-    const bookedSlots = snapshot.unavailable
+    const structuredSlots = Array.isArray(snapshot.slots) ? snapshot.slots : [];
+    const fullSlotLabels = structuredSlots
+      .filter((slot) => slot.status === 'FULL')
+      .map((slot) => slot.label || slot.time)
+      .filter(Boolean);
+
+    const bookedSlots = snapshot.unavailable && structuredSlots.length === 0
       ? LEGACY_FULL_DAY_SLOT_LIST
-      : (Array.isArray(snapshot.bookedTimes) ? snapshot.bookedTimes : []);
+      : fullSlotLabels;
 
     return res.json({
       success: true,
-      bookedSlots, // Kept for legacy clients that only understand booked slot arrays
+      bookedSlots, // Legacy clients: now contains only times that are actually full
+      slots: structuredSlots,
       unavailable: !!snapshot.unavailable,
       errorCode: snapshot.errorCode || null,
       message: snapshot.message || null,
       error: snapshot.error || null,
-      bookedCount: snapshot.bookedCount ?? bookedSlots.length,
+      bookedCount: snapshot.bookedCount ?? 0,
       slotsLimit: snapshot.slotsLimit ?? null,
       remaining: snapshot.remaining ?? null,
+      totalCapacity: snapshot.totalCapacity ?? null,
     });
   } catch (error) {
     next(error);
@@ -664,6 +718,7 @@ export const getOrderGcashProofFields = async (req, res, next) => {
  * Create order
  */
 export const createOrder = async (req, res, next) => {
+  let reservedSlot = null;
   try {
     // Controller-Level Authorization Guard
     if (!req.user || !req.user.id || !req.user.role) {
@@ -855,25 +910,32 @@ export const createOrder = async (req, res, next) => {
     const initialStatus = 'pending_confirmation';
     const resolvedCustomerPhone = (typeof customerPhoneInput === 'string' && customerPhoneInput.trim()) || '';
 
-    // ── Slot availability check (dynamic — reads current availability rules) ─
-    if (bookingDate && bookingTime) {
-      const slotCheck = await validateSlotAvailability(bookingDate, bookingTime);
-      if (!slotCheck.ok) {
-        return res.status(409).json({
-          success: false,
-          errorCode: slotCheck.errorCode,
-          message: slotCheck.message,
-          error: slotCheck.error || slotCheck.message,
-        });
-      }
-    }
-
     const resolvedPaymentProof = (() => {
       const a = typeof downpaymentProofInput === 'string' ? downpaymentProofInput.trim() : '';
       const b = typeof paymentProofUrlInput === 'string' ? paymentProofUrlInput.trim() : '';
       const proof = a || b;
       return proof || undefined;
     })();
+
+    if (isCustomerRole(req.user.role) && !resolvedPaymentProof) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'PAYMENT_PROOF_REQUIRED',
+        message: 'Upload a GCash payment proof before submitting your booking.',
+        error: 'Upload a GCash payment proof before submitting your booking.',
+      });
+    }
+
+    // ── Atomic slot reservation (dynamic — reads current availability rules) ─
+    if (bookingDate && bookingTime) {
+      const slotCheck = await reserveBookingSlot(bookingDate, bookingTime);
+      if (!slotCheck.ok) {
+        return res.status(409).json({
+          ...slotErrorResponsePayload(slotCheck),
+        });
+      }
+      reservedSlot = slotCheck;
+    }
 
     // ── Create Order ──────────────────────────────────────────────────
     const order = new Order({
@@ -902,6 +964,7 @@ export const createOrder = async (req, res, next) => {
     // Auto-assign was removed to prevent unconfirmed bookings entering the service queue.
 
     await order.save();
+    reservedSlot = null;
 
     if (resolvedPaymentProof) {
       emitBookingApprovalQueueUpdate(order);
@@ -1012,6 +1075,13 @@ export const createOrder = async (req, res, next) => {
       })();
     });
   } catch (error) {
+    if (reservedSlot) {
+      try {
+        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+      } catch (releaseError) {
+        console.error('[SLOT_RELEASE_ERROR] Failed to release slot after createOrder failure:', releaseError.message);
+      }
+    }
     if (error.name === 'ValidationError') {
         const messages = Object.values(error.errors).map(val => val.message);
         return res.status(400).json({
@@ -1176,6 +1246,7 @@ export const updateInspection = async (req, res, next) => {
  * Update order
  */
 export const updateOrder = async (req, res, next) => {
+  let reservedSlot = null;
   try {
     const order = await Order.findById(req.params.id);
 
@@ -1204,27 +1275,44 @@ export const updateOrder = async (req, res, next) => {
 
     const previousStatus = order.status;
     const previousPaymentStatus = order.paymentStatus;
+    const previousSlot = getOrderSlotPair(order);
+    const previousConsumedSlot = isSlotConsumingStatus(previousStatus);
 
     // ── Anti-Double Booking Validation (Update) ─────────────────────
     const newDate = req.body.bookingDate || order.bookingDate;
     const newTime = req.body.bookingTime || order.bookingTime;
+    const nextStatus = req.body.status || order.status;
+    const nextSlot = getNormalizedSlotPair(newDate, newTime);
+    const nextConsumesSlot = isSlotConsumingStatus(nextStatus);
 
-    if (newDate && newTime && (req.body.bookingDate || req.body.bookingTime)) {
-      const slotCheck = await validateSlotAvailability(newDate, newTime, order._id);
+    if (
+      newDate &&
+      newTime &&
+      nextConsumesSlot &&
+      (!previousConsumedSlot || !sameSlotPair(previousSlot, nextSlot))
+    ) {
+      const slotCheck = await reserveBookingSlot(newDate, newTime);
       if (!slotCheck.ok) {
         return res.status(409).json({
-          success: false,
-          errorCode: slotCheck.errorCode || 'DATE_UNAVAILABLE',
-          message: slotCheck.message || 'Slot is no longer available.',
-          error: slotCheck.error || slotCheck.message || 'Slot is no longer available.',
+          ...slotErrorResponsePayload(slotCheck, 'DATE_UNAVAILABLE'),
         });
       }
+      reservedSlot = slotCheck;
     }
     // ────────────────────────────────────────────────────────────────
 
     // Update fields
     Object.assign(order, req.body);
     await order.save();
+    reservedSlot = null;
+
+    if (
+      previousConsumedSlot &&
+      previousSlot &&
+      (!isSlotConsumingStatus(order.status) || !sameSlotPair(previousSlot, getOrderSlotPair(order)))
+    ) {
+      await releaseBookingSlot(previousSlot.date, previousSlot.time);
+    }
 
     // ── Fire real-time events when payment is marked paid ─────────────────
     const paymentJustMarkedPaid =
@@ -1322,6 +1410,13 @@ export const updateOrder = async (req, res, next) => {
       data: order,
     });
   } catch (error) {
+    if (reservedSlot) {
+      try {
+        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+      } catch (releaseError) {
+        console.error('[SLOT_RELEASE_ERROR] Failed to release slot after updateOrder failure:', releaseError.message);
+      }
+    }
     next(error);
   }
 };
@@ -1356,6 +1451,7 @@ export const deleteOrder = async (req, res, next) => {
     });
 
     await Order.findByIdAndDelete(req.params.id);
+    await releaseOrderSlotIfConsumed(order);
 
     res.json({
       success: true,
@@ -1823,6 +1919,10 @@ export const updateOrderProgress = async (req, res, next) => {
 
     await order.save();
 
+    if (isSlotConsumingStatus(previousStatus) && !isSlotConsumingStatus(order.status)) {
+      await releaseBookingSlot(order.bookingDate, order.bookingTime);
+    }
+
     // Activity logs for status changes (fire-and-forget)
     if (previousStatus !== order.status) {
       logActivity({
@@ -2275,6 +2375,8 @@ export const updateWorkflowStep = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Cannot update workflow for a booking that is pending confirmation.' });
     }
 
+    const previousStatus = order.status;
+
     if (!step || step < 1 || step > 7) {
       return res.status(400).json({ success: false, message: 'Invalid step number (1-7)' });
     }
@@ -2366,8 +2468,10 @@ export const updateWorkflowStep = async (req, res, next) => {
        order.status = 'completed'; // Trigger POS System to record it as ready for invoice / release
     }
 
-    const currentStatus = order.status;
     await order.save();
+    if (isSlotConsumingStatus(previousStatus) && !isSlotConsumingStatus(order.status)) {
+      await releaseBookingSlot(order.bookingDate, order.bookingTime);
+    }
 
     // Fire exact real-time payload socket for customers and admins immediately to reduce syncing delay
     import('../socket.js').then((socketModule) => {
@@ -2474,6 +2578,7 @@ export const updateMobileWorkflow = async (req, res, next) => {
  * Requires legal signature
  */
 export const operateCheckIn = async (req, res, next) => {
+  let reservedSlot = null;
   try {
     const { id } = req.params;
     // Accept both frontend field names (signature, paymentMethod) and legacy (signatureBase64)
@@ -2490,6 +2595,15 @@ export const operateCheckIn = async (req, res, next) => {
     }
 
     const previousStatusForWorkflow = order.status;
+    if (!isSlotConsumingStatus(previousStatusForWorkflow) && order.bookingDate && order.bookingTime) {
+      const slotCheck = await reserveBookingSlot(order.bookingDate, order.bookingTime);
+      if (!slotCheck.ok) {
+        return res.status(409).json({
+          ...slotErrorResponsePayload(slotCheck),
+        });
+      }
+      reservedSlot = slotCheck;
+    }
 
     const totalPrice = order.totalPrice || 0;
     const minDownPayment = totalPrice * 0.3;
@@ -2524,6 +2638,7 @@ export const operateCheckIn = async (req, res, next) => {
 
     order.status = 'received';
     await order.save();
+    reservedSlot = null;
     emitBookingApprovalQueueUpdate(order);
 
     const io = getIO();
@@ -2545,6 +2660,13 @@ export const operateCheckIn = async (req, res, next) => {
 
     res.json({ success: true, data: order });
   } catch (error) {
+    if (reservedSlot) {
+      try {
+        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+      } catch (releaseError) {
+        console.error('[SLOT_RELEASE_ERROR] Failed to release slot after operateCheckIn failure:', releaseError.message);
+      }
+    }
     console.error('❌ operateCheckIn error:', error);
     next(error);
   }
@@ -2617,6 +2739,9 @@ export const operateQCComplete = async (req, res, next) => {
     const prevQCStatus = order.status;
     order.status = 'completed';
     await order.save();
+    if (isSlotConsumingStatus(prevQCStatus) && !isSlotConsumingStatus(order.status)) {
+      await releaseBookingSlot(order.bookingDate, order.bookingTime);
+    }
 
     getIO().emit('orderUpdated', { orderId: order._id, status: order.status });
 
@@ -2675,6 +2800,9 @@ export const operateFinalPayment = async (req, res, next) => {
     }
 
     await order.save();
+    if (isSlotConsumingStatus(prevPayStatus) && !isSlotConsumingStatus(order.status)) {
+      await releaseBookingSlot(order.bookingDate, order.bookingTime);
+    }
 
     getIO().emit('orderUpdated', { orderId: order._id, status: order.status, paymentStatus: 'paid' });
 
@@ -2710,6 +2838,16 @@ export const operateRelease = async (req, res, next) => {
     if (!order) return res.status(404).json({ message: 'Order not found' });
     if (order.status !== 'paid') {
        return res.status(400).json({ message: `Cannot release order in ${order.status} status. Ensure it is paid.` });
+    }
+
+    const readyPickupPhotos = countGatePhotos(order, 'ready_pickup');
+    if (readyPickupPhotos < REQUIRED_GATE_PHOTOS) {
+      return res.status(400).json({
+        success: false,
+        message: 'Final output photos are required before releasing the vehicle.',
+        uploaded: readyPickupPhotos,
+        required: REQUIRED_GATE_PHOTOS,
+      });
     }
 
     if (signatureBase64) {
@@ -2758,6 +2896,7 @@ export const operateRelease = async (req, res, next) => {
  *   → Customer push notification sent
  */
 export const confirmBooking = async (req, res, next) => {
+  let reservedSlot = null;
   try {
     const order = await Order.findById(req.params.id).populate('customer', 'name email avatar');
 
@@ -2776,6 +2915,16 @@ export const confirmBooking = async (req, res, next) => {
 
     // If admin assigns a technician during confirmation, go straight to 'assigned'
     const { assignedDetailer } = req.body || {};
+    if (!isSlotConsumingStatus(previousStatus) && order.bookingDate && order.bookingTime) {
+      const slotCheck = await reserveBookingSlot(order.bookingDate, order.bookingTime);
+      if (!slotCheck.ok) {
+        return res.status(409).json({
+          ...slotErrorResponsePayload(slotCheck),
+        });
+      }
+      reservedSlot = slotCheck;
+    }
+
     if (assignedDetailer) {
       order.assignedDetailer = assignedDetailer;
       order.status = 'assigned';
@@ -2789,6 +2938,7 @@ export const confirmBooking = async (req, res, next) => {
     }
 
     await order.save();
+    reservedSlot = null;
 
     // Push live status update
     emitCustomerStatusUpdate(order);
@@ -2818,6 +2968,13 @@ export const confirmBooking = async (req, res, next) => {
       data: order,
     });
   } catch (error) {
+    if (reservedSlot) {
+      try {
+        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+      } catch (releaseError) {
+        console.error('[SLOT_RELEASE_ERROR] Failed to release slot after confirmBooking failure:', releaseError.message);
+      }
+    }
     next(error);
   }
 };
@@ -2831,6 +2988,7 @@ export const confirmBooking = async (req, res, next) => {
  * @access Private - Customer
  */
 export const uploadPaymentProof = async (req, res, next) => {
+  let reservedSlot = null;
   try {
     const { id } = req.params;
     const { paymentProofUrl } = req.body;
@@ -2859,6 +3017,17 @@ export const uploadPaymentProof = async (req, res, next) => {
       });
     }
 
+    const previousStatus = order.status;
+    if (!isSlotConsumingStatus(previousStatus) && order.bookingDate && order.bookingTime) {
+      const slotCheck = await reserveBookingSlot(order.bookingDate, order.bookingTime);
+      if (!slotCheck.ok) {
+        return res.status(409).json({
+          ...slotErrorResponsePayload(slotCheck),
+        });
+      }
+      reservedSlot = slotCheck;
+    }
+
     // Save proof and return to sales queue (clear rejection metadata on resubmit)
     order.paymentProofUrl = paymentProofUrl;
     order.status = 'pending_confirmation';
@@ -2866,6 +3035,7 @@ export const uploadPaymentProof = async (req, res, next) => {
     order.rejectedAt = null;
     order.rejectedBy = null;
     await order.save();
+    reservedSlot = null;
 
     const io = getIO();
     // Notify customer
@@ -2889,6 +3059,13 @@ export const uploadPaymentProof = async (req, res, next) => {
       data: order,
     });
   } catch (error) {
+    if (reservedSlot) {
+      try {
+        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+      } catch (releaseError) {
+        console.error('[SLOT_RELEASE_ERROR] Failed to release slot after uploadPaymentProof failure:', releaseError.message);
+      }
+    }
     console.error('Error uploading payment proof:', error);
     res.status(500).json({ success: false, message: 'Failed to upload payment proof' });
   }
@@ -2903,18 +3080,25 @@ export const approveBooking = async (req, res, next) => {
       return res.status(400).json({ success: false, message: `Cannot approve booking with status '${order.status}'.` });
     }
 
+    if (!hasReservationPaymentProof(order)) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'PAYMENT_PROOF_REQUIRED',
+        message: 'Payment proof is required before approving this booking.',
+        error: 'Payment proof is required before approving this booking.',
+      });
+    }
+
     // ── Re-validate slot capacity before approving ────────────────────
     // NOTE: We pass order._id to EXCLUDE this booking from the count —
     // it is still 'pending_confirmation' so it would falsely appear as
     // occupying a slot and block its own approval.
     if (order.bookingDate && order.bookingTime) {
+      await syncBookingSlotCounter(order.bookingDate, order.bookingTime);
       const slotCheck = await validateSlotAvailability(order.bookingDate, order.bookingTime, order._id);
       if (!slotCheck.ok) {
         return res.status(409).json({
-          success: false,
-          errorCode: slotCheck.errorCode || 'SLOT_FULL',
-          message: slotCheck.message || 'Slot is no longer available.',
-          error: slotCheck.error || slotCheck.message || 'Slot is no longer available.',
+          ...slotErrorResponsePayload(slotCheck),
         });
       }
     }
@@ -3029,6 +3213,7 @@ export const rejectBooking = async (req, res, next) => {
     order.rejectedBy = req.user.id;
     order.rejectionReason = reason;
     await order.save();
+    await releaseBookingSlot(order.bookingDate, order.bookingTime);
 
     // ── Clean up GCash proof images from DB after rejection ───────────
     // No longer needed once a decision has been made.
@@ -3074,6 +3259,7 @@ export const rejectBooking = async (req, res, next) => {
 };
 
 export const rescheduleBooking = async (req, res, next) => {
+  let reservedSlot = null;
   try {
     const { newDate, newTime } = req.body;
     if (!newDate || !newTime) {
@@ -3092,23 +3278,29 @@ export const rescheduleBooking = async (req, res, next) => {
       });
     }
 
-    // Validate new slot
-    const slotCheck = await validateSlotAvailability(newDate, newTime);
-    if (!slotCheck.ok) {
-      return res.status(409).json({
-        success: false,
-        errorCode: slotCheck.errorCode || 'SLOT_FULL',
-        message: slotCheck.message || 'Slot is no longer available.',
-        error: slotCheck.error || slotCheck.message || 'Slot is no longer available.',
-      });
-    }
-
     const oldDate = order.bookingDate;
     const oldTime = order.bookingTime;
+    const oldSlot = getOrderSlotPair(order);
+    const newSlot = getNormalizedSlotPair(newDate, newTime);
+
+    if (!sameSlotPair(oldSlot, newSlot)) {
+      const slotCheck = await reserveBookingSlot(newDate, newTime);
+      if (!slotCheck.ok) {
+        return res.status(409).json({
+          ...slotErrorResponsePayload(slotCheck),
+        });
+      }
+      reservedSlot = slotCheck;
+    }
 
     order.bookingDate = newDate;
     order.bookingTime = newTime;
     await order.save();
+    reservedSlot = null;
+
+    if (oldSlot && !sameSlotPair(oldSlot, newSlot)) {
+      await releaseBookingSlot(oldSlot.date, oldSlot.time);
+    }
 
     // Emit socket event
     try {
@@ -3132,7 +3324,16 @@ export const rescheduleBooking = async (req, res, next) => {
     });
 
     return res.json({ success: true, message: 'Booking rescheduled successfully.', data: formatBookingDto(order) });
-  } catch (error) { next(error); }
+  } catch (error) {
+    if (reservedSlot) {
+      try {
+        await releaseBookingSlot(reservedSlot.date, reservedSlot.time);
+      } catch (releaseError) {
+        console.error('[SLOT_RELEASE_ERROR] Failed to release slot after reschedule failure:', releaseError.message);
+      }
+    }
+    next(error);
+  }
 };
 
 // ═══════════════════════════════════════════════════════════════════════

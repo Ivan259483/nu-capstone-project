@@ -135,11 +135,15 @@ export default function SalesSidebar({ activeView, onNavigate, collapsed, onTogg
       {/* Collapse toggle */}
       <button
         onClick={onToggle}
-        className="absolute -right-3 top-4 z-10 flex items-center justify-center w-6 h-6 rounded-full bg-white hover:bg-slate-50 transition-colors duration-150"
-        style={{ border: '1px solid #eef0f6', boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}
+        type="button"
+        className="absolute -right-3.5 top-4 z-20 flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-md shadow-slate-900/12 ring-1 ring-slate-900/[0.04] transition-colors hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35"
         aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
-        {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+        {collapsed ? (
+          <ChevronRight size={16} strokeWidth={2.5} className="text-slate-700" aria-hidden />
+        ) : (
+          <ChevronLeft size={16} strokeWidth={2.5} className="text-slate-700" aria-hidden />
+        )}
       </button>
     </aside>
   );

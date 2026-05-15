@@ -164,11 +164,22 @@ export default function QCJobsTable({ jobs, loading, onSelectJob }: Props) {
       {/* Toolbar */}
       <div className="qc-review-toolbar border-b bg-gradient-to-b from-white to-slate-50/80 px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-          <div className="relative min-w-[220px] flex-1">
-            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              placeholder="Search by job ID, customer, vehicle, technician..."
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-700 shadow-sm shadow-slate-200/40 transition-all placeholder:text-slate-400 focus:border-blue-300 focus:outline-none focus:ring-4 focus:ring-blue-500/10" />
+          <div className="relative min-w-[220px] flex-1 group">
+            <Search
+              size={16}
+              strokeWidth={2.25}
+              className="pointer-events-none absolute left-4 top-1/2 z-[1] -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-500"
+            />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Search by job ID, customer, vehicle, technician…"
+              className="h-11 w-full rounded-full border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 pl-11 pr-4 text-sm font-medium text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_1px_2px_rgba(15,23,42,0.04),0_8px_28px_-10px_rgba(15,23,42,0.1)] outline-none transition-[border-color,box-shadow,color] placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300/95 focus:border-blue-400/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(59,130,246,0.16),0_10px_32px_-12px_rgba(37,99,235,0.14)]"
+            />
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
             <button onClick={() => setShowFilters(!showFilters)}

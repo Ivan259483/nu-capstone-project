@@ -15,6 +15,14 @@ export type OrderAvailabilityErrorCode =
 export interface AvailableSlotsResponse {
     success: boolean;
     bookedSlots: string[];
+    slots?: {
+        time: string;
+        label?: string;
+        capacity: number;
+        booked: number;
+        available: number;
+        status: 'AVAILABLE' | 'ALMOST_FULL' | 'FULL';
+    }[];
     unavailable?: boolean;
     errorCode?: OrderAvailabilityErrorCode | null;
     message?: string | null;
@@ -22,6 +30,7 @@ export interface AvailableSlotsResponse {
     remaining?: number | null;
     slotsLimit?: number | null;
     bookedCount?: number | null;
+    totalCapacity?: number | null;
 }
 
 export const normalizeBooking = (raw: any): Booking => {
@@ -474,9 +483,11 @@ export const OrderService = {
             errorCode: data?.errorCode ?? null,
             message: data?.message ?? null,
             error: data?.error ?? null,
+            slots: Array.isArray(data?.slots) ? data.slots : [],
             remaining: typeof data?.remaining === 'number' ? data.remaining : null,
             slotsLimit: typeof data?.slotsLimit === 'number' ? data.slotsLimit : null,
             bookedCount: typeof data?.bookedCount === 'number' ? data.bookedCount : null,
+            totalCapacity: typeof data?.totalCapacity === 'number' ? data.totalCapacity : null,
         };
     },
 

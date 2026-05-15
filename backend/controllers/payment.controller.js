@@ -14,6 +14,8 @@ import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import emailService from '../utils/emailService.utils.js';
 import { normalizeMoney, computeDiscountAmount, computeBillingTotals } from '../utils/billingTotals.js';
+import { countGatePhotos, REQUIRED_GATE_PHOTOS } from '../utils/trackerGatePhotos.utils.js';
+import { isSlotConsumingStatus, releaseBookingSlot } from '../services/slot.service.js';
 
 const LOW_STOCK_THRESHOLD = 10;
 const LOCAL_PAYMENTS_PROVIDER = (process.env.LOCAL_PAYMENTS_PROVIDER || 'paymongo').toLowerCase();
@@ -996,11 +998,15 @@ export const runPosCheckoutCore = async ({
   order.totalAmount = grandTotal;
   const prevPosStatus = order.status;
   const prevTrackingStage = order.serviceTrackingStage;
-  // Full balance collected at POS → vehicle released for customer (live tracker hides, payment history shows paid).
+  const readyPickupPhotosComplete = countGatePhotos(order, 'ready_pickup') >= REQUIRED_GATE_PHOTOS;
+  // Full balance collected at POS can mark the order paid, but release still waits
+  // for ready-pickup final output photos.
   const fullySettled = balanceRemaining <= 0;
-  if (fullySettled) {
+  if (fullySettled && readyPickupPhotosComplete) {
     order.status = 'released';
     order.serviceTrackingStage = 'released';
+  } else if (fullySettled) {
+    order.status = 'paid';
   } else {
     if (
       ['pending', 'confirmed', 'assigned', 'processing', 'in-progress', 'in_progress', 'ready_for_payment'].includes(
@@ -1016,6 +1022,9 @@ export const runPosCheckoutCore = async ({
   order.customerStatus = 'ready';
   order.customerStatusUpdatedAt = new Date();
   await order.save();
+  if (isSlotConsumingStatus(prevPosStatus) && !isSlotConsumingStatus(order.status)) {
+    await releaseBookingSlot(order.bookingDate, order.bookingTime);
+  }
 
   await applyInventoryDeductions(order);
 

@@ -1,19 +1,61 @@
 /**
- * Live tracker gate photos — five fixed angles per service stage.
+ * Live tracker gate photos — five standard angles per gate; Vehicle Arrive (received)
+ * may require a 6th checklist slot for Quality Checker role only (see qc.controller);
+ * Quality Check stage uses a single qc_form slot (see qc.controller).
  * Used by tracker.controller (uploads) and qc.controller (advance validation).
  */
 
 export const TRACKER_GATE_STAGES = ['received', 'in_progress', 'quality_check', 'ready_pickup'];
 
-export const TRACKER_PHOTO_SLOTS = ['front', 'rear', 'left', 'right', 'close_up'];
+export const TRACKER_STANDARD_SLOTS = ['front', 'rear', 'left', 'right', 'close_up'];
+
+/** @deprecated Use TRACKER_STANDARD_SLOTS — kept for imports that expect TRACKER_PHOTO_SLOTS */
+export const TRACKER_PHOTO_SLOTS = TRACKER_STANDARD_SLOTS;
 
 export const REQUIRED_GATE_PHOTOS = 5;
 
-/** @param {string | undefined | null} slot */
-export function normalizePhotoSlot(slot) {
-  const s = String(slot || '').trim().toLowerCase();
-  if (TRACKER_PHOTO_SLOTS.includes(s)) return s;
+/** Vehicle Arrive gate when the advancing user is `staff_quality_checker`. */
+export const QC_RECEIVED_REQUIRED_PHOTOS = 6;
+
+/** Quality Check gate — one checklist / inspection photo (see tracker-gate-photo-slots on frontend). */
+export const QC_QUALITY_CHECK_REQUIRED_PHOTOS = 1;
+
+/**
+ * @param {string | undefined | null} slot
+ * @param {string | undefined | null} [stage] row stage — required to accept `preassessment_form` on `received` only
+ */
+export function normalizePhotoSlot(slot, stage) {
+  const s = String(slot || '').trim().toLowerCase().replace(/-/g, '_');
+  const st = String(stage || '').trim();
+  if (
+    (s === 'preassessment_form' || s === 'checklist_photo' || s === 'checklist') &&
+    st === 'received'
+  ) {
+    return 'preassessment_form';
+  }
+  if (
+    (s === 'qc_form' || s === 'qc_checklist' || s === 'final_inspection') &&
+    st === 'quality_check'
+  ) {
+    return 'qc_form';
+  }
+  if (TRACKER_STANDARD_SLOTS.includes(s)) return s;
   return null;
+}
+
+/**
+ * Minimum photos required on `validateStage` before PATCH may advance into the next gate.
+ * @param {string} validateStage from `gatePhotoStageToValidateForAdvance`
+ * @param {string} actorCanonicalRole from `normalizeToCanonical(req.user.role)`
+ */
+export function requiredGatePhotosForValidation(validateStage, actorCanonicalRole) {
+  if (validateStage === 'quality_check') {
+    return QC_QUALITY_CHECK_REQUIRED_PHOTOS;
+  }
+  if (validateStage === 'received' && actorCanonicalRole === 'staff_quality_checker') {
+    return QC_RECEIVED_REQUIRED_PHOTOS;
+  }
+  return REQUIRED_GATE_PHOTOS;
 }
 
 /**
@@ -23,13 +65,21 @@ export function normalizePhotoSlot(slot) {
  * @param {string} stage
  */
 export function countGatePhotos(order, stage) {
+  const st = String(stage || '').trim();
+  if (st === 'quality_check') {
+    const list = order?.trackerStageMedia || [];
+    const has = list.some(
+      (e) => e.stage === 'quality_check' && String(e.photoUrl || '').trim()
+    );
+    return has ? 1 : 0;
+  }
   const list = order?.trackerStageMedia || [];
   const keys = new Set();
   for (const e of list) {
     if (e.stage !== stage) continue;
     const url = String(e.photoUrl || '').trim();
     if (!url) continue;
-    const slot = normalizePhotoSlot(e.slot);
+    const slot = normalizePhotoSlot(e.slot, e.stage);
     if (slot) keys.add(slot);
     else keys.add('__legacy__');
   }
@@ -39,14 +89,16 @@ export function countGatePhotos(order, stage) {
 /**
  * @param {{ trackerStageMedia?: Array<{ stage?: string; slot?: string; photoUrl?: string }> }} order
  * @param {string} stage
+ * @param {string} [actorCanonicalRole] optional — affects required count on `received` (QC = 6) and `quality_check` (always 1)
  * @returns {{ ok: boolean; uploaded: number; required: number }}
  */
-export function gatePhotosProgress(order, stage) {
+export function gatePhotosProgress(order, stage, actorCanonicalRole) {
   const uploaded = countGatePhotos(order, stage);
+  const required = requiredGatePhotosForValidation(stage, actorCanonicalRole ?? '');
   return {
-    ok: uploaded >= REQUIRED_GATE_PHOTOS,
+    ok: uploaded >= required,
     uploaded,
-    required: REQUIRED_GATE_PHOTOS,
+    required,
   };
 }
 

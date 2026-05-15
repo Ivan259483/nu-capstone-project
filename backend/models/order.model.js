@@ -333,10 +333,10 @@ const orderSchema = new mongoose.Schema(
         enum: ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'],
         required: true,
       },
-      /** Gate stages use front|rear|left|right|close_up; confirmed rows omit slot. */
+      /** Gate stages: five angles; preassessment_form on received (QC); qc_form on quality_check (single checklist photo). */
       slot: {
         type: String,
-        enum: ['front', 'rear', 'left', 'right', 'close_up'],
+        enum: ['front', 'rear', 'left', 'right', 'close_up', 'preassessment_form', 'qc_form'],
         required: false,
       },
       photoUrl: { type: String, default: '' },
@@ -344,6 +344,18 @@ const orderSchema = new mongoose.Schema(
       uploadedAt: { type: Date, default: Date.now },
       uploadedBy: String,
     }],
+
+    /** QC live tracker — editable vehicle / tint handoff (paper QC form mirror). */
+    qcHandoffSheet: {
+      clientName: { type: String, default: '', trim: true },
+      serviceDate: { type: String, default: '', trim: true },
+      makeModel: { type: String, default: '', trim: true },
+      plateNo: { type: String, default: '', trim: true },
+      tintShadeInstalled: { type: String, default: '', trim: true },
+      installer: { type: String, default: '', trim: true },
+      updatedAt: Date,
+      updatedBy: String,
+    },
   },
   { timestamps: true }
 );

@@ -8,7 +8,7 @@ import Order from '../models/order.model.js';
 import { getIO } from '../utils/socket.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { uploadVehicleScanImages } from '../utils/cloudinaryStorage.utils.js';
-import { SERVICE_OPERATION_ROLES } from '../constants/roles.js';
+import { SERVICE_OPERATION_ROLES, normalizeToCanonical } from '../constants/roles.js';
 import {
   TRACKER_GATE_STAGES,
   normalizePhotoSlot,
@@ -62,6 +62,22 @@ function isGateStage(stage) {
   return TRACKER_GATE_STAGES.includes(stage);
 }
 
+function gateSlotInvalidMessage(stage, forQuery = false) {
+  if (stage === 'received') {
+    return forQuery
+      ? 'slot query is required (front, rear, left, right, close_up, or preassessment_form for QC checklist)'
+      : `slot is required for stage ${stage}. Use one of: front, rear, left, right, close_up, preassessment_form (QC checklist)`;
+  }
+  if (stage === 'quality_check') {
+    return forQuery
+      ? 'slot query is required (qc_form for QC checklist / inspection, or legacy angle slots)'
+      : `slot is required for stage ${stage}. Use qc_form (QC checklist / inspection photo), or standard angle keys for legacy rows`;
+  }
+  return forQuery
+    ? 'slot query is required (front, rear, left, right, close_up)'
+    : `slot is required for stage ${stage}. Use one of: front, rear, left, right, close_up`;
+}
+
 function wantsFastInlineUpload(req) {
   const value = String(req.body?.fastInline || req.body?.preferInline || '').trim().toLowerCase();
   return ['1', 'true', 'yes', 'fast'].includes(value);
@@ -71,7 +87,7 @@ function wantsFastInlineUpload(req) {
 function findGateMediaIndex(order, stage, normalizedSlot) {
   const list = order.trackerStageMedia || [];
   const idx = list.findIndex(
-    (e) => e.stage === stage && normalizePhotoSlot(e.slot) === normalizedSlot
+    (e) => e.stage === stage && normalizePhotoSlot(e.slot, e.stage) === normalizedSlot
   );
   if (idx >= 0) return idx;
   if (normalizedSlot === 'front') {
@@ -79,10 +95,24 @@ function findGateMediaIndex(order, stage, normalizedSlot) {
       (e) =>
         e.stage === stage &&
         String(e.photoUrl || '').trim() &&
-        !normalizePhotoSlot(e.slot)
+        !normalizePhotoSlot(e.slot, e.stage)
     );
   }
   return -1;
+}
+
+function assertPreassessmentSlotAllowed(req, stage, slot) {
+  if (slot !== 'preassessment_form') return null;
+  if (stage !== 'received') {
+    return { status: 400, message: 'checklist slot is only valid for the received stage' };
+  }
+  if (normalizeToCanonical(req.user?.role) !== 'staff_quality_checker') {
+    return {
+      status: 403,
+      message: 'Only Quality Checker staff can add or remove the pre-assessment checklist photo.',
+    };
+  }
+  return null;
 }
 
 function upsertTrackerStageMediaGate(order, { stage, slot, photoUrl, description, actorName, actorId }) {
@@ -257,12 +287,16 @@ export const patchTrackerStagePhoto = async (req, res, next) => {
     }
 
     if (isGateStage(stage)) {
-      const slot = normalizePhotoSlot(rawSlot);
+      const slot = normalizePhotoSlot(rawSlot, stage);
       if (!slot) {
         return res.status(400).json({
           success: false,
-          message: `slot is required for stage ${stage}. Use one of: front, rear, left, right, close_up`,
+          message: gateSlotInvalidMessage(stage, false),
         });
+      }
+      const slotErr = assertPreassessmentSlotAllowed(req, stage, slot);
+      if (slotErr) {
+        return res.status(slotErr.status).json({ success: false, message: slotErr.message });
       }
       if (!url) {
         return res.status(400).json({ success: false, message: 'photoUrl is required for this stage' });
@@ -347,12 +381,16 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
 
     let slot = null;
     if (isGateStage(stage)) {
-      slot = normalizePhotoSlot(rawSlot);
+      slot = normalizePhotoSlot(rawSlot, stage);
       if (!slot) {
         return res.status(400).json({
           success: false,
-          message: `slot is required for stage ${stage}. Use one of: front, rear, left, right, close_up`,
+          message: gateSlotInvalidMessage(stage, false),
         });
+      }
+      const slotErr = assertPreassessmentSlotAllowed(req, stage, slot);
+      if (slotErr) {
+        return res.status(slotErr.status).json({ success: false, message: slotErr.message });
       }
     }
 
@@ -472,12 +510,17 @@ export const deleteTrackerStagePhoto = async (req, res, next) => {
       });
     }
 
-    const slot = normalizePhotoSlot(rawSlot);
+    const slot = normalizePhotoSlot(rawSlot, stage);
     if (!slot) {
       return res.status(400).json({
         success: false,
-        message: 'slot query is required (front, rear, left, right, close_up)',
+        message: gateSlotInvalidMessage(stage, true),
       });
+    }
+
+    const slotErr = assertPreassessmentSlotAllowed(req, stage, slot);
+    if (slotErr) {
+      return res.status(slotErr.status).json({ success: false, message: slotErr.message });
     }
 
     const order = await Order.findById(id);

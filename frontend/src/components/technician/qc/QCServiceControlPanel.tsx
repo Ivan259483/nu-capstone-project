@@ -4,6 +4,10 @@ import {
   Car, Wrench, ShieldCheck, Star, Play, ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  normalizeStaffGateSlot,
+  requiredSlotsCountForGate,
+} from '@/lib/tracker-gate-photo-slots';
 
 // ── Preset Staff Roster ────────────────────────────────────────────────────────
 export const SERVICE_STAFF_ROSTER = [
@@ -120,6 +124,7 @@ interface Props {
   jobId: string;
   currentStage?: ServiceStage;
   currentAssignments?: { slot: string; name: string; role: string }[];
+  trackerStageMedia?: { stage?: string; slot?: string; photoUrl?: string; hasPhoto?: boolean }[];
   onUpdateStage: (id: string, stage: ServiceStage) => Promise<boolean>;
   onAssignStaff: (id: string, assignments: { slot: string; name: string; role: string }[]) => Promise<boolean>;
 }
@@ -135,6 +140,7 @@ export default function QCServiceControlPanel({
   jobId,
   currentStage,
   currentAssignments = [],
+  trackerStageMedia = [],
   onUpdateStage,
   onAssignStaff,
 }: Props) {
@@ -150,12 +156,40 @@ export default function QCServiceControlPanel({
   );
 
   const activeIdx = stageIndex(currentStage);
+  const countGatePhotos = (stage: ServiceStage) => {
+    if (stage === 'quality_check') {
+      return trackerStageMedia.some((item) =>
+        item.stage === stage &&
+        (String(item.photoUrl || '').trim() || item.hasPhoto)
+      ) ? 1 : 0;
+    }
+
+    const keys = new Set<string>();
+    trackerStageMedia.forEach((item) => {
+      if (item.stage !== stage) return;
+      if (!String(item.photoUrl || '').trim() && !item.hasPhoto) return;
+      const slot = normalizeStaffGateSlot(item.slot, item.stage);
+      keys.add(slot || '__legacy__');
+    });
+    return keys.size;
+  };
+
+  const gateReadyForAdvance = (stage: ServiceStage) => {
+    const required = requiredSlotsCountForGate(stage, true);
+    return countGatePhotos(stage) >= required;
+  };
 
   const handleAdvance = useCallback(async (stage: ServiceStage) => {
+    const currentGate = STAGE_ORDER[Math.max(0, STAGE_ORDER.indexOf(stage) - 1)] || stage;
+    if (!gateReadyForAdvance(currentGate)) {
+      const required = requiredSlotsCountForGate(currentGate, true);
+      toast.error(`Upload all ${required} required photo${required === 1 ? '' : 's'} before advancing.`);
+      return;
+    }
     setAdvancingTo(stage);
     await onUpdateStage(jobId, stage);
     setAdvancingTo(null);
-  }, [jobId, onUpdateStage]);
+  }, [jobId, onUpdateStage, trackerStageMedia]);
 
   const handleStaffChange = (slot: string, name: string, role: string) => {
     setStaffSlots((prev) => prev.map((s) => s.slot === slot ? { ...s, name, role } : s));
@@ -202,6 +236,9 @@ export default function QCServiceControlPanel({
             const isLocked  = idx > activeIdx + 1;
             const loading   = advancingTo === stage.id;
             const Icon      = stage.icon;
+            const gateForAdvance = STAGE_ORDER[Math.max(0, STAGE_ORDER.indexOf(stage.id) - 1)] || stage.id;
+            const canAdvance = gateReadyForAdvance(gateForAdvance);
+            const required = requiredSlotsCountForGate(gateForAdvance, true);
 
             return (
               <div key={stage.id} className="flex items-center gap-3">
@@ -242,14 +279,15 @@ export default function QCServiceControlPanel({
                 ) : isNext ? (
                   <button
                     onClick={() => handleAdvance(stage.id)}
-                    disabled={!!advancingTo}
-                    className={`flex-shrink-0 flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-xl border transition-all active:scale-95 disabled:opacity-60 ${stage.bg} ${stage.color} border-current hover:opacity-80 shadow-sm`}
+                    disabled={!!advancingTo || !canAdvance}
+                    title={!canAdvance ? `Upload ${required} required photo${required === 1 ? '' : 's'} first` : undefined}
+                    className={`flex-shrink-0 flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-xl border transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${canAdvance ? `${stage.bg} ${stage.color} border-current hover:opacity-80 shadow-sm` : 'bg-slate-100 text-slate-400 border-slate-200'}`}
                   >
                     {loading
                       ? <Loader2 size={11} className="animate-spin" />
                       : <ChevronRight size={11} />
                     }
-                    {loading ? 'Updating…' : 'Advance'}
+                    {loading ? 'Updating…' : canAdvance ? 'Advance' : `${countGatePhotos(gateForAdvance)}/${required}`}
                   </button>
                 ) : isDone ? (
                   <CheckCircle2 size={16} className="text-slate-300 flex-shrink-0" />

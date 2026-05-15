@@ -9,6 +9,7 @@
 import Order from '../models/order.model.js';
 import ShopAvailability, { buildDefaultRecurringSchedule } from '../models/shopAvailability.model.js';
 import ScheduledClosure from '../models/scheduledClosure.model.js';
+import BookingSlotCounter from '../models/bookingSlotCounter.model.js';
 
 const DEFAULT_SLOT_DURATION_MINUTES = 60;
 
@@ -24,6 +25,12 @@ export const SLOT_CONSUMING_STATUSES = [
   'processing',
   'quality_check',
 ];
+
+const SLOT_CONSUMING_STATUS_SET = new Set(SLOT_CONSUMING_STATUSES);
+
+export function isSlotConsumingStatus(status) {
+  return SLOT_CONSUMING_STATUS_SET.has(String(status || '').trim());
+}
 
 // ── Parse 'HH:MM' into total minutes since midnight ───────────────────────────
 function toMinutes(hhmm) {
@@ -86,6 +93,16 @@ export function normalizeBookingTime(timeStr) {
   }
 
   return null;
+}
+
+export function formatSlotTimeForDisplay(timeStr) {
+  const normalized = normalizeBookingTime(timeStr);
+  if (!normalized) return String(timeStr || '').trim();
+
+  const [hourRaw, minute] = normalized.split(':').map(Number);
+  const period = hourRaw >= 12 ? 'PM' : 'AM';
+  const hour12 = hourRaw % 12 || 12;
+  return `${hour12}:${String(minute).padStart(2, '0')} ${period}`;
 }
 
 /**
@@ -229,6 +246,149 @@ function aggregateBookingsForDate(bookings, targetDate) {
   return { bookedCount, bookedCountByTime, bookedTimes };
 }
 
+function buildSlotAvailability(daySchedule, bookedCountByTime = {}) {
+  const capacity = Math.max(0, Number(daySchedule?.slots || 0));
+  const times = generateTimeSlots(daySchedule, DEFAULT_SLOT_DURATION_MINUTES);
+
+  return times.map((time) => {
+    const booked = Math.max(0, Number(bookedCountByTime[time] || 0));
+    const available = Math.max(0, capacity - booked);
+    const ratio = capacity > 0 ? booked / capacity : 1;
+    const status =
+      capacity <= 0 || available <= 0
+        ? 'FULL'
+        : ratio >= 0.8
+          ? 'ALMOST_FULL'
+          : 'AVAILABLE';
+
+    return {
+      time,
+      label: formatSlotTimeForDisplay(time),
+      capacity,
+      booked,
+      available,
+      status,
+    };
+  });
+}
+
+function summarizeSlotAvailability(slots) {
+  const rows = Array.isArray(slots) ? slots : [];
+  const totalCapacity = rows.reduce((sum, slot) => sum + Math.max(0, Number(slot.capacity || 0)), 0);
+  const bookedSlots = rows.reduce((sum, slot) => {
+    const capacity = Math.max(0, Number(slot.capacity || 0));
+    const booked = Math.max(0, Number(slot.booked || 0));
+    return sum + Math.min(booked, capacity);
+  }, 0);
+  const availableSlots = rows.reduce((sum, slot) => sum + Math.max(0, Number(slot.available || 0)), 0);
+  const fullSlots = rows.filter((slot) => slot.status === 'FULL').length;
+  const almostFullSlots = rows.filter((slot) => slot.status === 'ALMOST_FULL').length;
+
+  return {
+    totalCapacity,
+    bookedSlots,
+    availableSlots,
+    fullSlots,
+    almostFullSlots,
+    allSlotsFull: rows.length > 0 && rows.every((slot) => slot.status === 'FULL'),
+  };
+}
+
+function buildSlotCounterKey(bookingDate, bookingTime) {
+  const date = normalizeBookingDate(bookingDate);
+  const time = normalizeBookingTime(bookingTime);
+  if (!date || !time) return null;
+  return { date, time };
+}
+
+async function countActiveBookingsForSlot(normalizedDate, normalizedTime, excludeOrderId = null) {
+  const bookings = await loadActiveBookingsForDate(normalizedDate, excludeOrderId);
+  return bookings.reduce((count, booking) => {
+    const bookingTime = normalizeBookingTime(booking.bookingTime);
+    return bookingTime === normalizedTime ? count + 1 : count;
+  }, 0);
+}
+
+export async function syncBookingSlotCounter(bookingDate, bookingTime, { excludeOrderId = null } = {}) {
+  const key = buildSlotCounterKey(bookingDate, bookingTime);
+  if (!key) return { ok: false, errorCode: 'INVALID_SLOT', message: 'Invalid booking date or time.' };
+
+  const actualCount = await countActiveBookingsForSlot(key.date, key.time, excludeOrderId);
+  await BookingSlotCounter.updateOne(
+    { date: key.date, time: key.time },
+    {
+      $max: { count: actualCount },
+      $set: { updatedAt: new Date() },
+      $setOnInsert: { date: key.date, time: key.time, createdAt: new Date() },
+    },
+    { upsert: true }
+  );
+
+  return { ok: true, ...key, actualCount };
+}
+
+async function getTimeSlotAvailability(bookingDate, bookingTime, { excludeOrderId = null } = {}) {
+  const snapshot = await getDateAvailabilitySnapshot(bookingDate, { excludeOrderId });
+  if (snapshot.errorCode === 'INVALID_DATE') {
+    return {
+      ok: false,
+      errorCode: snapshot.errorCode,
+      message: snapshot.message,
+      error: snapshot.error,
+    };
+  }
+
+  if (
+    !snapshot.ok
+    && snapshot.errorCode !== 'DATE_FULL'
+  ) {
+    return {
+      ok: false,
+      errorCode: snapshot.errorCode,
+      message: snapshot.message,
+      error: snapshot.error,
+    };
+  }
+
+  const normalizedTime = normalizeBookingTime(bookingTime);
+  if (!normalizedTime) {
+    return {
+      ok: false,
+      errorCode: 'INVALID_TIME',
+      message: 'Invalid booking time.',
+      error: 'Invalid booking time.',
+    };
+  }
+
+  const slot = (snapshot.slots || []).find((row) => row.time === normalizedTime);
+  if (!slot) {
+    return {
+      ok: false,
+      errorCode: 'SLOT_UNAVAILABLE',
+      message: 'Selected time is outside the shop operating hours.',
+      error: 'Selected time is outside the shop operating hours.',
+    };
+  }
+
+  if (slot.available <= 0) {
+    return {
+      ok: false,
+      errorCode: 'SLOT_FULL',
+      message: 'Selected time slot is fully booked.',
+      error: 'Selected time slot is fully booked.',
+      slot,
+    };
+  }
+
+  return {
+    ok: true,
+    date: snapshot.date,
+    time: normalizedTime,
+    remaining: slot.available,
+    slot,
+  };
+}
+
 /**
  * generateTimeSlots(dayConfig, slotDuration)
  * Returns an ordered array of 'HH:MM' strings for a given day's config.
@@ -270,7 +430,9 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
   const { bookedCount, bookedCountByTime, bookedTimes } = aggregateBookingsForDate(bookings, normalizedDate);
 
   const slotsLimit = Math.max(0, Number(daySchedule?.slots || 0));
-  const remaining = Math.max(0, slotsLimit - bookedCount);
+  const slots = buildSlotAvailability(daySchedule, bookedCountByTime);
+  const slotSummary = summarizeSlotAvailability(slots);
+  const remaining = slotSummary.availableSlots;
   const today = getLocalDateString(new Date());
 
   if (config.emergencyClosed && normalizedDate === today) {
@@ -287,6 +449,9 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       remaining,
       bookedCountByTime,
       bookedTimes,
+      slots: [],
+      totalCapacity: 0,
+      fullTimes: [],
     };
   }
 
@@ -305,6 +470,9 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       remaining,
       bookedCountByTime,
       bookedTimes,
+      slots: [],
+      totalCapacity: 0,
+      fullTimes: [],
     };
   }
 
@@ -322,10 +490,13 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       remaining,
       bookedCountByTime,
       bookedTimes,
+      slots: [],
+      totalCapacity: 0,
+      fullTimes: [],
     };
   }
 
-  if (bookedCount >= slotsLimit) {
+  if (slots.length === 0 || slotSummary.totalCapacity <= 0 || slotSummary.allSlotsFull) {
     return {
       ok: false,
       date: normalizedDate,
@@ -339,6 +510,11 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
       remaining,
       bookedCountByTime,
       bookedTimes,
+      slots,
+      totalCapacity: slotSummary.totalCapacity,
+      fullTimes: slots.filter((slot) => slot.status === 'FULL').map((slot) => slot.time),
+      fullSlots: slotSummary.fullSlots,
+      almostFullSlots: slotSummary.almostFullSlots,
     };
   }
 
@@ -352,6 +528,11 @@ export async function getDateAvailabilitySnapshot(bookingDate, { excludeOrderId 
     remaining,
     bookedCountByTime,
     bookedTimes,
+    slots,
+    totalCapacity: slotSummary.totalCapacity,
+    fullTimes: slots.filter((slot) => slot.status === 'FULL').map((slot) => slot.time),
+    fullSlots: slotSummary.fullSlots,
+    almostFullSlots: slotSummary.almostFullSlots,
   };
 }
 
@@ -388,26 +569,11 @@ export async function getSlotsForDate(dateStr) {
     return { date: resolvedDate, isClosed: true, slots: [] };
   }
 
-  const daySchedule = snapshot.daySchedule || getDaySchedule(normalizeRecurringSchedule([]), resolvedDate);
-  const times = generateTimeSlots(daySchedule, DEFAULT_SLOT_DURATION_MINUTES);
-
-  if (times.length === 0 || snapshot.errorCode === 'INVALID_DATE') {
+  if (snapshot.errorCode === 'INVALID_DATE') {
     return { date: resolvedDate, isClosed: true, slots: [] };
   }
 
-  const dayIsFull = snapshot.errorCode === 'DATE_FULL';
-  const ratio = snapshot.slotsLimit > 0 ? snapshot.bookedCount / snapshot.slotsLimit : 1;
-  const openStatus = ratio >= 0.8 ? 'ALMOST_FULL' : 'AVAILABLE';
-
-  const slots = times.map((time) => ({
-    time,
-    capacity: snapshot.slotsLimit,
-    booked: snapshot.bookedCount,
-    available: Math.max(0, snapshot.remaining),
-    status: dayIsFull ? 'FULL' : openStatus,
-  }));
-
-  return { date: resolvedDate, isClosed: false, slots };
+  return { date: resolvedDate, isClosed: false, slots: snapshot.slots || [] };
 }
 
 /**
@@ -437,17 +603,20 @@ export async function getSlotsForRange(startStr, endStr) {
 
   const activeBookings = await Order.find({
     status: { $in: SLOT_CONSUMING_STATUSES },
-  }).select('bookingDate').lean();
+  }).select('bookingDate bookingTime').lean();
 
   const pendingBookings = await Order.find({
     status: 'pending_confirmation',
   }).select('bookingDate').lean();
 
-  const bookedByDate = {};
+  const bookedByDateTime = {};
   for (const booking of activeBookings) {
     const dateKey = normalizeBookingDate(booking.bookingDate);
     if (!dateKey || !dateSet.has(dateKey)) continue;
-    bookedByDate[dateKey] = (bookedByDate[dateKey] || 0) + 1;
+    const timeKey = normalizeBookingTime(booking.bookingTime);
+    if (!timeKey) continue;
+    if (!bookedByDateTime[dateKey]) bookedByDateTime[dateKey] = {};
+    bookedByDateTime[dateKey][timeKey] = (bookedByDateTime[dateKey][timeKey] || 0) + 1;
   }
 
   const pendingByDate = {};
@@ -476,23 +645,21 @@ export async function getSlotsForRange(startStr, endStr) {
       };
     }
 
-    const totalSlots = Math.max(0, Number(daySchedule.slots || 0));
-    const bookedSlots = bookedByDate[dateStr] || 0;
-    const availableSlots = Math.max(0, totalSlots - bookedSlots);
-    const ratio = totalSlots > 0 ? bookedSlots / totalSlots : 1;
+    const slots = buildSlotAvailability(daySchedule, bookedByDateTime[dateStr] || {});
+    const summary = summarizeSlotAvailability(slots);
 
     let status = 'AVAILABLE';
-    if (bookedSlots >= totalSlots) status = 'FULL';
-    else if (ratio >= 0.8) status = 'ALMOST_FULL';
+    if (summary.totalCapacity <= 0 || summary.allSlotsFull) status = 'FULL';
+    else if (summary.availableSlots / summary.totalCapacity <= 0.2 || summary.almostFullSlots > 0) status = 'ALMOST_FULL';
 
     return {
       date: dateStr,
       isClosed: false,
-      totalSlots,
-      bookedSlots,
-      availableSlots,
-      fullSlots: status === 'FULL' ? 1 : 0,
-      almostFullSlots: status === 'ALMOST_FULL' ? 1 : 0,
+      totalSlots: summary.totalCapacity,
+      bookedSlots: summary.bookedSlots,
+      availableSlots: summary.availableSlots,
+      fullSlots: summary.fullSlots,
+      almostFullSlots: summary.almostFullSlots,
       pendingCount: pendingByDate[dateStr] || 0,
       status,
     };
@@ -508,18 +675,57 @@ export async function getSlotsForRange(startStr, endStr) {
 export async function validateSlotAvailability(bookingDate, bookingTime, excludeOrderId = null) {
   if (!bookingDate || !bookingTime) return { ok: true };
 
-  const snapshot = await getDateAvailabilitySnapshot(bookingDate, { excludeOrderId });
-  if (!snapshot.ok) {
+  return getTimeSlotAvailability(bookingDate, bookingTime, { excludeOrderId });
+}
+
+export async function reserveBookingSlot(bookingDate, bookingTime) {
+  const availability = await getTimeSlotAvailability(bookingDate, bookingTime);
+  if (!availability.ok) return availability;
+
+  await syncBookingSlotCounter(availability.date, availability.time);
+
+  const counter = await BookingSlotCounter.findOneAndUpdate(
+    {
+      date: availability.date,
+      time: availability.time,
+      count: { $lt: availability.slot.capacity },
+    },
+    {
+      $inc: { count: 1 },
+      $set: { updatedAt: new Date() },
+    },
+    { new: true }
+  ).lean();
+
+  if (!counter) {
     return {
       ok: false,
-      errorCode: snapshot.errorCode,
-      message: snapshot.message,
-      error: snapshot.error,
+      errorCode: 'SLOT_FULL',
+      message: 'Selected time slot is fully booked.',
+      error: 'Selected time slot is fully booked.',
     };
   }
 
   return {
     ok: true,
-    remaining: snapshot.remaining,
+    date: availability.date,
+    time: availability.time,
+    remaining: Math.max(0, availability.slot.capacity - counter.count),
   };
+}
+
+export async function releaseBookingSlot(bookingDate, bookingTime) {
+  const key = buildSlotCounterKey(bookingDate, bookingTime);
+  if (!key) return { ok: false };
+
+  await BookingSlotCounter.findOneAndUpdate(
+    { date: key.date, time: key.time, count: { $gt: 0 } },
+    {
+      $inc: { count: -1 },
+      $set: { updatedAt: new Date() },
+    },
+    { new: true }
+  );
+
+  return { ok: true, ...key };
 }

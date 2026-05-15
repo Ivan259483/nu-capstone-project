@@ -14,6 +14,8 @@ export interface QCJob {
   paymentStatus?: string;
   invoiceId?: string | null;
   customer: string;
+  /** Display name from order detail / API when different from `customer` */
+  customerName?: string;
   vehicle: string;
   make: string;
   plate: string;
@@ -49,6 +51,18 @@ export interface QCJob {
   customerPhone?: string;
   customerEmail?: string;
   customerNotes?: string;
+  bookingDate?: string;
+  bookingTime?: string;
+  /** Hint from order warranty block — same lineage as customer vehicle / booking data */
+  existingFwsAndShade?: string;
+  qcHandoffSheet?: {
+    clientName?: string;
+    serviceDate?: string;
+    makeModel?: string;
+    plateNo?: string;
+    tintShadeInstalled?: string;
+    installer?: string;
+  };
 }
 
 export interface QCStats {
@@ -594,6 +608,32 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
     }
   }, [fetchJobs]);
 
+  const saveQCHandoffSheet = useCallback(
+    async (
+      id: string,
+      payload: {
+        clientName?: string;
+        serviceDate?: string;
+        makeModel?: string;
+        plateNo?: string;
+        tintShadeInstalled?: string;
+        installer?: string;
+      }
+    ): Promise<boolean> => {
+      try {
+        await api.patch(`/qc/jobs/${id}/handoff-sheet`, payload);
+        invalidateQcJobsRequestCache();
+        void fetchJobs(true);
+        return true;
+      } catch (err: any) {
+        const msg = err?.response?.data?.message || err?.message || 'Save failed';
+        toast.error('Could not save handoff details', { description: msg });
+        return false;
+      }
+    },
+    [fetchJobs]
+  );
+
   return {
     jobs,
     jobsLoading,
@@ -619,6 +659,7 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
     uploadTrackerStagePhoto,
     deleteTrackerStagePhoto,
     assignServiceStaff,
+    saveQCHandoffSheet,
     addStaffNote,
   };
 }

@@ -22,6 +22,7 @@ import { migrateLegacyUserRoles } from './utils/migrateLegacyUserRoles.utils.js'
 import { initSocket, initChangeStreams } from './utils/socket.utils.js';
 import { cleanupExpiredReservations } from './utils/inventory.utils.js';
 import { authenticate, authorize } from './middleware/auth.middleware.js';
+import { BOOKING_MANAGER_ROLES } from './constants/roles.js';
 
 // ============================================
 // RESEND EMAIL CONFIGURATION
@@ -197,7 +198,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/qc', qcRoutes);
 app.use('/api/slots', slotRoutes);
-app.use('/api/admin/availability', authenticate, authorize('administrator'), availabilityRouter);
+app.use('/api/admin/availability', authenticate, authorize(...BOOKING_MANAGER_ROLES), availabilityRouter);
 
 // Serve static public assets (e.g. /ar-viewer.html used by the mobile WebView)
 // Must be before the 404 handler so the file is matched first.

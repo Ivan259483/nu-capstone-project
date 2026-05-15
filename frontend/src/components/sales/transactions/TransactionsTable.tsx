@@ -198,14 +198,21 @@ export default function TransactionsTable() {
         {/* Toolbar */}
         <div className="px-5 sm:px-6 py-4 flex flex-wrap items-center gap-3 border-b border-slate-100/90 bg-gradient-to-b from-slate-50/90 via-slate-50/40 to-white">
           {/* Search */}
-          <div className="relative flex-1 min-w-52">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <div className="relative flex-1 min-w-52 group">
+            <Search
+              size={16}
+              strokeWidth={2.25}
+              className="pointer-events-none absolute left-4 top-1/2 z-[1] -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-500"
+            />
             <input
               type="text"
               placeholder="Search by ID, customer, plate, service…"
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="input-base pl-8 py-2 text-sm rounded-xl border-slate-200/70 shadow-sm shadow-slate-200/20 focus:border-blue-300/80"
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              className="h-11 w-full rounded-full border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 pl-11 pr-4 text-sm font-medium text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_1px_2px_rgba(15,23,42,0.04),0_8px_28px_-10px_rgba(15,23,42,0.1)] outline-none transition-[border-color,box-shadow,color] placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300/95 focus:border-blue-400/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(59,130,246,0.16),0_10px_32px_-12px_rgba(37,99,235,0.14)]"
             />
           </div>
 

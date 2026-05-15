@@ -230,6 +230,7 @@ export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onRetu
               jobId={job.id}
               currentStage={(job as any).serviceTrackingStage as ServiceStage | undefined}
               currentAssignments={(job as any).serviceStaffAssignments || []}
+              trackerStageMedia={(job as any).trackerStageMedia || []}
               onUpdateStage={onUpdateStage ?? (async () => false)}
               onAssignStaff={onAssignStaff ?? (async () => false)}
             />

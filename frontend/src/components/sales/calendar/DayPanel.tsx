@@ -4,14 +4,21 @@
  * Approve / Reject actions are ONLY available here (not on calendar cells).
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
   X, Clock, Car, CheckCircle, XCircle, Loader2,
   Calendar, AlertCircle, Package, Banknote, GripVertical,
 } from 'lucide-react';
-import { approveBooking, rejectBooking } from './calendarService';
+import {
+  approveBooking,
+  createAvailabilityClosure,
+  deleteAvailabilityClosure,
+  fetchAvailabilityClosures,
+  rejectBooking,
+  type AvailabilityClosure,
+} from './calendarService';
 import { invalidateDateCache } from './useBookingsByDate';
 import type { CalendarBooking } from './calendarTypes';
 import { EXCLUDED_STATUSES } from './calendarTypes';
@@ -296,15 +303,72 @@ interface DayPanelProps {
 }
 
 export default function DayPanel({ date, bookings, loading, onClose, onRefresh }: DayPanelProps) {
+  const dateIso = date.toLocaleDateString('en-CA');
   const label = date.toLocaleDateString('en-PH', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
   });
+  const [closures, setClosures] = useState<AvailabilityClosure[]>([]);
+  const [closuresLoading, setClosuresLoading] = useState(false);
+  const [closureActioning, setClosureActioning] = useState(false);
 
   const active = bookings.filter(b => !EXCLUDED_STATUSES.has(b.status));
   const excluded = bookings.filter(b => EXCLUDED_STATUSES.has(b.status));
+  const selectedClosures = closures.filter((closure) => {
+    const from = new Date(closure.fromDate).toLocaleDateString('en-CA');
+    const to = new Date(closure.toDate).toLocaleDateString('en-CA');
+    return from <= dateIso && to >= dateIso;
+  });
+  const isBlocked = selectedClosures.length > 0;
 
   const handleActionComplete = (_id: string) => {
     onRefresh();
+  };
+
+  const loadClosures = useCallback(async () => {
+    setClosuresLoading(true);
+    try {
+      const rows = await fetchAvailabilityClosures();
+      setClosures(rows);
+    } catch (error) {
+      toast.error('Could not load blocked dates', {
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    } finally {
+      setClosuresLoading(false);
+    }
+  }, []);
+
+  const handleBlockDate = async () => {
+    setClosureActioning(true);
+    try {
+      await createAvailabilityClosure(dateIso);
+      toast.success('Date blocked', { description: `${label} is no longer available for bookings.` });
+      await loadClosures();
+      onRefresh();
+    } catch (error) {
+      toast.error('Could not block date', {
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    } finally {
+      setClosureActioning(false);
+    }
+  };
+
+  const handleUnblockDate = async () => {
+    if (!selectedClosures.length) return;
+    setClosureActioning(true);
+    try {
+      await Promise.all(selectedClosures.map((closure) => deleteAvailabilityClosure(closure._id)));
+      toast.success('Date unblocked', { description: `${label} is available again.` });
+      await loadClosures();
+      onRefresh();
+    } catch (error) {
+      toast.error('Could not unblock date', {
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    } finally {
+      setClosureActioning(false);
+    }
   };
 
   /** Lock scroll while drawer is open (portal renders above Admin Hub). */
@@ -315,6 +379,10 @@ export default function DayPanel({ date, bookings, loading, onClose, onRefresh }
       document.body.style.overflow = prev;
     };
   }, []);
+
+  useEffect(() => {
+    loadClosures();
+  }, [loadClosures, dateIso]);
 
   /** Portal → document.body so `position:fixed` is viewport-relative (Admin Hub `.ah-page-enter` uses transform and traps fixed descendants). */
   const drawer = (
@@ -359,6 +427,43 @@ export default function DayPanel({ date, bookings, loading, onClose, onRefresh }
           >
             <X size={18} />
           </button>
+        </div>
+
+        <div className="flex-shrink-0 px-4 py-3 shadow-[0_1px_0_0_rgba(226,232,240,0.7)]">
+          <div className={`flex items-center justify-between gap-3 rounded-2xl px-3.5 py-3 shadow-sm ${
+            isBlocked
+              ? 'bg-orange-50 text-orange-950 ring-1 ring-orange-200/80'
+              : 'bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200/80'
+          }`}>
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] opacity-70">
+                Booking availability
+              </p>
+              <p className="mt-0.5 truncate text-sm font-bold">
+                {closuresLoading
+                  ? 'Checking blocked-date status…'
+                  : isBlocked
+                    ? 'Blocked for customer bookings'
+                    : 'Open for customer bookings'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={isBlocked ? handleUnblockDate : handleBlockDate}
+              disabled={closuresLoading || closureActioning}
+              className={`shrink-0 rounded-xl px-3 py-2 text-xs font-black shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                isBlocked
+                  ? 'bg-white text-orange-700 hover:bg-orange-100'
+                  : 'bg-white text-emerald-700 hover:bg-emerald-100'
+              }`}
+            >
+              {closureActioning
+                ? 'Saving…'
+                : isBlocked
+                  ? 'Unblock date'
+                  : 'Block date'}
+            </button>
+          </div>
         </div>
 
         {!loading && active.length > 0 && (

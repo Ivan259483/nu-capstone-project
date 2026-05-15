@@ -13,7 +13,7 @@ interface RescheduleModalProps {
 
 export default function RescheduleModal({ booking, targetDate, onClose, onConfirm }: RescheduleModalProps) {
   const [loading, setLoading] = useState(true);
-  const [timeSlots, setTimeSlots] = useState<{ time: string; status: string }[]>([]);
+  const [timeSlots, setTimeSlots] = useState<{ time: string; label?: string; status: string }[]>([]);
   const [selectedTime, setSelectedTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -105,7 +105,7 @@ export default function RescheduleModal({ booking, targetDate, onClose, onConfir
                     }`}
                   >
                     <Clock size={12} className={selectedTime === s.time ? 'text-blue-200' : 'text-slate-400'} />
-                    {s.time}
+                    {s.label || s.time}
                   </button>
                 ))}
               </div>

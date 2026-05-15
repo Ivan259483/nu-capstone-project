@@ -19,14 +19,18 @@ export default function QCTopbar({ sidebarCollapsed }: Props) {
   return (
     <header className="flex-shrink-0 h-[60px] flex items-center justify-between bg-white px-6 gap-4">
       {/* Search */}
-      <div className="relative w-72 hidden md:block">
-        <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+      <div className="relative hidden w-72 max-w-full md:block group">
+        <Search
+          size={16}
+          strokeWidth={2.25}
+          className="pointer-events-none absolute left-4 top-1/2 z-[1] -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-500"
+        />
         <input
           type="text"
-          placeholder="Search jobs, vehicles, customers..."
-          className="w-full pl-9 pr-10 py-2 text-sm bg-slate-50/80 rounded-xl text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all shadow-sm shadow-slate-200/40"
+          placeholder="Search jobs, vehicles, customers…"
+          className="h-10 w-full rounded-full border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 pl-11 pr-14 text-sm font-medium text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-10px_rgba(15,23,42,0.08)] outline-none transition-[border-color,box-shadow,color] placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300/95 focus:border-blue-400/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(59,130,246,0.16)]"
         />
-        <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 bg-slate-100 rounded px-1.5 py-0.5 font-mono leading-none">
+        <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-slate-200/80 bg-white/90 px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none text-slate-500 shadow-sm">
           ⌘K
         </kbd>
       </div>

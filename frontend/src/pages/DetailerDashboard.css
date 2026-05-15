@@ -203,14 +203,16 @@
 }
 
 .detailer-root.dark .sidebar-collapse-btn {
-  background: #1A1A1A;
-  color: #777777;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  background: #1f2937;
+  color: #e2e8f0;
+  border-color: #475569;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
 }
 
 .detailer-root.dark .sidebar-collapse-btn:hover {
-  background: #2A2A2A;
-  color: #E5E5E5;
+  background: #334155;
+  color: #f8fafc;
+  border-color: #64748b;
 }
 
 .detailer-root.dark .sidebar-user-card {
@@ -1004,25 +1006,26 @@
   top: 50%;
   right: -12px;
   transform: translateY(-50%);
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   background: #ffffff;
-  border: none;
+  border: 1px solid #cbd5e1;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   z-index: 61;
-  color: #74777d;
+  color: #334155;
   transition: all 0.25s var(--ease-smooth);
-  box-shadow: 0 2px 8px rgba(6, 39, 75, 0.10);
+  box-shadow: 0 2px 10px rgba(6, 39, 75, 0.12);
 }
 
 .sidebar-collapse-btn:hover {
   color: #06274b;
-  background: rgba(6, 39, 75, 0.06);
-  transform: translateY(-50%) scale(1.1);
+  background: #f8fafc;
+  border-color: #94a3b8;
+  transform: translateY(-50%) scale(1.08);
 }
 
 /* ── SIDEBAR USER CARD ── */

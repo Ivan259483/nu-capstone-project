@@ -10,6 +10,7 @@ import {
   updateQCChecklist,
   updateServiceStatus,
   assignServiceStaff,
+  updateQCHandoffSheet,
 } from '../controllers/qc.controller.js';
 
 const router = express.Router();
@@ -82,5 +83,12 @@ router.patch('/jobs/:id/service-status', authorize(...QC_ALLOWED_ROLES), updateS
  * @access  QC Checker, Admin
  */
 router.patch('/jobs/:id/assign-staff', authorize(...QC_ALLOWED_ROLES), assignServiceStaff);
+
+/**
+ * @route   PATCH /api/qc/jobs/:id/handoff-sheet
+ * @desc    Save QC editable vehicle / tint handoff fields (paper form mirror)
+ * @access  QC Checker, Admin
+ */
+router.patch('/jobs/:id/handoff-sheet', authorize(...QC_ALLOWED_ROLES), updateQCHandoffSheet);
 
 export default router;
