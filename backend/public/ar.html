@@ -119,6 +119,7 @@
 
     /* Main AR button */
     #arBtn {
+      text-decoration: none;
       width: 100%; height: 60px; border-radius: 30px;
       background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
       border: none; cursor: pointer;
@@ -128,6 +129,38 @@
       transition: opacity .2s, transform .15s;
     }
     #arBtn:active { opacity: .88; transform: scale(.97); }
+    #arBtnIconPreview {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+    #debugWrap {
+      width: 100%;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(10,10,12,.72);
+      border-radius: 14px;
+      padding: 8px 10px;
+    }
+    #debugLabel {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,.45);
+      margin-bottom: 4px;
+    }
+    #debugUrl {
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.4;
+      color: rgba(255,255,255,.72);
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 78px;
+      overflow: auto;
+    }
 
     /* Before/After toggle */
     #toggle {
@@ -215,15 +248,20 @@
       <button class="tBtn" id="btnRep" onclick="setMode('after')">✓ REPAIRED</button>
     </div>
 
-    <!--
-      The AR button uses the <a rel="ar"> trick:
-      iOS Quick Look intercepts this link click instantly
-      and streams the GLB itself — no browser pre-download needed.
-    -->
-    <button id="arBtn" onclick="launchQuickLook()">
+    <a id="arBtn" rel="ar" href="#">
+      <img
+        id="arBtnIconPreview"
+        src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+        alt=""
+      />
       <span>📱</span>
       <span>View In Your Space</span>
-    </button>
+    </a>
+
+    <div id="debugWrap">
+      <div id="debugLabel">Debug GLB URL</div>
+      <div id="debugUrl">Waiting for ?model=...</div>
+    </div>
   </div>
 </div>
 
@@ -254,6 +292,10 @@
 
   /* Damage pills */
   var damages = [];
+  var statusText = document.getElementById('statusText');
+  var statusDot = document.getElementById('statusDot');
+  var arBtn = document.getElementById('arBtn');
+  var debugUrlEl = document.getElementById('debugUrl');
   try {
     var dp = params.get('damages');
     if (dp) damages = JSON.parse(decodeURIComponent(dp));
@@ -264,7 +306,8 @@
   ══════════════════════════════ */
   if (!glbUrl || !/^https?:\/\//i.test(glbUrl)) {
     document.getElementById('noUrl').style.display = 'flex';
-    document.getElementById('arBtn').style.display = 'none';
+    arBtn.style.display = 'none';
+    debugUrlEl.textContent = 'Invalid or missing ?model= URL';
     postToRN({ type: 'WEBAR_ERROR', message: 'No model URL provided' });
     return;
   }
@@ -273,7 +316,7 @@
   postToRN({ type: 'WEBAR_READY', modelUrl: glbUrl });
 
   /* Update status */
-  document.getElementById('statusText').textContent = 'GLB ready — tap to launch';
+  statusText.textContent = 'GLB ready — tap to launch';
 
   /* ══════════════════════════════
      Damage pills render
@@ -326,37 +369,36 @@
     }
   }
 
+  function refreshArUrl() {
+    var proxyUrl = toProxiedUrl(glbUrl);
+    arBtn.setAttribute('href', proxyUrl);
+    debugUrlEl.textContent = glbUrl;
+    return proxyUrl;
+  }
+
+  refreshArUrl();
+
   /* ══════════════════════════════
      Quick Look AR trigger
   ══════════════════════════════ */
   window.launchQuickLook = function () {
-    var proxyUrl = toProxiedUrl(glbUrl);
+    var proxyUrl = refreshArUrl();
     console.log('[AutoSPF+ AR] Launching Quick Look for:', proxyUrl);
 
-    document.getElementById('statusText').textContent = 'Launching AR…';
-    document.getElementById('statusDot').style.background = '#10b981';
-
-    var a   = document.createElement('a');
-    a.href  = proxyUrl;
-    a.rel   = 'ar';
-
-    var img = document.createElement('img');
-    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-    img.width  = 1;
-    img.height = 1;
-    a.appendChild(img);
-
-    document.body.appendChild(a);
-    a.click();
-
-    setTimeout(function () {
-      if (a.parentNode) a.parentNode.removeChild(a);
-      document.getElementById('statusText').textContent = 'GLB ready — tap to launch';
-      document.getElementById('statusDot').style.background = '#f97316';
-    }, 2000);
+    statusText.textContent = 'Launching AR…';
+    statusDot.style.background = '#10b981';
 
     postToRN({ type: 'AR_LAUNCHED', modelUrl: proxyUrl });
+    return proxyUrl;
   };
+
+  arBtn.addEventListener('click', function () {
+    window.launchQuickLook();
+    setTimeout(function () {
+      statusText.textContent = 'GLB ready — tap to launch';
+      statusDot.style.background = '#f97316';
+    }, 2000);
+  });
 
   /* ══════════════════════════════
      RN bridge
@@ -372,10 +414,13 @@
     try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { return; }
     if (!msg || typeof msg !== 'object') return;
     if (msg.type === 'SET_STATE')   setMode(msg.state === 'after' ? 'after' : 'before');
-    if (msg.type === 'ACTIVATE_AR') launchQuickLook();
+    if (msg.type === 'ACTIVATE_AR') arBtn.click();
     if (msg.type === 'WEBAR_INIT') {
       var p = msg.payload || msg;
-      if (p.modelUrl) glbUrl = p.modelUrl;
+      if (p.modelUrl) {
+        glbUrl = p.modelUrl;
+        refreshArUrl();
+      }
       if (Array.isArray(p.damages)) { damages = p.damages; renderPills(); }
       postToRN({ type: 'WEBAR_INIT_APPLIED' });
     }
