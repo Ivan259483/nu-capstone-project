@@ -2263,9 +2263,6 @@ export const proxyGlb = async (req, res) => {
     // If upstream returns application/octet-stream, Safari won't know it's a GLB.
     res.setHeader('Content-Type', 'model/gltf-binary');
 
-    // Content-Disposition with .glb extension — required for iOS Quick Look filename detection.
-    res.setHeader('Content-Disposition', 'attachment; filename="model.glb"');
-
     const contentLength = upstream.headers['content-length'];
     if (contentLength) res.setHeader('Content-Length', contentLength);
 

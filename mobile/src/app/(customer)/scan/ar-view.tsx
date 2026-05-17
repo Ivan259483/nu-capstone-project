@@ -168,7 +168,7 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
   src="${safeModel}"
   ios-src="${safeModel}"
   alt="AutoSPF+ vehicle 3D model"
-  ar ar-modes="quick-look scene-viewer webxr" ar-placement="floor" ar-scale="auto"
+  ar ar-modes="webxr scene-viewer quick-look" ar-placement="floor" ar-scale="auto"
   camera-controls touch-action="pan-y" interaction-prompt="auto"
   auto-rotate auto-rotate-delay="1800" rotation-per-second="12deg"
   shadow-intensity="1.35" shadow-softness="0.78"
@@ -462,26 +462,16 @@ export default function ArViewScreen() {
   const openWebArInBrowser = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     try {
-      // ── Strategy 1: Open raw Meshy GLB URL directly in Safari ──
-      // When Safari navigates to a .glb file, iOS automatically triggers
-      // Quick Look AR — no HTML page or model-viewer needed at all.
-      // This works 100% regardless of Render deployment status.
-      if (ready && modelUrl) {
-        // Use proxy URL so we control CORS + Content-Type headers for GLB
-        const proxyUrl = `${API_BASE_URL}/ai/proxy-glb?url=${encodeURIComponent(modelUrl)}`;
-        await Linking.openURL(proxyUrl);
-        return;
-      }
-
-      // ── Strategy 2: Fallback to the ar-viewer route on Render ──
-      // Used when no direct GLB URL is available.
-      const fallbackUrl = `${API_BASE_URL}/ai/ar-viewer?src=${encodeURIComponent(modelUrl || '')}`;
-      await Linking.openURL(fallbackUrl);
+      // ── Open the dedicated ar.html page in Safari ──
+      // iOS Quick Look requires a direct accessible GLB URL, not a proxied download,
+      // so we use the standalone AR HTML page hosted on Render, which uses <model-viewer>.
+      const arHtmlUrl = `${API_BASE_URL.replace('/api', '')}/ar.html?model=${encodeURIComponent(modelUrl || '')}`;
+      await Linking.openURL(arHtmlUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not open browser.';
       setWebArError(message);
     }
-  }, [modelUrl, ready]);
+  }, [modelUrl]);
 
   const handleWebViewMessage = useCallback(
     (event: { nativeEvent: { data: string } }) => {
