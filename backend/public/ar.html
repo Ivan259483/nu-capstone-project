@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"/>
+  <title>AutoSPF+ AR</title>
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{width:100%;height:100%;background:#050506;overflow:hidden;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#fff}
+
+    model-viewer{
+      width:100%;height:100vh;
+      --poster-color:#050506;
+      --progress-bar-color:#f97316;
+      background:radial-gradient(circle at 50% 44%,rgba(255,255,255,.05),transparent 32%),
+                 radial-gradient(circle at 50% 80%,rgba(249,115,22,.08),transparent 36%),#050506;
+    }
+
+    /* ── Header ── */
+    .header{
+      position:fixed;top:0;left:0;right:0;
+      padding:max(52px,env(safe-area-inset-top)) 20px 14px;
+      background:linear-gradient(180deg,rgba(5,5,6,.96) 0%,transparent 100%);
+      z-index:100;text-align:center;pointer-events:none;
+    }
+    .header h1{font-size:17px;font-weight:700;letter-spacing:-.2px}
+    .header p{font-size:12px;color:rgba(255,255,255,.45);margin-top:3px}
+
+    /* ── AR Button ── */
+    #arBtn{
+      position:fixed;
+      bottom:max(28px,env(safe-area-inset-bottom,28px));
+      left:50%;transform:translateX(-50%);
+      padding:0 44px;height:56px;min-width:220px;border-radius:28px;
+      background:linear-gradient(135deg,#f97316 0%,#fb923c 100%);
+      color:#fff;font-size:15px;font-weight:800;letter-spacing:.5px;
+      border:none;cursor:pointer;z-index:200;white-space:nowrap;
+      box-shadow:0 8px 32px rgba(249,115,22,.50),inset 0 1px 0 rgba(255,255,255,.2);
+      transition:opacity .2s,transform .15s;
+    }
+    #arBtn:active{opacity:.85;transform:translateX(-50%) scale(.96)}
+    #arBtn:disabled{opacity:.4;cursor:not-allowed}
+
+    /* ── Loading overlay ── */
+    #loading{
+      position:fixed;inset:0;z-index:50;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      background:#050506;gap:18px;transition:opacity .4s;
+    }
+    .ring{
+      width:56px;height:56px;border-radius:50%;
+      border:3px solid rgba(249,115,22,.2);border-top-color:#f97316;
+      animation:spin .9s linear infinite;
+    }
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .lt{font-size:14px;font-weight:700;color:rgba(255,255,255,.65)}
+    .lp{font-size:12px;font-weight:800;color:#f97316;margin-top:-6px}
+
+    /* ── Error overlay ── */
+    #errorBox{
+      position:fixed;inset:0;z-index:60;
+      display:none;flex-direction:column;align-items:center;justify-content:center;
+      background:#050506;padding:32px;text-align:center;gap:14px;
+    }
+    .ei{font-size:48px}
+    .et{font-size:18px;font-weight:900;color:#fca5a5}
+    .em{font-size:13px;color:rgba(255,255,255,.5);font-weight:600;line-height:1.6;max-width:280px}
+    .er{
+      margin-top:8px;padding:12px 28px;border-radius:24px;
+      border:1.5px solid rgba(249,115,22,.5);background:rgba(249,115,22,.12);
+      color:#f97316;font-size:13px;font-weight:800;cursor:pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>AutoSPF+ AR Preview</h1>
+    <p>Tap the button below to view in your space</p>
+  </div>
+
+  <!-- model-viewer: src set dynamically from ?model= param -->
+  <model-viewer
+    id="mv"
+    alt="AutoSPF+ Vehicle 3D Model"
+    ar
+    ar-modes="scene-viewer webxr quick-look"
+    ar-placement="floor"
+    ar-scale="auto"
+    camera-controls
+    touch-action="pan-y"
+    auto-rotate
+    auto-rotate-delay="2000"
+    rotation-per-second="14deg"
+    shadow-intensity="1.5"
+    shadow-softness="0.75"
+    environment-image="neutral"
+    exposure="1.08"
+    camera-orbit="32deg 66deg auto"
+    field-of-view="35deg"
+    loading="eager"
+    reveal="auto"
+  >
+    <button slot="ar-button" id="arBtn" type="button">📱 View In Your Space</button>
+  </model-viewer>
+
+  <!-- Loading -->
+  <div id="loading">
+    <div class="ring"></div>
+    <div class="lt">Loading 3D model…</div>
+    <div class="lp" id="prog">0%</div>
+  </div>
+
+  <!-- Error -->
+  <div id="errorBox">
+    <div class="ei">⚠️</div>
+    <div class="et">Model failed to load</div>
+    <div class="em" id="errMsg">The 3D model could not be fetched. Check your connection and try again.</div>
+    <button class="er" onclick="location.reload()">Try Again</button>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── 1. Read GLB URL from ?model= query param ── */
+  var params  = new URLSearchParams(window.location.search);
+  var glbUrl  = params.get('model');
+
+  var mv      = document.getElementById('mv');
+  var loading = document.getElementById('loading');
+  var errorBox= document.getElementById('errorBox');
+  var errMsg  = document.getElementById('errMsg');
+  var prog    = document.getElementById('prog');
+  var arBtn   = document.getElementById('arBtn');
+
+  /* ── 2. Validate GLB URL ── */
+  if (!glbUrl || glbUrl.trim() === '') {
+    loading.style.display = 'none';
+    errorBox.style.display = 'flex';
+    errMsg.textContent = 'No 3D model URL was provided. Please go back and try again.';
+    arBtn.disabled = true;
+    return;
+  }
+
+  /* ── 3. Set model-viewer src ── */
+  console.log('[AutoSPF+ AR] Loading GLB from:', glbUrl);
+  mv.setAttribute('src', glbUrl);
+
+  // ios-src: use same GLB — iOS 14+ Quick Look supports GLB natively
+  mv.setAttribute('ios-src', glbUrl);
+
+  /* ── 4. Progress ── */
+  mv.addEventListener('progress', function (e) {
+    var p = (e.detail && typeof e.detail.totalProgress === 'number')
+      ? Math.round(e.detail.totalProgress * 100) : 0;
+    prog.textContent = p + '%';
+  });
+
+  /* ── 5. Loaded ── */
+  mv.addEventListener('load', function () {
+    loading.style.opacity = '0';
+    setTimeout(function () { loading.style.display = 'none'; }, 400);
+    console.log('[AutoSPF+ AR] Model loaded ✅');
+  });
+
+  /* ── 6. Error ── */
+  mv.addEventListener('error', function (e) {
+    loading.style.display = 'none';
+    errorBox.style.display = 'flex';
+    errMsg.textContent = 'The 3D model could not be loaded. The URL may have expired.';
+    arBtn.disabled = true;
+    console.error('[AutoSPF+ AR] Model load error:', e);
+  });
+
+  /* ── 7. AR status events ── */
+  mv.addEventListener('ar-status', function (e) {
+    var status = e.detail && e.detail.status ? e.detail.status : '';
+    console.log('[AutoSPF+ AR] ar-status:', status);
+
+    if (status === 'session-started') {
+      // Notify React Native parent if opened inside WebView
+      try {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'AR_STARTED' }));
+        }
+      } catch (err) {}
+    }
+
+    if (status === 'failed') {
+      // Fallback: programmatic <a rel="ar"> click for older iOS
+      console.warn('[AutoSPF+ AR] Quick Look failed, trying direct link fallback');
+      try {
+        var a = document.createElement('a');
+        a.setAttribute('rel', 'ar');
+        a.href = glbUrl;
+        var img = document.createElement('img');
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        a.appendChild(img);
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { document.body.removeChild(a); }, 500);
+      } catch (err) {}
+    }
+
+    if (status === 'not-presenting') {
+      try {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'AR_ENDED' }));
+        }
+      } catch (err) {}
+    }
+  });
+
+  /* ── 8. Timeout guard (10 s) ── */
+  var loadTimer = setTimeout(function () {
+    if (loading.style.display !== 'none') {
+      loading.style.display = 'none';
+      errorBox.style.display = 'flex';
+      errMsg.textContent = 'Loading timed out. The 3D model may be too large or unavailable.';
+    }
+  }, 10000);
+
+  mv.addEventListener('load', function () { clearTimeout(loadTimer); });
+
+})();
+</script>
+</body>
+</html>

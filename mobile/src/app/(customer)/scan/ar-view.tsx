@@ -309,8 +309,9 @@ export default function ArViewScreen() {
   const webArEmbedUri = useMemo(() => buildWebArUri(scan?.scanId, true), [scan?.scanId]);
   const webArBrowserUri = useMemo(() => {
     if (ready && modelUrl) {
-      const src = buildProxiedGlbUri(modelUrl) ?? modelUrl;
-      return `${API_BASE_URL}/ai/ar-viewer?src=${encodeURIComponent(src)}`;
+      // Use the raw GLB URL from Meshy — real Safari can fetch it without CORS issues.
+      // ar.html reads ?model= and sets it as model-viewer src directly.
+      return `${API_ORIGIN}/ar.html?model=${encodeURIComponent(modelUrl)}`;
     }
     return buildWebArUri(scan?.scanId, false);
   }, [modelUrl, ready, scan?.scanId]);
