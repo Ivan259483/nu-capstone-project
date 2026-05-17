@@ -461,13 +461,11 @@ export default function ArViewScreen() {
 
   const openWebArInBrowser = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    const directGlbUrl = modelUrl ?? '';
+
+    // ── Strategy 1: Short token URL (preferred) ──
+    // POST model URL → get short token → open ar.html?token=xxx
     try {
-      // ── Create a short AR session token ──
-      // Meshy signed GLB URLs are 500+ chars. Encoding them as ?model= makes
-      // the URL too long for iOS Linking.openURL(). Instead, POST the model URL
-      // to /api/ai/ar-session → get a short token → open ar.html?token=xxx.
-      // ar.html fetches the real GLB URL from /api/ai/ar-session/:token.
-      const directGlbUrl = modelUrl ?? '';
       const resp = await fetch(`${API_BASE_URL}/ai/ar-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -477,12 +475,36 @@ export default function ArViewScreen() {
           damages: scan?.damages ?? [],
         }),
       });
-      const { token } = await resp.json();
-      if (!token) throw new Error('Failed to create AR session');
+      const data = await resp.json();
+      if (data?.token) {
+        const arHtmlUrl = `${API_ORIGIN}/ar.html?token=${data.token}`;
+        console.log('[AR] Opening short token URL:', arHtmlUrl);
+        await Linking.openURL(arHtmlUrl);
+        return;
+      }
+    } catch (e) {
+      console.warn('[AR] Token approach failed, trying fallback:', e);
+    }
 
-      const arHtmlUrl = `${API_ORIGIN}/ar.html?token=${token}`;
-      console.log('[AR] Opening short URL:', arHtmlUrl);
-      await Linking.openURL(arHtmlUrl);
+    // ── Strategy 2: WebBrowser (SFSafariViewController) ──
+    // Handles long URLs better than Linking.openURL
+    try {
+      const longUrl = `${API_ORIGIN}/ar.html?model=${encodeURIComponent(directGlbUrl)}`;
+      console.log('[AR] Fallback: WebBrowser.openBrowserAsync');
+      await WebBrowser.openBrowserAsync(longUrl, {
+        dismissButtonStyle: 'close',
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+      });
+      return;
+    } catch (e) {
+      console.warn('[AR] WebBrowser fallback failed:', e);
+    }
+
+    // ── Strategy 3: Direct Linking.openURL (last resort) ──
+    try {
+      const longUrl = `${API_ORIGIN}/ar.html?model=${encodeURIComponent(directGlbUrl)}`;
+      console.log('[AR] Last resort: Linking.openURL');
+      await Linking.openURL(longUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not open browser.';
       setWebArError(message);
