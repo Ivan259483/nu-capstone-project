@@ -939,23 +939,43 @@ export const startAiScan3D = async (
   scanId: string,
   images: AiScanInputImage[] = []
 ): Promise<AiScan3DProgress> => {
-  const response = await apiClient.post(
-    '/ai/generate-3d-from-scan',
-    { scanId },
-    { validateStatus: () => true }
-  );
+  // ── PATH 1: Scan-based (uses Cloudinary URLs stored during POST /ai/scan) ──
+  if (scanId) {
+    const response = await apiClient.post(
+      '/ai/generate-3d-from-scan',
+      { scanId },
+      { validateStatus: () => true }
+    );
 
-  const status = String(response.data?.status || '').toLowerCase();
+    const status = String(response.data?.status || '').toLowerCase();
 
-  if (status === 'processing' && response.data?.task_id) {
-    return {
-      status: 'processing',
-      taskId: String(response.data.task_id),
-      progress: 0,
-      message: 'Meshy 3D generation started.',
-    };
+    if (status === 'processing' && response.data?.task_id) {
+      return {
+        status: 'processing',
+        taskId: String(response.data.task_id),
+        progress: 0,
+        message: 'Meshy 3D generation started.',
+      };
+    }
+
+    // If the backend returned 'no_images' or any non-processing status, fall
+    // through to the direct upload path below (if we have captured images).
+    if (status !== 'no_images' && images.length === 0) {
+      // No fallback images available — surface the backend message.
+      return {
+        status: 'unavailable',
+        progress: 0,
+        message: String(
+          response.data?.message ||
+            'Meshy did not return a valid task ID. The 3D viewer will be skipped.'
+        ),
+      };
+    }
   }
 
+  // ── PATH 2: Direct multipart upload (Cloudinary is broken or scanId missing) ──
+  // Sends captured images directly to /ai/generate-3d which has multer configured
+  // and passes files straight to Meshy — no Cloudinary required.
   if (images.length > 0) {
     const formData = new FormData();
     images.slice(0, 5).forEach((image, index) => {
@@ -973,52 +993,32 @@ export const startAiScan3D = async (
     });
 
     const directStatus = String(directResponse.data?.status || '').toLowerCase();
+
     if (directStatus === 'processing' && directResponse.data?.task_id) {
       return {
         status: 'processing',
         taskId: String(directResponse.data.task_id),
         progress: 0,
-        message: 'Meshy 3D generation started from the captured vehicle photo.',
+        message: 'Uploading vehicle photo to Meshy 3D pipeline…',
       };
     }
 
     return {
-      status: directStatus === 'failed' ? 'failed' : 'unavailable',
+      status: 'unavailable',
       progress: 0,
       message: String(
         directResponse.data?.detail?.error?.message ||
           directResponse.data?.detail?.message ||
-        directResponse.data?.message ||
-          response.data?.message ||
-          'Meshy did not return a valid task ID. The 3D viewer will be skipped.'
-      ),
-    };
-  }
-
-  if (status === 'unavailable') {
-    return {
-      status: 'unavailable',
-      progress: 0,
-      message: String(response.data?.message || '3D generation is unavailable.'),
-    };
-  }
-
-  if (status !== 'processing' || !response.data?.task_id) {
-    return {
-      status: 'unavailable',
-      progress: 0,
-      message: String(
-        response.data?.message ||
-          'Meshy did not return a valid task ID. The 3D viewer will be skipped.'
+          directResponse.data?.message ||
+          'Meshy did not start. Check your API key and network connection.'
       ),
     };
   }
 
   return {
-    status: 'processing',
-    taskId: String(response.data.task_id),
+    status: 'unavailable',
     progress: 0,
-    message: 'Meshy 3D generation started.',
+    message: 'No scan ID or captured photos available for 3D generation.',
   };
 };
 
