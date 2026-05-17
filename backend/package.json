@@ -50,7 +50,8 @@
         "socket.io": "^4.8.3",
         "sonner": "^2.0.7",
         "stripe": "^16.12.0",
-        "xss-clean": "^0.1.4"
+        "xss-clean": "^0.1.4",
+        "sharp": "^0.33.5"
     },
     "devDependencies": {
         "@types/node": "^25.2.1",

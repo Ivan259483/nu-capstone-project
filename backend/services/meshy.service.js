@@ -237,8 +237,23 @@ export const startMeshyImageTo3D = async (files, options = {}) => {
   // If Cloudinary IS correctly configured and the caller wants hosted URLs,
   // they can call uploadImagesForMeshy separately before invoking this function.
   try {
-    meshyImageUrl = buildImageDataUri(files[0]);
-    console.log(`[Meshy] Using base64 data URI (${Math.round(files[0].buffer.length / 1024)}KB) — skipping Cloudinary`);
+    let fileObj = files[0];
+    const originalMime = String(fileObj?.mimetype || 'image/jpeg').toLowerCase();
+    
+    // Convert WebP / HEIC to JPG via Sharp before sending to Meshy
+    if (originalMime.includes('webp') || originalMime.includes('heic') || originalMime.includes('heif')) {
+      try {
+        console.log(`[Meshy] Found ${originalMime} format. Converting to JPEG...`);
+        const sharp = (await import('sharp')).default;
+        const jpgBuffer = await sharp(fileObj.buffer).jpeg({ quality: 90 }).toBuffer();
+        fileObj = { ...fileObj, buffer: jpgBuffer, mimetype: 'image/jpeg' };
+      } catch (sharpError) {
+        console.warn('[Meshy] Sharp conversion failed (maybe not installed locally). Proceeding with original buffer. Error:', sharpError?.message);
+      }
+    }
+
+    meshyImageUrl = buildImageDataUri(fileObj);
+    console.log(`[Meshy] Using base64 data URI (${Math.round(fileObj.buffer.length / 1024)}KB) — skipping Cloudinary`);
   } catch (dataUriError) {
     // Last resort: try Cloudinary upload
     console.warn('[Meshy] Base64 data URI failed, trying Cloudinary:', dataUriError?.message);
