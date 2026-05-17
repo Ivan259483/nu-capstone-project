@@ -85,7 +85,7 @@ router.get('/scans', listAiScans);
 
 /* ── AR Viewer Page (for iOS Quick Look support) ── */
 router.get('/ar-viewer', (req, res) => {
-  const modelUrl = req.query.src || '';
+  const modelUrl = decodeURIComponent(req.query.src || '');
   if (!modelUrl) {
     return res.status(400).send('Missing model URL (?src=)');
   }
@@ -96,37 +96,54 @@ router.get('/ar-viewer', (req, res) => {
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>AutoSPF+ AR Viewer</title>
-  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"><\/script>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; background: #0A0A0C; overflow: hidden; }
-    model-viewer {
-      width: 100%; height: 100%;
-      --poster-color: transparent;
-      background: transparent;
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{width:100%;height:100%;background:#050506;overflow:hidden;
+      font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#fff}
+    model-viewer{
+      width:100%;height:100vh;
+      --poster-color:#050506;
+      --progress-bar-color:#f97316;
+      background:radial-gradient(circle at 50% 46%,rgba(255,255,255,.05),transparent 30%),#050506;
     }
-    .ar-btn {
-      position: fixed;
-      bottom: max(20px, env(safe-area-inset-bottom));
-      left: 50%; transform: translateX(-50%);
-      padding: 16px 36px;
-      background: linear-gradient(135deg, #FF6B35 0%, #FF8C42 100%);
-      border: none; border-radius: 50px;
-      color: #fff; font: 700 16px/1 -apple-system, sans-serif;
-      letter-spacing: 0.5px;
-      box-shadow: 0 8px 32px rgba(255,107,53,0.4);
-      cursor: pointer; z-index: 100;
+    .header{
+      position:fixed;top:0;left:0;right:0;
+      padding:max(52px,env(safe-area-inset-top)) 20px 14px;
+      background:linear-gradient(180deg,rgba(5,5,6,.95) 0%,transparent 100%);
+      z-index:100;text-align:center;
     }
-    .ar-btn:active { transform: translateX(-50%) scale(0.95); opacity: 0.9; }
-    .header {
-      position: fixed; top: 0; left: 0; right: 0;
-      padding: max(50px, env(safe-area-inset-top)) 20px 16px;
-      background: linear-gradient(180deg, rgba(10,10,12,0.9) 0%, transparent 100%);
-      z-index: 100;
-      text-align: center;
+    .header h1{font-size:17px;font-weight:700;color:#fff}
+    .header p{font-size:12px;color:rgba(255,255,255,.5);margin-top:3px}
+    #arBtn{
+      position:fixed;
+      bottom:max(28px,env(safe-area-inset-bottom,28px));
+      left:50%;transform:translateX(-50%);
+      padding:0 40px;height:54px;min-width:200px;border-radius:27px;
+      background:linear-gradient(135deg,#f97316,#fb923c);
+      color:#fff;font-size:15px;font-weight:800;letter-spacing:.4px;
+      border:none;cursor:pointer;z-index:200;white-space:nowrap;
+      box-shadow:0 8px 32px rgba(249,115,22,.45);
+      transition:opacity .2s,transform .15s;
     }
-    .header h1 { color: #fff; font: 600 17px/1 -apple-system, sans-serif; }
-    .header p { color: rgba(255,255,255,0.5); font: 400 12px/1 -apple-system, sans-serif; margin-top: 4px; }
+    #arBtn:active{opacity:.85;transform:translateX(-50%) scale(.96)}
+    #arBtn[hidden]{display:none}
+    #noAr{
+      position:fixed;bottom:max(28px,env(safe-area-inset-bottom,28px));
+      left:50%;transform:translateX(-50%);
+      font-size:12px;color:rgba(255,255,255,.4);text-align:center;
+      white-space:nowrap;display:none;
+    }
+    #loading{
+      position:fixed;inset:0;z-index:50;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      background:#050506;gap:16px;
+    }
+    .ring{width:52px;height:52px;border-radius:50%;
+      border:3px solid rgba(249,115,22,.2);border-top-color:#f97316;
+      animation:spin .9s linear infinite;}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .lt{font-size:13px;font-weight:700;color:rgba(255,255,255,.6)}
   </style>
 </head>
 <body>
@@ -134,29 +151,78 @@ router.get('/ar-viewer', (req, res) => {
     <h1>AutoSPF+ AR Preview</h1>
     <p>Tap the button below to view in your space</p>
   </div>
+  <div id="loading"><div class="ring"></div><div class="lt">Loading 3D model…</div></div>
   <model-viewer
     id="viewer"
     src="${modelUrl}"
-    alt="AutoSPF+ Vehicle"
+    ios-src="${modelUrl}"
+    alt="AutoSPF+ Vehicle 3D Model"
     ar
-    ar-modes="webxr scene-viewer quick-look"
+    ar-modes="quick-look scene-viewer webxr"
+    ar-placement="floor"
+    ar-scale="auto"
     camera-controls
     auto-rotate
-    shadow-intensity="1.8"
+    shadow-intensity="1.6"
     environment-image="neutral"
     exposure="1.1"
     camera-orbit="30deg 70deg auto"
-    field-of-view="40deg"
+    field-of-view="38deg"
     loading="eager"
+    reveal="auto"
   >
-    <button slot="ar-button" class="ar-btn">
-      📱 View In Your Space
-    </button>
+    <button slot="ar-button" id="arBtn" type="button">📱 View In Your Space</button>
   </model-viewer>
+  <div id="noAr">AR not supported on this device</div>
+<script>
+(function(){
+  var mv = document.getElementById('viewer');
+  var loading = document.getElementById('loading');
+  var arBtn = document.getElementById('arBtn');
+  var noAr = document.getElementById('noAr');
+
+  mv.addEventListener('load', function(){
+    loading.style.display = 'none';
+  });
+
+  mv.addEventListener('error', function(){
+    loading.style.display = 'none';
+    arBtn.textContent = '⚠️ Model failed to load';
+    arBtn.disabled = true;
+  });
+
+  mv.addEventListener('ar-status', function(e){
+    var s = (e.detail && e.detail.status) ? e.detail.status : '';
+    if(s === 'failed'){
+      // Quick Look not available — try direct iOS AR link as fallback
+      var glbUrl = ${JSON.stringify(modelUrl)};
+      var a = document.createElement('a');
+      a.rel = 'ar';
+      a.href = glbUrl;
+      a.appendChild(document.createElement('img'));
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  });
+
+  // Notify parent React Native if embedded in WebView
+  try{
+    if(window.ReactNativeWebView){
+      mv.addEventListener('ar-status', function(e){
+        var s = (e.detail && e.detail.status) ? e.detail.status : '';
+        if(s === 'session-started') window.ReactNativeWebView.postMessage(JSON.stringify({type:'AR_STARTED'}));
+        if(s === 'not-presenting') window.ReactNativeWebView.postMessage(JSON.stringify({type:'AR_ENDED'}));
+      });
+    }
+  }catch(e){}
+})();
+<\/script>
 </body>
 </html>`;
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.send(html);
 });
 
