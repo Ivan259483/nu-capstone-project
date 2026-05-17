@@ -285,10 +285,22 @@
   'use strict';
 
   /* ══════════════════════════════
-     Read ?model= from URL
+     RN bridge (declared early so init code can use it)
+  ══════════════════════════════ */
+  function postToRN(data) {
+    try {
+      if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(data));
+    } catch (_) {}
+  }
+
+  /* ══════════════════════════════
+     Read ?model= or ?token= from URL
+     - ?token=xxx  → fetch model URL from /api/ai/ar-session/:token (short URL!)
+     - ?model=xxx  → use directly (backward compat)
   ══════════════════════════════ */
   var params = new URLSearchParams(window.location.search);
   var glbUrl = (params.get('model') || '').trim();
+  var token = (params.get('token') || '').trim();
 
   /* Damage pills */
   var damages = [];
@@ -301,8 +313,32 @@
     if (dp) damages = JSON.parse(decodeURIComponent(dp));
   } catch (_) {}
 
+  /* ── Token-based fetch ── */
+  if (token && !glbUrl) {
+    statusText.textContent = 'Fetching model URL…';
+    debugUrlEl.textContent = 'Loading token: ' + token;
+    fetch(window.location.origin + '/api/ai/ar-session/' + encodeURIComponent(token))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.modelUrl) throw new Error('No modelUrl in session');
+        glbUrl = data.modelUrl;
+        if (Array.isArray(data.damages) && data.damages.length) damages = data.damages;
+        console.log('[AutoSPF+ AR] Token resolved → GLB URL:', glbUrl);
+        debugUrlEl.textContent = glbUrl;
+        boot();
+      })
+      .catch(function (err) {
+        console.error('[AutoSPF+ AR] Token fetch failed:', err);
+        document.getElementById('noUrl').style.display = 'flex';
+        arBtn.style.display = 'none';
+        debugUrlEl.textContent = 'Token fetch failed: ' + err.message;
+        postToRN({ type: 'WEBAR_ERROR', message: 'AR session expired or not found.' });
+      });
+    return; // wait for async fetch
+  }
+
   /* ══════════════════════════════
-     Validate URL
+     Validate URL (direct ?model= path)
   ══════════════════════════════ */
   if (!glbUrl || !/^https?:\/\//i.test(glbUrl)) {
     document.getElementById('noUrl').style.display = 'flex';
@@ -313,6 +349,13 @@
   }
 
   console.log('[AutoSPF+ AR] GLB URL:', glbUrl);
+  debugUrlEl.textContent = glbUrl;
+  boot();
+
+  /* ══════════════════════════════
+     Boot — called once we have a valid glbUrl
+  ══════════════════════════════ */
+  function boot() {
   postToRN({ type: 'WEBAR_READY', modelUrl: glbUrl });
 
   /* Update status */
@@ -388,14 +431,7 @@
     }, 2000);
   });
 
-  /* ══════════════════════════════
-     RN bridge
-  ══════════════════════════════ */
-  function postToRN(data) {
-    try {
-      if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(data));
-    } catch (_) {}
-  }
+  /* postToRN is declared at the top of this script */
 
   function handleMessage(raw) {
     var msg;
@@ -415,6 +451,7 @@
   }
   window.addEventListener('message',   function (e) { handleMessage(e.data); });
   document.addEventListener('message', function (e) { handleMessage(e.data); });
+  } // end boot()
 
 })();
 </script>

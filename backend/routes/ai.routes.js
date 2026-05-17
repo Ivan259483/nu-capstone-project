@@ -80,6 +80,45 @@ router.post('/estimate-from-damages', estimateFromDamages);
 /* ── GLB Proxy — pipes Meshy/Cloudinary GLB with CORS headers ── */
 router.get('/proxy-glb', proxyGlb);
 
+/* ── AR Session Tokens ──
+   iOS Linking.openURL fails with very long Meshy signed GLB URLs.
+   The mobile app POSTs the model URL → gets a short token.
+   ar.html opens with ?token=xxx (short URL) → fetches model URL from GET.
+   Tokens auto-expire after 30 minutes. */
+const arSessions = new Map(); // token → { modelUrl, createdAt }
+const AR_SESSION_TTL_MS = 30 * 60 * 1000; // 30 min
+
+// Cleanup expired tokens every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, data] of arSessions) {
+    if (now - data.createdAt > AR_SESSION_TTL_MS) arSessions.delete(token);
+  }
+}, 5 * 60 * 1000);
+
+router.post('/ar-session', (req, res) => {
+  const { modelUrl, repairedModelUrl, damages } = req.body || {};
+  if (!modelUrl) return res.status(400).json({ error: 'modelUrl is required' });
+  const token = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  arSessions.set(token, {
+    modelUrl,
+    repairedModelUrl: repairedModelUrl || modelUrl,
+    damages: damages || [],
+    createdAt: Date.now(),
+  });
+  res.json({ token });
+});
+
+router.get('/ar-session/:token', (req, res) => {
+  const data = arSessions.get(req.params.token);
+  if (!data) return res.status(404).json({ error: 'Session expired or not found' });
+  res.json({
+    modelUrl: data.modelUrl,
+    repairedModelUrl: data.repairedModelUrl,
+    damages: data.damages,
+  });
+});
+
 /* ── QC Staff Portal — list all AI scans ── */
 router.get('/scans', listAiScans);
 

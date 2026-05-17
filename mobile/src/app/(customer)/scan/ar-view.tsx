@@ -462,18 +462,32 @@ export default function ArViewScreen() {
   const openWebArInBrowser = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     try {
-      // ── Open the dedicated ar.html page in Safari ──
-      // Pass the RAW Meshy GLB URL directly — iOS Quick Look CANNOT open a
-      // proxied URL. ar.html receives ?model= and sets it as model-viewer src,
-      // which Safari/Quick Look fetches directly from assets.meshy.ai.
+      // ── Create a short AR session token ──
+      // Meshy signed GLB URLs are 500+ chars. Encoding them as ?model= makes
+      // the URL too long for iOS Linking.openURL(). Instead, POST the model URL
+      // to /api/ai/ar-session → get a short token → open ar.html?token=xxx.
+      // ar.html fetches the real GLB URL from /api/ai/ar-session/:token.
       const directGlbUrl = modelUrl ?? '';
-      const arHtmlUrl = `${API_ORIGIN}/ar.html?model=${encodeURIComponent(directGlbUrl)}`;
+      const resp = await fetch(`${API_BASE_URL}/ai/ar-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modelUrl: directGlbUrl,
+          repairedModelUrl: repairedModelUrl || directGlbUrl,
+          damages: scan?.damages ?? [],
+        }),
+      });
+      const { token } = await resp.json();
+      if (!token) throw new Error('Failed to create AR session');
+
+      const arHtmlUrl = `${API_ORIGIN}/ar.html?token=${token}`;
+      console.log('[AR] Opening short URL:', arHtmlUrl);
       await Linking.openURL(arHtmlUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not open browser.';
       setWebArError(message);
     }
-  }, [modelUrl]);
+  }, [modelUrl, repairedModelUrl, scan?.damages]);
 
   const handleWebViewMessage = useCallback(
     (event: { nativeEvent: { data: string } }) => {
