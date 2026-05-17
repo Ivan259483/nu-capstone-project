@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"/>
   <title>AutoSPF+ AR Viewer</title>
 
-  <!-- Google Model Viewer — handles WebXR, Scene Viewer (Android), Quick Look (iOS) -->
+  <!-- Google Model Viewer -->
   <script type="module"
     src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js">
   </script>
@@ -39,6 +39,9 @@
         #050506;
     }
 
+    /* Hide model-viewer's default AR button — we use our own */
+    model-viewer::part(default-ar-button) { display: none !important; }
+
     /* ═══════════════════════════════════
        HEADER OVERLAY
     ═══════════════════════════════════ */
@@ -48,12 +51,8 @@
       background: linear-gradient(180deg, rgba(5,5,6,.95) 0%, transparent 100%);
       z-index: 100; text-align: center; pointer-events: none;
     }
-    .header h1 {
-      font-size: 17px; font-weight: 700; letter-spacing: -.2px;
-    }
-    .header p {
-      font-size: 12px; color: rgba(255,255,255,.45); margin-top: 4px;
-    }
+    .header h1 { font-size: 17px; font-weight: 700; letter-spacing: -.2px; }
+    .header p  { font-size: 12px; color: rgba(255,255,255,.45); margin-top: 4px; }
     .header .badge {
       display: inline-flex; align-items: center; gap: 5px;
       margin-top: 8px; padding: 4px 10px;
@@ -64,13 +63,29 @@
     }
 
     /* ═══════════════════════════════════
-       AR BUTTON (slot="ar-button")
+       PROGRESS BAR — top of screen
+    ═══════════════════════════════════ */
+    #progressWrap {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+      height: 3px; background: rgba(255,255,255,.08);
+    }
+    #progressBar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #f97316, #fb923c);
+      transition: width .25s ease;
+      border-radius: 0 2px 2px 0;
+    }
+
+    /* ═══════════════════════════════════
+       AR BUTTON — our custom button,
+       DISABLED until model load completes
     ═══════════════════════════════════ */
     #arBtn {
       position: fixed;
       bottom: max(28px, env(safe-area-inset-bottom, 28px));
       left: 50%; transform: translateX(-50%);
-      padding: 0 44px; height: 56px; min-width: 220px;
+      padding: 0 44px; height: 56px; min-width: 240px;
       border-radius: 28px;
       background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
       color: #fff; font-size: 15px; font-weight: 800; letter-spacing: .5px;
@@ -78,17 +93,33 @@
       box-shadow:
         0 8px 32px rgba(249,115,22,.50),
         inset 0 1px 0 rgba(255,255,255,.22);
-      transition: opacity .2s, transform .15s;
+      transition: opacity .25s, transform .15s, background .3s;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
     }
     #arBtn:active  { opacity: .85; transform: translateX(-50%) scale(.96); }
-    #arBtn:disabled { opacity: .35; cursor: not-allowed; }
+    #arBtn:disabled {
+      opacity: .38; cursor: not-allowed;
+      background: rgba(255,255,255,.12);
+      box-shadow: none;
+    }
+    #arBtnIcon { font-size: 18px; line-height: 1; }
+    #arBtnLabel { font-size: 15px; font-weight: 800; }
+
+    /* Loading sub-label in the button while model loads */
+    #arBtnSub {
+      position: fixed;
+      bottom: max(92px, calc(env(safe-area-inset-bottom, 0px) + 92px));
+      left: 50%; transform: translateX(-50%);
+      font-size: 11px; font-weight: 700; letter-spacing: .4px;
+      color: rgba(255,255,255,.45); white-space: nowrap; z-index: 200;
+    }
 
     /* ═══════════════════════════════════
        BEFORE / AFTER TOGGLE
     ═══════════════════════════════════ */
     #toggle {
       position: fixed;
-      bottom: max(96px, calc(env(safe-area-inset-bottom, 0px) + 96px));
+      bottom: max(100px, calc(env(safe-area-inset-bottom, 0px) + 100px));
       left: 50%; transform: translateX(-50%);
       display: flex; align-items: center; gap: 0;
       border-radius: 24px; overflow: hidden;
@@ -127,7 +158,6 @@
       left: 12px; right: 12px;
       display: flex; flex-wrap: wrap; gap: 6px;
       pointer-events: none;
-      /* offset below the header */
       margin-top: 90px;
     }
     .pill {
@@ -142,23 +172,34 @@
     .pdot { width: 7px; height: 7px; border-radius: 50%; }
 
     /* ═══════════════════════════════════
-       LOADING OVERLAY
+       LOADING OVERLAY (full-screen)
+       Shown while model is fetching.
+       Fades out on 'load' event.
     ═══════════════════════════════════ */
     #loading {
       position: fixed; inset: 0; z-index: 50;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      background: #050506; gap: 16px;
-      transition: opacity .4s;
+      background: #050506; gap: 20px;
+      transition: opacity .5s;
     }
     .ring {
-      width: 56px; height: 56px; border-radius: 50%;
-      border: 3px solid rgba(249,115,22,.2); border-top-color: #f97316;
-      animation: spin .9s linear infinite;
+      width: 60px; height: 60px; border-radius: 50%;
+      border: 3px solid rgba(249,115,22,.18); border-top-color: #f97316;
+      animation: spin .85s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .lt { font-size: 14px; font-weight: 700; color: rgba(255,255,255,.65); }
-    .lp { font-size: 12px; font-weight: 800; color: #f97316; margin-top: -4px; }
+    .lt { font-size: 15px; font-weight: 700; color: rgba(255,255,255,.7); }
+
+    /* Pill-style percentage counter */
+    #progPill {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 18px; border-radius: 999px;
+      border: 1px solid rgba(249,115,22,.3);
+      background: rgba(249,115,22,.10);
+    }
+    #progPct { font-size: 20px; font-weight: 900; color: #f97316; min-width: 52px; text-align: center; }
+    #progLbl { font-size: 11px; font-weight: 800; color: rgba(255,255,255,.4); text-transform: uppercase; letter-spacing: .8px; }
 
     /* ═══════════════════════════════════
        ERROR OVERLAY
@@ -181,6 +222,9 @@
 </head>
 <body>
 
+  <!-- ── Progress bar (top) ── -->
+  <div id="progressWrap"><div id="progressBar"></div></div>
+
   <!-- ── Header ── -->
   <div class="header">
     <h1>AutoSPF+ AR Viewer</h1>
@@ -194,18 +238,19 @@
   <!-- ── Green tint overlay for "Repaired" state ── -->
   <div id="tint"></div>
 
-  <!-- ══════════════════════════════════════════════════════════
-       MODEL VIEWER
-       src is set dynamically from ?model= URL parameter.
-       ios-src = same GLB (iOS 14+ Quick Look supports .glb natively).
-       ar-modes: quick-look first so iOS Safari uses Quick Look immediately;
-       scene-viewer first can leave iOS on a non–Quick Look path (inert AR).
-  ═══════════════════════════════════════════════════════════════ -->
+  <!--
+    MODEL VIEWER
+    ─────────────────────────────────────────────────────────────
+    ar-modes="quick-look" — iOS Safari Quick Look only.
+    WebXR is NOT supported on iPhone; scene-viewer is Android.
+    ios-src removed — model-viewer handles quick-look from src.
+    AR button is the slot element managed here (not by model-viewer's default).
+  -->
   <model-viewer
     id="mv"
     alt="AutoSPF+ Vehicle 3D Model — Powered by Meshy AI"
     ar
-    ar-modes="webxr scene-viewer quick-look"
+    ar-modes="quick-look"
     ar-placement="floor"
     ar-scale="auto"
     camera-controls
@@ -222,10 +267,6 @@
     loading="eager"
     reveal="auto"
   >
-    <!-- AR launch button — shown by model-viewer only when AR is supported -->
-    <button slot="ar-button" id="arBtn" type="button">
-      📱 View In Your Space
-    </button>
   </model-viewer>
 
   <!-- ── Before / After toggle ── -->
@@ -239,11 +280,21 @@
     </button>
   </div>
 
+  <!-- ── AR button — DISABLED until model loads ── -->
+  <div id="arBtnSub">Loading 3D model…</div>
+  <button id="arBtn" type="button" disabled>
+    <span id="arBtnIcon">⏳</span>
+    <span id="arBtnLabel">Loading…</span>
+  </button>
+
   <!-- ── Loading overlay ── -->
   <div id="loading">
     <div class="ring"></div>
     <div class="lt">Loading 3D model…</div>
-    <div class="lp" id="prog">0%</div>
+    <div id="progPill">
+      <span id="progPct">0%</span>
+      <span id="progLbl">fetching</span>
+    </div>
   </div>
 
   <!-- ── Error overlay ── -->
@@ -259,29 +310,11 @@
   'use strict';
 
   /* ══════════════════════════════════════════════════════
-     CONFIG — wired to Meshy AI ?model= URL parameter
+     CONFIG — read ?model= URL parameter
   ══════════════════════════════════════════════════════ */
-
-  var params = new URLSearchParams(window.location.search);
-
-  /**
-   * PRIMARY: read from ?model= (set by React Native via Linking.openURL)
-   * The mobile app builds the URL as:
-   *   `https://nu-capstone-project.onrender.com/ar.html?model=${encodeURIComponent(meshyGlbUrl)}`
-   */
-  var glbUrl = params.get('model') || '';
-
-  /**
-   * FALLBACK / DEMO: a public car GLB for testing AR without Meshy.
-   * Replace this URL with any valid .glb file to test the viewer.
-   * When Meshy AI generates a real model, ?model= overrides this.
-   */
-  var DEMO_GLB = 'https://modelviewer.dev/shared-assets/models/glTF-Sample-Models/2.0/ToyCar/glTF-Binary/ToyCar.glb';
-
-  /**
-   * Parse optional damage data: ?damages=<JSON-encoded array>
-   * Shape: [{ affectedArea, severity }]
-   */
+  var params  = new URLSearchParams(window.location.search);
+  var glbUrl  = params.get('model') || '';
+  var DEMO    = 'https://modelviewer.dev/shared-assets/models/glTF-Sample-Models/2.0/ToyCar/glTF-Binary/ToyCar.glb';
   var damages = [];
   try {
     var dmgParam = params.get('damages');
@@ -291,37 +324,111 @@
   /* ══════════════════════════════════════════════════════
      ELEMENT REFS
   ══════════════════════════════════════════════════════ */
-  var mv      = document.getElementById('mv');
-  var loading = document.getElementById('loading');
-  var errBox  = document.getElementById('errBox');
-  var errMsg  = document.getElementById('errMsg');
-  var prog    = document.getElementById('prog');
-  var arBtn   = document.getElementById('arBtn');
-  var tint    = document.getElementById('tint');
-  var pills   = document.getElementById('pills');
-  var btnDmg  = document.getElementById('btnDmg');
-  var btnRep  = document.getElementById('btnRep');
-
-  var mode = 'before';
+  var mv          = document.getElementById('mv');
+  var loading     = document.getElementById('loading');
+  var errBox      = document.getElementById('errBox');
+  var errMsg      = document.getElementById('errMsg');
+  var progressBar = document.getElementById('progressBar');
+  var progPct     = document.getElementById('progPct');
+  var progLbl     = document.getElementById('progLbl');
+  var arBtn       = document.getElementById('arBtn');
+  var arBtnIcon   = document.getElementById('arBtnIcon');
+  var arBtnLabel  = document.getElementById('arBtnLabel');
+  var arBtnSub    = document.getElementById('arBtnSub');
+  var tint        = document.getElementById('tint');
+  var pills       = document.getElementById('pills');
+  var btnDmg      = document.getElementById('btnDmg');
+  var btnRep      = document.getElementById('btnRep');
+  var mode        = 'before';
 
   /* ══════════════════════════════════════════════════════
-     STEP 1 — Validate & apply the GLB URL
+     STEP 1 — Apply GLB URL
   ══════════════════════════════════════════════════════ */
   if (!glbUrl) {
-    console.warn('[AutoSPF+ AR] No ?model= param found — using demo GLB:', DEMO_GLB);
-    glbUrl = DEMO_GLB;
+    console.warn('[AutoSPF+ AR] No ?model= param — using demo GLB');
+    glbUrl = DEMO;
   }
-
-  console.log('[AutoSPF+ AR] Loading GLB from Meshy AI:', glbUrl);
-
-  /* STEP 2 — Set model-viewer src (the core of the entire AR pipeline) */
+  console.log('[AutoSPF+ AR] Loading GLB:', glbUrl);
   mv.setAttribute('src', glbUrl);
 
-  /* ios-src: same GLB — iOS 14+ Quick Look supports .glb natively */
-  mv.setAttribute('ios-src', glbUrl);
+  /* ══════════════════════════════════════════════════════
+     STEP 2 — AR Button logic
+     • DISABLED until model 'load' event fires
+     • On click: call mv.activateAR() which triggers Quick Look
+  ══════════════════════════════════════════════════════ */
+  arBtn.addEventListener('click', function () {
+    if (arBtn.disabled) return;
+    console.log('[AutoSPF+ AR] AR button tapped — calling activateAR()');
+    try {
+      mv.activateAR();
+    } catch (err) {
+      console.error('[AutoSPF+ AR] activateAR() failed:', err);
+    }
+  });
 
   /* ══════════════════════════════════════════════════════
-     STEP 3 — Damage pills UI
+     STEP 3 — Loading progress event
+  ══════════════════════════════════════════════════════ */
+  mv.addEventListener('progress', function (e) {
+    var p = (e.detail && typeof e.detail.totalProgress === 'number')
+      ? Math.round(e.detail.totalProgress * 100) : 0;
+    progressBar.style.width = p + '%';
+    progPct.textContent = p + '%';
+    if (p > 0 && p < 100) progLbl.textContent = 'downloading';
+  });
+
+  /* ══════════════════════════════════════════════════════
+     STEP 4 — Model loaded: enable AR button
+  ══════════════════════════════════════════════════════ */
+  mv.addEventListener('load', function () {
+    console.log('[AutoSPF+ AR] ✅ Model loaded — enabling AR button');
+
+    // Hide loading overlay
+    loading.style.opacity = '0';
+    setTimeout(function () { loading.style.display = 'none'; }, 500);
+
+    // Fill progress bar
+    progressBar.style.width = '100%';
+    setTimeout(function () { progressBar.style.display = 'none'; }, 800);
+
+    // Enable AR button
+    arBtn.disabled = false;
+    arBtnIcon.textContent = '📱';
+    arBtnLabel.textContent = 'View In Your Space';
+    arBtnSub.textContent = 'Tap to launch iOS Quick Look AR';
+
+    clearTimeout(loadTimer);
+    postToRN({ type: 'MODEL_LOADED', modelUrl: glbUrl });
+  });
+
+  /* ══════════════════════════════════════════════════════
+     STEP 5 — Model error
+  ══════════════════════════════════════════════════════ */
+  mv.addEventListener('error', function (e) {
+    loading.style.display = 'none';
+    errBox.style.display  = 'flex';
+    errMsg.textContent    = 'The 3D model could not be loaded. The URL may have expired — please generate again.';
+    arBtn.disabled = true;
+    console.error('[AutoSPF+ AR] ❌ Model load error:', e);
+    postToRN({ type: 'WEBAR_ERROR', message: 'Model load failed' });
+  });
+
+  /* ══════════════════════════════════════════════════════
+     STEP 6 — AR status events
+  ══════════════════════════════════════════════════════ */
+  mv.addEventListener('ar-status', function (e) {
+    var status = (e.detail && e.detail.status) ? e.detail.status : '';
+    console.log('[AutoSPF+ AR] ar-status:', status);
+    if (status === 'session-started') postToRN({ type: 'AR_STARTED', mode: mode });
+    if (status === 'not-presenting')  postToRN({ type: 'AR_ENDED',   mode: mode });
+    if (status === 'failed') {
+      console.warn('[AutoSPF+ AR] AR session failed');
+      postToRN({ type: 'AR_FAILED' });
+    }
+  });
+
+  /* ══════════════════════════════════════════════════════
+     STEP 7 — Damage pills
   ══════════════════════════════════════════════════════ */
   var SEV = { high: '#ef4444', medium: '#f97316', low: '#10b981', critical: '#ef4444' };
 
@@ -329,7 +436,7 @@
     pills.innerHTML = '';
     if (!damages.length) return;
     damages.forEach(function (d) {
-      var c = m === 'after' ? '#10b981' : (SEV[d.severity] || SEV.medium);
+      var c   = m === 'after' ? '#10b981' : (SEV[d.severity] || SEV.medium);
       var pill = document.createElement('div');
       pill.className = 'pill';
       pill.innerHTML =
@@ -343,7 +450,7 @@
   }
 
   /* ══════════════════════════════════════════════════════
-     STEP 4 — Before / After state machine
+     STEP 8 — Before / After state
   ══════════════════════════════════════════════════════ */
   function setState(m) {
     mode = m;
@@ -355,97 +462,14 @@
     postToRN({ type: 'VARIANT_READY', mode: m });
   }
   window.setState = setState;
-
   renderPills('before');
 
   /* ══════════════════════════════════════════════════════
-     STEP 5 — Model Viewer event listeners
-  ══════════════════════════════════════════════════════ */
-
-  /* Loading progress */
-  mv.addEventListener('progress', function (e) {
-    var p = (e.detail && typeof e.detail.totalProgress === 'number')
-      ? Math.round(e.detail.totalProgress * 100) : 0;
-    if (prog) prog.textContent = p + '%';
-  });
-
-  /* Model loaded successfully */
-  mv.addEventListener('load', function () {
-    loading.style.opacity = '0';
-    setTimeout(function () { loading.style.display = 'none'; }, 400);
-    clearTimeout(loadTimer);
-    console.log('[AutoSPF+ AR] ✅ 3D model loaded from Meshy AI');
-    postToRN({ type: 'MODEL_LOADED', modelUrl: glbUrl });
-  });
-
-  /* Model load error */
-  mv.addEventListener('error', function (e) {
-    loading.style.display = 'none';
-    errBox.style.display = 'flex';
-    errMsg.textContent =
-      'The 3D model could not be loaded. The Meshy AI URL may have expired — please generate again.';
-    arBtn.disabled = true;
-    console.error('[AutoSPF+ AR] ❌ Model load error:', e);
-    postToRN({ type: 'WEBAR_ERROR', message: 'Model load failed' });
-  });
-
-  /* ══════════════════════════════════════════════════════
-     STEP 6 — AR status (iOS Quick Look / Android Scene Viewer)
-  ══════════════════════════════════════════════════════ */
-  mv.addEventListener('ar-status', function (e) {
-    var status = (e.detail && e.detail.status) ? e.detail.status : '';
-    console.log('[AutoSPF+ AR] ar-status:', status);
-
-    if (status === 'session-started') {
-      postToRN({ type: 'AR_STARTED', mode: mode });
-    }
-
-    if (status === 'not-presenting') {
-      postToRN({ type: 'AR_ENDED', mode: mode });
-    }
-
-    if (status === 'failed') {
-      /* model-viewer Quick Look failed — try programmatic <a rel="ar"> fallback */
-      console.warn('[AutoSPF+ AR] Quick Look via slot failed, trying direct link fallback');
-      triggerDirectARLink(glbUrl);
-    }
-  });
-
-  /* ══════════════════════════════════════════════════════
-     STEP 7 — iOS Quick Look direct link fallback
-     Required for some iOS WebView configurations where
-     slot="ar-button" Quick Look trigger is blocked.
-  ══════════════════════════════════════════════════════ */
-  function triggerDirectARLink(url) {
-    try {
-      var a = document.createElement('a');
-      a.setAttribute('rel', 'ar');
-      a.href = url;
-      /* <a rel="ar"> MUST contain an <img> child for iOS Quick Look to activate */
-      var img = document.createElement('img');
-      img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-      img.width = 1; img.height = 1;
-      a.appendChild(img);
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(function () {
-        if (a.parentNode) a.parentNode.removeChild(a);
-      }, 1000);
-    } catch (err) {
-      console.error('[AutoSPF+ AR] Direct AR link failed:', err);
-    }
-  }
-
-  /* ══════════════════════════════════════════════════════
-     STEP 8 — React Native ↔ WebView message bridge
-     Handles SET_STATE, WEBAR_INIT, ACTIVATE_AR messages
-     from the React Native parent (if opened inside WebView).
+     STEP 9 — RN ↔ WebView message bridge
   ══════════════════════════════════════════════════════ */
   function postToRN(data) {
     try {
-      if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify(data));
-      }
+      if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(data));
     } catch (_) {}
   }
 
@@ -454,19 +478,17 @@
     try { msg = (typeof raw === 'string') ? JSON.parse(raw) : raw; } catch (_) { return; }
     if (!msg || typeof msg !== 'object') return;
 
-    /* SET_STATE — toggle damaged / repaired */
-    if (msg.type === 'SET_STATE') {
-      setState(msg.state === 'after' ? 'after' : 'before');
-    }
+    if (msg.type === 'SET_STATE') setState(msg.state === 'after' ? 'after' : 'before');
 
-    /* WEBAR_INIT — receive model URL + damages from RN */
     if (msg.type === 'WEBAR_INIT') {
       var p = msg.payload || msg;
       if (p.modelUrl && p.modelUrl !== glbUrl) {
         glbUrl = p.modelUrl;
         mv.setAttribute('src', glbUrl);
-        mv.setAttribute('ios-src', glbUrl);
-        console.log('[AutoSPF+ AR] WEBAR_INIT: updated GLB from RN:', glbUrl);
+        arBtn.disabled = true;
+        arBtnIcon.textContent  = '⏳';
+        arBtnLabel.textContent = 'Loading…';
+        arBtnSub.textContent   = 'Loading 3D model…';
       }
       if (Array.isArray(p.damages) && p.damages.length) {
         damages = p.damages;
@@ -475,18 +497,16 @@
       postToRN({ type: 'WEBAR_INIT_APPLIED' });
     }
 
-    /* ACTIVATE_AR — programmatically launch AR */
     if (msg.type === 'ACTIVATE_AR') {
-      try { mv.activateAR(); } catch (_) { triggerDirectARLink(glbUrl); }
+      if (!arBtn.disabled) mv.activateAR();
     }
   }
 
-  /* Both listeners required: Android dispatches on window, iOS on document */
   window.addEventListener('message',   function (e) { handleMessage(e.data); });
   document.addEventListener('message', function (e) { handleMessage(e.data); });
 
   /* ══════════════════════════════════════════════════════
-     STEP 9 — Timeout guard (12 s)
+     STEP 10 — Timeout guard (20 s)
   ══════════════════════════════════════════════════════ */
   var loadTimer = setTimeout(function () {
     if (loading.style.display !== 'none') {
@@ -494,9 +514,8 @@
       errBox.style.display  = 'flex';
       errMsg.textContent    = 'Loading timed out. The Meshy AI model URL may have expired.';
     }
-  }, 12000);
+  }, 20000);
 
-  /* Boot signal to React Native */
   postToRN({ type: 'WEBAR_READY', modelUrl: glbUrl });
 
 })();
