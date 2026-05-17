@@ -81,13 +81,21 @@ export default function ResultsScreen() {
   const insets = useSafeAreaInsets();
   const scan = useAiScanStore((state) => state.scan);
   const scanError = useAiScanStore((state) => state.scanError);
+  const capturedImages = useAiScanStore((state) => state.capturedImages);
   const [activeDamageId, setActiveDamageId] = useState<string | null>(
     scan?.damages[0]?.id ?? null
   );
 
   const damages = scan?.damages ?? [];
   const activeDamage = damages.find((damage) => damage.id === activeDamageId) ?? damages[0];
-  const heroImage = scan?.imageUrls[activeDamage?.imageIndex ?? 0] ?? scan?.imageUrls[0];
+  const activeImageIndex = activeDamage?.imageIndex ?? 0;
+  const heroImage =
+    scan?.imageUrls[activeImageIndex] ||
+    capturedImages[activeImageIndex]?.uri ||
+    scan?.imageUrls[0] ||
+    capturedImages[0]?.uri ||
+    null;
+  const displayImageCount = Math.max(scan?.imageUrls.length ?? 0, capturedImages.length);
   const avgConfidence = damages.length
     ? damages.reduce((sum, damage) => sum + damage.confidence, 0) / damages.length
     : 0;
@@ -138,7 +146,7 @@ export default function ResultsScreen() {
         eyebrow="Damage Analysis Report"
         title="AI Diagnosis"
         onBack={() => router.replace('/(customer)/scan' as never)}
-        right={<Ionicons name="analytics-outline" size={20} color={scannerColors.cyan} />}
+        right={<Ionicons name="analytics-outline" size={20} color={scannerColors.orange} />}
       />
       <PipelineStepper currentIndex={1} />
 
@@ -238,7 +246,7 @@ export default function ResultsScreen() {
             style={styles.optimizeBtn}
             onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
           >
-            <Ionicons name="sparkles" size={14} color={scannerColors.cyan} />
+            <Ionicons name="sparkles" size={14} color={scannerColors.orange} />
             <Text style={styles.optimizeText}>Optimize</Text>
           </Pressable>
         </View>
@@ -256,14 +264,37 @@ export default function ResultsScreen() {
           </View>
           <Text style={styles.summaryText}>{scan.summary}</Text>
           <Text style={styles.summaryMeta}>
-            Source: {scan.source} - Model: {scan.model} - Images: {scan.imageUrls.length}
+            Source: {scan.source} - Model: {scan.model} - Images: {displayImageCount}
           </Text>
         </GlassPanel>
+
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            router.push('/(customer)/scan/ar-view' as never);
+          }}
+          style={({ pressed }) => [styles.webArRow, pressed && { opacity: 0.88 }]}
+        >
+          <LinearGradient
+            colors={['rgba(59,130,246,0.22)', 'rgba(59,130,246,0.08)']}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          />
+          <Ionicons name="cube-outline" size={20} color="#93C5FD" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.webArRowTitle}>Next: Browser WebAR preview</Text>
+            <Text style={styles.webArRowSub}>
+              Generate the GLB, then open the MindAR repair simulation in the browser.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={scannerColors.textMuted} />
+        </Pressable>
       </ScrollView>
 
       <BottomActionBar
-        primaryLabel="Open 3D Repair View"
-        primaryIcon="cube"
+        primaryLabel="Generate 3D Model"
+        primaryIcon="cube-outline"
         onPrimaryPress={() => router.push('/(customer)/scan/ar-view' as never)}
         secondaryLabel="Skip to Cost Estimate"
         onSecondaryPress={() => router.push('/(customer)/scan/estimate' as never)}
@@ -279,7 +310,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   heroCard: {
-    borderColor: 'rgba(53,217,255,0.22)',
+    borderColor: 'rgba(255,107,53,0.22)',
   },
   heroInner: {
     minHeight: 440,
@@ -289,6 +320,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
   },
   heroGradient: {
     ...StyleSheet.absoluteFillObject,
@@ -403,7 +435,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   insightCard: {
-    borderColor: 'rgba(53,217,255,0.18)',
+    borderColor: 'rgba(255,107,53,0.18)',
   },
   insightHead: {
     flexDirection: 'row',
@@ -412,7 +444,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   insightEyebrow: {
-    color: scannerColors.cyan,
+    color: scannerColors.orange,
     fontSize: 10,
     fontWeight: '900',
     textTransform: 'uppercase',
@@ -473,13 +505,13 @@ const styles = StyleSheet.create({
     gap: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(53,217,255,0.28)',
-    backgroundColor: 'rgba(53,217,255,0.10)',
+    borderColor: 'rgba(255,107,53,0.28)',
+    backgroundColor: 'rgba(255,107,53,0.10)',
     paddingHorizontal: 11,
     paddingVertical: 8,
   },
   optimizeText: {
-    color: scannerColors.cyan,
+    color: scannerColors.orange,
     fontSize: 11,
     fontWeight: '900',
     textTransform: 'uppercase',
@@ -509,6 +541,30 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     marginTop: 12,
+  },
+  webArRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.28)',
+    marginTop: 4,
+  },
+  webArRowTitle: {
+    color: '#E0F2FE',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  webArRowSub: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+    lineHeight: 15,
   },
   empty: {
     flex: 1,

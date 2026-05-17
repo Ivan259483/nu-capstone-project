@@ -1,4 +1,4 @@
-import { AxiosError } from 'axios';
+import { AxiosError, isAxiosError } from 'axios';
 import { apiClient, getApiErrorMessage } from './client';
 import { authStorage } from '@/services/storage/authStorage';
 import type {
@@ -881,14 +881,26 @@ export const runAiScan = async (
     formData.append('vehicleId', options.vehicleId);
   }
 
-  const response = await apiClient.post('/ai/scan', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 90_000,
-    onUploadProgress: (event) => {
-      if (!options.onUploadProgress || !event.total) return;
-      options.onUploadProgress(Math.round((event.loaded / event.total) * 60));
-    },
-  });
+  let response;
+  try {
+    response = await apiClient.post('/ai/scan', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 90_000,
+      onUploadProgress: (event) => {
+        if (!options.onUploadProgress || !event.total) return;
+        options.onUploadProgress(Math.round((event.loaded / event.total) * 60));
+      },
+    });
+  } catch (err) {
+    if (isAxiosError(err) && err.response?.status === 404) {
+      const base = String(apiClient.defaults.baseURL || '');
+      const hint = /ngrok/i.test(base)
+        ? 'Ngrok URL may be offline (each session gets a new URL) or not forwarding to Express. Start the backend, run `ngrok http <API_PORT>` (often 3000), set EXPO_PUBLIC_API_URL to that HTTPS origin, restart Metro.'
+        : 'The server returned 404 for POST /api/ai/scan. Start the backend from this repo and confirm routes are mounted at /api/ai.';
+      throw buildError('AI_SCAN_ENDPOINT_MISSING', hint, false);
+    }
+    throw err;
+  }
 
   options.onUploadProgress?.(100);
 
@@ -924,7 +936,8 @@ export const fetchAiScanById = async (scanId: string): Promise<AiScanResult> => 
  * using the images saved with this scan.
  */
 export const startAiScan3D = async (
-  scanId: string
+  scanId: string,
+  images: AiScanInputImage[] = []
 ): Promise<AiScan3DProgress> => {
   const response = await apiClient.post(
     '/ai/generate-3d-from-scan',
@@ -933,6 +946,54 @@ export const startAiScan3D = async (
   );
 
   const status = String(response.data?.status || '').toLowerCase();
+
+  if (status === 'processing' && response.data?.task_id) {
+    return {
+      status: 'processing',
+      taskId: String(response.data.task_id),
+      progress: 0,
+      message: 'Meshy 3D generation started.',
+    };
+  }
+
+  if (images.length > 0) {
+    const formData = new FormData();
+    images.slice(0, 5).forEach((image, index) => {
+      formData.append('images', {
+        uri: image.uri,
+        name: image.fileName || `vehicle_3d_${index + 1}.jpg`,
+        type: image.mimeType || 'image/jpeg',
+      } as never);
+    });
+
+    const directResponse = await apiClient.post('/ai/generate-3d', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      validateStatus: () => true,
+      timeout: 120_000,
+    });
+
+    const directStatus = String(directResponse.data?.status || '').toLowerCase();
+    if (directStatus === 'processing' && directResponse.data?.task_id) {
+      return {
+        status: 'processing',
+        taskId: String(directResponse.data.task_id),
+        progress: 0,
+        message: 'Meshy 3D generation started from the captured vehicle photo.',
+      };
+    }
+
+    return {
+      status: directStatus === 'failed' ? 'failed' : 'unavailable',
+      progress: 0,
+      message: String(
+        directResponse.data?.detail?.error?.message ||
+          directResponse.data?.detail?.message ||
+        directResponse.data?.message ||
+          response.data?.message ||
+          'Meshy did not return a valid task ID. The 3D viewer will be skipped.'
+      ),
+    };
+  }
 
   if (status === 'unavailable') {
     return {
@@ -1072,10 +1133,10 @@ export const recomputeAiScanEstimate = async (
 
 export interface RepairPreviewInput {
   imageUrl: string;
-  damages: Array<{
+  damages: {
     boundingBox?: { x: number; y: number; width: number; height: number } | null;
     bounding_box?: { x: number; y: number; width: number; height: number } | null;
-  }>;
+  }[];
   imageWidth?: number;
   imageHeight?: number;
   onProgress?: (progress: number, stage: string) => void;
@@ -1122,7 +1183,7 @@ export const generateRepairPreview = async (
   const { onProgress } = input;
 
   // Stage progression — runs concurrently with the API call
-  const STAGES: Array<{ at: number; pct: number; label: string }> = [
+  const STAGES: { at: number; pct: number; label: string }[] = [
     { at: 0,    pct: 5,  label: 'Uploading to secure pipeline...' },
     { at: 1200, pct: 12, label: 'Generating damage mask from zones...' },
     { at: 2800, pct: 22, label: 'Matching PPG paint code...' },

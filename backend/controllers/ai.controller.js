@@ -52,7 +52,8 @@ const REPLICATE_DISABLED = process.env.DISABLE_REPLICATE === 'true';
 
 
 const MESHY_API_KEY = process.env.MESHY_API_KEY || '';
-const MESHY_API_BASE = (process.env.MESHY_API_BASE_URL || 'https://api.meshy.ai/openapi/v2').replace(/\/+$/, '');
+const OFFICIAL_MESHY_API_BASE = 'https://api.meshy.ai/openapi/v1';
+const MESHY_API_BASE = (process.env.MESHY_API_BASE_URL || OFFICIAL_MESHY_API_BASE).replace(/\/+$/, '');
 const MESHY_CLOUDINARY_FOLDER = (process.env.CLOUDINARY_UPLOAD_FOLDER || 'vehicle-scans').trim();
 
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN || '';
@@ -75,6 +76,9 @@ const MAX_IMAGE_COUNT = 5;
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 const ANALYZE_RESULT_CACHE_TTL_MS = 20 * 1000;
 const ANALYZE_LOCK_STALE_MS = 2 * 60 * 1000;
+const WEBAR_TARGET_PATH = '/webar/targets/autospf-vehicle.mind';
+const WEBAR_TARGET_IMAGE_PATH = '/webar/targets/autospf-vehicle.png';
+const WEBAR_FALLBACK_MODEL_PATH = '/webar/models/fallback-car.glb';
 const inFlightAnalyzeLocks = new Map();
 const recentAnalyzeResults = new Map();
 
@@ -614,21 +618,11 @@ const buildMeshyHeaders = (extra = {}) => ({
 });
 
 const get3DDependencyStatus = () => {
-  const sharedReason = 'missing cloudinary or meshy configuration';
-
   if (!MESHY_API_KEY) {
     return {
       available: false,
       message: '3D generation is unavailable because MESHY_API_KEY is not configured.',
-      reason: sharedReason,
-    };
-  }
-
-  if (!isCloudinaryConfigured()) {
-    return {
-      available: false,
-      message: `3D generation is unavailable because Cloudinary storage is not configured. ${getCloudinaryMissingConfigMessage()}`,
-      reason: sharedReason,
+      reason: 'missing meshy configuration',
     };
   }
 
@@ -644,17 +638,17 @@ const startMeshyTask = async (files) => {
     folder: MESHY_CLOUDINARY_FOLDER,
   });
 
-  // Meshy V2 Image-to-3D endpoint with PBR textures
+  // Meshy Image-to-3D endpoint with PBR textures
   const jsonPayload = {
     image_url: cloudinaryUrls[0],
     enable_pbr: true,
     should_remesh: true,
-    topology: 'triangle',
+    should_texture: true,
     target_polycount: 30000,
-    target_formats: ['glb'],  // Required by Meshy V2 API
+    target_formats: ['glb'],
   };
 
-  console.log('[Meshy V2] Starting image-to-3d with payload:', JSON.stringify(jsonPayload, null, 2));
+  console.log('[Meshy] Starting image-to-3d with payload:', JSON.stringify(jsonPayload, null, 2));
 
   const jsonResp = await axios.post(
     `${MESHY_API_BASE}/image-to-3d`,
@@ -665,7 +659,7 @@ const startMeshyTask = async (files) => {
     }
   );
 
-  console.log('[Meshy V2] Response:', JSON.stringify(jsonResp.data, null, 2));
+  console.log('[Meshy] Response:', JSON.stringify(jsonResp.data, null, 2));
 
   return {
     ...(jsonResp.data || {}),
@@ -682,6 +676,7 @@ const fetchMeshyTask = async (taskId, pollBase = null) => {
   // Build probe list: working base first (if known), then all candidates for robustness
   const probeList = [...new Set([
     ...(pollBase ? [pollBase] : []),
+    OFFICIAL_MESHY_API_BASE,
     MESHY_API_BASE,
     'https://api.meshy.ai/openapi/v2',
     'https://api.meshy.ai/v2',
@@ -1007,8 +1002,8 @@ export const generate3DModel = async (req, res) => {
     }
 
     console.log('[Meshy] Starting real image-to-3D task...');
-    const taskData = await startMeshyTask(req.files);
-    const taskId = extractTaskId(taskData);
+    const taskData = await startMeshyImageTo3D(req.files);
+    const taskId = taskData.taskId || extractTaskId(taskData.raw || {});
 
     if (!taskId) {
       console.error('[Meshy] No task ID returned from Meshy:', JSON.stringify(taskData));
@@ -1025,18 +1020,23 @@ export const generate3DModel = async (req, res) => {
       success: true,
       status: 'processing',
       task_id: taskId,
+      meshy_poll_base: taskData.workingBase || '',
       progress: 0,
       message: '3D model generation started. Poll /status/:taskId for updates.',
-      source_image_urls: taskData.source_image_urls || [],
+      source_image_urls: taskData.sourceImageUrls || [],
     });
 
   } catch (error) {
     const detail = error?.response?.data || error?.message || 'Unknown error';
     console.error('❌ [Generate 3D] Meshy API error:', detail);
+    const detailMessage =
+      detail?.error?.message ||
+      detail?.message ||
+      (typeof detail === 'string' ? detail : '');
     return res.status(502).json({
       success: false,
       status: 'failed',
-      message: 'Failed to start 3D model generation via Meshy.',
+      message: detailMessage || 'Failed to start 3D model generation via Meshy.',
       detail,
     });
   }
@@ -1081,6 +1081,19 @@ export const get3DModelStatus = async (req, res) => {
     const modelUrl = extractModelUrl(payload);
 
     if (status === 'ar_ready' && modelUrl) {
+      try {
+        await AIScan.findOneAndUpdate(
+          { modelTaskId: taskId },
+          {
+            modelStatus: 'ready',
+            modelUrl,
+            repairedModelUrl: modelUrl,
+          }
+        );
+      } catch (dbErr) {
+        console.warn(`[Meshy Poll] Could not persist ready model for taskId=${taskId}:`, dbErr?.message);
+      }
+
       return res.json({
         success: true,
         status: 'ar_ready',
@@ -1907,6 +1920,101 @@ export const getScanById = async (req, res) => {
   }
 };
 
+const getPublicOrigin = (req) => {
+  const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim();
+  const proto = forwardedProto || req.protocol || 'http';
+  return `${proto}://${req.get('host')}`;
+};
+
+const toPublicUrl = (req, pathname) => new URL(pathname, getPublicOrigin(req)).toString();
+
+const toSafeWebARDamage = (damage = {}) => ({
+  id: String(damage.id || ''),
+  type: String(damage.type || 'Damage'),
+  severity: ['high', 'medium', 'low'].includes(damage.severity) ? damage.severity : 'medium',
+  description: String(damage.description || ''),
+  confidence: Math.max(0, Math.min(1, Number(damage.confidence) || 0)),
+  affectedArea: String(damage.affectedArea || 'Vehicle Body'),
+  imageIndex: Number.isFinite(Number(damage.imageIndex)) ? Number(damage.imageIndex) : 0,
+  angleHint: String(damage.angleHint || 'close_up'),
+  urgency: String(damage.urgency || 'Can Wait'),
+  coordinates: {
+    x: Math.max(0, Math.min(1, Number(damage.coordinates?.x) || 0)),
+    y: Math.max(0, Math.min(1, Number(damage.coordinates?.y) || 0)),
+    width: Math.max(0.02, Math.min(1, Number(damage.coordinates?.width) || 0.12)),
+    height: Math.max(0.02, Math.min(1, Number(damage.coordinates?.height) || 0.12)),
+  },
+});
+
+const buildProxiedGlbUrl = (req, rawUrl) => {
+  const modelUrl = String(rawUrl || '').trim();
+  if (!/^https?:\/\//i.test(modelUrl)) return '';
+  return toPublicUrl(req, `/api/ai/proxy-glb?url=${encodeURIComponent(modelUrl)}`);
+};
+
+/**
+ * GET /api/ai/webar-session/:scanId
+ * Returns the minimal browser-safe payload needed by the static WebAR page.
+ *
+ * The route intentionally omits customer data, raw scan image URLs, notes, and
+ * estimate details. If a bearer token is present, ownership is enforced; without
+ * a token the response remains limited to unguessable scan IDs and safe AR data
+ * so external browser launch works from the mobile app.
+ */
+export const getWebARSession = async (req, res) => {
+  try {
+    const scanId = String(req.params.scanId || '').trim();
+    if (!scanId) {
+      return res.status(400).json({ success: false, message: 'Scan id is required.' });
+    }
+
+    const scan = await AIScan.findById(scanId).lean();
+    if (!scan) {
+      return res.status(404).json({ success: false, message: 'Scan not found.' });
+    }
+
+    if (req.user?.id && scan.customer && String(scan.customer) !== String(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Forbidden.' });
+    }
+
+    const fallbackModelUrl = toPublicUrl(req, WEBAR_FALLBACK_MODEL_PATH);
+    const proxiedModelUrl = buildProxiedGlbUrl(req, scan.modelUrl);
+    const modelReady = Boolean(proxiedModelUrl);
+    const modelStatus = modelReady ? 'ready' : String(scan.modelStatus || 'idle');
+
+    return res.json({
+      success: true,
+      data: {
+        scanId: String(scan._id),
+        title: 'AutoSPF+ repair simulation',
+        modelStatus,
+        modelTaskId: scan.modelTaskId || '',
+        modelSource: modelReady ? 'meshy' : 'fallback',
+        modelUrl: modelReady ? proxiedModelUrl : fallbackModelUrl,
+        repairedModelUrl: modelReady
+          ? buildProxiedGlbUrl(req, scan.repairedModelUrl || scan.modelUrl)
+          : fallbackModelUrl,
+        fallbackModelUrl,
+        targetUrl: toPublicUrl(req, WEBAR_TARGET_PATH),
+        targetImageUrl: toPublicUrl(req, WEBAR_TARGET_IMAGE_PATH),
+        vehicleDetected: scan.vehicleDetected !== false,
+        overallCondition: scan.overallCondition || 'Fair',
+        recommendedPackage: scan.recommendedPackage || '',
+        urgency: scan.urgency || 'Can Wait',
+        summary: scan.summary || '',
+        damages: (scan.damages || []).map(toSafeWebARDamage),
+        createdAt: scan.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error('[AI Scan][getWebARSession] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Failed to build WebAR session.',
+    });
+  }
+};
+
 /**
  * POST /api/ai/generate-3d-from-scan
  * Body: { scanId } — uses the images already uploaded with the scan
@@ -1929,9 +2037,15 @@ export const generate3DFromScan = async (req, res) => {
     }
 
     if (!Array.isArray(scan.imageUrls) || scan.imageUrls.length === 0) {
+      const missingCloud = getCloudinaryMissingConfigMessage().trim();
+      const message = !isCloudinaryConfigured()
+        ? `This scan has no stored image URLs because Cloudinary is not configured on the API server (${
+            missingCloud || 'set CLOUDINARY_* env vars'
+          }). Damage analysis can still run from raw uploads, but 3D needs hosted URLs—configure Cloudinary and run a new scan.`
+        : 'This scan has no uploaded images. Re-run the scan to enable 3D generation. If this keeps happening, check API logs for Cloudinary upload errors during POST /api/ai/scan.';
       return res.status(400).json({
         success: false,
-        message: 'This scan has no uploaded images. Re-run the scan to enable 3D generation.',
+        message,
       });
     }
 
@@ -1974,7 +2088,7 @@ export const generate3DFromScan = async (req, res) => {
       image_url: sourceImageUrl,
       enable_pbr: true,
       should_remesh: true,
-      topology: 'triangle',
+      should_texture: true,
       target_polycount: 30000,
       target_formats: ['glb'],
     };
@@ -1982,6 +2096,7 @@ export const generate3DFromScan = async (req, res) => {
     // Probe all known Meshy endpoint variants in priority order.
     // Different account plans expose different route prefixes — auto-detect which one works.
     const MESHY_ENDPOINT_CANDIDATES = [
+      `${OFFICIAL_MESHY_API_BASE}/image-to-3d`,
       `${MESHY_API_BASE}/image-to-3d`,
       'https://api.meshy.ai/openapi/v2/image-to-3d',
       'https://api.meshy.ai/v2/image-to-3d',

@@ -13,20 +13,19 @@
  *
  * Environment:
  *   MESHY_API_KEY       — required
- *   MESHY_API_BASE_URL  — defaults to https://api.meshy.ai/openapi/v2
+ *   MESHY_API_BASE_URL  — defaults to https://api.meshy.ai/openapi/v1
  */
 
 import axios from 'axios';
 import {
-  isCloudinaryConfigured,
-  getCloudinaryMissingConfigMessage,
   uploadVehicleScanImages,
 } from '../utils/cloudinaryStorage.utils.js';
 
 const MESHY_API_KEY = (process.env.MESHY_API_KEY || '').trim();
-const MESHY_API_BASE = (process.env.MESHY_API_BASE_URL || 'https://api.meshy.ai/openapi/v2')
+const OFFICIAL_MESHY_API_BASE = 'https://api.meshy.ai/openapi/v1';
+const MESHY_API_BASE = (process.env.MESHY_API_BASE_URL || OFFICIAL_MESHY_API_BASE)
   .replace(/\/+$/, '');
-// Polling also uses v2 — same base, different path
+// Polling uses the same API base that accepted task creation.
 const MESHY_FOLDER = (process.env.CLOUDINARY_UPLOAD_FOLDER || 'vehicle-scans').trim();
 
 // Startup diagnostic so we can confirm key + URL on server boot
@@ -44,13 +43,6 @@ export const meshyDependencyStatus = () => {
       available: false,
       reason: 'missing_meshy_api_key',
       message: '3D generation is unavailable because MESHY_API_KEY is not configured.',
-    };
-  }
-  if (!isCloudinaryConfigured()) {
-    return {
-      available: false,
-      reason: 'missing_cloudinary_config',
-      message: `3D generation requires Cloudinary. ${getCloudinaryMissingConfigMessage()}`,
     };
   }
   return { available: true, reason: '', message: '' };
@@ -121,6 +113,28 @@ const extractProgress = (payload = {}) =>
 const normalizeExt = (value = '') => String(value || '').toLowerCase().replace(/^\./, '');
 
 const looksLikePublicHttpUrl = (value = '') => /^https?:\/\//i.test(String(value || '').trim());
+const looksLikeImageDataUri = (value = '') => /^data:image\/(jpe?g|png);base64,/i.test(String(value || '').trim());
+
+const buildImageDataUri = (file) => {
+  const mimeType = String(file?.mimetype || 'image/jpeg').toLowerCase();
+  if (!/image\/(jpeg|jpg|png)/.test(mimeType)) {
+    const error = new Error(`Meshy only accepts JPG/PNG source images. Got ${mimeType || 'unknown'}.`);
+    error.code = 'MESHY_INVALID_IMAGE_FORMAT';
+    throw error;
+  }
+  if (!file?.buffer || !Buffer.isBuffer(file.buffer)) {
+    const error = new Error('Image buffer is missing.');
+    error.code = 'MESHY_MISSING_IMAGE_BUFFER';
+    throw error;
+  }
+  if (file.buffer.length > MESHY_MAX_FILE_SIZE_BYTES) {
+    const error = new Error('Meshy source image exceeds 10MB.');
+    error.code = 'MESHY_IMAGE_TOO_LARGE';
+    throw error;
+  }
+  const normalizedMime = mimeType === 'image/jpg' ? 'image/jpeg' : mimeType;
+  return `data:${normalizedMime};base64,${file.buffer.toString('base64')}`;
+};
 
 const inferImageFormat = (url = '', payload = {}) => {
   const fallback =
@@ -146,9 +160,13 @@ const inferImageFormat = (url = '', payload = {}) => {
 };
 
 const validateMeshyImageUrl = async (publicUrl) => {
+  if (looksLikeImageDataUri(publicUrl)) {
+    return publicUrl;
+  }
+
   if (!looksLikePublicHttpUrl(publicUrl)) {
     const error = new Error(
-      'Meshy requires a public HTTP(S) image URL. Local paths/base64 are not supported.'
+      'Meshy requires a public HTTP(S) image URL or a JPG/PNG data URI.'
     );
     error.code = 'MESHY_INVALID_IMAGE_URL';
     throw error;
@@ -210,34 +228,45 @@ export const startMeshyImageTo3D = async (files, options = {}) => {
     throw error;
   }
 
-  const sourceImageUrls = await uploadImagesForMeshy(files);
+  let sourceImageUrls = [];
+  let meshyImageUrl = '';
+  try {
+    sourceImageUrls = await uploadImagesForMeshy(files);
 
-  // Force a .jpg URL — Meshy rejects images where the URL extension says .webp even if
-  // the Cloudinary transformation flag converts the content to JPEG.
-  const rawUrl = sourceImageUrls[0];
-  const meshyImageUrl = (() => {
-    if (!rawUrl.includes('/res.cloudinary.com/')) return rawUrl;
-    if (!rawUrl.includes('/image/upload/')) return rawUrl;
-    let url = rawUrl;
-    if (!/\/f_jpg/.test(url)) {
-      url = url.replace('/image/upload/', '/image/upload/f_jpg,q_auto/');
-    }
-    url = url.replace(/\.(webp|avif|heic|heif|gif|bmp|tiff?)(\?|#|$)/i, '.jpg$2');
-    return url;
-  })();
+    // Force a .jpg URL — Meshy rejects images where the URL extension says .webp even if
+    // the Cloudinary transformation flag converts the content to JPEG.
+    const rawUrl = sourceImageUrls[0];
+    meshyImageUrl = (() => {
+      if (!rawUrl.includes('/res.cloudinary.com/')) return rawUrl;
+      if (!rawUrl.includes('/image/upload/')) return rawUrl;
+      let url = rawUrl;
+      if (!/\/f_jpg/.test(url)) {
+        url = url.replace('/image/upload/', '/image/upload/f_jpg,q_auto/');
+      }
+      url = url.replace(/\.(webp|avif|heic|heif|gif|bmp|tiff?)(\?|#|$)/i, '.jpg$2');
+      return url;
+    })();
+  } catch (cloudinaryError) {
+    console.warn(
+      '[Meshy] Cloudinary upload failed; using Meshy data URI fallback:',
+      cloudinaryError?.message || cloudinaryError
+    );
+    meshyImageUrl = buildImageDataUri(files[0]);
+  }
 
   await validateMeshyImageUrl(meshyImageUrl);
   const payload = {
     image_url: meshyImageUrl,
     enable_pbr: options.enablePbr !== false,
     should_remesh: options.shouldRemesh !== false,
-    topology: options.topology || 'triangle',
+    should_texture: options.shouldTexture !== false,
     target_polycount: Number(options.targetPolycount || 30000),
     target_formats: ['glb'],
   };
 
   // Probe all known Meshy endpoint variants — different plans expose different prefixes
   const probeList = [...new Set([
+    `${OFFICIAL_MESHY_API_BASE}/image-to-3d`,
     `${MESHY_API_BASE}/image-to-3d`,
     'https://api.meshy.ai/openapi/v2/image-to-3d',
     'https://api.meshy.ai/v2/image-to-3d',
@@ -290,11 +319,10 @@ export const startMeshyImageTo3D = async (files, options = {}) => {
     throw error;
   }
 
-  console.log(`[Meshy] Task started successfully: ${taskId} | pollBase: ${workingBase}`);
-
   // Derive the working base from the endpoint URL so callers can reuse it for polling.
   // e.g. "https://api.meshy.ai/v1/image-to-3d" → "https://api.meshy.ai/v1"
   const pollBase = usedEndpoint.replace(/\/image-to-3d(-beta)?$/, '');
+  console.log(`[Meshy] Task started successfully: ${taskId} | pollBase: ${pollBase}`);
 
   return {
     taskId,
@@ -321,6 +349,7 @@ export const getMeshyTaskStatus = async (taskId, pollBase) => {
   // Build probe list: prioritise the known working base, then fall through to all candidates
   const probeList = [...new Set([
     ...(pollBase ? [pollBase] : []),
+    OFFICIAL_MESHY_API_BASE,
     MESHY_API_BASE,
     'https://api.meshy.ai/openapi/v2',
     'https://api.meshy.ai/v2',
