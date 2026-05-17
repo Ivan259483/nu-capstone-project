@@ -113,7 +113,7 @@ export default function EstimateScreen() {
             <Ionicons
               name={busy ? 'hourglass-outline' : 'refresh-outline'}
               size={20}
-              color={busy ? scannerColors.textMuted : scannerColors.cyan}
+              color={busy ? scannerColors.textMuted : scannerColors.orange}
             />
           </Pressable>
         }
@@ -168,7 +168,7 @@ export default function EstimateScreen() {
             </Text>
           </View>
           <Pressable style={styles.recalcBtn} onPress={recompute} disabled={busy}>
-            <Ionicons name="sparkles" size={14} color={scannerColors.cyan} />
+            <Ionicons name="sparkles" size={14} color={scannerColors.orange} />
             <Text style={styles.recalcText}>{busy ? 'Updating' : 'Reprice'}</Text>
           </Pressable>
         </View>
@@ -197,7 +197,7 @@ export default function EstimateScreen() {
             {costBuckets.map((bucket) => (
               <View key={bucket.label} style={styles.bucketRow}>
                 <View style={styles.bucketLeft}>
-                  <Ionicons name={bucket.icon} size={17} color={scannerColors.cyan} />
+                  <Ionicons name={bucket.icon} size={17} color={scannerColors.orange} />
                   <Text style={styles.bucketLabel}>{bucket.label}</Text>
                 </View>
                 <Text style={styles.bucketValue}>{formatPhp(bucket.value)}</Text>
@@ -215,7 +215,7 @@ export default function EstimateScreen() {
             style={styles.whyHead}
           >
             <View style={styles.whyLeft}>
-              <Ionicons name="help-circle-outline" size={20} color={scannerColors.cyan} />
+              <Ionicons name="help-circle-outline" size={20} color={scannerColors.orange} />
               <Text style={styles.whyTitle}>Why this cost?</Text>
             </View>
             <Ionicons
@@ -269,7 +269,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   heroCard: {
-    borderColor: 'rgba(53,217,255,0.25)',
+    borderColor: 'rgba(255,107,53,0.25)',
   },
   heroTitle: {
     color: scannerColors.text,
@@ -367,11 +367,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(53,217,255,0.28)',
-    backgroundColor: 'rgba(53,217,255,0.10)',
+    borderColor: 'rgba(255,107,53,0.28)',
+    backgroundColor: 'rgba(255,107,53,0.10)',
   },
   recalcText: {
-    color: scannerColors.cyan,
+    color: scannerColors.orange,
     fontSize: 11,
     fontWeight: '900',
     textTransform: 'uppercase',
@@ -450,7 +450,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: scannerColors.cyan,
+    backgroundColor: scannerColors.orange,
     marginTop: 6,
   },
   assumptionText: {

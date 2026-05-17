@@ -1092,6 +1092,33 @@ html.dark * {
     }
 }
 
+/** Appointment Confirmed (sales-approved) — success green, not “in bay” amber */
+@keyframes customerLiveActiveCardBreathGreen {
+    0%,
+    100% {
+        border-color: rgba(134, 239, 172, 0.42);
+        box-shadow: 0 16px 34px rgba(34, 197, 94, 0.12);
+    }
+    50% {
+        border-color: rgba(134, 239, 172, 0.72);
+        box-shadow:
+            0 18px 42px rgba(22, 163, 74, 0.2),
+            0 0 0 0.18rem rgba(34, 197, 94, 0.08);
+    }
+}
+
+@keyframes customerLiveIconLiveGreen {
+    0%,
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+    }
+    50% {
+        transform: scale(1.04);
+        box-shadow: 0 0 0 0.22rem rgba(34, 197, 94, 0.1);
+    }
+}
+
 @keyframes customerLiveCardSweep {
     0%,
     46% {
@@ -1822,6 +1849,78 @@ html.dark * {
     border-color: rgba(251, 191, 36, 0.3);
     background: rgba(245, 158, 11, 0.12);
     color: #fde68a;
+}
+
+/* Sales-approved reservation — first pipeline step is a success checkpoint (green), not bay “live” amber */
+.customer-live-tracker--at-booking-confirmed .customer-live-progress-ring {
+    box-shadow:
+        0 0 28px rgba(34, 197, 94, 0.22),
+        0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+    background: conic-gradient(#22c55e var(--customer-live-ring-angle), rgba(255, 255, 255, 0.1) 0deg);
+}
+
+.customer-live-tracker--at-booking-confirmed .customer-live-progress-ring::after {
+    border: 1px solid rgba(134, 239, 172, 0.2);
+    box-shadow: 0 0 32px rgba(34, 197, 94, 0.14);
+}
+
+.customer-live-tracker--at-booking-confirmed .customer-live-rail-marker.is-active {
+    border-color: rgba(134, 239, 172, 0.75);
+    background: #15803d;
+    color: #ffffff;
+    box-shadow: 0 0 0 0.35rem rgba(34, 197, 94, 0.16);
+}
+
+.customer-live-tracker--at-booking-confirmed .customer-live-rail-marker.is-active::before {
+    border-color: rgba(134, 239, 172, 0.48);
+}
+
+.customer-live-tracker--at-booking-confirmed .customer-live-rail-marker.is-active::after {
+    background: radial-gradient(circle, rgba(187, 247, 208, 0.34), transparent 62%);
+}
+
+.customer-live-tracker--at-booking-confirmed .customer-live-rail-labels span.is-active {
+    color: #86efac;
+    text-shadow: 0 0 14px rgba(34, 197, 94, 0.28);
+}
+
+.customer-live-step.is-active.customer-live-step--confirmation {
+    border-color: rgba(34, 197, 94, 0.42);
+    background: rgba(20, 83, 45, 0.36);
+    box-shadow: 0 16px 34px rgba(34, 197, 94, 0.14);
+    animation:
+        customerLiveCardIn 620ms cubic-bezier(0.22, 1, 0.36, 1) both,
+        customerLiveActiveCardBreathGreen 2.9s ease-in-out infinite 900ms;
+    animation-delay: var(--live-step-delay, 0ms), 900ms;
+}
+
+.customer-live-step.is-active.customer-live-step--confirmation .customer-live-step-icon {
+    border-color: rgba(134, 239, 172, 0.48);
+    background: rgba(34, 197, 94, 0.22);
+    color: #bbf7d0;
+    animation: customerLiveIconLiveGreen 1.9s ease-in-out infinite;
+}
+
+.customer-live-step.is-active.customer-live-step--confirmation .customer-live-step-copy h3 {
+    color: #dcfce7;
+}
+
+.customer-live-step.is-active.customer-live-step--confirmation .customer-live-step-copy span {
+    background: rgba(34, 197, 94, 0.18);
+    color: #bbf7d0;
+}
+
+.customer-live-step.is-active.customer-live-step--confirmation .customer-live-step-time {
+    border-color: rgba(134, 239, 172, 0.32);
+    background: rgba(34, 197, 94, 0.14);
+    color: #bbf7d0;
+}
+
+.customer-live-step.is-active.customer-live-step--confirmation .customer-live-confirm-summary {
+    border-color: rgba(34, 197, 94, 0.22);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 10px 32px -20px rgba(22, 163, 74, 0.35);
 }
 
 /* Appointment confirmation — clean title wrap + calm detail card */

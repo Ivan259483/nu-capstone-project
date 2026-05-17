@@ -1,5 +1,5 @@
 /**
- * AskAiFab — Meta AI-style floating button
+ * AskAiFab — floating chat entry with a compact spinning orb
  *
  * 1. Pops in as a full pill ("Ask AI" + spinning orb)
  * 2. After 3 seconds, collapses to just the spinning orb
@@ -29,16 +29,16 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 import ChatOverlay from '@/components/ChatOverlay';
 
-// ── Orb palette — Meta AI vibe ───────────────────────────────────────────────
+// ── Orb palette — brand orange / amber (no purple or blue) ───────────────────
 const ORB_COLORS = [
-  '#9B5DE5',
-  '#7B61FF',
-  '#3A86FF',
-  '#56CFE1',
-  '#5E60CE',
-  '#6930C3',
-  '#9B5DE5',
-  '#C77DFF',
+  '#FF6B35',
+  '#FF8F5C',
+  '#EA580C',
+  '#FFB089',
+  '#CC5214',
+  '#FF6B35',
+  '#FFF5F0',
+  '#FF8533',
 ];
 
 const DOT_COUNT = 8;

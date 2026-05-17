@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>AutoSPF+ Model Viewer AR</title>
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.1/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.1/examples/jsm/"
+    }
+  }
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #050506;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button {
+      font: inherit;
+      color: inherit;
+      border: 0;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    model-viewer {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background:
+        radial-gradient(circle at 50% 46%, rgba(255,255,255,0.08), transparent 30%),
+        radial-gradient(circle at 50% 86%, rgba(249,115,22,0.11), transparent 34%),
+        #050506;
+      --poster-color: #050506;
+      --progress-bar-color: #f97316;
+      --progress-mask: rgba(255,255,255,0.12);
+    }
+    .topbar {
+      position: fixed;
+      z-index: 10;
+      top: env(safe-area-inset-top, 0);
+      left: 0;
+      right: 0;
+      padding: 14px 16px 28px;
+      background: linear-gradient(180deg, rgba(5,5,6,0.95), rgba(5,5,6,0));
+      pointer-events: none;
+    }
+    .eyebrow {
+      color: #f97316;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
+    .title {
+      margin-top: 3px;
+      font-size: 18px;
+      line-height: 1.1;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+    .status {
+      margin-top: 7px;
+      max-width: 92vw;
+      color: rgba(255,255,255,0.68);
+      font-size: 12px;
+      line-height: 17px;
+      font-weight: 650;
+    }
+    .hud {
+      position: fixed;
+      z-index: 14;
+      left: 12px;
+      right: 12px;
+      bottom: max(12px, env(safe-area-inset-bottom, 12px));
+      display: grid;
+      gap: 10px;
+    }
+    .panel {
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(8,8,10,0.78);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 18px 60px rgba(0,0,0,0.34);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: rgba(255,255,255,0.10);
+    }
+    .mode-btn {
+      min-height: 50px;
+      padding: 0 12px;
+      background: rgba(16,16,18,0.94);
+      color: rgba(255,255,255,0.58);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .mode-btn.active.before {
+      color: #fb923c;
+      background: linear-gradient(135deg, rgba(249,115,22,0.34), rgba(16,16,18,0.94));
+    }
+    .mode-btn.active.after {
+      color: #34d399;
+      background: linear-gradient(135deg, rgba(16,185,129,0.32), rgba(16,16,18,0.94));
+    }
+    .ar-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 1px;
+      background: rgba(255,255,255,0.10);
+    }
+    .ar-btn {
+      min-height: 52px;
+      padding: 0 14px;
+      background: linear-gradient(135deg, #f97316, #fb923c);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 950;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.24);
+      white-space: nowrap;
+    }
+    .ar-btn[disabled] {
+      opacity: 0.58;
+      cursor: default;
+    }
+    .reset-btn {
+      min-width: 92px;
+      min-height: 52px;
+      padding: 0 12px;
+      background: rgba(24,24,28,0.96);
+      color: rgba(255,255,255,0.68);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .pillbar {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 10px;
+      scrollbar-width: none;
+    }
+    .pillbar::-webkit-scrollbar { display: none; }
+    .pill {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 32px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.78);
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--dot, #f97316);
+      box-shadow: 0 0 14px var(--dot, #f97316);
+    }
+    .gate {
+      position: fixed;
+      z-index: 20;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background:
+        radial-gradient(circle at 50% 35%, rgba(249,115,22,0.18), transparent 42%),
+        rgba(5,5,6,0.95);
+      transition: opacity 220ms ease;
+    }
+    .gate.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .gate-card {
+      width: min(420px, 100%);
+      border: 1px solid rgba(249,115,22,0.24);
+      border-radius: 20px;
+      background: rgba(12,12,14,0.90);
+      box-shadow: 0 24px 90px rgba(0,0,0,0.46);
+      padding: 18px;
+    }
+    .gate-title {
+      font-size: 23px;
+      line-height: 1.05;
+      font-weight: 950;
+      letter-spacing: 0;
+      margin: 10px 0 8px;
+    }
+    .gate-text {
+      color: rgba(255,255,255,0.72);
+      font-size: 13px;
+      line-height: 19px;
+      font-weight: 650;
+      margin: 0 0 16px;
+    }
+    .progress-track {
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.10);
+      margin: 14px 0 4px;
+    }
+    .progress-fill {
+      width: 8%;
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #f97316, #fdba74);
+      transition: width 240ms ease;
+    }
+    .primary {
+      width: 100%;
+      height: 50px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #f97316, #fb923c);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 950;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-top: 14px;
+    }
+    .primary[disabled] {
+      opacity: 0.6;
+      cursor: default;
+    }
+    .toast {
+      position: fixed;
+      z-index: 26;
+      left: 12px;
+      right: 12px;
+      top: max(12px, env(safe-area-inset-top, 12px));
+      display: none;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(248, 113, 113, 0.45);
+      background: rgba(69, 10, 10, 0.92);
+      color: #fecaca;
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 650;
+    }
+    .toast.show { display: block; }
+    .hidden { display: none !important; }
+    @media (min-width: 720px) {
+      .hud {
+        left: 50%;
+        right: auto;
+        width: min(520px, calc(100vw - 24px));
+        transform: translateX(-50%);
+      }
+      .toast {
+        left: 50%;
+        right: auto;
+        width: min(520px, calc(100vw - 24px));
+        transform: translateX(-50%);
+      }
+    }
+  </style>
+</head>
+<body>
+  <model-viewer
+    id="viewer"
+    alt="AutoSPF+ vehicle repair simulation"
+    ar
+    ar-modes="quick-look webxr scene-viewer"
+    ar-placement="floor"
+    ar-scale="auto"
+    camera-controls
+    touch-action="pan-y"
+    interaction-prompt="auto"
+    auto-rotate
+    auto-rotate-delay="1800"
+    rotation-per-second="12deg"
+    shadow-intensity="1.35"
+    shadow-softness="0.78"
+    environment-image="neutral"
+    exposure="1.05"
+    camera-orbit="35deg 64deg auto"
+    field-of-view="32deg"
+    loading="eager"
+    reveal="auto"
+  >
+    <button id="slotArBtn" slot="ar-button" class="ar-btn" type="button" disabled>View in AR</button>
+  </model-viewer>
+
+  <div class="topbar">
+    <div class="eyebrow">AutoSPF+ Model Viewer AR</div>
+    <div class="title" id="title">Repair simulation</div>
+    <div class="status" id="status">Loading AR model session...</div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <div id="gate" class="gate">
+    <div class="gate-card">
+      <div class="eyebrow">iOS Quick Look ready</div>
+      <div class="gate-title">Preparing the vehicle for floor placement.</div>
+      <p class="gate-text">
+        AutoSPF+ is baking damage markers into the 3D model so the selected before or after state is visible in AR.
+      </p>
+      <div class="progress-track">
+        <div id="progressFill" class="progress-fill"></div>
+      </div>
+      <button id="gateArBtn" type="button" class="primary" disabled>View in AR</button>
+    </div>
+  </div>
+
+  <div class="hud">
+    <div class="panel ar-row">
+      <button id="hudArBtn" class="ar-btn" type="button" disabled>View in AR</button>
+      <button id="rebuildBtn" class="reset-btn" type="button">Rebuild</button>
+    </div>
+    <div class="panel actions">
+      <button id="beforeBtn" type="button" class="mode-btn active before">Damaged</button>
+      <button id="afterBtn" type="button" class="mode-btn after">Repaired</button>
+    </div>
+    <div class="panel pillbar" id="damagePills"></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+    import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+    import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+    const $ = (id) => document.getElementById(id);
+    const viewer = $('viewer');
+    const statusEl = $('status');
+    const titleEl = $('title');
+    const gate = $('gate');
+    const toast = $('toast');
+    const progressFill = $('progressFill');
+    const slotArBtn = $('slotArBtn');
+    const gateArBtn = $('gateArBtn');
+    const hudArBtn = $('hudArBtn');
+    const rebuildBtn = $('rebuildBtn');
+    const beforeBtn = $('beforeBtn');
+    const afterBtn = $('afterBtn');
+    const damagePills = $('damagePills');
+
+    const params = new URLSearchParams(window.location.search);
+    const scanId = params.get('scanId') || '';
+
+    const fallbackSession = {
+      scanId: null,
+      title: 'AutoSPF+ demo repair preview',
+      modelStatus: 'fallback',
+      modelUrl: '/webar/models/fallback-car.glb',
+      repairedModelUrl: '/webar/models/fallback-car.glb',
+      fallbackModelUrl: '/webar/models/fallback-car.glb',
+      damages: [
+        {
+          id: 'demo-front-bumper',
+          type: 'Surface scratch',
+          severity: 'medium',
+          affectedArea: 'Front bumper',
+          confidence: 0.88,
+          coordinates: { x: 0.38, y: 0.58, width: 0.24, height: 0.12 }
+        },
+        {
+          id: 'demo-door',
+          type: 'Paint scuff',
+          severity: 'low',
+          affectedArea: 'Right door',
+          confidence: 0.82,
+          coordinates: { x: 0.58, y: 0.46, width: 0.18, height: 0.16 }
+        }
+      ]
+    };
+
+    const severityColors = {
+      high: '#ef4444',
+      severe: '#ef4444',
+      medium: '#f97316',
+      moderate: '#f97316',
+      low: '#10b981',
+      minor: '#10b981'
+    };
+
+    let session = { ...fallbackSession };
+    let currentMode = 'before';
+    let buildSeq = 0;
+    let building = false;
+    let variantUrls = { before: null, after: null };
+    let sourceUrls = { before: '', after: '' };
+    let lastError = '';
+
+    function post(payload) {
+      try {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+        }
+      } catch (_) {}
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(payload, '*');
+        }
+      } catch (_) {}
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+      post({ type: 'WEBAR_STATUS', message });
+    }
+
+    function showToast(message) {
+      lastError = message || '';
+      toast.textContent = lastError;
+      toast.classList.toggle('show', Boolean(lastError));
+    }
+
+    function setProgress(percent) {
+      const value = Math.max(4, Math.min(100, Number(percent) || 0));
+      progressFill.style.width = value + '%';
+    }
+
+    function setArButtonsEnabled(enabled) {
+      [slotArBtn, gateArBtn, hudArBtn].forEach((button) => {
+        button.disabled = !enabled;
+        button.textContent = enabled ? 'View in AR' : 'Preparing...';
+      });
+    }
+
+    function assetUrl(path) {
+      if (!path) return '';
+      try {
+        return new URL(path, window.location.origin).toString();
+      } catch (_) {
+        return String(path || '');
+      }
+    }
+
+    function modelAssetUrl(path) {
+      const raw = String(path || '').trim();
+      if (!raw) return '';
+      try {
+        const url = new URL(raw, window.location.origin);
+        const alreadyProxied = url.pathname.includes('/api/ai/proxy-glb');
+        if (/^https?:$/i.test(url.protocol) && url.origin !== window.location.origin && !alreadyProxied) {
+          return new URL('/api/ai/proxy-glb?url=' + encodeURIComponent(url.toString()), window.location.origin).toString();
+        }
+        return url.toString();
+      } catch (_) {
+        return raw;
+      }
+    }
+
+    function normalizeDamage(damage, index) {
+      const coords = damage && typeof damage === 'object' ? damage.coordinates || {} : {};
+      const severity = String(damage?.severity || 'medium').toLowerCase();
+      return {
+        id: String(damage?.id || 'damage_' + (index + 1)),
+        type: String(damage?.type || damage?.damageType || 'Damage'),
+        severity,
+        affectedArea: String(damage?.affectedArea || damage?.location || 'Vehicle body'),
+        confidence: Math.max(0, Math.min(1, Number(damage?.confidence) || 0)),
+        coordinates: {
+          x: Math.max(0, Math.min(1, Number(coords.x) || 0)),
+          y: Math.max(0, Math.min(1, Number(coords.y) || 0)),
+          width: Math.max(0.02, Math.min(1, Number(coords.width) || 0.14)),
+          height: Math.max(0.02, Math.min(1, Number(coords.height) || 0.14))
+        }
+      };
+    }
+
+    function normalizedDamages() {
+      return Array.isArray(session.damages) ? session.damages.map(normalizeDamage) : [];
+    }
+
+    function renderDamagePills() {
+      const damages = normalizedDamages();
+      damagePills.innerHTML = '';
+      if (!damages.length) {
+        const empty = document.createElement('div');
+        empty.className = 'pill';
+        empty.textContent = 'No damage markers';
+        damagePills.appendChild(empty);
+        return;
+      }
+
+      damages.forEach((damage) => {
+        const pill = document.createElement('div');
+        pill.className = 'pill';
+        pill.style.setProperty('--dot', severityColors[damage.severity] || severityColors.medium);
+        const dot = document.createElement('span');
+        dot.className = 'dot';
+        const label = document.createElement('span');
+        label.textContent = damage.affectedArea || damage.type;
+        pill.appendChild(dot);
+        pill.appendChild(label);
+        damagePills.appendChild(pill);
+      });
+    }
+
+    function makeGltfLoader() {
+      const loader = new GLTFLoader();
+      loader.setCrossOrigin('anonymous');
+      try {
+        const draco = new DRACOLoader();
+        draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+        loader.setDRACOLoader(draco);
+      } catch (_) {}
+      try {
+        loader.setMeshoptDecoder(MeshoptDecoder);
+      } catch (_) {}
+      return loader;
+    }
+
+    async function loadGlb(url) {
+      const loader = makeGltfLoader();
+      const gltf = await loader.loadAsync(url);
+      return gltf.scene;
+    }
+
+    function cloneMaterial(material) {
+      if (!material) return material;
+      if (Array.isArray(material)) return material.map((item) => cloneMaterial(item));
+      return material.clone ? material.clone() : material;
+    }
+
+    function cloneScene(source) {
+      const clone = source.clone(true);
+      clone.traverse((node) => {
+        if (!node.isMesh) return;
+        node.castShadow = true;
+        node.receiveShadow = true;
+        node.material = cloneMaterial(node.material);
+      });
+      return clone;
+    }
+
+    function normalizeVehicle(scene) {
+      const root = new THREE.Group();
+      root.name = 'AutoSPF_VariantRoot';
+
+      const vehicle = cloneScene(scene);
+      const initialBox = new THREE.Box3().setFromObject(vehicle);
+      const center = initialBox.getCenter(new THREE.Vector3());
+      const size = initialBox.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+      const scale = 2.2 / maxDim;
+
+      vehicle.position.sub(center);
+      vehicle.scale.multiplyScalar(scale);
+      root.add(vehicle);
+
+      const scaledBox = new THREE.Box3().setFromObject(root);
+      vehicle.position.y -= scaledBox.min.y;
+
+      return { root, vehicle };
+    }
+
+    function applyRepairedMaterials(root) {
+      const white = new THREE.Color('#ffffff');
+      root.traverse((node) => {
+        if (!node.isMesh || !node.material) return;
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        materials.forEach((material) => {
+          if (material.color) {
+            material.color.lerp(white, 0.10);
+            material.color.multiplyScalar(1.04);
+          }
+          if ('roughness' in material && typeof material.roughness === 'number') {
+            material.roughness = Math.max(0.08, Math.min(material.roughness, 0.26));
+          }
+          if ('metalness' in material && typeof material.metalness === 'number') {
+            material.metalness = Math.min(1, material.metalness + 0.04);
+          }
+          if ('clearcoat' in material && typeof material.clearcoat === 'number') {
+            material.clearcoat = Math.max(material.clearcoat, 0.7);
+          }
+          material.needsUpdate = true;
+        });
+      });
+    }
+
+    function getMarkerPose(damage, box, index) {
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const min = box.min;
+      const max = box.max;
+      const coords = damage.coordinates || {};
+      const cx = Math.max(0, Math.min(1, Number(coords.x || 0) + Number(coords.width || 0) / 2 || 0.5));
+      const cy = Math.max(0, Math.min(1, Number(coords.y || 0) + Number(coords.height || 0) / 2 || 0.5));
+      const area = String(damage.affectedArea || damage.type || '').toLowerCase();
+      const y = THREE.MathUtils.clamp(
+        center.y + (0.52 - cy) * size.y * 0.68,
+        min.y + size.y * 0.14,
+        max.y - size.y * 0.08
+      );
+      const stagger = ((index % 4) - 1.5) * Math.max(size.x, size.z) * 0.018;
+      const out = Math.max(size.x, size.y, size.z) * 0.022;
+
+      if (area.includes('roof') || area.includes('top')) {
+        return {
+          position: new THREE.Vector3(center.x + (cx - 0.5) * size.x * 0.72, max.y + out, center.z + stagger),
+          normal: new THREE.Vector3(0, 1, 0)
+        };
+      }
+      if (area.includes('rear') || area.includes('back') || area.includes('trunk') || area.includes('tail')) {
+        return {
+          position: new THREE.Vector3(center.x + (cx - 0.5) * size.x * 0.78, y, min.z - out),
+          normal: new THREE.Vector3(0, 0, -1)
+        };
+      }
+      if (area.includes('left') || area.includes('driver')) {
+        return {
+          position: new THREE.Vector3(min.x - out, y, center.z + (cx - 0.5) * size.z * 0.72),
+          normal: new THREE.Vector3(-1, 0, 0)
+        };
+      }
+      if (area.includes('right') || area.includes('passenger')) {
+        return {
+          position: new THREE.Vector3(max.x + out, y, center.z + (cx - 0.5) * size.z * 0.72),
+          normal: new THREE.Vector3(1, 0, 0)
+        };
+      }
+      return {
+        position: new THREE.Vector3(center.x + (cx - 0.5) * size.x * 0.78 + stagger, y, max.z + out),
+        normal: new THREE.Vector3(0, 0, 1)
+      };
+    }
+
+    function makeMarker(damage, pose, markerScale, mode) {
+      const marker = new THREE.Group();
+      marker.name = mode === 'after' ? 'AutoSPF_RepairedMarker' : 'AutoSPF_DamageMarker';
+      marker.position.copy(pose.position);
+      marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), pose.normal.clone().normalize());
+
+      const color = mode === 'after'
+        ? '#10b981'
+        : (severityColors[damage.severity] || severityColors.medium);
+      const base = new THREE.Color(color);
+
+      const sphereMaterial = new THREE.MeshStandardMaterial({
+        color: base,
+        emissive: base.clone().multiplyScalar(0.45),
+        roughness: 0.22,
+        metalness: 0.05
+      });
+      const ringMaterial = new THREE.MeshBasicMaterial({
+        color: base,
+        transparent: true,
+        opacity: mode === 'after' ? 0.42 : 0.50,
+        side: THREE.DoubleSide
+      });
+
+      const dotRadius = markerScale * (mode === 'after' ? 0.52 : 0.58);
+      const ringRadius = markerScale * 1.05;
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(dotRadius, 24, 16), sphereMaterial);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(ringRadius, markerScale * 0.07, 12, 48), ringMaterial);
+      ring.position.z = -markerScale * 0.02;
+
+      marker.add(ring, dot);
+
+      if (mode === 'after') {
+        const inner = new THREE.Mesh(
+          new THREE.SphereGeometry(markerScale * 0.26, 16, 12),
+          new THREE.MeshStandardMaterial({
+            color: '#ecfdf5',
+            emissive: new THREE.Color('#34d399').multiplyScalar(0.25),
+            roughness: 0.2
+          })
+        );
+        inner.position.z = markerScale * 0.42;
+        marker.add(inner);
+      }
+
+      return marker;
+    }
+
+    function addMarkers(root, mode) {
+      const damages = normalizedDamages();
+      if (!damages.length) return;
+      const box = new THREE.Box3().setFromObject(root);
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z, 0.5);
+      const markerScale = Math.max(0.035, maxDim * 0.024);
+      const markerRoot = new THREE.Group();
+      markerRoot.name = mode === 'after' ? 'AutoSPF_RepairedMarkers' : 'AutoSPF_DamageMarkers';
+
+      damages.forEach((damage, index) => {
+        const pose = getMarkerPose(damage, box, index);
+        markerRoot.add(makeMarker(damage, pose, markerScale, mode));
+      });
+
+      root.add(markerRoot);
+    }
+
+    function makeVariant(sourceScene, mode) {
+      const { root } = normalizeVehicle(sourceScene);
+      if (mode === 'after') applyRepairedMaterials(root);
+      addMarkers(root, mode);
+      return root;
+    }
+
+    function exportGlb(object3d) {
+      const exporter = new GLTFExporter();
+      return new Promise((resolve, reject) => {
+        exporter.parse(
+          object3d,
+          (result) => {
+            const blob = result instanceof ArrayBuffer
+              ? new Blob([result], { type: 'model/gltf-binary' })
+              : new Blob([JSON.stringify(result)], { type: 'model/gltf+json' });
+            resolve(URL.createObjectURL(blob));
+          },
+          (error) => reject(error),
+          {
+            binary: true,
+            trs: false,
+            onlyVisible: true,
+            maxTextureSize: 2048
+          }
+        );
+      });
+    }
+
+    function revokeVariants(next = {}) {
+      Object.values(variantUrls).forEach((url) => {
+        if (url && !Object.values(next).includes(url)) {
+          try { URL.revokeObjectURL(url); } catch (_) {}
+        }
+      });
+    }
+
+    function applyViewerMode(mode) {
+      currentMode = mode === 'after' ? 'after' : 'before';
+      beforeBtn.classList.toggle('active', currentMode === 'before');
+      afterBtn.classList.toggle('active', currentMode === 'after');
+
+      const nextSrc = currentMode === 'after'
+        ? (variantUrls.after || sourceUrls.after || sourceUrls.before)
+        : (variantUrls.before || sourceUrls.before);
+
+      if (nextSrc && viewer.src !== nextSrc) {
+        viewer.src = nextSrc;
+      }
+
+      viewer.exposure = currentMode === 'after' ? 1.22 : 1.05;
+      setStatus(currentMode === 'after'
+        ? 'Repaired AR variant selected. Tap View in AR to place it on a surface.'
+        : 'Damaged AR variant selected. Tap View in AR to place it on a surface.');
+      post({ type: 'WEBAR_MODE', mode: currentMode });
+      post({ type: 'VARIANT_READY', mode: currentMode, baked: Boolean(variantUrls[currentMode]) });
+    }
+
+    async function loadSession() {
+      if (!scanId) return { ...fallbackSession };
+      try {
+        const response = await fetch('/api/ai/webar-session/' + encodeURIComponent(scanId), {
+          credentials: 'include'
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.message || 'WebAR session unavailable.');
+        }
+        return payload.data || { ...fallbackSession };
+      } catch (error) {
+        console.warn('[ModelViewerAR] Falling back to demo session:', error);
+        showToast('Session unavailable. Showing fallback AR demo.');
+        return { ...fallbackSession };
+      }
+    }
+
+    function applySessionUi() {
+      titleEl.textContent = session.title || 'Repair simulation';
+      renderDamagePills();
+    }
+
+    async function rebuildVariants(reason = 'manual') {
+      const seq = ++buildSeq;
+      building = true;
+      showToast('');
+      setArButtonsEnabled(false);
+      gate.classList.remove('hidden');
+      setProgress(10);
+      setStatus('Loading vehicle GLB...');
+
+      const beforeSource = modelAssetUrl(session.modelUrl || session.fallbackModelUrl || fallbackSession.modelUrl);
+      const repairedCandidate = modelAssetUrl(session.repairedModelUrl || '');
+      const afterSource = repairedCandidate || beforeSource;
+      sourceUrls = { before: beforeSource, after: afterSource };
+
+      try {
+        const beforeScene = await loadGlb(beforeSource);
+        if (seq !== buildSeq) return;
+        setProgress(35);
+        setStatus('Baking damaged model markers...');
+        const beforeVariant = makeVariant(beforeScene, 'before');
+        const beforeUrl = await exportGlb(beforeVariant);
+        if (seq !== buildSeq) {
+          try { URL.revokeObjectURL(beforeUrl); } catch (_) {}
+          return;
+        }
+
+        setProgress(64);
+        setStatus('Baking repaired model variant...');
+        const useSeparateAfter = afterSource && afterSource !== beforeSource;
+        const afterScene = useSeparateAfter ? await loadGlb(afterSource) : beforeScene;
+        if (seq !== buildSeq) {
+          try { URL.revokeObjectURL(beforeUrl); } catch (_) {}
+          return;
+        }
+        const afterVariant = makeVariant(afterScene, 'after');
+        const afterUrl = await exportGlb(afterVariant);
+        if (seq !== buildSeq) {
+          try { URL.revokeObjectURL(beforeUrl); } catch (_) {}
+          try { URL.revokeObjectURL(afterUrl); } catch (_) {}
+          return;
+        }
+
+        const nextVariants = { before: beforeUrl, after: afterUrl };
+        revokeVariants(nextVariants);
+        variantUrls = nextVariants;
+        setProgress(100);
+        setArButtonsEnabled(true);
+        gate.classList.add('hidden');
+        building = false;
+        applyViewerMode(currentMode);
+        post({
+          type: 'MODEL_LOADED',
+          reason,
+          modelUrl: beforeSource,
+          repairedModelUrl: afterSource,
+          baked: true
+        });
+      } catch (error) {
+        console.error('[ModelViewerAR] Variant build failed:', error);
+        revokeVariants();
+        variantUrls = { before: null, after: null };
+        building = false;
+        setArButtonsEnabled(Boolean(beforeSource));
+        gate.classList.add('hidden');
+        viewer.src = currentMode === 'after' ? afterSource : beforeSource;
+        showToast('Could not bake AR markers. Showing the original GLB instead.');
+        setStatus('Marker baking failed. You can still place the model in AR.');
+        post({ type: 'WEBAR_ERROR', message: String(error?.message || error) });
+      }
+    }
+
+    function applyWebArInit(message) {
+      const raw = message?.payload && typeof message.payload === 'object' ? message.payload : message;
+      if (!raw || typeof raw !== 'object') return;
+
+      if (raw.scanId != null) session.scanId = raw.scanId ? String(raw.scanId) : null;
+      if (raw.modelUrl) session.modelUrl = String(raw.modelUrl);
+      if (raw.repairedModelUrl != null) session.repairedModelUrl = raw.repairedModelUrl ? String(raw.repairedModelUrl) : '';
+      if (raw.fallbackModelUrl) session.fallbackModelUrl = String(raw.fallbackModelUrl);
+      if (raw.title) session.title = String(raw.title);
+      if (Array.isArray(raw.damages)) session.damages = raw.damages;
+      if (raw.summary) session.summary = String(raw.summary);
+
+      applySessionUi();
+      setStatus('Session updated from AutoSPF+. Rebuilding AR variants...');
+      post({ type: 'WEBAR_INIT_APPLIED', scanId: session.scanId || null });
+      rebuildVariants('host-init');
+    }
+
+    function handleExternalMessage(raw) {
+      let message = raw;
+      try {
+        message = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch (_) {
+        return;
+      }
+      if (!message || typeof message !== 'object') return;
+
+      if (message.type === 'WEBAR_INIT') {
+        applyWebArInit(message);
+        return;
+      }
+      if (message.type === 'SET_STATE') {
+        applyViewerMode(message.state === 'after' ? 'after' : 'before');
+        return;
+      }
+      if (message.type === 'START_AR') {
+        try { viewer.activateAR(); } catch (_) {}
+      }
+    }
+
+    beforeBtn.addEventListener('click', () => applyViewerMode('before'));
+    afterBtn.addEventListener('click', () => applyViewerMode('after'));
+    rebuildBtn.addEventListener('click', () => {
+      if (!building) rebuildVariants('manual');
+    });
+    gateArBtn.addEventListener('click', () => {
+      try { viewer.activateAR(); } catch (_) {}
+    });
+    hudArBtn.addEventListener('click', () => {
+      try { viewer.activateAR(); } catch (_) {}
+    });
+
+    viewer.addEventListener('ar-status', (event) => {
+      const status = event.detail?.status || '';
+      if (status === 'session-started') {
+        post({ type: 'AR_STARTED', mode: currentMode });
+      }
+      if (status === 'failed') {
+        post({ type: 'WEBAR_ERROR', message: 'AR launch failed on this device.' });
+      }
+    });
+
+    viewer.addEventListener('load', () => {
+      post({ type: 'MODEL_VIEWER_LOADED', mode: currentMode });
+    });
+
+    viewer.addEventListener('error', () => {
+      const message = lastError || 'The selected 3D model could not be loaded.';
+      showToast(message);
+      post({ type: 'WEBAR_ERROR', message });
+    });
+
+    window.addEventListener('message', (event) => handleExternalMessage(event.data));
+    document.addEventListener('message', (event) => handleExternalMessage(event.data));
+
+    session = await loadSession();
+    applySessionUi();
+    post({ type: 'WEBAR_READY', scanId: session.scanId || null });
+    rebuildVariants('initial-session');
+  </script>
+</body>
+</html>

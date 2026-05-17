@@ -42,6 +42,8 @@ const QC_JOBS_PROJECTION = [
   'staffNotes.content',
   'serviceProper.completedAt',
   'qcCompletedAt',
+  /** Live Tracker checklist — was omitted, so refetches always sent [] and UI reset to 0/11 after save/reload */
+  'qcChecklist',
   'serviceTrackingStage',
   'serviceTrackingUpdatedAt',
   'serviceStaffAssignments',
@@ -238,6 +240,27 @@ export const getQCJobs = async (req, res, next) => {
             },
       };
     });
+
+    // #region agent log
+    try {
+      const j0 = jobs[0];
+      const cl0 = Array.isArray(j0?.qcChecklist) ? j0.qcChecklist.length : -1;
+      fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
+        body: JSON.stringify({
+          sessionId: '968466',
+          hypothesisId: 'H-projection',
+          location: 'qc.controller.js:getQCJobs',
+          message: 'qc jobs mapped sample',
+          data: { jobCount: jobs.length, firstQcChecklistLen: cl0 },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+    } catch {
+      /* ignore */
+    }
+    // #endregion
 
     const total = skip + jobs.length + (hasNextPage ? 1 : 0);
     const totalPages = page + (hasNextPage ? 1 : 0);
@@ -662,6 +685,10 @@ export const returnJob = async (req, res, next) => {
 /**
  * PATCH /api/qc/jobs/:id/checklist
  * Save QC checklist items for an order.
+ *
+ * Uses atomic `$set` on `qcChecklist` only — avoids `doc.save()` racing other writers
+ * (e.g. stage photos, handoff) and avoids marking `vehiclePlate` dirty from decrypt/init,
+ * which triggered "No matching document found … version … modifiedPaths 'vehiclePlate, qcChecklist'".
  */
 export const updateQCChecklist = async (req, res, next) => {
   try {
@@ -672,22 +699,29 @@ export const updateQCChecklist = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'items must be an array' });
     }
 
-    const order = await Order.findById(id);
-    if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
-    }
-
-    order.qcChecklist = items.map((item) => ({
+    const qcChecklist = items.map((item) => ({
       item: item.item || item.name || '',
       passed: Boolean(item.passed || item.checked),
       note: item.note || '',
-      checkedBy: req.user.id,
+      checkedBy: req.user?.id,
       checkedAt: new Date(),
     }));
 
-    await order.save();
+    const updated = await Order.findByIdAndUpdate(
+      id,
+      { $set: { qcChecklist } },
+      { new: true, runValidators: true, select: 'qcChecklist' }
+    );
 
-    res.json({ success: true, message: 'QC checklist saved', data: { id: order._id, qcChecklist: order.qcChecklist } });
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'QC checklist saved',
+      data: { id: updated._id, qcChecklist: updated.qcChecklist },
+    });
   } catch (error) {
     next(error);
   }

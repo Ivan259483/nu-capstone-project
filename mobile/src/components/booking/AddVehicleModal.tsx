@@ -4,8 +4,11 @@
  * Picker logic uses an absolutely-positioned bottom sheet *inside* the same
  * Modal — React Native on iOS does not support nested <Modal> components, so a
  * second Modal for dropdowns simply never renders.
+ *
+ * Field order, validation, and brand/model database mirror web
+ * `VehicleGarageForm` + `validateVehicleGarageForm` (customer dashboard).
  */
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -20,13 +23,14 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Toast } from '@/components/ui/PremiumToast';
 import {
-  CAR_BRANDS,
   FUEL_TYPE_OPTIONS,
   TRANSMISSION_OPTIONS,
   VEHICLE_BODY_TYPES,
@@ -37,6 +41,13 @@ import type { Vehicle } from '@/services/api/types';
 import { getApiErrorMessage } from '@/services/api/client';
 import { vehicleService } from '@/services/api/vehicleService';
 import { SPF_BASE_PRICES, formatPesoOrNA } from '@/constants/spfPricing';
+import {
+  emptyVehicleGarageForm,
+  validateVehicleGarageForm,
+  type VehicleGarageFormValues,
+} from '@/lib/vehicleGarageForm';
+import { normalizePlateNumber } from '@/lib/plate';
+import { vehicleBrands, getModelsForBrand, getVehicleTypeForModel } from '@/data/vehicleData';
 
 // ── SPF package data (mirrors CustomerDashboard.tsx) ──────────────────────────
 const SPF_PACKAGES = [
@@ -72,8 +83,6 @@ const ERR_CLR   = '#f87171';
 const ERR_BG    = 'rgba(239,68,68,0.07)';
 const ERR_BD    = 'rgba(239,68,68,0.22)';
 
-const PLATE_RE = /^[A-Za-z]{3}\s?\d{3,4}$/;
-
 const COLOR_HEX: Record<string, string> = {
   White: '#e2e8f0', Black: '#1e293b', Silver: '#94a3b8', Gray: '#64748b',
   Blue: '#3b82f6', Red: '#ef4444', Green: '#22c55e', Yellow: '#eab308',
@@ -101,7 +110,7 @@ const lbl = StyleSheet.create({
 // ── Dark text input ───────────────────────────────────────────────────────────
 function DarkField({
   label, required, optional, placeholder, value, onChangeText,
-  autoCapitalize, keyboardType, error, hint, maxLength,
+  autoCapitalize, keyboardType, error, hint, maxLength, wrapStyle,
 }: {
   label: string; required?: boolean; optional?: boolean;
   placeholder: string; value: string;
@@ -110,12 +119,13 @@ function DarkField({
   keyboardType?: 'default' | 'number-pad' | 'numeric';
   error?: string; hint?: { text: string; tone: 'ok' | 'warn' };
   maxLength?: number;
+  wrapStyle?: StyleProp<ViewStyle>;
 }) {
   const [focused, setFocused] = useState(false);
   const bc = error ? ERR_BD : focused ? 'rgba(255,183,125,0.45)' : BORDER;
   const bg = error ? ERR_BG : focused ? 'rgba(255,183,125,0.04)' : SURFACE;
   return (
-    <View style={df.wrap}>
+    <View style={[df.wrap, wrapStyle]}>
       <FieldLabel required={required} optional={optional}>{label}</FieldLabel>
       <View style={[df.box, { borderColor: bc, backgroundColor: bg }]}>
         <TextInput
@@ -165,7 +175,11 @@ function SelectField({
   const bc = error ? ERR_BD : BORDER;
   const bg = error ? ERR_BG : SURFACE;
   return (
-    <Pressable style={sf.wrap} onPress={disabled ? undefined : onPress} android_ripple={{ color: 'rgba(255,255,255,0.05)' }}>
+    <Pressable
+      style={[sf.wrap, disabled && { opacity: 0.55 }]}
+      onPress={disabled ? undefined : onPress}
+      android_ripple={{ color: 'rgba(255,255,255,0.05)' }}
+    >
       <FieldLabel required={required} optional={optional}>{label}</FieldLabel>
       <View style={[sf.box, { borderColor: bc, backgroundColor: bg }]}>
         <Text style={[sf.val, !value && sf.placeholder]} numberOfLines={1}>
@@ -197,38 +211,60 @@ export type AddVehicleModalProps = {
   onVehicleAdded: (vehicle: Vehicle) => void;
 };
 
-type PickerKind = 'type' | 'brand' | 'year' | 'transmission' | 'fuel' | null;
+type PickerKind = 'type' | 'brand' | 'model' | 'year' | 'transmission' | 'fuel' | null;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: AddVehicleModalProps) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
 
-  // Form state
-  const [plate,        setPlate]        = useState('');
-  const [vehicleType,  setVehicleType]  = useState('');
-  const [brand,        setBrand]        = useState('');
-  const [year,         setYear]         = useState('');
-  const [model,        setModel]        = useState('');
-  const [color,        setColor]        = useState('');
-  const [colorOther,   setColorOther]   = useState(false);
-  const [transmission, setTransmission] = useState('');
-  const [fuelType,     setFuelType]     = useState('');
-  const [saving,       setSaving]       = useState(false);
-  const [apiError,     setApiError]     = useState('');
+  const [form, setForm] = useState<VehicleGarageFormValues>(() => emptyVehicleGarageForm());
+  const [customBrandMode, setCustomBrandMode] = useState(false);
+  const [customModelMode, setCustomModelMode] = useState(false);
+  const [colorOther, setColorOther] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [apiError, setApiError] = useState('');
 
-  // Picker state (no nested Modal — absolutely-positioned sheet in same view)
-  const [picker, setPicker]           = useState<PickerKind>(null);
-  const pickerAnim                    = useRef(new Animated.Value(0)).current;
+  const [picker, setPicker] = useState<PickerKind>(null);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const pickerAnim = useRef(new Animated.Value(0)).current;
 
-  // Validation errors
   const [errPlate, setErrPlate] = useState('');
-  const [errType,  setErrType]  = useState('');
+  const [errType, setErrType] = useState('');
   const [errBrand, setErrBrand] = useState('');
   const [errModel, setErrModel] = useState('');
 
-  // ── Picker open/close ────────────────────────────────────────────────────
+  const knownBrandModels = useMemo(
+    () => (!customBrandMode && form.brand ? getModelsForBrand(form.brand) : []),
+    [customBrandMode, form.brand]
+  );
+  const showCustomModelInput = customBrandMode || customModelMode;
+
+  // Unknown brand → custom brand entry (matches web VehicleGarageForm)
+  useEffect(() => {
+    if (!form.brand) return;
+    if (!vehicleBrands.includes(form.brand)) setCustomBrandMode(true);
+  }, [form.brand]);
+
+  // Model not in catalog for selected brand → free-text model (matches web)
+  useEffect(() => {
+    if (customBrandMode || !form.brand || !form.model) return;
+    const models = getModelsForBrand(form.brand);
+    if (models.length > 0 && !models.includes(form.model)) setCustomModelMode(true);
+  }, [customBrandMode, form.brand, form.model]);
+
+  // Auto-fill vehicle type from model when mapped (matches web)
+  useEffect(() => {
+    if (customModelMode || !form.model || form.type) return;
+    const inferredType = getVehicleTypeForModel(form.model);
+    if (inferredType) {
+      setForm((prev) => ({ ...prev, type: inferredType }));
+      setErrType('');
+    }
+  }, [customModelMode, form.model, form.type]);
+
   const openPicker = useCallback((kind: PickerKind) => {
+    setPickerSearch('');
     setPicker(kind);
     Animated.spring(pickerAnim, { toValue: 1, useNativeDriver: true, tension: 65, friction: 10 }).start();
     Haptics.selectionAsync();
@@ -237,27 +273,35 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
   const closePicker = useCallback(() => {
     Animated.timing(pickerAnim, { toValue: 0, duration: 180, useNativeDriver: true }).start(() => {
       setPicker(null);
+      setPickerSearch('');
     });
   }, [pickerAnim]);
 
   const pickerTranslateY = pickerAnim.interpolate({ inputRange: [0, 1], outputRange: [500, 0] });
 
-  // ── Picker options / title ───────────────────────────────────────────────
   const pickerOptions = useMemo<string[]>(() => {
     switch (picker) {
       case 'type':         return [...VEHICLE_BODY_TYPES];
-      case 'brand':        return [...CAR_BRANDS];
+      case 'brand':        return [...vehicleBrands];
+      case 'model':        return knownBrandModels.length ? [...knownBrandModels] : [];
       case 'year':         return [...VEHICLE_YEAR_OPTIONS];
       case 'transmission': return [...TRANSMISSION_OPTIONS];
       case 'fuel':         return [...FUEL_TYPE_OPTIONS];
       default: return [];
     }
-  }, [picker]);
+  }, [picker, knownBrandModels]);
+
+  const filteredPickerOptions = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    if (!q || (picker !== 'brand' && picker !== 'model')) return pickerOptions;
+    return pickerOptions.filter((o) => o.toLowerCase().includes(q));
+  }, [picker, pickerOptions, pickerSearch]);
 
   const pickerTitle = useMemo(() => {
     switch (picker) {
       case 'type':         return 'Vehicle type';
       case 'brand':        return 'Brand';
+      case 'model':        return 'Model';
       case 'year':         return 'Year';
       case 'transmission': return 'Transmission';
       case 'fuel':         return 'Fuel type';
@@ -267,91 +311,139 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
 
   const currentPickerValue = useMemo(() => {
     switch (picker) {
-      case 'type':         return vehicleType;
-      case 'brand':        return brand;
-      case 'year':         return year;
-      case 'transmission': return transmission;
-      case 'fuel':         return fuelType;
+      case 'type':         return form.type;
+      case 'brand':        return form.brand;
+      case 'model':        return form.model;
+      case 'year':         return form.year;
+      case 'transmission': return form.transmission;
+      case 'fuel':         return form.fuelType;
       default: return '';
     }
-  }, [picker, vehicleType, brand, year, transmission, fuelType]);
+  }, [picker, form]);
 
   const applyPick = useCallback((v: string) => {
     switch (picker) {
-      case 'type':         setVehicleType(v);  setErrType('');  break;
-      case 'brand':        setBrand(v);         setErrBrand(''); break;
-      case 'year':         setYear(v);                           break;
-      case 'transmission': setTransmission(v);                   break;
-      case 'fuel':         setFuelType(v);                       break;
-      default: break;
+      case 'type':
+        setForm((prev) => ({ ...prev, type: v }));
+        setErrType('');
+        break;
+      case 'brand':
+        setErrBrand('');
+        setErrModel('');
+        if (v === 'Other') {
+          setCustomBrandMode(true);
+          setCustomModelMode(false);
+          setForm((prev) => ({ ...prev, brand: '', model: '', type: '' }));
+        } else {
+          setCustomBrandMode(false);
+          setCustomModelMode(false);
+          setForm((prev) => ({ ...prev, brand: v, model: '', type: '' }));
+        }
+        break;
+      case 'model':
+        setErrModel('');
+        if (v === 'Other') {
+          setCustomModelMode(true);
+          setForm((prev) => ({ ...prev, model: '' }));
+        } else {
+          setCustomModelMode(false);
+          const inferred = getVehicleTypeForModel(v);
+          setForm((prev) => ({
+            ...prev,
+            model: v,
+            ...(inferred ? { type: inferred } : {}),
+          }));
+          if (inferred) setErrType('');
+        }
+        break;
+      case 'year':
+        setForm((prev) => ({ ...prev, year: v }));
+        break;
+      case 'transmission':
+        setForm((prev) => ({ ...prev, transmission: v }));
+        break;
+      case 'fuel':
+        setForm((prev) => ({ ...prev, fuelType: v }));
+        break;
+      default:
+        break;
     }
     closePicker();
     Haptics.selectionAsync();
   }, [picker, closePicker]);
 
-  // ── Plate hint ───────────────────────────────────────────────────────────
   const plateHint = useMemo<{ text: string; tone: 'ok' | 'warn' } | undefined>(() => {
-    const t = plate.trim();
-    if (!t) return undefined;
-    return PLATE_RE.test(t)
+    const raw = form.plate.trim();
+    if (!raw) return undefined;
+    const pn = normalizePlateNumber(raw);
+    return pn.length >= 4 && pn.length <= 9
       ? { text: '✓ Valid plate format', tone: 'ok' }
-      : { text: 'Format: ABC 1234', tone: 'warn' };
-  }, [plate]);
+      : { text: '4–9 letters/numbers (spaces ignored)', tone: 'warn' };
+  }, [form.plate]);
 
-  // ── Reset ────────────────────────────────────────────────────────────────
   const reset = useCallback(() => {
-    setPlate(''); setVehicleType(''); setBrand(''); setYear(''); setModel('');
-    setColor(''); setColorOther(false); setTransmission(''); setFuelType('');
-    setSaving(false); setApiError('');
-    setErrPlate(''); setErrType(''); setErrBrand(''); setErrModel('');
-    setPicker(null); pickerAnim.setValue(0);
+    setForm(emptyVehicleGarageForm());
+    setCustomBrandMode(false);
+    setCustomModelMode(false);
+    setColorOther(false);
+    setSaving(false);
+    setApiError('');
+    setErrPlate('');
+    setErrType('');
+    setErrBrand('');
+    setErrModel('');
+    setPicker(null);
+    setPickerSearch('');
+    pickerAnim.setValue(0);
   }, [pickerAnim]);
 
-  const handleClose = () => { reset(); onClose(); };
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
 
-  // ── Submit ───────────────────────────────────────────────────────────────
   const submit = async () => {
-    if (picker) { closePicker(); return; }
-    setApiError(''); setErrPlate(''); setErrType(''); setErrBrand(''); setErrModel('');
+    if (picker) {
+      closePicker();
+      return;
+    }
+    setApiError('');
+    const errors = validateVehicleGarageForm(form);
+    setErrPlate(errors.plate || '');
+    setErrBrand(errors.brand || '');
+    setErrModel(errors.model || '');
+    setErrType(errors.type || '');
 
-    const plateTrim = plate.trim();
-    const norm      = plateTrim.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const brandTrim = brand.trim();
-    const modelTrim = model.trim();
-    let hasErr = false;
+    if (Object.keys(errors).length > 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
 
-    if (!plateTrim)                  { setErrPlate('Plate number is required.');              hasErr = true; }
-    else if (norm.length < 4 || norm.length > 9) { setErrPlate('Use 4–9 letters/numbers (e.g. ABC1234).'); hasErr = true; }
-    if (!brandTrim)                  { setErrBrand('Select a brand.');                        hasErr = true; }
-    if (modelTrim.length < 2)        { setErrModel(modelTrim ? 'Too short.' : 'Required.');   hasErr = true; }
-    if (!vehicleType)                { setErrType('Please select a vehicle type.');            hasErr = true; }
-
-    if (hasErr) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); return; }
+    const plateNorm = normalizePlateNumber(form.plate.trim());
+    const brandTrim = form.brand.trim();
+    const modelTrim = form.model.trim();
 
     setSaving(true);
     try {
       const { vehicle: newV, alreadyOwned } = await vehicleService.addVehicle({
-        plateNumber:  norm,
-        year:         year || '',
-        make:         brandTrim,
-        model:        modelTrim,
-        color:        color.trim() || 'Unknown',
-        vehicleType,
-        transmission: transmission || undefined,
-        fuelType:     fuelType     || undefined,
+        plateNumber: plateNorm,
+        year: form.year || '',
+        make: brandTrim,
+        model: modelTrim,
+        color: form.color.trim() || 'Unknown',
+        vehicleType: form.type,
+        transmission: form.transmission || undefined,
+        fuelType: form.fuelType || undefined,
       });
 
-      // 200 = plate already owned by this customer (idempotent — return existing vehicle)
-      // 201 = freshly created
       Toast.show(alreadyOwned ? 'Already in your list — selected!' : 'Vehicle added!', 'success');
       reset();
       onVehicleAdded(newV);
-    } catch (e: any) {
+    } catch (e: unknown) {
       const msg = getApiErrorMessage(e, 'Failed to add vehicle. Please try again.');
-      const code = e?.response?.data?.code;
+      const code = (e as { response?: { data?: { code?: string } } })?.response?.data?.code;
 
       if (code === 'PLATE_TAKEN' || msg.toLowerCase().includes('another account')) {
-        // Plate belongs to a different customer — highlight the field
         setErrPlate('Plate already registered to another account');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       } else {
@@ -363,14 +455,21 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
     }
   };
 
-  // ── Live preview ─────────────────────────────────────────────────────────
-  const hasPreview = Boolean(brand || model || plate.trim());
-  const previewBg  = color && !colorOther ? (COLOR_HEX[color] ?? '#334155') : '#334155';
-  const isLightBg  = ['White', 'Silver', 'Yellow'].includes(color) && !colorOther;
-  const previewFg  = isLightBg ? '#0f172a' : '#f8fafc';
-  const previewName = [year, brand, model].filter(Boolean).join(' ') || 'Your Vehicle';
+  const hasPreview = Boolean(form.brand || form.model || form.plate.trim());
+  const previewBg = form.color && !colorOther ? (COLOR_HEX[form.color] ?? '#334155') : '#334155';
+  const isLightBg = ['White', 'Silver', 'Yellow'].includes(form.color) && !colorOther;
+  const previewFg = isLightBg ? '#0f172a' : '#f8fafc';
+  const previewName = [form.year, form.brand, form.model].filter(Boolean).join(' ') || 'Your Vehicle';
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  const modelSelectDisabled =
+    !form.brand || (!customBrandMode && knownBrandModels.length === 0);
+
+  const modelPlaceholder = !form.brand
+    ? 'Select brand first'
+    : knownBrandModels.length === 0
+      ? 'Select model'
+      : 'Select model';
+
   return (
     <Modal
       visible={visible}
@@ -378,15 +477,12 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
       presentationStyle="fullScreen"
       onRequestClose={picker ? closePicker : handleClose}
     >
-      {/* Root: fills screen, position:relative so picker overlay can sit on top */}
       <View style={[s.root, { paddingTop: Math.max(insets.top, 14) }]}>
 
-        {/* ── Keyboard-aware form area ── */}
         <KeyboardAvoidingView
           style={s.kavWrapper}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          {/* Header */}
           <View style={s.header}>
             <Text style={s.headerTitle}>Add Vehicle</Text>
             <TouchableOpacity onPress={handleClose} hitSlop={12} accessibilityLabel="Close">
@@ -403,7 +499,6 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
             showsVerticalScrollIndicator={false}
             scrollEnabled={!picker}
           >
-            {/* API error */}
             {apiError ? (
               <View style={s.apiBanner}>
                 <Ionicons name="warning-outline" size={15} color={ERR_CLR} />
@@ -411,55 +506,124 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
               </View>
             ) : null}
 
-            {/* Live preview card */}
             {hasPreview ? (
               <View style={[s.previewCard, { backgroundColor: previewBg }]}>
                 <Ionicons name="car-sport" size={34} color={previewFg} style={{ opacity: 0.85 }} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={[s.previewName, { color: previewFg }]} numberOfLines={1}>{previewName}</Text>
                   <View style={s.previewBadgeRow}>
-                    {plate.trim() ? (
+                    {form.plate.trim() ? (
                       <View style={s.previewBadge}>
-                        <Text style={[s.previewBadgeText, { color: previewFg }]}>{plate.trim().toUpperCase()}</Text>
+                        <Text style={[s.previewBadgeText, { color: previewFg }]}>
+                          {normalizePlateNumber(form.plate)}
+                        </Text>
                       </View>
                     ) : null}
-                    {vehicleType ? (
-                      <Text style={[s.previewType, { color: previewFg }]}>{vehicleType}</Text>
+                    {form.type ? (
+                      <Text style={[s.previewType, { color: previewFg }]}>{form.type}</Text>
                     ) : null}
                   </View>
                 </View>
               </View>
             ) : null}
 
-            {/* Row 1: Plate + Type */}
-            <View style={s.row}>
+            <Text style={s.sectionMeta}>Required</Text>
+
+            <View style={s.rowGap}>
               <DarkField
-                label="Plate Number" required
+                label="Plate Number"
+                required
                 placeholder="e.g. ABC-1234"
-                value={plate}
+                value={form.plate}
                 autoCapitalize="characters"
-                onChangeText={(t) => { setPlate(t.toUpperCase()); setErrPlate(''); }}
+                wrapStyle={{ flex: 0, alignSelf: 'stretch', width: '100%' }}
+                onChangeText={(t) => {
+                  setForm((prev) => ({ ...prev, plate: t.toUpperCase() }));
+                  setErrPlate('');
+                }}
                 error={errPlate}
                 hint={!errPlate ? plateHint : undefined}
                 maxLength={12}
               />
+            </View>
+
+            <View style={[s.row, s.rowGap]}>
+              {!customBrandMode ? (
+                <SelectField
+                  label="Brand"
+                  required
+                  value={form.brand}
+                  placeholder="Select brand"
+                  error={errBrand}
+                  onPress={() => openPicker('brand')}
+                />
+              ) : (
+                <DarkField
+                  label="Brand"
+                  required
+                  placeholder="Enter brand name"
+                  value={form.brand}
+                  onChangeText={(t) => {
+                    setForm((prev) => ({ ...prev, brand: t, model: '' }));
+                    setErrBrand('');
+                    setErrModel('');
+                  }}
+                  error={errBrand}
+                />
+              )}
+              {showCustomModelInput ? (
+                <DarkField
+                  label="Model"
+                  required
+                  placeholder={customBrandMode ? 'e.g. Vios, Civic, Ranger' : 'Enter model name'}
+                  value={form.model}
+                  onChangeText={(t) => {
+                    setForm((prev) => ({ ...prev, model: t }));
+                    setErrModel('');
+                  }}
+                  error={errModel}
+                />
+              ) : (
+                <SelectField
+                  label="Model"
+                  required
+                  value={form.model}
+                  placeholder={modelPlaceholder}
+                  error={errModel}
+                  disabled={modelSelectDisabled}
+                  onPress={() => {
+                    if (modelSelectDisabled) return;
+                    openPicker('model');
+                  }}
+                />
+              )}
+            </View>
+
+            <View style={[s.row, s.rowGap]}>
               <SelectField
-                label="Type" required
-                value={vehicleType}
+                label="Year"
+                optional
+                value={form.year}
+                placeholder="Year"
+                onPress={() => openPicker('year')}
+              />
+              <SelectField
+                label="Type"
+                required
+                value={form.type}
                 placeholder="Select…"
                 error={errType}
                 onPress={() => openPicker('type')}
               />
             </View>
 
-            {/* Live price panel — appears when vehicle type is selected */}
-            {vehicleType ? (() => {
-              const key = getPriceKey(vehicleType);
+            {form.type ? (() => {
+              const key = getPriceKey(form.type);
               return (
                 <View style={pp.panel}>
                   <View style={pp.headRow}>
                     <Ionicons name="lock-closed" size={11} color="#f59e0b" />
-                    <Text style={pp.headText}>{vehicleType} Pricing — Locked to this vehicle</Text>
+                    <Text style={pp.headText}>{form.type} Pricing — Locked to this vehicle</Text>
                   </View>
                   <View style={pp.grid}>
                     {SPF_PACKAGES.map((pkg) => (
@@ -477,51 +641,32 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
               );
             })() : null}
 
-            {/* Row 2: Brand + Year */}
-            <View style={[s.row, s.rowGap]}>
-              <SelectField
-                label="Brand" required
-                value={brand}
-                placeholder="Select brand"
-                error={errBrand}
-                onPress={() => openPicker('brand')}
-              />
-              <SelectField
-                label="Year" optional
-                value={year}
-                placeholder="Year"
-                onPress={() => openPicker('year')}
-              />
-            </View>
-
-            {/* Model */}
             <View style={s.rowGap}>
-              <DarkField
-                label="Model" required
-                placeholder="e.g. Vios, Civic, Ranger"
-                value={model}
-                onChangeText={(t) => { setModel(t); setErrModel(''); }}
-                error={errModel}
-              />
-            </View>
-
-            {/* Color */}
-            <View style={s.rowGap}>
-              <Text style={lbl.text}>COLOR <Text style={lbl.opt}>(optional)</Text></Text>
+              <Text style={lbl.text}>
+                COLOR <Text style={lbl.opt}>(optional)</Text>
+              </Text>
               <View style={s.swatches}>
                 {VEHICLE_COLOR_SWATCHES.map((c) => {
-                  const sel = color === c.name && !colorOther;
+                  const sel = form.color === c.name && !colorOther;
                   return (
                     <TouchableOpacity
                       key={c.name}
                       accessibilityLabel={c.name}
-                      onPress={() => { setColorOther(false); setColor(c.name); Haptics.selectionAsync(); }}
+                      onPress={() => {
+                        setColorOther(false);
+                        setForm((prev) => ({ ...prev, color: c.name }));
+                        Haptics.selectionAsync();
+                      }}
                       style={[s.swatch, { backgroundColor: c.hex }, sel && s.swatchSel]}
                     />
                   );
                 })}
                 <TouchableOpacity
-                  onPress={() => { setColorOther(true); setColor(''); Haptics.selectionAsync(); }}
+                  onPress={() => {
+                    setColorOther(true);
+                    setForm((prev) => ({ ...prev, color: '' }));
+                    Haptics.selectionAsync();
+                  }}
                   style={[s.otherPill, colorOther && s.otherPillSel]}
                 >
                   <Text style={[s.otherPillText, colorOther && { color: TEXT }]}>Other</Text>
@@ -532,44 +677,43 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
                   style={s.otherInput}
                   placeholder="e.g. Champagne Gold"
                   placeholderTextColor={MUTED}
-                  value={color}
-                  onChangeText={setColor}
+                  value={form.color}
+                  onChangeText={(t) => setForm((prev) => ({ ...prev, color: t }))}
                   autoCapitalize="words"
                   autoFocus
                   selectionColor={AMBER}
                 />
-              ) : color ? (
+              ) : form.color ? (
                 <Text style={s.colorHint}>
-                  Selected: <Text style={{ color: TEXT, fontWeight: '600' }}>{color}</Text>
+                  Selected: <Text style={{ color: TEXT, fontWeight: '600' }}>{form.color}</Text>
                 </Text>
               ) : null}
             </View>
 
-            {/* Row 3: Transmission + Fuel */}
             <View style={[s.row, s.rowGap]}>
               <SelectField
-                label="Transmission" optional
-                value={transmission}
+                label="Transmission"
+                optional
+                value={form.transmission}
                 placeholder="Select…"
                 onPress={() => openPicker('transmission')}
               />
               <SelectField
-                label="Fuel Type" optional
-                value={fuelType}
+                label="Fuel Type"
+                optional
+                value={form.fuelType}
                 placeholder="Select…"
                 onPress={() => openPicker('fuel')}
               />
             </View>
 
-            {/* Hint */}
             <View style={s.hintBox}>
               <Ionicons name="calendar-outline" size={14} color={GREEN} />
               <Text style={s.hintText}>
-                After adding, tap <Text style={{ fontWeight: '700' }}>Book</Text> on your vehicle card to instantly book with all details pre-filled.
+                After you save, open <Text style={{ fontWeight: '700' }}>Book</Text> on your vehicle card to schedule a service with these details pre-filled.
               </Text>
             </View>
 
-            {/* Actions */}
             <View style={s.actions}>
               <TouchableOpacity style={s.btnCancel} onPress={handleClose} activeOpacity={0.8}>
                 <Text style={s.btnCancelText}>Cancel</Text>
@@ -589,20 +733,15 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
           </ScrollView>
         </KeyboardAvoidingView>
 
-        {/* ── Inline picker bottom-sheet overlay (no nested Modal) ── */}
         {picker !== null ? (
           <>
-            {/* Scrim */}
             <TouchableWithoutFeedback onPress={closePicker}>
               <View style={s.pickerScrim} />
             </TouchableWithoutFeedback>
 
-            {/* Sheet */}
             <Animated.View style={[s.pickerSheet, { transform: [{ translateY: pickerTranslateY }] }]}>
-              {/* Drag handle */}
               <View style={s.handle} />
 
-              {/* Sheet header */}
               <View style={s.pickerHead}>
                 <Text style={s.pickerTitle}>{pickerTitle}</Text>
                 <TouchableOpacity onPress={closePicker}>
@@ -610,13 +749,27 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
                 </TouchableOpacity>
               </View>
 
-              {/* Options list */}
+              {(picker === 'brand' || picker === 'model') ? (
+                <View style={s.pickerSearchWrap}>
+                  <Ionicons name="search" size={18} color={MUTED} />
+                  <TextInput
+                    style={s.pickerSearchInput}
+                    placeholder={picker === 'brand' ? 'Search brand…' : 'Search model…'}
+                    placeholderTextColor={MUTED}
+                    value={pickerSearch}
+                    onChangeText={setPickerSearch}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                  />
+                </View>
+              ) : null}
+
               <ScrollView
                 style={{ maxHeight: 400 }}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="always"
               >
-                {pickerOptions.map((opt) => (
+                {filteredPickerOptions.map((opt) => (
                   <TouchableOpacity
                     key={opt}
                     style={s.pickerRow}
@@ -631,7 +784,6 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
                     ) : null}
                   </TouchableOpacity>
                 ))}
-                {/* Bottom padding inside picker scroll */}
                 <View style={{ height: 24 }} />
               </ScrollView>
             </Animated.View>
@@ -642,7 +794,6 @@ export default function AddVehicleModal({ visible, onClose, onVehicleAdded }: Ad
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG, paddingHorizontal: 20 },
   kavWrapper: { flex: 1 },
@@ -654,6 +805,11 @@ const s = StyleSheet.create({
   },
   headerTitle: { fontSize: 18, fontWeight: '700', color: TEXT },
   divider: { height: 1, backgroundColor: BORDER, marginBottom: 16 },
+
+  sectionMeta: {
+    fontSize: 10, fontWeight: '800', color: MUTED, letterSpacing: 1.2,
+    textTransform: 'uppercase', marginBottom: 8,
+  },
 
   apiBanner: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
@@ -715,15 +871,6 @@ const s = StyleSheet.create({
   },
   btnPrimaryText: { fontSize: 14, fontWeight: '700', color: TEXT },
 
-  // Price panel
-  pricePanel: {
-    marginTop: 10, borderRadius: 12,
-    backgroundColor: '#0f172a',
-    borderWidth: 1, borderColor: 'rgba(245,158,11,0.18)',
-    padding: 12,
-  },
-
-  // Picker overlay — absolutely positioned within the same Modal
   pickerScrim: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -746,6 +893,13 @@ const s = StyleSheet.create({
   },
   pickerTitle: { fontSize: 15, fontWeight: '700', color: TEXT },
   pickerDone:  { fontSize: 15, fontWeight: '600', color: '#38bdf8' },
+  pickerSearchWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 16, marginBottom: 8, marginTop: 4,
+    paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    borderRadius: 10, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE,
+  },
+  pickerSearchInput: { flex: 1, fontSize: 15, color: TEXT, padding: 0 },
   pickerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 15, paddingHorizontal: 20,

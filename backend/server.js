@@ -8,6 +8,8 @@ const __dirname  = path.dirname(__filename);
 console.log('Offline damage detection enabled:', true);
 import express from 'express';
 import http from 'http';
+import https from 'https';
+import fs from 'fs';
 import cors from 'cors';
 import compression from 'compression';
 import helmet from 'helmet';
@@ -63,12 +65,27 @@ app.set('trust proxy', 1);
 // Stripe webhook (must be raw body)
 app.post('/api/payments/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 
-// Middleware
+// Middleware — CORS (allow ngrok / tunnel frontends when using explicit origin list)
+const allowNgrokHostname = (hostname) =>
+  /\.ngrok-free\.(app|dev)$/i.test(hostname)
+  || /\.ngrok\.app$/i.test(hostname)
+  || /\.ngrok\.io$/i.test(hostname);
+
 app.use(cors({
-  origin: config.corsOrigin,
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (config.corsOrigin === true) return callback(null, true);
+    const list = Array.isArray(config.corsOrigin) ? config.corsOrigin : [config.corsOrigin];
+    if (list.includes(origin)) return callback(null, true);
+    try {
+      const host = new URL(origin).hostname;
+      if (allowNgrokHostname(host)) return callback(null, true);
+    } catch (_) { /* ignore */ }
+    return callback(null, false);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
 }));
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
@@ -203,10 +220,30 @@ app.use('/api/admin/availability', authenticate, authorize(...BOOKING_MANAGER_RO
 // Serve static public assets (e.g. /ar-viewer.html used by the mobile WebView)
 // Must be before the 404 handler so the file is matched first.
 app.use(express.static(path.join(__dirname, 'public'), {
-  setHeaders(res) {
+  setHeaders(res, filePath) {
     // Allow the AR viewer to load resources cross-origin (required for model-viewer CDN script)
     res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
     res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=()');
+
+    if (filePath.includes(`${path.sep}public${path.sep}webar${path.sep}`)) {
+      res.setHeader(
+        'Content-Security-Policy',
+        [
+          "default-src 'self'",
+          "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://ajax.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://www.gstatic.com",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' data: blob: https:",
+          "connect-src 'self' https: blob:",
+          "worker-src 'self' blob:",
+          "media-src 'self' blob:",
+          "model-src 'self' blob: https:",
+          "frame-src 'self' blob: https:",
+          "frame-ancestors 'self'",
+          "object-src 'none'",
+        ].join('; ')
+      );
+    }
   },
 }));
 
@@ -251,17 +288,41 @@ const startServer = async () => {
       console.error('   OTP emails will not be sent. Please check RESEND_API_KEY.\n');
     }
 
-    // Create HTTP server and attach Socket.io
-    const httpServer = http.createServer(app);
+    // HTTPS (mkcert / local dev on LAN) — set HTTPS_KEY_PATH + HTTPS_CERT_PATH to PEM files.
+    const keyPath = String(process.env.HTTPS_KEY_PATH || '').trim();
+    const certPath = String(process.env.HTTPS_CERT_PATH || '').trim();
+    const keyExists = keyPath && fs.existsSync(keyPath);
+    const certExists = certPath && fs.existsSync(certPath);
+    const useHttps = Boolean(keyExists && certExists);
+
+    let httpServer;
+    if (useHttps) {
+      const credentials = {
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath),
+      };
+      httpServer = https.createServer(credentials, app);
+      console.log(`🔐 HTTPS enabled (key=${keyPath}, cert=${certPath})`);
+    } else {
+      if (keyPath || certPath) {
+        console.warn(
+          '⚠️ HTTPS_KEY_PATH / HTTPS_CERT_PATH set but file(s) missing — falling back to HTTP. ' +
+            'Generate certs with mkcert and point both env vars to the PEM files.'
+        );
+      }
+      httpServer = http.createServer(app);
+    }
+
     initSocket(httpServer);
     initChangeStreams(mongoose.connection);
 
     // Bind to 0.0.0.0 so Railway (and all cloud platforms) can receive external traffic.
     // 127.0.0.1 only works on localhost and blocks all inbound connections on Railway.
+    const proto = useHttps ? 'https' : 'http';
     const server = httpServer.listen(config.port, '0.0.0.0', () => {
-      console.log(`✅ Server running on http://127.0.0.1:${config.port}`);
-      console.log(`📍 Locally accessible at http://localhost:${config.port} and http://127.0.0.1:${config.port}`);
-      console.log(`📍 API Base: http://localhost:${config.port}/api`);
+      console.log(`✅ Server running on ${proto}://127.0.0.1:${config.port}`);
+      console.log(`📍 Locally accessible at ${proto}://localhost:${config.port} and ${proto}://127.0.0.1:${config.port}`);
+      console.log(`📍 API Base: ${proto}://localhost:${config.port}/api`);
       console.log(`📍 Environment: ${config.nodeEnv}`);
       console.log(`📧 Email Provider: ${config.emailProvider}`);
       console.log(`📨 Using MongoDB for OTP storage`);

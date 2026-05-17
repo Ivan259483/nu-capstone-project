@@ -447,19 +447,90 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
     }
   }, [fetchJobs, fetchStats, fetchActivity]);
 
-  const updateChecklist = useCallback(async (
-    id: string,
-    items: { item: string; passed: boolean; note?: string }[]
-  ): Promise<boolean> => {
-    try {
-      await api.patch(`/qc/jobs/${id}/checklist`, { items });
-      toast.success('Checklist saved');
-      return true;
-    } catch (err: any) {
-      toast.error('Failed to save checklist');
-      return false;
-    }
-  }, []);
+  const updateChecklist = useCallback(
+    async (
+      id: string,
+      items: { item: string; passed: boolean; note?: string }[],
+      opts?: { quiet?: boolean }
+    ): Promise<boolean> => {
+      try {
+        // #region agent log
+        fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
+          body: JSON.stringify({
+            sessionId: '968466',
+            hypothesisId: 'H-patch-flow',
+            runId: 'diag',
+            location: 'useQCData.ts:updateChecklist',
+            message: 'checklist PATCH start',
+            data: { idSuffix: id ? String(id).slice(-6) : '', quiet: Boolean(opts?.quiet), nItems: items?.length ?? 0 },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        await api.patch(`/qc/jobs/${id}/checklist`, { items });
+        // #region agent log
+        fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
+          body: JSON.stringify({
+            sessionId: '968466',
+            hypothesisId: 'H-patch-flow',
+            runId: 'diag',
+            location: 'useQCData.ts:updateChecklist',
+            message: 'checklist PATCH ok',
+            data: { idSuffix: id ? String(id).slice(-6) : '' },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        if (!opts?.quiet) {
+          toast.success('Checklist saved');
+        }
+        invalidateQcJobsRequestCache();
+        void fetchJobs(true);
+        // #region agent log
+        fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
+          body: JSON.stringify({
+            sessionId: '968466',
+            hypothesisId: 'H-patch-flow',
+            runId: 'diag',
+            location: 'useQCData.ts:updateChecklist',
+            message: 'after invalidate + fetchJobs scheduled',
+            data: { idSuffix: id ? String(id).slice(-6) : '' },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        return true;
+      } catch (err: any) {
+        // #region agent log
+        fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
+          body: JSON.stringify({
+            sessionId: '968466',
+            hypothesisId: 'H-patch-flow',
+            runId: 'diag',
+            location: 'useQCData.ts:updateChecklist',
+            message: 'checklist PATCH error',
+            data: {
+              idSuffix: id ? String(id).slice(-6) : '',
+              status: err?.response?.status,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        toast.error('Failed to save checklist');
+        return false;
+      }
+    },
+    [fetchJobs]
+  );
 
   const updateServiceStatus = useCallback(async (id: string, stage: string): Promise<boolean> => {
     try {

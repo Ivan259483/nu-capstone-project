@@ -9,6 +9,9 @@ type AuthInvalidHandler = ((details: { status: number | undefined; path: string;
 let authInvalidHandler: AuthInvalidHandler = null;
 let isHandlingAuthInvalid = false;
 
+/** Dedupe dev console noise when the same ngrok-miswired 404 repeats (e.g. multiple mounts). */
+const ngrok404DevWarned = new Set<string>();
+
 export const setAuthInvalidHandler = (handler: AuthInvalidHandler): void => {
   authInvalidHandler = handler;
 };
@@ -53,6 +56,8 @@ export const apiClient = axios.create({
   timeout: 20000,
   headers: {
     'Content-Type': 'application/json',
+    // ngrok free tier HTML interstitial breaks non-browser clients; skip it for API calls
+    'ngrok-skip-browser-warning': 'true',
   },
 });
 
@@ -109,10 +114,33 @@ apiClient.interceptors.response.use(
         method === 'post' &&
         path.includes('/auth/social-login');
 
+      /** Express serves /api/bookings, POST /api/ai/scan, etc. 404 on these usually means the tunnel hits the wrong process (Vite/Metro) or port. */
+      const isNgrokLikelyWrongTunnel404 =
+        status === 404 &&
+        /ngrok/i.test(String(config?.baseURL || '')) &&
+        ((method === 'get' && /\/bookings\b/i.test(path)) ||
+          (method === 'post' && /\/ai\/scan\b/i.test(path)) ||
+          (method === 'get' && /\/ai\/scan\//i.test(path)) ||
+          (method === 'post' && /\/ai\/generate-3d-from-scan\b/i.test(path)));
+
       if (invalidatesAuthSession || isLogoutFailure || isSocialLoginMiss) {
         // Expected auth edge cases: keep rejecting, but do not flood the console.
       } else if (!error.response) {
         console.warn(`[API] WARN NETWORK ${config?.method?.toUpperCase()} ${url} \u2014 ${message}`);
+      } else if (isNgrokLikelyWrongTunnel404) {
+        const dedupeKey = `${method}:${path.split('?')[0]}`;
+        const firstTime = !ngrok404DevWarned.has(dedupeKey);
+        if (firstTime) ngrok404DevWarned.add(dedupeKey);
+        if (firstTime) {
+          const raw = error.response?.data;
+          const bodyStr =
+            typeof raw === 'string' ? raw : JSON.stringify(raw ?? '');
+          const ngrokOffline = /ERR_NGROK_3200|endpoint .* is offline/i.test(bodyStr);
+          const hint = ngrokOffline
+            ? 'ngrok hostname is offline — start a tunnel (`ngrok http <Express PORT>`) and set EXPO_PUBLIC_API_URL to the new https URL.'
+            : 'tunnel likely not pointing at Express (e.g. `ngrok http 3000` where 3000 is your API port). Set EXPO_PUBLIC_API_URL to that HTTPS origin so routes like /api/bookings and /api/ai/scan exist.';
+          console.warn(`[API] WARN 404 ${url} — ${hint}`);
+        }
       } else {
         console.error(`[API] ERROR ${status || 'NETWORK'} ${config?.method?.toUpperCase()} ${url} \u2014 ${message}`);
       }

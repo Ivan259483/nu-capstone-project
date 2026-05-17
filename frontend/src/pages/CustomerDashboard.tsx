@@ -4632,9 +4632,15 @@ export default function CustomerDashboard() {
                     '--tracker-progress-angle': `${pct * 3.6}deg`,
                   } as React.CSSProperties;
 
+                  const atBookingConfirmedStage =
+                    !postPayComplete && !isFullyComplete && activeIdx === 0;
+
                   return (
                     <section className="customer-live-tracker-section">
-                      <div className="customer-live-tracker" style={trackerMotionStyle}>
+                      <div
+                        className={`customer-live-tracker${atBookingConfirmedStage ? ' customer-live-tracker--at-booking-confirmed' : ''}`}
+                        style={trackerMotionStyle}
+                      >
                         <div className="customer-live-tracker-header">
                           <div className="customer-live-title-block">
                             <div className="customer-live-eyebrow">

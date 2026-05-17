@@ -1,51 +1,57 @@
 {
-    "compilerOptions": {
-        "ignoreDeprecations": "5.0",
-        "target": "ES2020",
-        "useDefineForClassFields": true,
-        "lib": [
-            "ES2020",
-            "DOM",
-            "DOM.Iterable"
-        ],
-        "types": [
-            "node"
-        ],
-        "typeRoots": [
-            "./node_modules/@types",
-            "./node_modules"
-        ],
-        "jsx": "react-jsx",
-        "module": "ESNext",
-        "moduleResolution": "bundler",
-        "baseUrl": ".",
-        "paths": {
-            "@/*": [
-                "./src/*"
-            ]
-        },
-        "skipLibCheck": true,
-        "esModuleInterop": true,
-        "allowSyntheticDefaultImports": true,
-        "allowImportingTsExtensions": true,
-        "resolveJsonModule": true,
-        "isolatedModules": true,
-        "noEmit": true,
-        "forceConsistentCasingInFileNames": true,
-        "allowJs": true,
-        "strict": false,
-        "noImplicitAny": false,
-        "strictNullChecks": false,
-        "noUnusedLocals": false,
-        "noUnusedParameters": false
-    },
-    "include": [
-        "src"
+  "compilerOptions": {
+    "ignoreDeprecations": "5.0",
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
     ],
-    "exclude": [
-        "node_modules",
-        "dist",
-        "../node_modules"
+    "types": [
+      "node"
+    ],
+    "typeRoots": [
+      "./node_modules/@types",
+      "./node_modules"
+    ],
+    "jsx": "preserve",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    },
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowJs": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
     ]
+  },
+  "include": [
+    "src",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "../node_modules"
+  ]
 }
-

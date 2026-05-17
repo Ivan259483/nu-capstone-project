@@ -5,10 +5,13 @@
   "main": "src/main.tsx",
   "scripts": {
     "dev": "vite",
+    "dev:full": "concurrently -n api,vite -c cyan,green \"npm run dev --prefix ../backend\" \"vite\"",
     "build": "vite build",
     "build:analyze": "ANALYZE=1 vite build",
     "preview": "vite preview",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "dev:next": "next dev -p 3100",
+    "dev:with-api": "concurrently -n api,next -c cyan,magenta \"npm run dev --prefix ../backend\" \"next dev -p 3100\""
   },
   "dependencies": {
     "@capacitor/ios": "^8.0.2",
@@ -90,11 +93,13 @@
     "@vitejs/plugin-react-swc": "^4.2.3",
     "autoprefixer": "^10.4.24",
     "babel-plugin-module-resolver": "^5.0.2",
+    "concurrently": "^9.2.1",
+    "next": "^14.2.35",
     "postcss": "^8.5.6",
+    "rollup-plugin-visualizer": "^6.0.5",
     "tailwindcss": "^4.1.18",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.9.3",
-    "rollup-plugin-visualizer": "^6.0.5",
     "vite": "^7.3.1"
   }
 }

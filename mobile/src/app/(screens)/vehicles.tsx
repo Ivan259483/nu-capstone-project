@@ -12,11 +12,7 @@ import {
   TouchableOpacity,
   FlatList,
   Alert,
-  Modal,
   ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,7 +23,7 @@ import * as Haptics from 'expo-haptics';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { vehicleService } from '@/services/api/vehicleService';
 import { Palette } from '@/constants/theme';
-import PremiumInput from '@/components/ui/PremiumInput';
+import AddVehicleModal from '@/components/booking/AddVehicleModal';
 import { Toast } from '@/components/ui/PremiumToast';
 import SkeletonPulse from '@/components/ui/SkeletonPulse';
 import type { Vehicle } from '@/services/api/types';
@@ -134,12 +130,6 @@ export default function VehiclesScreen() {
   const queryClient = useQueryClient();
 
   const [modalVisible, setModalVisible] = useState(false);
-  const [make, setMake] = useState('');
-  const [model, setModel] = useState('');
-  const [year, setYear] = useState('');
-  const [color, setColor] = useState('');
-  const [plateNumber, setPlateNumber] = useState('');
-  const [formError, setFormError] = useState('');
 
   // ── Fetch vehicles ──
   const {
@@ -149,27 +139,6 @@ export default function VehiclesScreen() {
   } = useQuery({
     queryKey: ['my-vehicles'],
     queryFn: vehicleService.getMyVehicles,
-  });
-
-  // ── Add vehicle mutation ──
-  const addMutation = useMutation({
-    mutationFn: vehicleService.addVehicle,
-    onSuccess: ({ alreadyOwned }) => {
-      queryClient.invalidateQueries({ queryKey: ['my-vehicles'] });
-      Toast.show(alreadyOwned ? 'Already in your list!' : 'Vehicle added successfully!', 'success');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      resetForm();
-      setModalVisible(false);
-    },
-    onError: (error: any) => {
-      const code = error?.response?.data?.code;
-      const msg = error?.response?.data?.message || error.message || 'Failed to add vehicle';
-      if (code === 'PLATE_TAKEN' || msg.toLowerCase().includes('another account')) {
-        Toast.show('Plate already registered to another account', 'error');
-      } else {
-        Toast.show(msg, 'error');
-      }
-    },
   });
 
   // ── Delete vehicle mutation ──
@@ -184,32 +153,6 @@ export default function VehiclesScreen() {
       Toast.show(error.message || 'Failed to remove vehicle', 'error');
     },
   });
-
-  const resetForm = () => {
-    setMake('');
-    setModel('');
-    setYear('');
-    setColor('');
-    setPlateNumber('');
-    setFormError('');
-  };
-
-  const handleAddVehicle = () => {
-    setFormError('');
-    if (!make.trim()) return setFormError('Make is required');
-    if (!model.trim()) return setFormError('Model is required');
-    if (!year.trim() || isNaN(Number(year)) || Number(year) < 1980 || Number(year) > 2030)
-      return setFormError('Enter a valid year (1980–2030)');
-    if (!plateNumber.trim()) return setFormError('Plate number is required');
-
-    addMutation.mutate({
-      make: make.trim(),
-      model: model.trim(),
-      year: year.trim(),
-      color: color.trim() || undefined,
-      plateNumber: plateNumber.trim().toUpperCase(),
-    });
-  };
 
   const handleDelete = (id: string) => {
     deleteMutation.mutate(id);
@@ -314,119 +257,14 @@ export default function VehiclesScreen() {
         </LinearGradient>
       </TouchableOpacity>
 
-      {/* ═══ Add Vehicle Modal ═══ */}
-      <Modal
+      <AddVehicleModal
         visible={modalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={s.modalOverlay}
-        >
-          <View style={s.modalContent}>
-            <View style={s.modalHeader}>
-              <View>
-                <Text style={s.modalTitle}>Add Vehicle</Text>
-                <Text style={s.modalSubtitle}>
-                  Register a new car for faster booking
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setModalVisible(false)}
-                style={s.modalCloseBtn}
-              >
-                <Ionicons name="close" size={22} color="#A0A0AB" />
-              </TouchableOpacity>
-            </View>
-
-            {formError ? (
-              <View style={s.errorBox}>
-                <Ionicons name="alert-circle" size={14} color="#EF4444" />
-                <Text style={s.errorText}>{formError}</Text>
-              </View>
-            ) : null}
-
-            <View style={{ gap: 14 }}>
-              <PremiumInput
-                label="MAKE"
-                iconName="car-outline"
-                placeholder="e.g. Toyota, Honda, Ford"
-                value={make}
-                onChangeText={(t) => {
-                  setMake(t);
-                  setFormError('');
-                }}
-                autoCapitalize="words"
-              />
-              <PremiumInput
-                label="MODEL"
-                iconName="speedometer-outline"
-                placeholder="e.g. Fortuner, Civic, Ranger"
-                value={model}
-                onChangeText={(t) => {
-                  setModel(t);
-                  setFormError('');
-                }}
-                autoCapitalize="words"
-              />
-              <View style={{ flexDirection: 'row', gap: 12 }}>
-                <View style={{ flex: 1 }}>
-                  <PremiumInput
-                    label="YEAR"
-                    iconName="calendar-outline"
-                    placeholder="e.g. 2024"
-                    value={year}
-                    onChangeText={(t) => {
-                      setYear(t);
-                      setFormError('');
-                    }}
-                    keyboardType="numeric"
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <PremiumInput
-                    label="COLOR (OPTIONAL)"
-                    iconName="color-palette-outline"
-                    placeholder="e.g. White"
-                    value={color}
-                    onChangeText={(t) => {
-                      setColor(t);
-                      setFormError('');
-                    }}
-                    autoCapitalize="words"
-                  />
-                </View>
-              </View>
-              <PremiumInput
-                label="PLATE NUMBER"
-                iconName="reader-outline"
-                placeholder="e.g. ABC 1234"
-                value={plateNumber}
-                onChangeText={(t) => {
-                  setPlateNumber(t.toUpperCase());
-                  setFormError('');
-                }}
-                autoCapitalize="characters"
-              />
-            </View>
-
-            <TouchableOpacity
-              style={[s.actionBtn, addMutation.isPending && { opacity: 0.6 }]}
-              onPress={handleAddVehicle}
-              disabled={addMutation.isPending}
-              activeOpacity={0.8}
-            >
-              {addMutation.isPending ? (
-                <ActivityIndicator color="#111" />
-              ) : (
-                <Text style={s.actionBtnText}>Add Vehicle</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        onClose={() => setModalVisible(false)}
+        onVehicleAdded={(_vehicle) => {
+          queryClient.invalidateQueries({ queryKey: ['my-vehicles'] });
+          setModalVisible(false);
+        }}
+      />
     </View>
   );
 }
@@ -628,78 +466,4 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#0D0D12',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    padding: 24,
-    paddingBottom: 48,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-  },
-  modalTitle: {
-    color: '#FFF',
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  modalSubtitle: {
-    color: '#8A8A9A',
-    fontSize: 13,
-    fontWeight: '500',
-    marginTop: 4,
-  },
-  modalCloseBtn: {
-    padding: 8,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 16,
-  },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(239, 68, 68, 0.08)',
-    padding: 12,
-    borderRadius: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.2)',
-    gap: 8,
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 12,
-    fontWeight: '500',
-    flex: 1,
-  },
-  actionBtn: {
-    height: 56,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Palette.accent,
-    marginTop: 16,
-    shadowColor: Palette.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-  },
-  actionBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#111111',
-    letterSpacing: 0.5,
-  },
 });

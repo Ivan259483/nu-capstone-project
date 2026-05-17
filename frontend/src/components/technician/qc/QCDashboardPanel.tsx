@@ -633,6 +633,7 @@ export default function QCDashboardPanel() {
             onDeleteTrackerStagePhoto={deleteTrackerStagePhoto}
             onAddStaffNote={addStaffNote}
             onSaveQCHandoffSheet={saveQCHandoffSheet}
+            onPersistQcChecklist={(orderId, items) => updateChecklist(orderId, items, { quiet: true })}
           />
         );
 

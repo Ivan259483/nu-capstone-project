@@ -58,9 +58,13 @@ function attachPhoneForClient(userDoc, userPayload) {
 
 /** Updates lastSeenAt on successful auth (admin User Management “presence”). */
 async function saveLastSeen(userDoc) {
-  if (!userDoc || typeof userDoc.save !== 'function') return;
-  userDoc.lastSeenAt = new Date();
-  await userDoc.save();
+  try {
+    if (!userDoc || typeof userDoc.save !== 'function') return;
+    userDoc.lastSeenAt = new Date();
+    await userDoc.save();
+  } catch (err) {
+    console.warn('[saveLastSeen] non-fatal:', err?.message || err);
+  }
 }
 
 /**
@@ -791,7 +795,11 @@ export const login = async (req, res, next) => {
     if (user.loginAttempts !== 0 || user.lockUntil) {
       user.loginAttempts = 0;
       user.lockUntil = undefined;
-      await user.save();
+      try {
+        await user.save();
+      } catch (saveErr) {
+        console.warn('[Login] reset lockout fields save failed (non-fatal):', saveErr?.message || saveErr);
+      }
     }
 
     // ── Staff first login: legacy flag cleanup ──────────────────────────
@@ -915,14 +923,26 @@ export const login = async (req, res, next) => {
       description: `${user.name || emailNormalized} logged in successfully.`, status: 'success',
     });
 
-    res.json({
+    const loginPayload = {
       success: true,
       message: 'Login successful',
       data: {
         user: userObject,
         token,
       },
-    });
+    };
+    try {
+      JSON.stringify(loginPayload);
+    } catch (serErr) {
+      console.error('[Login] login response not JSON-serializable:', serErr);
+      return res.status(500).json({
+        success: false,
+        message: 'Login failed',
+        error: serErr?.message || String(serErr),
+      });
+    }
+
+    res.json(loginPayload);
   } catch (error) {
     console.error('❌ Login Error:', error);
     res.status(500).json({

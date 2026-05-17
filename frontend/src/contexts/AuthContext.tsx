@@ -713,44 +713,95 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log('🚀 [DEBUG-login] Starting login for:', email);
             console.log('🚀 [DEBUG-login] BACKEND_URL is:', BACKEND_URL);
 
-            // ── PARALLEL: Fire Firebase + Backend auth simultaneously ──
-            const [firebaseCred, backendResult] = await Promise.allSettled([
-                signInWithEmailAndPassword(auth, email, password),
-                fetch(`${BACKEND_URL}/auth/login`, {
+            // ── Backend first: password is verified server-side (Mongo + bcrypt). ──
+            // Finishing here when possible avoids requiring a matching Firebase Auth user
+            // (common when accounts exist in Mongo but were never synced to Firebase).
+            let backendPayload: { status: number; ok: boolean; body: any } | null = null;
+            try {
+                const resp = await fetch(`${BACKEND_URL}/auth/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password }),
-                    signal: AbortSignal.timeout(15000)
-                }).then(async (resp) => {
-                    console.log('📡 [DEBUG-login] Raw backend response status:', resp.status, resp.statusText);
-                    const text = await resp.text();
-                    console.log('📡 [DEBUG-login] Raw backend response body:', text);
-                    // Always parse body — never throw. Callers check .status to decide what to do.
-                    try {
-                        return { status: resp.status, ok: resp.ok, body: JSON.parse(text) };
-                    } catch {
-                        return { status: resp.status, ok: resp.ok, body: {} };
-                    }
-                })
-            ]);
+                    signal: AbortSignal.timeout(15000),
+                });
+                console.log('📡 [DEBUG-login] Raw backend response status:', resp.status, resp.statusText);
+                const text = await resp.text();
+                console.log('📡 [DEBUG-login] Raw backend response body:', text);
+                let body: any = {};
+                try {
+                    body = JSON.parse(text);
+                } catch {
+                    body = {};
+                }
+                backendPayload = { status: resp.status, ok: resp.ok, body };
+            } catch (be) {
+                console.warn('📡 [DEBUG-login] Backend login request failed:', be);
+                backendPayload = null;
+            }
 
-            console.log('📊 [DEBUG-login] Firebase result:', firebaseCred.status);
-            console.log('📊 [DEBUG-login] Backend result:', backendResult.status);
-
-            // ── Extract backend response body (always available now) ──
-            const backendPayload = backendResult.status === 'fulfilled'
-                ? (backendResult.value as any)
-                : null;
             const backendStatus = backendPayload?.status ?? 0;
             let backendBody = backendPayload?.body ?? {};
 
-            // ── Check backend 423 FIRST: account is locked — block regardless of Firebase ──
+            const finalizeBackendJwtSession = (bUser: any, bToken: string, firebaseUid?: string) => {
+                if (bUser.isActive === false) {
+                    loginInProgressRef.current = false;
+                    loginResolvedRef.current = false;
+                    clearSessionCache();
+                    localStorage.removeItem('autospf_token');
+                    localStorage.removeItem('autospf_backend_user');
+                    userStorage.setCurrentUser(null);
+                    setUser(null);
+                    return {
+                        success: false as const,
+                        message: 'This account is disabled. Please try to contact the administrator.',
+                    };
+                }
+
+                const migratedRole = migrateLegacyUserRole(bUser.role);
+                const finalRole = migratedRole || CUSTOMER_ROLE;
+                const normalizedBackendUser = { ...bUser, role: finalRole };
+                console.log('✅ [DEBUG-login] Backend JWT session — Firebase optional / backend-first');
+                localStorage.setItem('autospf_token', bToken);
+                localStorage.setItem('autospf_backend_user', JSON.stringify(normalizedBackendUser));
+
+                const mongoId = String(normalizedBackendUser._id || normalizedBackendUser.id || '');
+                const userData: User = {
+                    id: firebaseUid || mongoId,
+                    _id: mongoId,
+                    email: normalizedBackendUser.email || email,
+                    name: normalizedBackendUser.name || '',
+                    role: finalRole as import('@/types').UserRole,
+                    createdAt: normalizedBackendUser.createdAt || new Date().toISOString(),
+                    password: '',
+                    isActive: normalizedBackendUser.isActive ?? true,
+                    lastActive: normalizedBackendUser.lastActive || new Date().toISOString(),
+                    avatar: normalizedBackendUser.avatar || undefined,
+                    phone: normalizedBackendUser.phone || undefined,
+                };
+
+                const sanitized = sanitizeUser(userData);
+                userStorage.setCurrentUser(sanitized);
+                setSessionCache(userData, bToken);
+
+                loginResolvedRef.current = true;
+                loginInProgressRef.current = false;
+
+                setUser(userData);
+                setIsLoading(false);
+                refreshSocketAuth();
+                try {
+                    invalidate('/bookings');
+                } catch {
+                    /* ignore */
+                }
+                return { success: true as const, role: finalRole };
+            };
+
+            // ── Check backend 423 FIRST: account is locked ──
             if (backendStatus === 423) {
                 loginInProgressRef.current = false;
                 loginResolvedRef.current = false;
-                if (firebaseCred.status === 'fulfilled') {
-                    await signOut(auth);
-                }
+                await signOut(auth).catch(() => {});
                 return {
                     success: false,
                     message: backendBody.message || 'Account locked due to too many failed attempts.',
@@ -762,9 +813,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (backendStatus === 403 && backendBody?.code === 'ACCOUNT_INACTIVE') {
                 loginInProgressRef.current = false;
                 loginResolvedRef.current = false;
-                if (firebaseCred.status === 'fulfilled') {
-                    await signOut(auth);
-                }
+                await signOut(auth).catch(() => {});
                 clearSessionCache();
                 localStorage.removeItem('autospf_token');
                 localStorage.removeItem('autospf_backend_user');
@@ -776,148 +825,136 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 };
             }
 
-            // ── Firebase MUST succeed for normal login flow ──
-            // EXCEPTION: If the backend returned a 2FA OTP challenge (requiresOTP),
-            // we must honour it even if Firebase rejected — staff/admin accounts
-            // created via the admin panel may not exist in Firebase Auth.
-            if (firebaseCred.status === 'rejected') {
-                // ── ACCOUNT_INACTIVE intercept (Firebase rejected, backend returned 403) ──
-                if (backendStatus === 403 && backendBody?.code === 'ACCOUNT_INACTIVE') {
-                    loginInProgressRef.current = false;
-                    loginResolvedRef.current = false;
-                    clearSessionCache();
-                    localStorage.removeItem('autospf_token');
-                    localStorage.removeItem('autospf_backend_user');
-                    userStorage.setCurrentUser(null);
-                    setUser(null);
-                    return {
-                        success: false,
-                        message: backendBody.message || 'This account is disabled. Please try to contact the administrator.',
-                    };
-                }
-
-                // ── 2FA intercept: backend succeeded with OTP challenge ──
-                if (backendBody?.data?.requiresOTP) {
-                    console.log('🔐 [DEBUG-login] Firebase rejected but backend returned OTP challenge — honouring 2FA');
-                    loginInProgressRef.current = false;
-                    loginResolvedRef.current = false;
-                    clearSessionCache();
-                    localStorage.removeItem('autospf_token');
-                    localStorage.removeItem('autospf_backend_user');
-                    userStorage.setCurrentUser(null);
-                    setUser(null);
-                    return {
-                        success: true,
-                        requiresOTP: true,
-                        userId: backendBody.data.userId,
-                        maskedEmail: backendBody.data.maskedEmail,
-                    };
-                }
-
-                // ── Unverified account: backend returned requiresOtp ──
-                if (backendBody?.success && backendBody?.data?.requiresOtp) {
-                    loginInProgressRef.current = false;
-                    loginResolvedRef.current = false;
-                    clearSessionCache();
-                    localStorage.removeItem('autospf_token');
-                    localStorage.removeItem('autospf_backend_user');
-                    userStorage.setCurrentUser(null);
-                    setUser(null);
-                    return {
-                        success: true,
-                        requiresOtp: true,
-                        data: { requiresOtp: true, email: backendBody.data.email },
-                    };
-                }
-
-                // ── Staff first login: backend returned requiresPasswordChange ──
-                if (backendBody?.success && backendBody?.data?.requiresPasswordChange) {
-                    loginInProgressRef.current = false;
-                    loginResolvedRef.current = false;
-                    clearSessionCache();
-                    localStorage.removeItem('autospf_token');
-                    localStorage.removeItem('autospf_backend_user');
-                    userStorage.setCurrentUser(null);
-                    setUser(null);
-                    return {
-                        success: true,
-                        requiresPasswordChange: true,
-                        data: { requiresPasswordChange: true, token: backendBody.data.token },
-                    };
-                }
-
-                // ── Backend-only login: Firebase rejected but backend returned 200 with JWT ──
-                // Staff/admin accounts created via admin panel may not exist in Firebase Auth.
-                // If backend succeeded with a token + user, log them in via backend-only session.
-                if (backendPayload?.ok && backendBody?.success && backendBody?.data?.token && backendBody?.data?.user) {
-                    const bUser = backendBody.data.user;
-                    const bToken = backendBody.data.token;
-
-                    // Block suspended accounts
-                    if (bUser.isActive === false) {
-                        loginInProgressRef.current = false;
-                        loginResolvedRef.current = false;
-                        clearSessionCache();
-                        localStorage.removeItem('autospf_token');
-                        localStorage.removeItem('autospf_backend_user');
-                        userStorage.setCurrentUser(null);
-                        setUser(null);
-                        return {
-                            success: false,
-                            message: 'This account is disabled. Please try to contact the administrator.',
-                        };
-                    }
-
-                    const migratedRole = migrateLegacyUserRole(bUser.role);
-                    const finalRole = migratedRole || CUSTOMER_ROLE;
-                    const normalizedBackendUser = { ...bUser, role: finalRole };
-                    console.log('✅ [DEBUG-login] Firebase rejected but backend OK — backend-only login for staff account');
-                    localStorage.setItem('autospf_token', bToken);
-                    localStorage.setItem('autospf_backend_user', JSON.stringify(normalizedBackendUser));
-
-                    const userData: User = {
-                        id: normalizedBackendUser._id || normalizedBackendUser.id || '',
-                        _id: normalizedBackendUser._id || normalizedBackendUser.id || '',
-                        email: normalizedBackendUser.email || '',
-                        name: normalizedBackendUser.name || '',
-                        role: finalRole as import('@/types').UserRole,
-                        createdAt: normalizedBackendUser.createdAt || new Date().toISOString(),
-                        password: '',
-                        isActive: normalizedBackendUser.isActive ?? true,
-                        lastActive: normalizedBackendUser.lastActive || new Date().toISOString(),
-                        avatar: normalizedBackendUser.avatar || undefined,
-                    };
-
-                    const sanitized = sanitizeUser(userData);
-                    userStorage.setCurrentUser(sanitized);
-                    setSessionCache(userData, bToken);
-
-                    loginResolvedRef.current = true;
-                    loginInProgressRef.current = false;
-
-                    setUser(userData);
-                    setIsLoading(false);
-                    try {
-                        invalidate('/bookings');
-                    } catch {
-                        /* ignore */
-                    }
-                    return { success: true, role: finalRole };
-                }
-
+            // ── Other 403 (e.g. soft-deleted user) ──
+            if (backendStatus === 403) {
                 loginInProgressRef.current = false;
                 loginResolvedRef.current = false;
-                // Surface backend remaining-attempts data even when Firebase rejects
-                if (backendStatus === 401 && backendBody.data?.remainingAttempts !== undefined) {
+                await signOut(auth).catch(() => {});
+                clearSessionCache();
+                localStorage.removeItem('autospf_token');
+                localStorage.removeItem('autospf_backend_user');
+                userStorage.setCurrentUser(null);
+                setUser(null);
+                return {
+                    success: false,
+                    message: backendBody.message || 'Access denied.',
+                };
+            }
+
+            // ── Backend-first outcomes (no Firebase required) ──
+            if (backendBody?.data?.requiresOTP) {
+                console.log('🔐 [DEBUG-login] Backend returned staff 2FA OTP challenge — honouring before Firebase');
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                clearSessionCache();
+                localStorage.removeItem('autospf_token');
+                localStorage.removeItem('autospf_backend_user');
+                userStorage.setCurrentUser(null);
+                setUser(null);
+                return {
+                    success: true,
+                    requiresOTP: true,
+                    userId: backendBody.data.userId,
+                    maskedEmail: backendBody.data.maskedEmail,
+                };
+            }
+
+            if (backendBody?.success && backendBody?.data?.requiresOtp) {
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                clearSessionCache();
+                localStorage.removeItem('autospf_token');
+                localStorage.removeItem('autospf_backend_user');
+                userStorage.setCurrentUser(null);
+                setUser(null);
+                return {
+                    success: true,
+                    requiresOtp: true,
+                    data: { requiresOtp: true, email: backendBody.data.email },
+                };
+            }
+
+            if (backendBody?.success && backendBody?.data?.requiresPasswordChange) {
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                clearSessionCache();
+                localStorage.removeItem('autospf_token');
+                localStorage.removeItem('autospf_backend_user');
+                userStorage.setCurrentUser(null);
+                setUser(null);
+                return {
+                    success: true,
+                    requiresPasswordChange: true,
+                    data: { requiresPasswordChange: true, token: backendBody.data.token },
+                };
+            }
+
+            if (
+                backendPayload?.ok &&
+                backendBody?.success &&
+                backendBody?.data?.token &&
+                backendBody?.data?.user &&
+                !backendBody?.data?.requiresPasswordChange
+            ) {
+                const done = finalizeBackendJwtSession(backendBody.data.user, backendBody.data.token);
+                if (!done.success) return done;
+                return { success: true, role: done.role };
+            }
+
+            // ── Backend returned 5xx (e.g. login handler threw) — do not mask as Firebase "invalid" ──
+            if (backendPayload && backendStatus >= 500) {
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                const fromJson =
+                    (typeof backendBody?.error === 'string' && backendBody.error.trim() && backendBody.error) ||
+                    (typeof backendBody?.message === 'string' && backendBody.message.trim() && backendBody.message) ||
+                    '';
+                const detail =
+                    fromJson ||
+                    `Server error (${backendStatus}). The API returned no JSON body — start the backend (cd backend && npm run dev, default port 3000) or check the backend terminal for stack traces.`;
+                return { success: false, message: detail };
+            }
+
+            // ── Firebase email/password (Mongo-only accounts skip straight to JWT above) ──
+            let firebaseUser: import('firebase/auth').User | null = null;
+            let firebaseErr: any = null;
+            try {
+                const cred = await signInWithEmailAndPassword(auth, email, password);
+                firebaseUser = cred.user;
+            } catch (e) {
+                firebaseErr = e;
+            }
+
+            if (!firebaseUser) {
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+
+                if (!backendPayload) {
+                    // Fetch failed (connection refused, timeout, DNS, etc.) — do not blame Firebase/password.
+                    const baseHint =
+                        BACKEND_URL.startsWith('http')
+                            ? `Start the Express backend (cd backend && npm run dev) on that host/port, or fix VITE_API_URL.`
+                            : `Start the Express backend and ensure Vite can proxy to it (frontend/vite.config.ts → VITE_BACKEND_URL, default http://localhost:3000).`;
+                    return {
+                        success: false,
+                        message: `Cannot reach the API (base: ${BACKEND_URL}). ${baseHint}`,
+                    };
+                }
+
+                if (backendStatus === 401 && backendBody?.data?.remainingAttempts !== undefined) {
                     return {
                         success: false,
                         message: backendBody.message || 'Invalid credentials.',
                         data: backendBody.data,
                     };
                 }
-                // Firebase-only errors (no backend data)
-                const code = firebaseCred.reason?.code || '';
-                let message = firebaseCred.reason?.message || 'Invalid credentials';
+
+                if (backendStatus === 401 && typeof backendBody?.message === 'string' && backendBody.message.trim()) {
+                    return { success: false, message: backendBody.message };
+                }
+
+                const code = firebaseErr?.code || '';
+                let message = firebaseErr?.message || 'Invalid credentials';
                 switch (code) {
                     case 'auth/too-many-requests':
                         message = 'Too many login attempts. Please wait a few minutes and try again.';
@@ -939,8 +976,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 }
                 return { success: false, message };
             }
-
-            const firebaseUser = firebaseCred.value.user;
 
             // ── Backend must be reachable and OK for full login ──
             if (!backendPayload?.ok) {
@@ -1001,7 +1036,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 loginResolvedRef.current = false;
                 // Firebase sign-in succeeded (needed for password check) but auth is
                 // not complete yet — sign out immediately.
-                if (firebaseCred.status === 'fulfilled') {
+                if (firebaseUser) {
                     await signOut(auth).catch(() => {});
                 }
                 clearSessionCache();
@@ -1021,7 +1056,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (backendBody?.success && backendBody?.data?.requiresOtp) {
                 loginInProgressRef.current = false;
                 loginResolvedRef.current = false;
-                if (firebaseCred.status === 'fulfilled') await signOut(auth).catch(() => {});
+                if (firebaseUser) await signOut(auth).catch(() => {});
                 clearSessionCache();
                 localStorage.removeItem('autospf_token');
                 localStorage.removeItem('autospf_backend_user');
@@ -1038,7 +1073,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (backendBody?.success && backendBody?.data?.requiresPasswordChange) {
                 loginInProgressRef.current = false;
                 loginResolvedRef.current = false;
-                if (firebaseCred.status === 'fulfilled') await signOut(auth).catch(() => {});
+                if (firebaseUser) await signOut(auth).catch(() => {});
                 clearSessionCache();
                 localStorage.removeItem('autospf_token');
                 localStorage.removeItem('autospf_backend_user');

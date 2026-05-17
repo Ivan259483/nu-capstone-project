@@ -32,12 +32,17 @@ export const scannerColors = {
   border: 'rgba(255,255,255,0.10)',
   borderStrong: 'rgba(255,255,255,0.18)',
   orange: Palette.accent,
-  cyan: '#35D9FF',
-  blue: '#2F80FF',
+  /** Second stop for primary orange gradients (matches bottom bar CTA). */
+  orangeDeep: '#EA580C',
+  /** Lighter orange for icons and highlights on dark scanner chrome. */
+  orangeSoft: '#FF9B6B',
   green: '#10B981',
   yellow: '#F59E0B',
   red: '#EF4444',
 } as const;
+
+/** Primary CTA / capture gradient — orange only (no cyan/blue). */
+export const scannerPrimaryGradient = [scannerColors.orange, scannerColors.orangeDeep] as const;
 
 export const severityMeta: Record<
   AiScanSeverity,
@@ -92,7 +97,7 @@ export function ScannerBackground({
         locations={[0, 0.44, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <View style={styles.blueGlow} pointerEvents="none" />
+      <View style={styles.topAccentGlow} pointerEvents="none" />
       <View style={styles.orangeGlow} pointerEvents="none" />
       <View style={styles.gridVeil} pointerEvents="none" />
       {children}
@@ -428,7 +433,7 @@ export function BottomActionBar({
           colors={
             disabled
               ? ['rgba(255,255,255,0.10)', 'rgba(255,255,255,0.06)']
-              : [scannerColors.orange, '#EA580C']
+              : [...scannerPrimaryGradient]
           }
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -450,7 +455,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: scannerColors.bg,
   },
-  blueGlow: {
+  topAccentGlow: {
     position: 'absolute',
     top: -120,
     right: -120,

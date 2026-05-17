@@ -170,6 +170,46 @@ const QC_CHECKLIST_ITEMS = QC_CHECKLIST_SECTIONS.flatMap((section, sectionIndex)
   }))
 );
 
+function qcChecklistPassedCount(rows: unknown): number {
+  if (!Array.isArray(rows)) return 0;
+  return rows.filter((r: any) => r && (r.passed === true || r.checked === true)).length;
+}
+
+/** Prefer the richer snapshot so silent refetches after photo upload don’t wipe unsaved checklist progress. */
+function mergeOrderQcChecklistPayload(job: QCJob, incoming: unknown): any[] {
+  const oldList = Array.isArray((job as any).qcChecklist) ? (job as any).qcChecklist : [];
+  const newList = Array.isArray(incoming) ? incoming : [];
+  const oc = qcChecklistPassedCount(oldList);
+  const nc = qcChecklistPassedCount(newList);
+  if (nc > oc) return newList;
+  if (oc > nc) return oldList;
+  if (newList.length > oldList.length) return newList;
+  if (oldList.length > newList.length) return oldList;
+  return newList.length ? newList : oldList;
+}
+
+function qcChecklistRowsToCheckedSet(rows: unknown): Set<string> {
+  const next = new Set<string>();
+  if (!Array.isArray(rows)) return next;
+  for (const row of rows) {
+    const label = String((row as any)?.item || (row as any)?.name || '').trim();
+    if (!label) continue;
+    const hit = QC_CHECKLIST_ITEMS.find((e) => e.label === label);
+    if (hit && ((row as any).passed === true || (row as any).checked === true)) {
+      next.add(hit.id);
+    }
+  }
+  return next;
+}
+
+function checkedSetToQcChecklistPayload(ids: Set<string>) {
+  return QC_CHECKLIST_ITEMS.map(({ id, label }) => ({
+    item: label,
+    passed: ids.has(id),
+    note: '',
+  }));
+}
+
 type QCGateValidation = {
   plateValid: boolean;
   thresholdMet: boolean;
@@ -1636,6 +1676,7 @@ function SelectedOrderPanel({
   onLocalStaffNote,
   onSaveQCHandoffSheet,
   onLocalHandoffPatch,
+  onPersistQcChecklist,
 }: {
   job: QCJob;
   detailsLoading?: boolean;
@@ -1652,6 +1693,10 @@ function SelectedOrderPanel({
   onLocalStaffNote: (id: string, content: string) => void;
   onSaveQCHandoffSheet: (id: string, payload: QCHandoffFormState) => Promise<boolean>;
   onLocalHandoffPatch: (id: string, payload: QCHandoffFormState) => void;
+  onPersistQcChecklist?: (
+    orderId: string,
+    items: { item: string; passed: boolean; note?: string }[]
+  ) => Promise<boolean>;
 }) {
   const tracker = getTrackerState(job);
   const warning = needsCustomerUpdate(job);
@@ -1675,6 +1720,71 @@ function SelectedOrderPanel({
   }, [job.id, plateAutoSeed]);
 
   const [qcCheckedIds, setQcCheckedIds] = useState<Set<string>>(() => new Set());
+  const qcCheckedIdsRef = useRef<Set<string>>(qcCheckedIds);
+  const qcPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const qcChecklistDirtyRef = useRef(false);
+
+  useEffect(() => {
+    qcChecklistDirtyRef.current = false;
+    const raw = (job as any).qcChecklist;
+    const initial = qcChecklistRowsToCheckedSet(raw);
+    const rowsLen = Array.isArray(raw) ? raw.length : -1;
+    // #region agent log
+    fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
+      body: JSON.stringify({
+        sessionId: '968466',
+        hypothesisId: 'H-hydrate',
+        location: 'QCLiveTrackerView.tsx:SelectedOrderPanel',
+        message: 'hydrate qc checklist from job',
+        data: {
+          idSuffix: job.id ? String(job.id).slice(-6) : '',
+          rowsLen,
+          initialCheckedSize: initial.size,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    qcCheckedIdsRef.current = initial;
+    setQcCheckedIds(initial);
+  }, [job.id]);
+
+  useEffect(() => {
+    qcCheckedIdsRef.current = qcCheckedIds;
+  }, [qcCheckedIds]);
+
+  const flushQcChecklistPersist = useCallback(() => {
+    if (qcPersistTimerRef.current) {
+      clearTimeout(qcPersistTimerRef.current);
+      qcPersistTimerRef.current = null;
+    }
+    if (!onPersistQcChecklist) return;
+    void onPersistQcChecklist(job.id, checkedSetToQcChecklistPayload(qcCheckedIdsRef.current));
+  }, [job.id, onPersistQcChecklist]);
+
+  const scheduleQcChecklistPersist = useCallback(() => {
+    if (!onPersistQcChecklist) return;
+    if (qcPersistTimerRef.current) clearTimeout(qcPersistTimerRef.current);
+    qcPersistTimerRef.current = setTimeout(() => {
+      qcPersistTimerRef.current = null;
+      flushQcChecklistPersist();
+    }, 420);
+  }, [flushQcChecklistPersist, onPersistQcChecklist]);
+
+  useEffect(() => {
+    return () => {
+      if (qcPersistTimerRef.current) {
+        clearTimeout(qcPersistTimerRef.current);
+        qcPersistTimerRef.current = null;
+      }
+      if (onPersistQcChecklist && qcChecklistDirtyRef.current) {
+        void onPersistQcChecklist(job.id, checkedSetToQcChecklistPayload(qcCheckedIdsRef.current));
+      }
+    };
+  }, [job.id, onPersistQcChecklist]);
+
   const qcValidation = useMemo(
     () => buildQCGateValidation(qcPlateValue, qcCheckedIds, mediaList),
     [qcCheckedIds, mediaList, qcPlateValue]
@@ -1685,14 +1795,35 @@ function SelectedOrderPanel({
     setQcPlateValue(value.replace(/\D/g, '').slice(0, 4));
   }, []);
 
-  const handleToggleQcItem = useCallback((id: string) => {
-    setQcCheckedIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  const handleToggleQcItem = useCallback(
+    (itemId: string) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
+        body: JSON.stringify({
+          sessionId: '968466',
+          hypothesisId: 'H-toggle',
+          runId: 'diag',
+          location: 'QCLiveTrackerView.tsx:handleToggleQcItem',
+          message: 'qc checklist toggle click',
+          data: { itemPrefix: String(itemId).slice(0, 12) },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      qcChecklistDirtyRef.current = true;
+      setQcCheckedIds((current) => {
+        const next = new Set(current);
+        if (next.has(itemId)) next.delete(itemId);
+        else next.add(itemId);
+        qcCheckedIdsRef.current = next;
+        scheduleQcChecklistPersist();
+        return next;
+      });
+    },
+    [scheduleQcChecklistPersist]
+  );
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-gradient-to-b from-slate-50/70 via-white to-slate-50/70">
@@ -1788,6 +1919,7 @@ export default function QCLiveTrackerView({
   onDeleteTrackerStagePhoto,
   onAddStaffNote,
   onSaveQCHandoffSheet,
+  onPersistQcChecklist,
 }: {
   jobs: QCJob[];
   loading: boolean;
@@ -1799,6 +1931,10 @@ export default function QCLiveTrackerView({
   onDeleteTrackerStagePhoto: (orderId: string, payload: { stage: string; slot: string }) => Promise<boolean>;
   onAddStaffNote: (orderId: string, content: string) => Promise<boolean>;
   onSaveQCHandoffSheet: (id: string, payload: QCHandoffFormState) => Promise<boolean>;
+  onPersistQcChecklist?: (
+    orderId: string,
+    items: { item: string; passed: boolean; note?: string }[]
+  ) => Promise<boolean>;
 }) {
   const { user } = useAuth();
   const viewerIsQualityChecker = getSafeUserRole(user?.role) === STAFF_QC_ROLE;
@@ -1806,12 +1942,87 @@ export default function QCLiveTrackerView({
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedOrderDetailsLoading, setSelectedOrderDetailsLoading] = useState(false);
   const selectedDetailRequestRef = useRef(0);
+  const qcDebugMountIdRef = useRef(0);
+
+  useEffect(() => {
+    qcDebugMountIdRef.current += 1;
+    const mountId = qcDebugMountIdRef.current;
+    // #region agent log
+    fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
+      body: JSON.stringify({
+        sessionId: '968466',
+        hypothesisId: 'H-lifecycle',
+        runId: 'diag',
+        location: 'QCLiveTrackerView.tsx:mount',
+        message: 'QCLiveTrackerView mounted/remounted',
+        data: { mountId },
+        timestamp: Date.now(),
+      }),
+      keepalive: true,
+    }).catch(() => {});
+    // #endregion
+
+    const sendUnload = (reason: string) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
+        body: JSON.stringify({
+          sessionId: '968466',
+          hypothesisId: 'H-full-unload',
+          runId: 'diag',
+          location: 'QCLiveTrackerView.tsx:unload-signal',
+          message: reason,
+          data: { mountId },
+          timestamp: Date.now(),
+        }),
+        keepalive: true,
+      }).catch(() => {});
+      // #endregion
+    };
+
+    const onBeforeUnload = () => sendUnload('beforeunload');
+    const onPageHide = (e: PageTransitionEvent) => sendUnload(e.persisted ? 'pagehide-bfcache' : 'pagehide');
+
+    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, []);
 
   useEffect(() => {
     setLocalJobs((prev) => {
       if (jobs.length === 0 && prev.length > 0) return prev;
 
       const prevById = new Map(prev.map((j) => [j.id, j]));
+      // #region agent log
+      try {
+        const j0 = jobs[0] as any;
+        const raw = j0?.qcChecklist;
+        fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
+          body: JSON.stringify({
+            sessionId: '968466',
+            hypothesisId: 'H-projection',
+            location: 'QCLiveTrackerView.tsx:jobs-merge',
+            message: 'incoming jobs sample',
+            data: {
+              nJobs: jobs.length,
+              idSuffix: j0?.id ? String(j0.id).slice(-6) : '',
+              qcChecklistLen: Array.isArray(raw) ? raw.length : -1,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+      } catch {
+        /* ignore */
+      }
+      // #endregion
       return jobs.map((job) => {
         const old = prevById.get(job.id);
         if (!old) return job;
@@ -1820,9 +2031,16 @@ export default function QCLiveTrackerView({
         const renderableServer = countRenderableTrackerPhotoUrls(job.trackerStageMedia as TrackerMedia[] | undefined);
         const renderableLocal = countRenderableTrackerPhotoUrls(old.trackerStageMedia as TrackerMedia[] | undefined);
         if (nLocal > nServer || renderableLocal > renderableServer) {
-          return { ...job, trackerStageMedia: old.trackerStageMedia };
+          return {
+            ...job,
+            trackerStageMedia: old.trackerStageMedia,
+            qcChecklist: mergeOrderQcChecklistPayload(old as QCJob, (job as any).qcChecklist) as any,
+          } as QCJob;
         }
-        return job;
+        return {
+          ...job,
+          qcChecklist: mergeOrderQcChecklistPayload(old as QCJob, (job as any).qcChecklist) as any,
+        } as QCJob;
       });
     });
   }, [jobs]);
@@ -1908,6 +2126,7 @@ export default function QCLiveTrackerView({
             serviceStaffAssignments:
               ((detail as any).serviceStaffAssignments || (job as any).serviceStaffAssignments || []) as any,
             trackerStageMedia: mergedMedia,
+            qcChecklist: mergeOrderQcChecklistPayload(job, (detail as any).qcChecklist) as any,
             staffNotes: Array.isArray((detail as any).staffNotes) ? (detail as any).staffNotes : job.staffNotes,
             notes: typeof (detail as any).notes === 'string' ? (detail as any).notes : job.notes,
             photos: (detail as any).photos || job.photos,
@@ -2131,6 +2350,7 @@ export default function QCLiveTrackerView({
             onLocalStaffNote={addLocalStaffNote}
             onSaveQCHandoffSheet={handleSaveQCHandoffSheet}
             onLocalHandoffPatch={patchLocalHandoff}
+            onPersistQcChecklist={onPersistQcChecklist}
           />
         ) : null}
       </div>

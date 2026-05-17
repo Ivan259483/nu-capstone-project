@@ -12,6 +12,13 @@ import { clearQueue } from '@/services/offlineQueue';
 type AuthResult = {
   success: boolean;
   message?: string;
+  /** Email not verified — navigate to verify screen with `verifyEmail`. */
+  requiresEmailOtp?: boolean;
+  verifyEmail?: string;
+  /** Staff 2FA — mobile has no dedicated flow yet; message explains next step. */
+  requiresStaffOtp?: boolean;
+  /** Backend requires password reset before login. */
+  requiresPasswordChange?: boolean;
   /** Structured data from the backend (e.g., remaining login attempts, lock info) */
   data?: {
     remainingAttempts?: number;
@@ -195,6 +202,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       applyState(null, token, backendUser);
       return { success: true };
     } catch (error: any) {
+      if (error?.code === 'REQUIRES_EMAIL_OTP') {
+        return {
+          success: false,
+          message: error.message,
+          requiresEmailOtp: true,
+          verifyEmail: error.verifyEmail,
+        };
+      }
+      if (error?.code === 'REQUIRES_STAFF_OTP') {
+        return {
+          success: false,
+          message: error.message,
+          requiresStaffOtp: true,
+        };
+      }
+      if (error?.code === 'REQUIRES_PASSWORD_CHANGE') {
+        return {
+          success: false,
+          message: error.message,
+          requiresPasswordChange: true,
+        };
+      }
       // Extract structured data from backend error response (remaining attempts, lock info)
       const responseData = error?.response?.data?.data ?? error?.response?.data ?? undefined;
       return {

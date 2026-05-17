@@ -176,7 +176,7 @@ export default function ConfirmScreen() {
         eyebrow="Customer Approval"
         title="Confirm Repair Plan"
         onBack={() => router.back()}
-        right={<Ionicons name="checkmark-done-outline" size={20} color={scannerColors.cyan} />}
+        right={<Ionicons name="checkmark-done-outline" size={20} color={scannerColors.orange} />}
       />
       <PipelineStepper currentIndex={5} />
 
@@ -233,7 +233,7 @@ export default function ConfirmScreen() {
                     <Ionicons
                       name="car-sport-outline"
                       size={22}
-                      color={active ? scannerColors.cyan : scannerColors.textMuted}
+                      color={active ? scannerColors.orange : scannerColors.textMuted}
                     />
                   </View>
                   <View style={{ flex: 1 }}>
@@ -315,7 +315,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   heroCard: {
-    borderColor: 'rgba(53,217,255,0.25)',
+    borderColor: 'rgba(255,107,53,0.25)',
   },
   heroTitle: {
     color: scannerColors.text,
@@ -372,7 +372,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
   },
   vehicleCardActive: {
-    borderColor: 'rgba(53,217,255,0.52)',
+    borderColor: 'rgba(255,107,53,0.52)',
   },
   vehicleInner: {
     flexDirection: 'row',
@@ -410,8 +410,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   radioActive: {
-    backgroundColor: scannerColors.cyan,
-    borderColor: scannerColors.cyan,
+    backgroundColor: scannerColors.orange,
+    borderColor: scannerColors.orange,
   },
   noVehicleCard: {
     borderColor: 'rgba(245,158,11,0.25)',

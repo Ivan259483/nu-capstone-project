@@ -7,7 +7,16 @@ const PRODUCTION_API_URL = 'https://nu-capstone-project.onrender.com/api';
 const PRODUCTION_BACKEND_ORIGIN = 'https://nu-capstone-project.onrender.com';
 
 export const getBaseApiUrl = () => {
-    return import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+    const raw = import.meta.env.VITE_API_URL;
+    // Dev: same-origin "/api" only works via Vite proxy and often returns empty-body 500 when Express
+    // is not reachable on VITE_BACKEND_URL — ignore it and hit Express directly.
+    if (import.meta.env.DEV && String(raw ?? '').trim() === '/api') {
+        return 'http://localhost:3000/api';
+    }
+    if (raw) return raw;
+    // Dev: direct Express (CORS allows localhost:5173 in backend config).
+    if (import.meta.env.DEV) return 'http://localhost:3000/api';
+    return PRODUCTION_API_URL;
 };
 
 export const BACKEND_API_URL = getBaseApiUrl();

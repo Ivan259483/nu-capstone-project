@@ -25,6 +25,7 @@ import {
   ScannerHeader,
   ScanZoneOverlay,
   scannerColors,
+  scannerPrimaryGradient,
 } from '@/features/ai-scan/components/PremiumScanner';
 import { aiScanStore } from '@/features/ai-scan/scanStore';
 import type { AiScanInputImage } from '@/services/api/aiService';
@@ -130,7 +131,7 @@ export default function AiScanEntry() {
         eyebrow="Vehicle Intelligence"
         title="AI Inspection"
         onBack={() => router.back()}
-        right={<Ionicons name="shield-checkmark-outline" size={20} color={scannerColors.cyan} />}
+        right={<Ionicons name="shield-checkmark-outline" size={20} color={scannerColors.orangeSoft} />}
       />
       <PipelineStepper currentIndex={0} />
 
@@ -156,7 +157,7 @@ export default function AiScanEntry() {
             <View style={styles.scanActions}>
               <Pressable style={styles.cameraAction} onPress={captureWithCamera}>
                 <LinearGradient
-                  colors={[scannerColors.cyan, scannerColors.blue]}
+                  colors={[...scannerPrimaryGradient]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={StyleSheet.absoluteFill}
@@ -165,7 +166,7 @@ export default function AiScanEntry() {
                 <Text style={styles.cameraActionText}>Capture angle</Text>
               </Pressable>
               <Pressable style={styles.galleryAction} onPress={pickFromLibrary}>
-                <Ionicons name="images-outline" size={19} color={scannerColors.cyan} />
+                <Ionicons name="images-outline" size={19} color={scannerColors.orangeSoft} />
                 <Text style={styles.galleryActionText}>Upload gallery</Text>
               </Pressable>
             </View>
@@ -205,7 +206,7 @@ export default function AiScanEntry() {
                       <Ionicons
                         name={slot.icon}
                         size={18}
-                        color={image || active ? scannerColors.cyan : scannerColors.textMuted}
+                        color={image || active ? scannerColors.orangeSoft : scannerColors.textMuted}
                       />
                     </View>
                     <Text style={styles.slotLabel}>{slot.label}</Text>
@@ -266,7 +267,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   scanCard: {
-    borderColor: 'rgba(53,217,255,0.22)',
+    borderColor: 'rgba(255,107,53,0.22)',
   },
   scanCardInner: {
     padding: 12,
@@ -320,7 +321,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   sectionMeta: {
-    color: scannerColors.cyan,
+    color: scannerColors.orange,
     fontSize: 11,
     fontWeight: '800',
     textTransform: 'uppercase',
@@ -338,7 +339,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.045)',
   },
   slotCardActive: {
-    borderColor: 'rgba(53,217,255,0.55)',
+    borderColor: 'rgba(255,107,53,0.55)',
   },
   slotCardFilled: {
     borderColor: 'rgba(16,185,129,0.42)',
@@ -381,8 +382,8 @@ const styles = StyleSheet.create({
     borderColor: scannerColors.border,
   },
   slotIconActive: {
-    borderColor: 'rgba(53,217,255,0.5)',
-    backgroundColor: 'rgba(53,217,255,0.12)',
+    borderColor: 'rgba(255,107,53,0.5)',
+    backgroundColor: 'rgba(255,107,53,0.12)',
   },
   slotLabel: {
     flex: 0.45,

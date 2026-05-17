@@ -46,8 +46,9 @@ const TINT_PRICES: Record<string, Partial<Record<VehicleType, number | null>>> =
 };
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-  confirmed:        { bg: 'bg-blue-50',   text: 'text-blue-700',   dot: 'bg-blue-500' },
-  approved:         { bg: 'bg-emerald-50',text: 'text-emerald-700',dot: 'bg-emerald-500' },
+  /** Sales-approved reservation — same success tone as customer tracker */
+  confirmed:        { bg: 'bg-emerald-50', text: 'text-emerald-800', dot: 'bg-emerald-500' },
+  approved:         { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
   assigned:         { bg: 'bg-indigo-50', text: 'text-indigo-700', dot: 'bg-indigo-500' },
   received:         { bg: 'bg-amber-50',  text: 'text-amber-700',  dot: 'bg-amber-500' },
   in_progress:      { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-500' },
@@ -55,6 +56,25 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> =
   completed:        { bg: 'bg-green-50',  text: 'text-green-700',  dot: 'bg-green-500' },
   pending_confirmation: { bg: 'bg-yellow-50', text: 'text-yellow-700', dot: 'bg-yellow-400' },
 };
+
+/**
+ * Sales POS “balance / pickup” strip only — not reservation confirmation or bay arrival.
+ * Show when the customer live tracker is at pickup (`ready_pickup`) and/or POS balance is due
+ * (`ready_for_payment`, typical after QC approval + pickup gate).
+ */
+function isSalesBalanceCheckoutQueueOrder(b: any): boolean {
+  if (b?.archived) return false;
+  if (String(b.paymentStatus || '').toLowerCase() === 'paid') return false;
+  const st = String(b.status || '').toLowerCase();
+  if (['cancelled', 'released'].includes(st)) return false;
+  const ts = String(b.serviceTrackingStage || '')
+    .toLowerCase()
+    .replace(/-/g, '_');
+  if (st === 'ready_for_payment') return true;
+  if (ts === 'ready_pickup') return true;
+  if (st === 'completed' && ts !== 'released') return true;
+  return false;
+}
 
 /** When billing + order have no stored reservation, assume ₱500 for booking-linked POS checkout. */
 const BOOKING_RESERVATION_DP_FALLBACK = 500;
@@ -71,16 +91,6 @@ function resolvePosDownpayment(
   return isBookingOrder ? BOOKING_RESERVATION_DP_FALLBACK : 0;
 }
 
-function getToken() {
-  return (
-    localStorage.getItem('autospf_token') ||
-    sessionStorage.getItem('autospf_token') ||
-    localStorage.getItem('token') ||
-    sessionStorage.getItem('token') ||
-    ''
-  );
-}
-
 // ── Check-In Queue (compact collapsible strip) ────────────────────────────────
 function CheckInQueuePanel({
   onSelectBooking,
@@ -92,7 +102,6 @@ function CheckInQueuePanel({
 }) {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [checkingIn, setCheckingIn] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   const loadBookings = useCallback(async () => {
@@ -102,12 +111,7 @@ function CheckInQueuePanel({
       const res = await OrderService.getAllOrders({ suppressErrorToast: true });
       if (res.success && Array.isArray(res.data)) {
         const queue = res.data
-          .filter((b: any) => {
-            if (String(b.paymentStatus || '').toLowerCase() === 'paid') return false;
-            const st = (b.status || '').toLowerCase();
-            if (['released', 'paid', 'cancelled'].includes(st)) return false;
-            return ['confirmed', 'approved', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed'].includes(st);
-          })
+          .filter(isSalesBalanceCheckoutQueueOrder)
           .sort((a: any, b: any) => (a.bookingTime || '').localeCompare(b.bookingTime || ''));
         setBookings(queue);
       }
@@ -119,27 +123,7 @@ function CheckInQueuePanel({
     void loadBookings();
   }, [loadBookings, refreshKey]);
 
-  const handleCheckIn = async (b: any) => {
-    const id = b._id || b.id;
-    setCheckingIn(id);
-    try {
-      const res = await window.fetch(`/api/orders/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ status: 'received' }),
-      });
-      const data = await res.json();
-      if (data.success) { toast.success(`${b.customerName} checked in ✓`); loadBookings(); }
-      else toast.error(data.message || 'Check-in failed');
-    } catch { toast.error('Network error'); }
-    setCheckingIn(null);
-  };
-
-  const totalToday = bookings.length;
-  const readyToPay = bookings.filter((b: any) => {
-    if (String(b.paymentStatus || '').toLowerCase() === 'paid') return false;
-    return ['completed', 'ready_for_payment'].includes((b.status || '').toLowerCase());
-  }).length;
+  const queueCount = bookings.length;
 
   return (
     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, boxShadow: '0 1px 6px rgba(0,0,0,.05)', overflow: 'hidden', flexShrink: 0 }}>
@@ -151,12 +135,11 @@ function CheckInQueuePanel({
         {/* Label + count badges */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block', animation: 'posQPulse 1.5s ease-in-out infinite' }} />
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>Check-In Queue</span>
-          {totalToday > 0 && (
-            <span style={{ fontSize: 10, fontWeight: 700, background: '#eff6ff', color: '#1d4ed8', padding: '1px 8px', borderRadius: 20 }}>{totalToday} today</span>
-          )}
-          {readyToPay > 0 && (
-            <span style={{ fontSize: 10, fontWeight: 700, background: '#f0fdf4', color: '#15803d', padding: '1px 8px', borderRadius: 20 }}>💰 {readyToPay} ready</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>Balance / pickup queue</span>
+          {queueCount > 0 && (
+            <span style={{ fontSize: 10, fontWeight: 700, background: '#f0fdf4', color: '#15803d', padding: '1px 8px', borderRadius: 20 }}>
+              {queueCount} due
+            </span>
           )}
         </div>
 
@@ -165,7 +148,15 @@ function CheckInQueuePanel({
           <div style={{ flex: 1, display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none', padding: '2px 0' }}>
             {bookings.map((b: any) => {
               const st = (b.status || '').toLowerCase();
-              const dotColor = st === 'completed' ? '#22c55e' : st === 'received' || st === 'in_progress' ? '#f59e0b' : '#3b82f6';
+              const ts = String(b.serviceTrackingStage || '')
+                .toLowerCase()
+                .replace(/-/g, '_');
+              const dotColor =
+                st === 'ready_for_payment' || ts === 'ready_pickup'
+                  ? '#16a34a'
+                  : st === 'completed'
+                    ? '#22c55e'
+                    : '#0ea5e9';
               return (
                 <button
                   key={b._id || b.id}
@@ -181,7 +172,9 @@ function CheckInQueuePanel({
           </div>
         )}
         {!loading && bookings.length === 0 && (
-          <span style={{ fontSize: 11, color: '#94a3b8', flex: 1 }}>No confirmed bookings today</span>
+          <span style={{ fontSize: 11, color: '#94a3b8', flex: 1 }}>
+            No balance due — appears when tracker is pickup-ready or QC releases the job
+          </span>
         )}
 
         {/* Refresh + chevron */}
@@ -208,20 +201,22 @@ function CheckInQueuePanel({
               <span style={{ fontSize: 12, color: '#94a3b8' }}>Loading…</span>
             </div>
           ) : bookings.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '20px 0', fontSize: 12, color: '#94a3b8' }}>No confirmed bookings today.</div>
+            <div style={{ textAlign: 'center', padding: '20px 12px', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
+              No vehicles awaiting balance payment. Jobs land here when the customer live tracker reaches{' '}
+              <strong style={{ color: '#0f172a' }}>pickup / ready for release</strong> or QC has finished and the job is
+              released for payment.
+            </div>
           ) : (
             bookings.map((b: any) => {
               const id = b._id || b.id;
               const st = (b.status || 'confirmed').toLowerCase();
-              const colors = STATUS_COLORS[st] || STATUS_COLORS.confirmed;
-              const isChecking = checkingIn === id;
-              const canCheckIn = ['confirmed', 'approved', 'assigned'].includes(st);
+              const colors = STATUS_COLORS[st] || STATUS_COLORS.ready_for_payment;
               const isReadyToPay =
                 String(b.paymentStatus || '').toLowerCase() !== 'paid' &&
                 ['completed', 'ready_for_payment'].includes(st);
               return (
                 <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderTop: '1px solid #f8fafc' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#3b82f6,#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#16a34a,#15803d)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
                     {(b.customerName || 'C').charAt(0).toUpperCase()}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -241,16 +236,6 @@ function CheckInQueuePanel({
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    {canCheckIn && (
-                      <button
-                        onClick={() => handleCheckIn(b)}
-                        disabled={isChecking}
-                        style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 700, fontSize: 11, cursor: 'pointer', opacity: isChecking ? 0.6 : 1 }}
-                      >
-                        {isChecking ? <div style={{ width: 10, height: 10, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,.3)', borderTop: '1.5px solid #fff', animation: 'posQSpin 1s linear infinite' }} /> : '✓'}
-                        {isChecking ? 'Checking…' : 'Check In'}
-                      </button>
-                    )}
                     <button
                       onClick={() => { onSelectBooking(b); setExpanded(false); }}
                       style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}

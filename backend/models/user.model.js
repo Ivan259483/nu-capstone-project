@@ -156,7 +156,16 @@ userSchema.post('init', function (doc) {
 
 // Method to compare passwords
 userSchema.methods.comparePassword = async function (candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
+  try {
+    const hash = this.password;
+    if (hash == null || typeof hash !== 'string' || hash.length < 10) return false;
+    // bcrypt hashes start with $2a$, $2b$, or $2y$ — avoid bcrypt.compare throwing on garbage/legacy values
+    if (!/^\$2[aby]\$\d{2}\$/.test(hash)) return false;
+    return await bcrypt.compare(candidatePassword, hash);
+  } catch (err) {
+    console.error('[User.comparePassword] bcrypt error:', err?.message || err);
+    return false;
+  }
 };
 
 export default mongoose.model('User', userSchema);

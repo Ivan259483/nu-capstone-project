@@ -1,6 +1,7 @@
 /**
- * AI Scan Stack Layout — drives the 5-step new-AI flow:
- *   index → analyzing → results → ar-view → estimate → confirm
+ * AI Scan Stack Layout - drives the 5-step new-AI flow:
+ *   index -> analyzing -> results -> ar-view (Meshy + WebAR) -> estimate -> confirm
+ *   ar-view owns the browser-based MindAR repair simulation.
  */
 import React from 'react';
 import { Stack } from 'expo-router';

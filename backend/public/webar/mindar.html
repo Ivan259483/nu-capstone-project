@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <!--
+    This page runs inside an iframe. Camera (getUserMedia) requires a secure context:
+    the parent must set iframe src to an HTTPS API origin (e.g. ngrok), not a relative URL
+    on an HTTP LAN page. Session URLs are resolved with window.location.origin (this frame).
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>AutoSPF+ WebAR Repair Preview</title>
+  <!--
+    MindAR 1.2.5 (mindar-image-three.prod.js) imports `sRGBEncoding` from `three`.
+    That symbol was removed in Three.js r152+. This page MUST use three@0.151.3 — never ≥ r152 here.
+    Your Next.js + R3F app can stay on three@0.168+ via a separate bundle or (recommended) iframe embed.
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.151.3/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.151.3/examples/jsm/",
+      "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+    }
+  }
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #050506;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button {
+      font: inherit;
+      color: inherit;
+      border: 0;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #container {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      background: #050506;
+    }
+    /* Insecure origin: getUserMedia is blocked (except localhost). */
+    .http-warn {
+      position: fixed;
+      z-index: 30;
+      left: 12px;
+      right: 12px;
+      top: max(12px, env(safe-area-inset-top, 12px));
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(248, 113, 113, 0.45);
+      background: rgba(69, 10, 10, 0.92);
+      color: #fecaca;
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 650;
+    }
+    .http-warn strong { color: #fff; }
+    .topbar {
+      position: fixed;
+      z-index: 12;
+      top: env(safe-area-inset-top, 0);
+      left: 0;
+      right: 0;
+      padding: 14px 16px 20px;
+      background: linear-gradient(180deg, rgba(5,5,6,0.94), rgba(5,5,6,0));
+      pointer-events: none;
+    }
+    .topbar.with-warn { padding-top: 72px; }
+    .eyebrow {
+      color: #f97316;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+    }
+    .title {
+      margin-top: 3px;
+      font-size: 18px;
+      line-height: 1.1;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+    .status {
+      margin-top: 7px;
+      max-width: 92vw;
+      color: rgba(255,255,255,0.70);
+      font-size: 12px;
+      line-height: 17px;
+      font-weight: 650;
+    }
+    .hud {
+      position: fixed;
+      z-index: 14;
+      left: 12px;
+      right: 12px;
+      bottom: max(12px, env(safe-area-inset-bottom, 12px));
+      display: grid;
+      gap: 10px;
+    }
+    .panel {
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(8,8,10,0.74);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 18px 60px rgba(0,0,0,0.34);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: rgba(255,255,255,0.10);
+    }
+    .mode-btn,
+    .start-btn,
+    .target-btn {
+      min-height: 48px;
+      padding: 0 12px;
+      background: rgba(16,16,18,0.92);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .mode-btn.active.before {
+      color: #fb923c;
+      background: linear-gradient(135deg, rgba(249,115,22,0.34), rgba(16,16,18,0.94));
+    }
+    .mode-btn.active.after {
+      color: #34d399;
+      background: linear-gradient(135deg, rgba(16,185,129,0.32), rgba(16,16,18,0.94));
+    }
+    .start-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 1px;
+      background: rgba(255,255,255,0.10);
+    }
+    .start-btn {
+      color: #fff;
+      background: linear-gradient(135deg, #f97316, #fb923c);
+      text-align: center;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.24);
+    }
+    .stop-btn {
+      min-height: 48px;
+      padding: 0 10px;
+      background: rgba(24,24,28,0.96);
+      color: rgba(255,255,255,0.55);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .stop-btn:not(:disabled) {
+      color: #fecaca;
+      background: rgba(127,29,29,0.55);
+    }
+    .target-btn {
+      min-width: 104px;
+      color: #f97316;
+    }
+    .pillbar {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 10px;
+      scrollbar-width: none;
+    }
+    .pillbar::-webkit-scrollbar { display: none; }
+    .pill {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 32px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.78);
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--dot, #f97316);
+      box-shadow: 0 0 14px var(--dot, #f97316);
+    }
+    .gate {
+      position: fixed;
+      z-index: 20;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background:
+        radial-gradient(circle at 50% 35%, rgba(249,115,22,0.18), transparent 42%),
+        rgba(5,5,6,0.96);
+    }
+    .gate-card {
+      width: min(420px, 100%);
+      border: 1px solid rgba(249,115,22,0.24);
+      border-radius: 20px;
+      background: rgba(12,12,14,0.88);
+      box-shadow: 0 24px 90px rgba(0,0,0,0.46);
+      padding: 18px;
+    }
+    .gate-title {
+      font-size: 23px;
+      line-height: 1.05;
+      font-weight: 950;
+      letter-spacing: 0;
+      margin: 10px 0 8px;
+    }
+    .gate-text {
+      color: rgba(255,255,255,0.72);
+      font-size: 13px;
+      line-height: 19px;
+      font-weight: 650;
+      margin: 0 0 16px;
+    }
+    .gate-target {
+      display: grid;
+      grid-template-columns: 76px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 10px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.06);
+      margin-bottom: 14px;
+    }
+    .gate-target img {
+      width: 76px;
+      height: 76px;
+      object-fit: cover;
+      border-radius: 10px;
+      background: #111;
+    }
+    .gate-target strong {
+      display: block;
+      font-size: 12px;
+      line-height: 16px;
+      margin-bottom: 3px;
+    }
+    .gate-target span {
+      display: block;
+      color: rgba(255,255,255,0.58);
+      font-size: 11px;
+      line-height: 15px;
+      font-weight: 650;
+    }
+    .gate-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    .primary {
+      height: 50px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #f97316, #fb923c);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 950;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .secondary {
+      height: 44px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.78);
+      font-size: 12px;
+      font-weight: 850;
+    }
+    .drawer {
+      position: fixed;
+      z-index: 22;
+      inset: auto 12px max(12px, env(safe-area-inset-bottom, 12px)) 12px;
+      display: none;
+      padding: 14px;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 18px;
+      background: rgba(8,8,10,0.92);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 24px 90px rgba(0,0,0,0.56);
+    }
+    .drawer.open { display: block; }
+    .drawer-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .drawer-title {
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .close {
+      width: 34px;
+      height: 34px;
+      border-radius: 17px;
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.78);
+      font-size: 18px;
+    }
+    .target-preview {
+      width: 100%;
+      max-height: 46vh;
+      object-fit: contain;
+      border-radius: 12px;
+      background: #fff;
+    }
+    .drawer-text {
+      margin: 10px 2px 0;
+      color: rgba(255,255,255,0.68);
+      font-size: 12px;
+      line-height: 17px;
+      font-weight: 650;
+    }
+    .hidden { display: none !important; }
+    @media (min-width: 720px) {
+      .hud {
+        left: 50%;
+        right: auto;
+        width: min(520px, calc(100vw - 24px));
+        transform: translateX(-50%);
+      }
+      .drawer {
+        left: 50%;
+        right: auto;
+        width: min(520px, calc(100vw - 24px));
+        transform: translateX(-50%);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="httpWarn" class="http-warn hidden">
+    <strong>Camera blocked on HTTP.</strong>
+    Open this page over <strong>HTTPS</strong> or <strong>localhost</strong> (mobile browsers require a secure context for the camera).
+    For LAN testing, use an HTTPS tunnel (ngrok, Cloudflare Tunnel, etc.).
+  </div>
+
+  <div id="container"></div>
+
+  <div id="topbar" class="topbar">
+    <div class="eyebrow">AutoSPF+ WebAR</div>
+    <div class="title" id="title">Repair simulation</div>
+    <div class="status" id="status">Loading WebAR session...</div>
+  </div>
+
+  <div class="hud">
+    <div class="panel start-row">
+      <button id="startBtn" class="start-btn" type="button">Start Camera</button>
+      <button id="stopBtn" class="stop-btn" type="button" disabled>Stop</button>
+      <button id="targetBtn" class="target-btn" type="button">Target</button>
+    </div>
+    <div class="panel actions">
+      <button id="beforeBtn" type="button" class="mode-btn active before">Damaged</button>
+      <button id="afterBtn" type="button" class="mode-btn after">Repaired</button>
+    </div>
+    <div class="panel pillbar" id="damagePills"></div>
+  </div>
+
+  <div id="gate" class="gate">
+    <div class="gate-card">
+      <div class="eyebrow">Image tracking</div>
+      <div class="gate-title">Point your camera at the AutoSPF+ target.</div>
+      <p class="gate-text">
+        WebAR needs a user gesture to start the camera. Print or display the target image, then tap Start WebAR.
+        The 3D vehicle anchors to the compiled <code style="color:#fdba74">.mind</code> target (default: <code style="color:#fdba74">/webar/targets/autospf-vehicle.mind</code>).
+      </p>
+      <div class="gate-target">
+        <img id="gateTargetImage" alt="Printable AR target" />
+        <div>
+          <strong>Printable target</strong>
+          <span>Use the same artwork that was compiled into your <code>.mind</code> file.</span>
+        </div>
+      </div>
+      <div class="gate-actions">
+        <button id="gateStartBtn" type="button" class="primary">Start WebAR</button>
+        <button id="gateTargetBtn" type="button" class="secondary">Show target image</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="drawer" class="drawer">
+    <div class="drawer-head">
+      <div class="drawer-title">Scan this target</div>
+      <button id="closeDrawerBtn" type="button" class="close" aria-label="Close target preview">×</button>
+    </div>
+    <img id="targetPreview" class="target-preview" alt="AR target preview" />
+    <p class="drawer-text">Open or print this image on another screen, then point the camera at it.</p>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+    import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+    import { MindARThree } from 'mindar-image-three';
+
+    const $ = (id) => document.getElementById(id);
+    const container = $('container');
+    const statusEl = $('status');
+    const titleEl = $('title');
+    const topbar = $('topbar');
+    const httpWarn = $('httpWarn');
+    const gate = $('gate');
+    const startBtn = $('startBtn');
+    const stopBtn = $('stopBtn');
+    const gateStartBtn = $('gateStartBtn');
+    const targetBtn = $('targetBtn');
+    const gateTargetBtn = $('gateTargetBtn');
+    const drawer = $('drawer');
+    const closeDrawerBtn = $('closeDrawerBtn');
+    const targetPreview = $('targetPreview');
+    const gateTargetImage = $('gateTargetImage');
+    const beforeBtn = $('beforeBtn');
+    const afterBtn = $('afterBtn');
+    const damagePills = $('damagePills');
+
+    const params = new URLSearchParams(window.location.search);
+    const scanId = params.get('scanId') || '';
+
+    const fallbackSession = {
+      success: true,
+      data: {
+        scanId: null,
+        title: 'AutoSPF+ demo repair preview',
+        modelStatus: 'fallback',
+        modelUrl: '/webar/models/fallback-car.glb',
+        repairedModelUrl: '/webar/models/fallback-car.glb',
+        fallbackModelUrl: '/webar/models/fallback-car.glb',
+        targetUrl: '/webar/targets/autospf-vehicle.mind',
+        targetImageUrl: '/webar/targets/autospf-vehicle.png',
+        damages: [
+          {
+            id: 'demo-front-bumper',
+            type: 'Surface scratch',
+            severity: 'medium',
+            affectedArea: 'Front bumper',
+            confidence: 0.88,
+            coordinates: { x: 0.38, y: 0.58, width: 0.24, height: 0.12 }
+          },
+          {
+            id: 'demo-door',
+            type: 'Paint scuff',
+            severity: 'low',
+            affectedArea: 'Right door',
+            confidence: 0.82,
+            coordinates: { x: 0.58, y: 0.46, width: 0.18, height: 0.16 }
+          }
+        ]
+      }
+    };
+
+    let session = null;
+    let mindarThree = null;
+    let modelRoot = null;
+    let damagedModelRoot = null;
+    let repairedModelRoot = null;
+    let hasDualModels = false;
+    let hotspotRoot = null;
+    let started = false;
+    let currentMode = 'before';
+
+    const severityColors = {
+      high: 0xef4444,
+      medium: 0xf97316,
+      low: 0x10b981
+    };
+
+    /** Notify React Native WebView (if any) and parent iframe (Next.js host), same payload shape. */
+    function post(payload) {
+      try {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+        }
+      } catch (_) {}
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(payload, '*');
+        }
+      } catch (_) {}
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+      post({ type: 'WEBAR_STATUS', message });
+    }
+
+    function isLocalhostHost() {
+      const h = String(location.hostname || '').toLowerCase();
+      return h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+    }
+
+    function updateHttpWarningUi() {
+      const blocked = !window.isSecureContext && !isLocalhostHost();
+      httpWarn.classList.toggle('hidden', !blocked);
+      topbar.classList.toggle('with-warn', blocked);
+    }
+
+    function assetUrl(path) {
+      if (!path) return '';
+      try {
+        return new URL(path, window.location.origin).toString();
+      } catch (_) {
+        return path;
+      }
+    }
+
+    async function loadSession() {
+      if (!scanId) {
+        return { ...fallbackSession.data };
+      }
+
+      try {
+        const response = await fetch(`/api/ai/webar-session/${encodeURIComponent(scanId)}`, {
+          credentials: 'include'
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.message || 'WebAR session unavailable.');
+        }
+        return payload.data;
+      } catch (error) {
+        console.warn('[WebAR] Falling back to demo session:', error);
+        setStatus('Session unavailable. Showing fallback WebAR demo.');
+        return { ...fallbackSession.data };
+      }
+    }
+
+    function updateTargetImages() {
+      const target = assetUrl(session.targetImageUrl || fallbackSession.data.targetImageUrl);
+      targetPreview.src = target;
+      gateTargetImage.src = target;
+    }
+
+    function renderDamagePills() {
+      const damages = Array.isArray(session.damages) ? session.damages : [];
+      damagePills.innerHTML = '';
+      if (!damages.length) {
+        const empty = document.createElement('div');
+        empty.className = 'pill';
+        empty.textContent = 'No damage markers';
+        damagePills.appendChild(empty);
+        return;
+      }
+
+      damages.forEach((damage) => {
+        const pill = document.createElement('div');
+        pill.className = 'pill';
+        const color = severityColors[damage.severity] || severityColors.medium;
+        pill.style.setProperty('--dot', `#${color.toString(16).padStart(6, '0')}`);
+        const label = document.createElement('span');
+        label.textContent = damage.affectedArea || damage.type || 'Vehicle body';
+        const dot = document.createElement('span');
+        dot.className = 'dot';
+        pill.appendChild(dot);
+        pill.appendChild(label);
+        damagePills.appendChild(pill);
+      });
+    }
+
+    function setMode(mode) {
+      currentMode = mode === 'after' ? 'after' : 'before';
+      beforeBtn.classList.toggle('active', currentMode === 'before');
+      afterBtn.classList.toggle('active', currentMode === 'after');
+
+      if (hasDualModels && damagedModelRoot && repairedModelRoot) {
+        damagedModelRoot.visible = currentMode === 'before';
+        repairedModelRoot.visible = currentMode === 'after';
+      } else if (damagedModelRoot) {
+        damagedModelRoot.traverse((node) => {
+          if (!node.isMesh || !node.material) return;
+          const materials = Array.isArray(node.material) ? node.material : [node.material];
+          materials.forEach((material) => {
+            if (!material.userData.originalColor) {
+              material.userData.originalColor = material.color ? material.color.clone() : new THREE.Color(0xffffff);
+              material.userData.originalRoughness = material.roughness;
+              material.userData.originalMetalness = material.metalness;
+            }
+            if (currentMode === 'after') {
+              material.color?.set('#f8fbff');
+              if ('roughness' in material) material.roughness = 0.18;
+              if ('metalness' in material) material.metalness = Math.max(material.metalness || 0, 0.12);
+            } else {
+              material.color?.copy(material.userData.originalColor);
+              if ('roughness' in material && material.userData.originalRoughness != null) {
+                material.roughness = material.userData.originalRoughness;
+              }
+              if ('metalness' in material && material.userData.originalMetalness != null) {
+                material.metalness = material.userData.originalMetalness;
+              }
+            }
+            material.needsUpdate = true;
+          });
+        });
+      }
+
+      if (hotspotRoot) {
+        hotspotRoot.children.forEach((child) => {
+          child.userData.damageVisible?.forEach((mesh) => {
+            mesh.visible = currentMode === 'before';
+          });
+          child.userData.repairVisible?.forEach((mesh) => {
+            mesh.visible = currentMode === 'after';
+          });
+        });
+      }
+
+      setStatus(currentMode === 'after'
+        ? (hasDualModels
+          ? 'Showing repaired 3D model (second GLB).'
+          : 'Repaired preview (material). Green dots show resolved hotspots.')
+        : 'Damaged preview. Scan the .mind target to anchor the model.');
+      post({ type: 'WEBAR_MODE', mode: currentMode });
+    }
+
+    function makeHotspot(damage, index) {
+      const group = new THREE.Group();
+      const coords = damage.coordinates || {};
+      const cx = Number(coords.x || 0) + Number(coords.width || 0) / 2;
+      const cy = Number(coords.y || 0) + Number(coords.height || 0) / 2;
+      const x = (Math.max(0, Math.min(1, cx || 0.5)) - 0.5) * 0.86;
+      const y = -(Math.max(0, Math.min(1, cy || 0.5)) - 0.5) * 0.54;
+      const z = 0.18 + index * 0.012;
+      group.position.set(x, y, z);
+
+      const color = severityColors[damage.severity] || severityColors.medium;
+      const damageMaterial = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 });
+      const repairMaterial = new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.95 });
+      const ringMaterial = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.026, 24, 16), damageMaterial);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.045, 0.052, 32), ringMaterial);
+      const repaired = new THREE.Mesh(new THREE.SphereGeometry(0.022, 24, 16), repairMaterial);
+
+      ring.position.z = -0.004;
+      repaired.visible = false;
+
+      group.add(ring, dot, repaired);
+      group.userData.damageVisible = [dot, ring];
+      group.userData.repairVisible = [repaired];
+      return group;
+    }
+
+    /** GLTFLoader + Draco + Meshopt for Meshy-style compressed GLBs. */
+    function makeGltfLoader() {
+      const loader = new GLTFLoader();
+      try {
+        const draco = new DRACOLoader();
+        draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+        loader.setDRACOLoader(draco);
+      } catch (_) {}
+      try {
+        loader.setMeshoptDecoder(MeshoptDecoder);
+      } catch (_) {}
+      return loader;
+    }
+
+    async function gltfToVehicleRoot(url) {
+      const loader = makeGltfLoader();
+      const gltf = await loader.loadAsync(url);
+      const root = new THREE.Group();
+      const scene = gltf.scene;
+      const box = new THREE.Box3().setFromObject(scene);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z, 1);
+
+      scene.position.sub(center);
+      scene.traverse((node) => {
+        if (!node.isMesh) return;
+        node.castShadow = true;
+        node.receiveShadow = true;
+        if (node.material) {
+          node.material = node.material.clone();
+        }
+      });
+
+      root.add(scene);
+      root.scale.setScalar(0.78 / maxDim);
+      root.rotation.x = Math.PI / 2;
+      root.position.z = 0.07;
+      return root;
+    }
+
+    async function loadModel(anchor) {
+      const damagedUrl = assetUrl(session.modelUrl || session.fallbackModelUrl || fallbackSession.data.modelUrl);
+      const repairedCandidate = assetUrl(session.repairedModelUrl || '');
+      setStatus('Loading vehicle model(s)...');
+
+      damagedModelRoot = await gltfToVehicleRoot(damagedUrl);
+      hasDualModels = Boolean(repairedCandidate && repairedCandidate !== damagedUrl);
+      repairedModelRoot = null;
+
+      if (hasDualModels) {
+        try {
+          repairedModelRoot = await gltfToVehicleRoot(repairedCandidate);
+          repairedModelRoot.visible = false;
+        } catch (err) {
+          console.warn('[WebAR] Repaired GLB failed; falling back to single-model material “after”.', err);
+          hasDualModels = false;
+          repairedModelRoot = null;
+        }
+      }
+
+      modelRoot = new THREE.Group();
+      modelRoot.add(damagedModelRoot);
+      if (repairedModelRoot) modelRoot.add(repairedModelRoot);
+      anchor.group.add(modelRoot);
+
+      hotspotRoot = new THREE.Group();
+      (session.damages || []).forEach((damage, index) => {
+        hotspotRoot.add(makeHotspot(damage, index));
+      });
+      anchor.group.add(hotspotRoot);
+
+      setMode(currentMode);
+      post({
+        type: 'MODEL_LOADED',
+        modelUrl: damagedUrl,
+        repairedModelUrl: repairedCandidate || null,
+        dual: hasDualModels
+      });
+    }
+
+    function disposeMindAR() {
+      if (!mindarThree) return;
+      try {
+        mindarThree.renderer.setAnimationLoop(null);
+      } catch (_) {}
+      try {
+        mindarThree.stop();
+      } catch (_) {}
+      try {
+        mindarThree.renderer.dispose();
+      } catch (_) {}
+      mindarThree = null;
+    }
+
+    function resetArDom() {
+      while (container.firstChild) {
+        container.removeChild(container.lastChild);
+      }
+    }
+
+    function stopWebAR() {
+      if (!started) return;
+      disposeMindAR();
+      resetArDom();
+      modelRoot = null;
+      damagedModelRoot = null;
+      repairedModelRoot = null;
+      hasDualModels = false;
+      hotspotRoot = null;
+      started = false;
+      stopBtn.disabled = true;
+      gate.classList.remove('hidden');
+      startBtn.textContent = 'Start Camera';
+      setStatus('WebAR stopped. Start the camera when you are ready.');
+      post({ type: 'AR_STOPPED' });
+    }
+
+    /**
+     * Merge session fields from parent (Next.js) without reloading the page.
+     * Payload shape: { modelUrl?, repairedModelUrl?, targetUrl?, targetImageUrl?, title?, damages? }
+     * If AR is running, it is stopped first (MindAR cannot hot-swap targets safely here).
+     */
+    function applyWebArInit(payload) {
+      if (!payload || typeof payload !== 'object') return;
+      if (started) stopWebAR();
+
+      if (payload.modelUrl) session.modelUrl = String(payload.modelUrl);
+      if (payload.repairedModelUrl != null) session.repairedModelUrl = String(payload.repairedModelUrl);
+      if (payload.targetUrl) session.targetUrl = String(payload.targetUrl);
+      if (payload.targetImageUrl) session.targetImageUrl = String(payload.targetImageUrl);
+      if (payload.title) {
+        session.title = String(payload.title);
+        titleEl.textContent = session.title;
+      }
+      if (Array.isArray(payload.damages)) session.damages = payload.damages;
+
+      updateTargetImages();
+      renderDamagePills();
+      setMode('before');
+      setStatus('Session updated from host app. Tap Start Camera when ready.');
+      post({ type: 'WEBAR_INIT_APPLIED', scanId: session.scanId || null });
+    }
+
+    async function startWebAR() {
+      if (started) return;
+      updateHttpWarningUi();
+      if (!window.isSecureContext && !isLocalhostHost()) {
+        setStatus('Camera needs HTTPS or localhost. This origin is not a secure context.');
+        post({ type: 'WEBAR_ERROR', message: 'Camera requires HTTPS (or localhost).' });
+        return;
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setStatus('This browser does not expose camera access. Try Safari or Chrome.');
+        post({ type: 'WEBAR_ERROR', message: 'Camera access unavailable.' });
+        return;
+      }
+
+      started = true;
+      gate.classList.add('hidden');
+      startBtn.textContent = 'Starting...';
+      stopBtn.disabled = true;
+
+      try {
+        resetArDom();
+        const targetUrl = assetUrl(session.targetUrl || fallbackSession.data.targetUrl);
+        mindarThree = new MindARThree({
+          container,
+          imageTargetSrc: targetUrl,
+          uiLoading: 'no',
+          uiScanning: 'no',
+          uiError: 'no'
+        });
+
+        const { renderer, scene, camera } = mindarThree;
+        // Do NOT set renderer.outputColorSpace — MindAR sets outputEncoding for three@0.151.x
+        renderer.setClearColor(0x000000, 0);
+
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x202022, 2.2));
+        const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
+        keyLight.position.set(0.4, 1.2, 0.8);
+        scene.add(keyLight);
+
+        const anchor = mindarThree.addAnchor(0);
+        anchor.onTargetFound = () => {
+          setStatus('Target found. Model anchored to the image.');
+          post({ type: 'TRACK_FOUND' });
+        };
+        anchor.onTargetLost = () => {
+          setStatus('Target lost. Point the camera at the marker again.');
+          post({ type: 'TRACK_LOST' });
+        };
+
+        await loadModel(anchor);
+        setStatus('Starting camera. Point at the physical / on-screen target.');
+        await mindarThree.start();
+        startBtn.textContent = 'WebAR Live';
+        stopBtn.disabled = false;
+        post({ type: 'AR_STARTED' });
+        renderer.setAnimationLoop(() => {
+          renderer.render(scene, camera);
+        });
+      } catch (error) {
+        console.error('[WebAR] start failed:', error);
+        disposeMindAR();
+        resetArDom();
+        started = false;
+        stopBtn.disabled = true;
+        gate.classList.remove('hidden');
+        startBtn.textContent = 'Start Camera';
+        setStatus('WebAR could not start. Check camera permission, HTTPS, and model URLs.');
+        post({ type: 'WEBAR_ERROR', message: String(error?.message || error) });
+      }
+    }
+
+    function openDrawer() {
+      drawer.classList.add('open');
+    }
+
+    function closeDrawer() {
+      drawer.classList.remove('open');
+    }
+
+    beforeBtn.addEventListener('click', () => setMode('before'));
+    afterBtn.addEventListener('click', () => setMode('after'));
+    startBtn.addEventListener('click', startWebAR);
+    stopBtn.addEventListener('click', stopWebAR);
+    gateStartBtn.addEventListener('click', startWebAR);
+    targetBtn.addEventListener('click', openDrawer);
+    gateTargetBtn.addEventListener('click', openDrawer);
+    closeDrawerBtn.addEventListener('click', closeDrawer);
+
+    function handleExternalMessage(raw) {
+      let message = raw;
+      try {
+        message = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch (_) {
+        return;
+      }
+      if (!message || typeof message !== 'object') return;
+
+      if (message.type === 'WEBAR_INIT') {
+        const raw = message.payload && typeof message.payload === 'object' ? message.payload : message;
+        const payload = { ...raw };
+        delete payload.type;
+        applyWebArInit(payload);
+        return;
+      }
+      if (message.type === 'SET_STATE') {
+        setMode(message.state === 'after' ? 'after' : 'before');
+      }
+      if (message.type === 'START_AR') {
+        startWebAR();
+      }
+      if (message.type === 'STOP_AR') {
+        stopWebAR();
+      }
+    }
+
+    window.addEventListener('message', (event) => handleExternalMessage(event.data));
+    document.addEventListener('message', (event) => handleExternalMessage(event.data));
+
+    updateHttpWarningUi();
+    window.addEventListener('resize', updateHttpWarningUi);
+
+    session = await loadSession();
+    titleEl.textContent = session.title || 'Repair simulation';
+    updateTargetImages();
+    renderDamagePills();
+    setMode('before');
+    setStatus(scanId ? 'WebAR session loaded. Parent may send WEBAR_INIT with GLB URLs.' : 'Demo session loaded. Start the camera when ready.');
+    post({ type: 'WEBAR_READY', scanId: session.scanId || null });
+  </script>
+</body>
+</html>

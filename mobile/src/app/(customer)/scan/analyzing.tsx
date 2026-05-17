@@ -168,7 +168,7 @@ export default function AnalyzingScreen() {
         eyebrow="AI Diagnostic Pipeline"
         title="Analyzing Vehicle"
         onBack={() => router.replace('/(customer)/scan' as never)}
-        right={<Ionicons name="hardware-chip-outline" size={20} color={scannerColors.cyan} />}
+        right={<Ionicons name="hardware-chip-outline" size={20} color={scannerColors.orange} />}
       />
       <PipelineStepper currentIndex={stepForProgress(progress)} />
 
@@ -194,7 +194,7 @@ export default function AnalyzingScreen() {
               <AiPill
                 label={failed ? 'Needs retry' : currentStage.label}
                 icon={failed ? 'alert-circle-outline' : currentStage.icon}
-                color={failed ? scannerColors.red : scannerColors.cyan}
+                color={failed ? scannerColors.red : scannerColors.orange}
               />
               <Text style={styles.stageCount}>{currentStageIndex + 1}/{STAGES.length}</Text>
             </View>
@@ -228,7 +228,7 @@ export default function AnalyzingScreen() {
                     <Ionicons
                       name={complete ? 'checkmark' : stage.icon}
                       size={17}
-                      color={complete ? '#041014' : active ? scannerColors.cyan : scannerColors.textMuted}
+                      color={complete ? '#041014' : active ? scannerColors.orange : scannerColors.textMuted}
                     />
                   </View>
                   <View style={styles.pipelineCopy}>
@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     minHeight: 360,
   },
   visualPanel: {
-    borderColor: 'rgba(53,217,255,0.24)',
+    borderColor: 'rgba(255,107,53,0.24)',
   },
   visualInner: {
     minHeight: 352,
@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(53,217,255,0.28)',
+    borderColor: 'rgba(255,107,53,0.28)',
   },
   ringSweep: {
     position: 'absolute',
@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
     borderRadius: 77,
     borderTopWidth: 4,
     borderRightWidth: 4,
-    borderColor: scannerColors.cyan,
+    borderColor: scannerColors.orange,
   },
   ringInner: {
     width: 124,
@@ -360,7 +360,7 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     borderRadius: 4,
-    backgroundColor: scannerColors.cyan,
+    backgroundColor: scannerColors.orange,
   },
   pipelineList: {
     gap: 10,
@@ -381,12 +381,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
   pipelineIconActive: {
-    borderColor: scannerColors.cyan,
-    backgroundColor: 'rgba(53,217,255,0.12)',
+    borderColor: scannerColors.orange,
+    backgroundColor: 'rgba(255,107,53,0.12)',
   },
   pipelineIconDone: {
-    backgroundColor: scannerColors.cyan,
-    borderColor: scannerColors.cyan,
+    backgroundColor: scannerColors.orange,
+    borderColor: scannerColors.orange,
   },
   pipelineCopy: {
     flex: 1,

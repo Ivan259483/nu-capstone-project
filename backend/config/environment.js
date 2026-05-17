@@ -59,6 +59,11 @@ export const config = {
       'http://localhost:5173',
       'http://localhost:3000',
       'http://127.0.0.1:5173',
+      // Next.js / Vite dev (HTTP + HTTPS) for local + mkcert
+      'http://localhost:3100',
+      'https://localhost:3100',
+      'http://127.0.0.1:3100',
+      'https://127.0.0.1:3100',
     ];
 
     if (!raw || raw.trim() === '*') {

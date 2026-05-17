@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => {
     }
 
     return {
+        /** Also expose NEXT_PUBLIC_* so WebAR / scan flows can share one env name with Next.js. */
+        envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
         plugins,
         server: {
             host: 'localhost',

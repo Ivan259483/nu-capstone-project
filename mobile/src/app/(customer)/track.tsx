@@ -10,7 +10,7 @@
  *   5. Ready for Pickup       → status: paid / released / serviceTrackingStage: ready_pickup
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -630,6 +630,9 @@ const sc = StyleSheet.create({
   hint: { fontSize: 12, color: C.textDim, marginTop: -10 },
 });
 
+/** Stable fallback so `useMemo` never returns a fresh [] each render when the query has no data yet. */
+const EMPTY_BOOKINGS: BookingRecord[] = [];
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function TrackScreen() {
   const { profile } = useAuth();
@@ -637,9 +640,9 @@ export default function TrackScreen() {
   const insets      = useSafeAreaInsets();
   const { id: routeBookingId } = useLocalSearchParams<{ id?: string }>();
 
-  const [booking,        setBooking]        = useState<any>(null);
-  const [allBookings,    setAllBookings]    = useState<BookingRecord[]>([]);
   const [uploading,      setUploading]      = useState(false);
+  /** Local payment proof preview after upload (merged into derived `booking`). */
+  const [paymentProofLocal, setPaymentProofLocal] = useState<string | null>(null);
   // Release completion state
   const [showComplete,   setShowComplete]   = useState(false);
   const [completeBooking,setCompleteBooking]= useState<any>(null);
@@ -652,9 +655,11 @@ export default function TrackScreen() {
 
   // ── Data fetching ──
   const {
-    data: defaultBookings = [],
-    isLoading,
-    refetch,
+    data: bookingsQueryData,
+    isLoading: isBookingsQueryLoading,
+    isError: isBookingsQueryError,
+    error: bookingsQueryError,
+    refetch: refetchBookings,
   } = useQuery({
     queryKey: ['bookings'],
     queryFn: () => {
@@ -665,7 +670,13 @@ export default function TrackScreen() {
     refetchInterval: 8_000,
   });
 
-  const { data: specificBooking = null } = useQuery({
+  const {
+    data: specificBookingData,
+    isLoading: isSpecificBookingLoading,
+    isError: isSpecificBookingQueryError,
+    error: specificBookingQueryError,
+    refetch: refetchSpecificBooking,
+  } = useQuery({
     queryKey: ['booking', routeBookingId],
     queryFn: () => {
       invalidateCache('/bookings');
@@ -678,23 +689,59 @@ export default function TrackScreen() {
   // ── Real-time socket invalidation (mirrors useLiveJobs.ts) ──
   useRealtimeSync(['orders']);
 
-  useEffect(() => {
-    if (defaultBookings.length || defaultBookings !== undefined) {
-      setAllBookings(defaultBookings);
-      if (!routeBookingId) {
-        const active = [...defaultBookings]
-          .filter((b: any) => isDefaultTrackBookingRow(b.status))
-          .sort((a: any, b: any) =>
-            new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-          );
-        setBooking(active[0] || null);
-      }
-    }
-  }, [defaultBookings, routeBookingId]);
+  const allBookings = useMemo(
+    () => (bookingsQueryData === undefined ? EMPTY_BOOKINGS : bookingsQueryData),
+    [bookingsQueryData]
+  );
+
+  const defaultTrackBooking = useMemo(() => {
+    const active = [...allBookings]
+      .filter((b: any) => isDefaultTrackBookingRow(b.status))
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      );
+    return active[0] || null;
+  }, [allBookings]);
+
+  const bookingFromQuery = useMemo(() => {
+    if (routeBookingId) return specificBookingData ?? null;
+    return defaultTrackBooking;
+  }, [routeBookingId, specificBookingData, defaultTrackBooking]);
 
   useEffect(() => {
-    if (specificBooking) setBooking(specificBooking);
-  }, [specificBooking]);
+    setPaymentProofLocal(null);
+  }, [bookingFromQuery?.id]);
+
+  const booking = useMemo(() => {
+    if (!bookingFromQuery) return null;
+    if (paymentProofLocal) {
+      return { ...bookingFromQuery, paymentProofUrl: paymentProofLocal };
+    }
+    return bookingFromQuery;
+  }, [bookingFromQuery, paymentProofLocal]);
+
+  const isLoading =
+    isBookingsQueryLoading || (!!routeBookingId && isSpecificBookingLoading);
+
+  const showLoadError =
+    !isLoading &&
+    ((!routeBookingId && isBookingsQueryError) ||
+      (!!routeBookingId && isSpecificBookingQueryError));
+
+  const loadErrorMessage = useMemo(() => {
+    if (!showLoadError) return '';
+    if (routeBookingId && isSpecificBookingQueryError) {
+      return getApiErrorMessage(specificBookingQueryError, 'Could not load this booking.');
+    }
+    return getApiErrorMessage(bookingsQueryError, 'Could not load your bookings. Check your connection and API URL.');
+  }, [
+    showLoadError,
+    routeBookingId,
+    isSpecificBookingQueryError,
+    specificBookingQueryError,
+    bookingsQueryError,
+  ]);
 
   // ── Detect "Released" transition in real-time ─────────────────────────────
   // Only fires when status CHANGES to released (not on initial load).
@@ -707,10 +754,11 @@ export default function TrackScreen() {
   // Release is only valid after ready_pickup — but guards against timing gaps.
   useEffect(() => {
     if (!booking) return;
-    const newStatus = String(booking.status || '').toLowerCase();
+    const bookingSnapshot = booking;
+    const newStatus = String(bookingSnapshot.status || '').toLowerCase();
     // Also detect via serviceTrackingStage for faster response (socket may deliver
     // serviceTrackingStage = 'released' before order.status updates)
-    const newStage  = String(booking.serviceTrackingStage || '').toLowerCase();
+    const newStage = String(bookingSnapshot.serviceTrackingStage || '').toLowerCase();
     const isReleased = newStatus === 'released' || newStage === 'released';
 
     if (
@@ -719,20 +767,22 @@ export default function TrackScreen() {
       prevStatusRef.current !== 'released' &&
       !showComplete
     ) {
-      const currentStep = resolveStep({ ...booking, status: prevStatusRef.current });
+      const currentStep = resolveStep({ ...bookingSnapshot, status: prevStatusRef.current });
 
       if (currentStep < 4) {
         // Customer hasn't seen Step 5 yet — show it briefly first
         setForceStepIdx(4);
         step5Timer.current = setTimeout(() => {
           setForceStepIdx(null);
-          setCompleteBooking({ ...booking });
-          setShowComplete(true);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          if (bookingSnapshot) {
+            setCompleteBooking({ ...bookingSnapshot });
+            setShowComplete(true);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
         }, 1500);
-      } else {
+      } else if (bookingSnapshot) {
         // Already at Ready for Pickup (Step 5) — show completion immediately
-        setCompleteBooking({ ...booking });
+        setCompleteBooking({ ...bookingSnapshot });
         setShowComplete(true);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
@@ -800,10 +850,14 @@ export default function TrackScreen() {
 
   const onRefresh = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await refetch();
+    await Promise.all([
+      refetchBookings(),
+      routeBookingId ? refetchSpecificBooking() : Promise.resolve(),
+    ]);
   };
 
   const pickImage = async () => {
+    if (!booking?.id) return;
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
@@ -821,7 +875,7 @@ export default function TrackScreen() {
         const img = `data:image/jpeg;base64,${result.assets[0].base64}`;
         await bookingService.uploadPaymentProof(booking.id, img);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setBooking({ ...booking, paymentProofUrl: img });
+        setPaymentProofLocal(img);
       }
     } catch (err: any) {
       Alert.alert('Upload Failed', getApiErrorMessage(err));
@@ -867,6 +921,30 @@ export default function TrackScreen() {
         {/* ───────────────── Loading ───────────────── */}
         {isLoading ? (
           <PageSkeleton />
+
+        /* ───────────────── Load error (e.g. wrong API port / offline) ──────────────── */
+        ) : showLoadError ? (
+          <Animated.View entering={FadeInDown.delay(80).duration(220)} style={s.emptyCard}>
+            <View style={s.emptyIcon}>
+              <Ionicons name="cloud-offline-outline" size={36} color={C.orange} />
+            </View>
+            <Text style={s.emptyTitle}>Could not load tracker</Text>
+            <Text style={[s.emptySub, { marginBottom: 4 }]}>{loadErrorMessage}</Text>
+            <Text style={[s.emptySub, { fontSize: 12, opacity: 0.85 }]}>
+              Confirm the backend is running and EXPO_PUBLIC_API_URL matches your machine (e.g. same port as Express).
+            </Text>
+            <TouchableOpacity
+              style={s.emptyBtn}
+              activeOpacity={0.85}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                void onRefresh();
+              }}
+            >
+              <Text style={s.emptyBtnText}>Try again</Text>
+              <Ionicons name="refresh" size={15} color="#000" />
+            </TouchableOpacity>
+          </Animated.View>
 
         /* ───────────────── Empty State ──────────────── */
         ) : !hasActive ? (

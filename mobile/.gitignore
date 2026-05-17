@@ -41,3 +41,6 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Unity as Library exports (see mobile/unity/README.md)
+unity/builds/

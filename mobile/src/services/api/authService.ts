@@ -210,6 +210,35 @@ const loginEmailDirect = async (
 ): Promise<{ token: string; user: BackendUser }> => {
   const response = await apiClient.post('/auth/login', { email, password });
   const d = response?.data;
+
+  if (d?.success && d?.data?.requiresOtp) {
+    const err = new Error(
+      d?.message || 'Please verify your email. Use the code we sent you, then sign in again.'
+    ) as Error & { code: string; verifyEmail?: string };
+    err.code = 'REQUIRES_EMAIL_OTP';
+    err.verifyEmail = d?.data?.email || email;
+    throw err;
+  }
+
+  if (d?.success && d?.data?.requiresOTP) {
+    const err = new Error(
+      d?.message || 'Enter the verification code sent to your email to finish signing in.'
+    ) as Error & { code: string; userId?: string; maskedEmail?: string };
+    err.code = 'REQUIRES_STAFF_OTP';
+    err.userId = d?.data?.userId;
+    err.maskedEmail = d?.data?.maskedEmail;
+    throw err;
+  }
+
+  if (d?.success && d?.data?.requiresPasswordChange) {
+    const err = new Error(
+      d?.message || 'You must set a new password before you can sign in.'
+    ) as Error & { code: string; tempToken?: string };
+    err.code = 'REQUIRES_PASSWORD_CHANGE';
+    err.tempToken = d?.data?.token;
+    throw err;
+  }
+
   // Backend returns either { success, token, user } or { success, data: { token, user } }
   const token: string = d?.data?.token || d?.token;
   const rawUser: any = d?.data?.user || d?.user;
