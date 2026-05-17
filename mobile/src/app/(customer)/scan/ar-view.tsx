@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated as RNAnimated,
+  Linking,
   Pressable,
   ScrollView,
   StatusBar,
@@ -449,7 +450,11 @@ export default function ArViewScreen() {
   const openWebArInBrowser = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     try {
-      await WebBrowser.openBrowserAsync(webArBrowserUri);
+      // MUST use Linking.openURL (real Safari) — NOT WebBrowser.openBrowserAsync.
+      // iOS Quick Look AR only launches from real Safari, not Safari View Controller
+      // (in-app browser). openBrowserAsync uses SFSafariViewController which silently
+      // blocks Quick Look AR triggers.
+      await Linking.openURL(webArBrowserUri);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not open browser.';
       setWebArError(message);
