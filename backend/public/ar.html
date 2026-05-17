@@ -4,6 +4,8 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"/>
   <title>AutoSPF+ AR Viewer</title>
+  <!-- model-viewer: Google's web component for 3D/AR — handles GLB→USDZ for Quick Look -->
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -16,29 +18,26 @@
       overflow: hidden;
     }
 
-    /* ── Full-screen background ── */
-    .bg {
-      position: fixed; inset: 0; z-index: 0;
+    /* ── model-viewer fills the screen ── */
+    model-viewer {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
       background:
-        radial-gradient(circle at 50% 30%, rgba(249,115,22,.13), transparent 55%),
-        radial-gradient(circle at 80% 80%, rgba(249,115,22,.07), transparent 40%),
+        radial-gradient(circle at 50% 46%, rgba(255,255,255,.06), transparent 30%),
+        radial-gradient(circle at 50% 86%, rgba(249,115,22,.10), transparent 34%),
         #050506;
+      --poster-color: #050506;
+      --progress-bar-color: #f97316;
+      --progress-mask: rgba(5,5,6,.88);
     }
 
-    /* ── Safe-area wrapper ── */
-    .shell {
-      position: relative; z-index: 1;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: space-between;
-      height: 100vh;
-      padding:
-        max(54px, env(safe-area-inset-top))
-        20px
-        max(36px, env(safe-area-inset-bottom));
+    /* ── Header overlay ── */
+    .header {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+      padding: max(52px, env(safe-area-inset-top)) 20px 14px;
+      background: linear-gradient(180deg, rgba(5,5,6,.92) 0%, transparent 100%);
+      text-align: center; pointer-events: none;
     }
-
-    /* ── Header ── */
-    .header { text-align: center; }
     .badge {
       display: inline-flex; align-items: center; gap: 5px;
       padding: 4px 12px; border-radius: 20px;
@@ -46,144 +45,64 @@
       background: rgba(249,115,22,.12);
       font-size: 10px; font-weight: 800; letter-spacing: .9px;
       color: #f97316; text-transform: uppercase;
-      margin-bottom: 14px;
+      margin-bottom: 10px;
     }
-    .header h1 { font-size: 22px; font-weight: 900; letter-spacing: -.4px; }
-    .header p  { font-size: 13px; color: rgba(255,255,255,.4); margin-top: 6px; font-weight: 600; }
+    .header h1 { font-size: 20px; font-weight: 900; letter-spacing: -.3px; }
+    .header p  { font-size: 12px; color: rgba(255,255,255,.45); margin-top: 4px; font-weight: 600; }
 
-    /* ── Centre icon card ── */
-    .card {
-      flex: 1;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      gap: 22px; width: 100%;
+    /* ── Custom AR button (slots into model-viewer) ── */
+    #arBtn {
+      position: absolute;
+      bottom: max(28px, env(safe-area-inset-bottom, 28px));
+      left: 50%; transform: translateX(-50%);
+      padding: 0 36px; height: 56px; border-radius: 28px;
+      background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+      color: #fff; font-size: 15px; font-weight: 900; letter-spacing: .4px;
+      text-transform: uppercase;
+      border: none; cursor: pointer; white-space: nowrap;
+      box-shadow: 0 8px 36px rgba(249,115,22,.50), inset 0 1px 0 rgba(255,255,255,.22);
+      transition: opacity .2s, transform .15s;
+      display: flex; align-items: center; gap: 10px;
     }
-
-    .ar-icon-ring {
-      width: 130px; height: 130px; border-radius: 50%;
-      border: 2px solid rgba(249,115,22,.28);
-      display: flex; align-items: center; justify-content: center;
-      background: rgba(249,115,22,.06);
-      box-shadow: 0 0 60px rgba(249,115,22,.15);
-      animation: pulse 2.4s ease-in-out infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { box-shadow: 0 0 40px rgba(249,115,22,.12); }
-      50%       { box-shadow: 0 0 80px rgba(249,115,22,.28); }
-    }
-    .ar-icon { font-size: 62px; line-height: 1; }
-
-    .card-title {
-      font-size: 20px; font-weight: 900; letter-spacing: -.3px;
-      text-align: center;
-    }
-    .card-sub {
-      font-size: 13px; font-weight: 600; color: rgba(255,255,255,.45);
-      text-align: center; line-height: 1.6; max-width: 270px;
-    }
-
-    /* Status pill */
-    #statusPill {
-      display: flex; align-items: center; gap: 8px;
-      padding: 8px 18px; border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.1);
-      background: rgba(255,255,255,.05);
-      font-size: 12px; font-weight: 700; color: rgba(255,255,255,.5);
-    }
-    #statusDot {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: #f97316;
-      animation: blink 1.2s ease-in-out infinite;
-    }
-    @keyframes blink {
-      0%, 100% { opacity: 1; } 50% { opacity: .25; }
-    }
-    #statusText { }
+    #arBtn:active { opacity: .85; transform: translateX(-50%) scale(.96); }
 
     /* ── Damage pills ── */
     #pills {
+      position: fixed; z-index: 40;
+      top: max(105px, calc(env(safe-area-inset-top) + 70px));
+      left: 12px; right: 12px;
       display: flex; flex-wrap: wrap; gap: 6px;
-      justify-content: center; max-width: 320px;
+      pointer-events: none;
     }
     .pill {
       display: flex; align-items: center; gap: 5px;
       padding: 5px 10px; border-radius: 999px;
       border: 1px solid rgba(255,255,255,.12);
-      background: rgba(8,8,10,.85);
-      font-size: 11px; font-weight: 800;
+      background: rgba(8,8,10,.82);
+      backdrop-filter: blur(14px);
+      font-size: 11px; font-weight: 800; white-space: nowrap;
     }
     .pdot { width: 7px; height: 7px; border-radius: 50%; }
 
-    /* ── Bottom actions ── */
-    .actions { width: 100%; display: flex; flex-direction: column; gap: 12px; }
+    /* ── Loading overlay ── */
+    #loading {
+      position: fixed; inset: 0; z-index: 60;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: #050506; gap: 16px;
+    }
+    .ring {
+      width: 56px; height: 56px; border-radius: 50%;
+      border: 3px solid rgba(249,115,22,.20);
+      border-top-color: #f97316;
+      animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg) } }
+    .lt { font-size: 13px; font-weight: 700; color: rgba(255,255,255,.58); }
+    .ls { color: #f97316; font-size: 11px; font-weight: 800; margin-top: 2px; }
 
-    /* Main AR button */
-    #arBtn {
-      text-decoration: none;
-      width: 100%; height: 60px; border-radius: 30px;
-      background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
-      border: none; cursor: pointer;
-      font-size: 16px; font-weight: 900; letter-spacing: .4px; color: #fff;
-      display: flex; align-items: center; justify-content: center; gap: 10px;
-      box-shadow: 0 8px 36px rgba(249,115,22,.55), inset 0 1px 0 rgba(255,255,255,.22);
-      transition: opacity .2s, transform .15s;
-    }
-    #arBtn:active { opacity: .88; transform: scale(.97); }
-    #arBtnIconPreview {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      opacity: 0;
-      pointer-events: none;
-    }
-    #debugWrap {
-      width: 100%;
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(10,10,12,.72);
-      border-radius: 14px;
-      padding: 8px 10px;
-    }
-    #debugLabel {
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: .6px;
-      text-transform: uppercase;
-      color: rgba(255,255,255,.45);
-      margin-bottom: 4px;
-    }
-    #debugUrl {
-      font-size: 11px;
-      font-weight: 600;
-      line-height: 1.4;
-      color: rgba(255,255,255,.72);
-      white-space: pre-wrap;
-      word-break: break-all;
-      max-height: 78px;
-      overflow: auto;
-    }
-
-    /* Before/After toggle */
-    #toggle {
-      display: flex; align-items: center;
-      border-radius: 24px; overflow: hidden;
-      border: 1px solid rgba(255,255,255,.14);
-      background: rgba(8,8,10,.82);
-      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-      align-self: center;
-    }
-    .tBtn {
-      padding: 10px 24px;
-      font-size: 11px; font-weight: 900; letter-spacing: .8px;
-      text-transform: uppercase; border: none; background: transparent;
-      color: rgba(255,255,255,.45); cursor: pointer;
-      transition: color .25s, background .25s;
-    }
-    .tBtn.active-dmg { color: #f97316; background: rgba(249,115,22,.18); }
-    .tBtn.active-rep { color: #10b981; background: rgba(16,185,129,.18); }
-    .tSep { width: 1px; height: 22px; background: rgba(255,255,255,.14); }
-
-    /* ── Error state ── */
-    #errBox {
+    /* ── Error / No-URL overlays ── */
+    #errBox, #noUrl {
       position: fixed; inset: 0; z-index: 80;
       display: none; flex-direction: column;
       align-items: center; justify-content: center;
@@ -198,260 +117,276 @@
       color: #f97316; font-size: 13px; font-weight: 800; cursor: pointer;
     }
 
-    /* ── No-URL state ── */
-    #noUrl {
-      position: fixed; inset: 0; z-index: 90;
-      display: none; flex-direction: column;
-      align-items: center; justify-content: center;
-      background: #050506; padding: 32px; text-align: center; gap: 16px;
+    /* ── Debug panel ── */
+    #debugWrap {
+      position: fixed; bottom: max(96px, calc(env(safe-area-inset-bottom) + 70px));
+      left: 12px; right: 12px; z-index: 45;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(10,10,12,.72);
+      backdrop-filter: blur(12px);
+      border-radius: 14px; padding: 8px 10px;
+    }
+    #debugLabel {
+      font-size: 10px; font-weight: 800; letter-spacing: .6px;
+      text-transform: uppercase; color: rgba(255,255,255,.45);
+      margin-bottom: 4px;
+    }
+    #debugUrl {
+      font-size: 10px; font-weight: 600; line-height: 1.4;
+      color: rgba(255,255,255,.55);
+      white-space: pre-wrap; word-break: break-all;
+      max-height: 60px; overflow: auto;
     }
   </style>
 </head>
 <body>
 
-<div class="bg"></div>
+<!-- Header -->
+<div class="header">
+  <div class="badge">🔬 AutoSPF+ AR</div>
+  <h1>View In Your Space</h1>
+  <p>iOS Quick Look · Google Scene Viewer · WebXR</p>
+</div>
 
-<div class="shell">
+<!-- Damage pills -->
+<div id="pills"></div>
 
-  <!-- Header -->
-  <div class="header">
-    <div class="badge">🔬 AutoSPF+ AR</div>
-    <h1>View In Your Space</h1>
-    <p>iOS Quick Look AR — powered by Meshy AI</p>
-  </div>
+<!-- model-viewer: the key component that makes AR work with GLB files -->
+<model-viewer id="mv"
+  alt="AutoSPF+ vehicle 3D model"
+  ar
+  ar-modes="webxr scene-viewer quick-look"
+  ar-placement="floor"
+  ar-scale="auto"
+  camera-controls
+  touch-action="pan-y"
+  interaction-prompt="auto"
+  auto-rotate
+  auto-rotate-delay="1500"
+  rotation-per-second="14deg"
+  shadow-intensity="1.4"
+  shadow-softness="0.8"
+  environment-image="neutral"
+  exposure="1.08"
+  camera-orbit="35deg 64deg auto"
+  field-of-view="32deg"
+  loading="eager"
+  reveal="auto"
+>
+  <button slot="ar-button" id="arBtn" type="button">📱 View In Your Space</button>
+</model-viewer>
 
-  <!-- Centre card -->
-  <div class="card">
-    <div class="ar-icon-ring">
-      <span class="ar-icon">🚗</span>
-    </div>
-
-    <div class="card-title">3D Vehicle Model Ready</div>
-    <div class="card-sub">
-      Tap the button below to place the vehicle in your real environment using iOS Quick Look AR.
-    </div>
-
-    <div id="statusPill">
-      <div id="statusDot"></div>
-      <span id="statusText">Ready to launch AR</span>
-    </div>
-
-    <!-- Damage pills -->
-    <div id="pills"></div>
-  </div>
-
-  <!-- Bottom -->
-  <div class="actions">
-    <div id="toggle">
-      <button class="tBtn active-dmg" id="btnDmg" onclick="setMode('before')">⚠ DAMAGED</button>
-      <div class="tSep"></div>
-      <button class="tBtn" id="btnRep" onclick="setMode('after')">✓ REPAIRED</button>
-    </div>
-
-    <a id="arBtn" rel="ar" href="#">
-      <img
-        id="arBtnIconPreview"
-        src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
-        alt=""
-      />
-      <span>📱</span>
-      <span>View In Your Space</span>
-    </a>
-
-    <div id="debugWrap">
-      <div id="debugLabel">Debug GLB URL</div>
-      <div id="debugUrl">Waiting for ?model=...</div>
-    </div>
-  </div>
+<!-- Loading overlay -->
+<div id="loading">
+  <div class="ring"></div>
+  <div class="lt">Loading 3D model…</div>
+  <div class="ls" id="prog">0%</div>
 </div>
 
 <!-- Error overlay -->
 <div id="errBox">
   <div class="ei">⚠️</div>
-  <div class="et">No Model URL Found</div>
-  <div class="em" id="errMsg">Could not find a 3D model URL. Please go back and generate the model first.</div>
-  <button class="ert" onclick="history.back()">← Go Back</button>
+  <div class="et" id="errTitle">Model could not load</div>
+  <div class="em" id="errMsg">The 3D model could not be fetched. Check your connection and try again.</div>
+  <button class="ert" onclick="location.reload()">↻ Retry</button>
 </div>
 
 <!-- No-URL overlay -->
 <div id="noUrl">
   <div class="ei">🔗</div>
   <div class="et">No Model URL</div>
-  <div class="em">Missing <code>?model=</code> parameter. Open this page from the AutoSPF+ app.</div>
+  <div class="em">Missing <code>?token=</code> or <code>?model=</code> parameter. Open this page from the AutoSPF+ app.</div>
+</div>
+
+<!-- Debug panel -->
+<div id="debugWrap">
+  <div id="debugLabel">GLB URL</div>
+  <div id="debugUrl">Resolving…</div>
 </div>
 
 <script>
 (function () {
   'use strict';
 
-  /* ══════════════════════════════
-     RN bridge (declared early so init code can use it)
-  ══════════════════════════════ */
+  var mv       = document.getElementById('mv');
+  var loading  = document.getElementById('loading');
+  var errBox   = document.getElementById('errBox');
+  var errTitle = document.getElementById('errTitle');
+  var errMsg   = document.getElementById('errMsg');
+  var noUrlBox = document.getElementById('noUrl');
+  var debugUrl = document.getElementById('debugUrl');
+  var prog     = document.getElementById('prog');
+  var pills    = document.getElementById('pills');
+
+  var glbUrl   = '';
+  var damages  = [];
+  var mode     = 'before';
+  var SEV      = { high: '#ef4444', medium: '#f97316', low: '#10b981', critical: '#ef4444' };
+
+  /* ── RN bridge ── */
   function postToRN(data) {
-    try {
-      if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(data));
-    } catch (_) {}
+    try { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(data)); } catch (_) {}
   }
 
-  /* ══════════════════════════════
-     Read ?model= or ?token= from URL
-     - ?token=xxx  → fetch model URL from /api/ai/ar-session/:token (short URL!)
-     - ?model=xxx  → use directly (backward compat)
-  ══════════════════════════════ */
+  /* ── Read params ── */
   var params = new URLSearchParams(window.location.search);
-  var glbUrl = (params.get('model') || '').trim();
-  var token = (params.get('token') || '').trim();
+  var paramModel = (params.get('model') || '').trim();
+  var paramToken = (params.get('token') || '').trim();
 
-  /* Damage pills */
-  var damages = [];
-  var statusText = document.getElementById('statusText');
-  var statusDot = document.getElementById('statusDot');
-  var arBtn = document.getElementById('arBtn');
-  var debugUrlEl = document.getElementById('debugUrl');
   try {
     var dp = params.get('damages');
     if (dp) damages = JSON.parse(decodeURIComponent(dp));
   } catch (_) {}
 
-  /* ── Token-based fetch ── */
-  if (token && !glbUrl) {
-    statusText.textContent = 'Fetching model URL…';
-    debugUrlEl.textContent = 'Loading token: ' + token;
-    fetch(window.location.origin + '/api/ai/ar-session/' + encodeURIComponent(token))
-      .then(function (r) { return r.json(); })
+  /* ════════════════════════════════════════
+     Resolve the GLB URL — token or direct
+  ════════════════════════════════════════ */
+  if (paramToken) {
+    // Token approach: fetch model URL from backend
+    debugUrl.textContent = 'Fetching session ' + paramToken + '…';
+    fetch(window.location.origin + '/api/ai/ar-session/' + encodeURIComponent(paramToken))
+      .then(function (r) {
+        if (!r.ok) throw new Error('Session not found (HTTP ' + r.status + ')');
+        return r.json();
+      })
       .then(function (data) {
-        if (!data.modelUrl) throw new Error('No modelUrl in session');
+        if (!data.modelUrl) throw new Error('Empty modelUrl in session');
         glbUrl = data.modelUrl;
         if (Array.isArray(data.damages) && data.damages.length) damages = data.damages;
-        console.log('[AutoSPF+ AR] Token resolved → GLB URL:', glbUrl);
-        debugUrlEl.textContent = glbUrl;
+        console.log('[AR] Token resolved:', glbUrl);
         boot();
       })
       .catch(function (err) {
-        console.error('[AutoSPF+ AR] Token fetch failed:', err);
-        document.getElementById('noUrl').style.display = 'flex';
-        arBtn.style.display = 'none';
-        debugUrlEl.textContent = 'Token fetch failed: ' + err.message;
-        postToRN({ type: 'WEBAR_ERROR', message: 'AR session expired or not found.' });
+        console.error('[AR] Token fetch failed:', err);
+        noUrlBox.style.display = 'flex';
+        debugUrl.textContent = 'Token error: ' + err.message;
+        postToRN({ type: 'WEBAR_ERROR', message: err.message });
       });
-    return; // wait for async fetch
-  }
-
-  /* ══════════════════════════════
-     Validate URL (direct ?model= path)
-  ══════════════════════════════ */
-  if (!glbUrl || !/^https?:\/\//i.test(glbUrl)) {
-    document.getElementById('noUrl').style.display = 'flex';
-    arBtn.style.display = 'none';
-    debugUrlEl.textContent = 'Invalid or missing ?model= URL';
+  } else if (paramModel && /^https?:\/\//i.test(paramModel)) {
+    // Direct URL approach
+    glbUrl = paramModel;
+    boot();
+  } else {
+    // No URL provided
+    noUrlBox.style.display = 'flex';
+    debugUrl.textContent = 'No ?token= or ?model= provided';
     postToRN({ type: 'WEBAR_ERROR', message: 'No model URL provided' });
-    return;
   }
 
-  console.log('[AutoSPF+ AR] GLB URL:', glbUrl);
-  debugUrlEl.textContent = glbUrl;
-  boot();
-
-  /* ══════════════════════════════
-     Boot — called once we have a valid glbUrl
-  ══════════════════════════════ */
+  /* ════════════════════════════════════════
+     Boot — start model-viewer once we have a URL
+  ════════════════════════════════════════ */
   function boot() {
-  postToRN({ type: 'WEBAR_READY', modelUrl: glbUrl });
+    debugUrl.textContent = glbUrl;
+    postToRN({ type: 'WEBAR_READY', modelUrl: glbUrl });
 
-  /* Update status */
-  statusText.textContent = 'GLB ready — tap to launch';
+    // Set model-viewer source — this triggers loading + enables AR
+    mv.setAttribute('src', glbUrl);
+    mv.setAttribute('ios-src', glbUrl);
 
-  /* ══════════════════════════════
-     Damage pills render
-  ══════════════════════════════ */
-  var SEV = { high: '#ef4444', medium: '#f97316', low: '#10b981', critical: '#ef4444' };
-  var mode = 'before';
+    renderPills();
 
+    /* ── Progress ── */
+    mv.addEventListener('progress', function (e) {
+      var p = e.detail && e.detail.totalProgress ? Math.round(e.detail.totalProgress * 100) : 0;
+      if (prog) prog.textContent = p + '%';
+    });
+
+    /* ── Model loaded ── */
+    mv.addEventListener('load', function () {
+      loading.style.display = 'none';
+      console.log('[AR] Model loaded successfully');
+      postToRN({ type: 'MODEL_LOADED', modelUrl: glbUrl });
+    });
+
+    /* ── Model error ── */
+    mv.addEventListener('error', function (e) {
+      loading.style.display = 'none';
+      errBox.style.display = 'flex';
+      var msg = 'The 3D model could not be loaded.';
+      console.error('[AR] Model error:', e);
+      postToRN({ type: 'WEBAR_ERROR', message: msg });
+    });
+
+    /* ── AR status ── */
+    mv.addEventListener('ar-status', function (e) {
+      var s = e.detail && e.detail.status ? e.detail.status : '';
+      console.log('[AR] ar-status:', s);
+
+      if (s === 'session-started') {
+        postToRN({ type: 'AR_STARTED', mode: mode });
+      }
+      if (s === 'not-presenting') {
+        postToRN({ type: 'AR_ENDED', mode: mode });
+      }
+      if (s === 'failed') {
+        console.warn('[AR] model-viewer AR failed, trying manual <a rel=ar> fallback');
+        // Fallback: create a temporary <a rel="ar"> and click it
+        var a = document.createElement('a');
+        a.setAttribute('rel', 'ar');
+        a.href = glbUrl;
+        var img = document.createElement('img');
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        img.width = 1; img.height = 1;
+        a.appendChild(img);
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 500);
+        postToRN({ type: 'AR_FALLBACK', mode: mode });
+      }
+    });
+
+    /* ── Message handler (from RN WebView) ── */
+    function handleMessage(raw) {
+      var msg;
+      try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { return; }
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'SET_STATE') setMode(msg.state === 'after' ? 'after' : 'before');
+      if (msg.type === 'ACTIVATE_AR') {
+        var btn = mv.querySelector('[slot="ar-button"]');
+        if (btn) btn.click();
+      }
+      if (msg.type === 'WEBAR_INIT') {
+        var p = msg.payload || msg;
+        if (p.modelUrl) {
+          glbUrl = p.modelUrl;
+          mv.setAttribute('src', glbUrl);
+          mv.setAttribute('ios-src', glbUrl);
+          debugUrl.textContent = glbUrl;
+        }
+        if (Array.isArray(p.damages)) { damages = p.damages; renderPills(); }
+        postToRN({ type: 'WEBAR_INIT_APPLIED' });
+      }
+    }
+    window.addEventListener('message', function (e) { handleMessage(e.data); });
+    document.addEventListener('message', function (e) { handleMessage(e.data); });
+  }
+
+  /* ════════════════════════════════════════
+     Damage pills
+  ════════════════════════════════════════ */
   function renderPills() {
-    var el = document.getElementById('pills');
-    el.innerHTML = '';
+    pills.innerHTML = '';
+    if (!Array.isArray(damages) || !damages.length) return;
     damages.forEach(function (d) {
-      var c    = mode === 'after' ? '#10b981' : (SEV[d.severity] || SEV.medium);
+      var c = mode === 'after' ? '#10b981' : (SEV[d.severity] || SEV.medium);
       var pill = document.createElement('div');
       pill.className = 'pill';
       pill.innerHTML =
         '<span class="pdot" style="background:' + c + ';box-shadow:0 0 6px ' + c + '"></span>' +
         '<span style="color:' + c + '">' + (mode === 'after' ? '✓ ' : '') + (d.affectedArea || d.type || 'Damage') + '</span>';
-      el.appendChild(pill);
+      pills.appendChild(pill);
     });
   }
-  renderPills();
 
-  /* ══════════════════════════════
+  /* ════════════════════════════════════════
      Before / After toggle
-  ══════════════════════════════ */
+  ════════════════════════════════════════ */
   window.setMode = function (m) {
     mode = m;
-    document.getElementById('btnDmg').className = 'tBtn' + (m === 'before' ? ' active-dmg' : '');
-    document.getElementById('btnRep').className = 'tBtn' + (m === 'after'  ? ' active-rep' : '');
     renderPills();
     postToRN({ type: 'VARIANT_READY', mode: m });
   };
-
-  /* ══════════════════════════════
-     Set AR button href directly
-     ──────────────────────────────
-     iOS Quick Look MUST receive the direct CDN URL (assets.meshy.ai).
-     Routing through a server-side proxy causes Quick Look to fail with
-     "Unable to open URL" because it cannot follow proxy redirects.
-     Pass glbUrl as-is — Safari fetches the GLB directly from Meshy CDN.
-  ══════════════════════════════ */
-  function refreshArUrl() {
-    arBtn.setAttribute('href', glbUrl);
-    debugUrlEl.textContent = glbUrl;
-    return glbUrl;
-  }
-
-  refreshArUrl();
-
-  /* ══════════════════════════════
-     Quick Look AR trigger
-  ══════════════════════════════ */
-  window.launchQuickLook = function () {
-    var url = refreshArUrl();
-    console.log('[AutoSPF+ AR] Launching Quick Look for:', url);
-
-    statusText.textContent = 'Launching AR…';
-    statusDot.style.background = '#10b981';
-
-    postToRN({ type: 'AR_LAUNCHED', modelUrl: url });
-    return url;
-  };
-
-  arBtn.addEventListener('click', function () {
-    window.launchQuickLook();
-    setTimeout(function () {
-      statusText.textContent = 'GLB ready — tap to launch';
-      statusDot.style.background = '#f97316';
-    }, 2000);
-  });
-
-  /* postToRN is declared at the top of this script */
-
-  function handleMessage(raw) {
-    var msg;
-    try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { return; }
-    if (!msg || typeof msg !== 'object') return;
-    if (msg.type === 'SET_STATE')   setMode(msg.state === 'after' ? 'after' : 'before');
-    if (msg.type === 'ACTIVATE_AR') arBtn.click();
-    if (msg.type === 'WEBAR_INIT') {
-      var p = msg.payload || msg;
-      if (p.modelUrl) {
-        glbUrl = p.modelUrl;
-        refreshArUrl();
-      }
-      if (Array.isArray(p.damages)) { damages = p.damages; renderPills(); }
-      postToRN({ type: 'WEBAR_INIT_APPLIED' });
-    }
-  }
-  window.addEventListener('message',   function (e) { handleMessage(e.data); });
-  document.addEventListener('message', function (e) { handleMessage(e.data); });
-  } // end boot()
 
 })();
 </script>
