@@ -4,133 +4,142 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"/>
   <title>AutoSPF+ AR Viewer</title>
-
-  <!-- Google Model Viewer -->
-  <script type="module"
-    src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js">
-  </script>
-
   <style>
-    /* ═══════════════════════════════════
-       RESET & BASE
-    ═══════════════════════════════════ */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     html, body {
       width: 100%; height: 100%;
       background: #050506;
-      overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
       color: #fff;
       -webkit-tap-highlight-color: transparent;
+      overflow: hidden;
     }
 
-    /* ═══════════════════════════════════
-       MODEL VIEWER — fills whole screen
-    ═══════════════════════════════════ */
-    model-viewer {
-      width: 100%;
-      height: 100vh;
-      --poster-color: #050506;
-      --progress-bar-color: #f97316;
-      --progress-mask: rgba(5,5,6,.90);
+    /* ── Full-screen background ── */
+    .bg {
+      position: fixed; inset: 0; z-index: 0;
       background:
-        radial-gradient(circle at 50% 42%, rgba(255,255,255,.04), transparent 32%),
-        radial-gradient(circle at 50% 80%, rgba(249,115,22,.09), transparent 38%),
+        radial-gradient(circle at 50% 30%, rgba(249,115,22,.13), transparent 55%),
+        radial-gradient(circle at 80% 80%, rgba(249,115,22,.07), transparent 40%),
         #050506;
     }
 
-    /* Hide model-viewer's default AR button — we use our own */
-    model-viewer::part(default-ar-button) { display: none !important; }
-
-    /* ═══════════════════════════════════
-       HEADER OVERLAY
-    ═══════════════════════════════════ */
-    .header {
-      position: fixed; top: 0; left: 0; right: 0;
-      padding: max(52px, env(safe-area-inset-top)) 20px 14px;
-      background: linear-gradient(180deg, rgba(5,5,6,.95) 0%, transparent 100%);
-      z-index: 100; text-align: center; pointer-events: none;
+    /* ── Safe-area wrapper ── */
+    .shell {
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: space-between;
+      height: 100vh;
+      padding:
+        max(54px, env(safe-area-inset-top))
+        20px
+        max(36px, env(safe-area-inset-bottom));
     }
-    .header h1 { font-size: 17px; font-weight: 700; letter-spacing: -.2px; }
-    .header p  { font-size: 12px; color: rgba(255,255,255,.45); margin-top: 4px; }
-    .header .badge {
+
+    /* ── Header ── */
+    .header { text-align: center; }
+    .badge {
       display: inline-flex; align-items: center; gap: 5px;
-      margin-top: 8px; padding: 4px 10px;
-      border-radius: 20px; border: 1px solid rgba(249,115,22,.40);
+      padding: 4px 12px; border-radius: 20px;
+      border: 1px solid rgba(249,115,22,.40);
       background: rgba(249,115,22,.12);
-      font-size: 10px; font-weight: 800; letter-spacing: .8px;
+      font-size: 10px; font-weight: 800; letter-spacing: .9px;
       color: #f97316; text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .header h1 { font-size: 22px; font-weight: 900; letter-spacing: -.4px; }
+    .header p  { font-size: 13px; color: rgba(255,255,255,.4); margin-top: 6px; font-weight: 600; }
+
+    /* ── Centre icon card ── */
+    .card {
+      flex: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 22px; width: 100%;
     }
 
-    /* ═══════════════════════════════════
-       PROGRESS BAR — top of screen
-    ═══════════════════════════════════ */
-    #progressWrap {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
-      height: 3px; background: rgba(255,255,255,.08);
+    .ar-icon-ring {
+      width: 130px; height: 130px; border-radius: 50%;
+      border: 2px solid rgba(249,115,22,.28);
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(249,115,22,.06);
+      box-shadow: 0 0 60px rgba(249,115,22,.15);
+      animation: pulse 2.4s ease-in-out infinite;
     }
-    #progressBar {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, #f97316, #fb923c);
-      transition: width .25s ease;
-      border-radius: 0 2px 2px 0;
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 40px rgba(249,115,22,.12); }
+      50%       { box-shadow: 0 0 80px rgba(249,115,22,.28); }
+    }
+    .ar-icon { font-size: 62px; line-height: 1; }
+
+    .card-title {
+      font-size: 20px; font-weight: 900; letter-spacing: -.3px;
+      text-align: center;
+    }
+    .card-sub {
+      font-size: 13px; font-weight: 600; color: rgba(255,255,255,.45);
+      text-align: center; line-height: 1.6; max-width: 270px;
     }
 
-    /* ═══════════════════════════════════
-       AR BUTTON — our custom button,
-       DISABLED until model load completes
-    ═══════════════════════════════════ */
+    /* Status pill */
+    #statusPill {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 18px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.1);
+      background: rgba(255,255,255,.05);
+      font-size: 12px; font-weight: 700; color: rgba(255,255,255,.5);
+    }
+    #statusDot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #f97316;
+      animation: blink 1.2s ease-in-out infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; } 50% { opacity: .25; }
+    }
+    #statusText { }
+
+    /* ── Damage pills ── */
+    #pills {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      justify-content: center; max-width: 320px;
+    }
+    .pill {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 10px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(8,8,10,.85);
+      font-size: 11px; font-weight: 800;
+    }
+    .pdot { width: 7px; height: 7px; border-radius: 50%; }
+
+    /* ── Bottom actions ── */
+    .actions { width: 100%; display: flex; flex-direction: column; gap: 12px; }
+
+    /* Main AR button */
     #arBtn {
-      position: fixed;
-      bottom: max(28px, env(safe-area-inset-bottom, 28px));
-      left: 50%; transform: translateX(-50%);
-      padding: 0 44px; height: 56px; min-width: 240px;
-      border-radius: 28px;
+      width: 100%; height: 60px; border-radius: 30px;
       background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
-      color: #fff; font-size: 15px; font-weight: 800; letter-spacing: .5px;
-      border: none; cursor: pointer; z-index: 200; white-space: nowrap;
-      box-shadow:
-        0 8px 32px rgba(249,115,22,.50),
-        inset 0 1px 0 rgba(255,255,255,.22);
-      transition: opacity .25s, transform .15s, background .3s;
+      border: none; cursor: pointer;
+      font-size: 16px; font-weight: 900; letter-spacing: .4px; color: #fff;
       display: flex; align-items: center; justify-content: center; gap: 10px;
+      box-shadow: 0 8px 36px rgba(249,115,22,.55), inset 0 1px 0 rgba(255,255,255,.22);
+      transition: opacity .2s, transform .15s;
     }
-    #arBtn:active  { opacity: .85; transform: translateX(-50%) scale(.96); }
-    #arBtn:disabled {
-      opacity: .38; cursor: not-allowed;
-      background: rgba(255,255,255,.12);
-      box-shadow: none;
-    }
-    #arBtnIcon { font-size: 18px; line-height: 1; }
-    #arBtnLabel { font-size: 15px; font-weight: 800; }
+    #arBtn:active { opacity: .88; transform: scale(.97); }
 
-    /* Loading sub-label in the button while model loads */
-    #arBtnSub {
-      position: fixed;
-      bottom: max(92px, calc(env(safe-area-inset-bottom, 0px) + 92px));
-      left: 50%; transform: translateX(-50%);
-      font-size: 11px; font-weight: 700; letter-spacing: .4px;
-      color: rgba(255,255,255,.45); white-space: nowrap; z-index: 200;
-    }
-
-    /* ═══════════════════════════════════
-       BEFORE / AFTER TOGGLE
-    ═══════════════════════════════════ */
+    /* Before/After toggle */
     #toggle {
-      position: fixed;
-      bottom: max(100px, calc(env(safe-area-inset-bottom, 0px) + 100px));
-      left: 50%; transform: translateX(-50%);
-      display: flex; align-items: center; gap: 0;
+      display: flex; align-items: center;
       border-radius: 24px; overflow: hidden;
       border: 1px solid rgba(255,255,255,.14);
       background: rgba(8,8,10,.82);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      z-index: 150;
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      align-self: center;
     }
     .tBtn {
-      padding: 10px 22px;
+      padding: 10px 24px;
       font-size: 11px; font-weight: 900; letter-spacing: .8px;
       text-transform: uppercase; border: none; background: transparent;
       color: rgba(255,255,255,.45); cursor: pointer;
@@ -140,333 +149,206 @@
     .tBtn.active-rep { color: #10b981; background: rgba(16,185,129,.18); }
     .tSep { width: 1px; height: 22px; background: rgba(255,255,255,.14); }
 
-    /* ═══════════════════════════════════
-       TINT (after / repaired state)
-    ═══════════════════════════════════ */
-    #tint {
-      position: fixed; inset: 0; z-index: 3; pointer-events: none;
-      background: rgba(16,185,129,.14); opacity: 0;
-      transition: opacity .55s ease;
-    }
-
-    /* ═══════════════════════════════════
-       DAMAGE PILLS
-    ═══════════════════════════════════ */
-    #pills {
-      position: fixed; z-index: 10;
-      top: max(12px, env(safe-area-inset-top, 12px));
-      left: 12px; right: 12px;
-      display: flex; flex-wrap: wrap; gap: 6px;
-      pointer-events: none;
-      margin-top: 90px;
-    }
-    .pill {
-      display: flex; align-items: center; gap: 5px;
-      padding: 5px 10px; border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(8,8,10,.85);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      font-size: 11px; font-weight: 800;
-    }
-    .pdot { width: 7px; height: 7px; border-radius: 50%; }
-
-    /* ═══════════════════════════════════
-       LOADING OVERLAY (full-screen)
-       Shown while model is fetching.
-       Fades out on 'load' event.
-    ═══════════════════════════════════ */
-    #loading {
-      position: fixed; inset: 0; z-index: 50;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      background: #050506; gap: 20px;
-      transition: opacity .5s;
-    }
-    .ring {
-      width: 60px; height: 60px; border-radius: 50%;
-      border: 3px solid rgba(249,115,22,.18); border-top-color: #f97316;
-      animation: spin .85s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .lt { font-size: 15px; font-weight: 700; color: rgba(255,255,255,.7); }
-
-    /* Pill-style percentage counter */
-    #progPill {
-      display: flex; align-items: center; gap: 8px;
-      padding: 8px 18px; border-radius: 999px;
-      border: 1px solid rgba(249,115,22,.3);
-      background: rgba(249,115,22,.10);
-    }
-    #progPct { font-size: 20px; font-weight: 900; color: #f97316; min-width: 52px; text-align: center; }
-    #progLbl { font-size: 11px; font-weight: 800; color: rgba(255,255,255,.4); text-transform: uppercase; letter-spacing: .8px; }
-
-    /* ═══════════════════════════════════
-       ERROR OVERLAY
-    ═══════════════════════════════════ */
+    /* ── Error state ── */
     #errBox {
-      position: fixed; inset: 0; z-index: 60;
+      position: fixed; inset: 0; z-index: 80;
       display: none; flex-direction: column;
       align-items: center; justify-content: center;
       background: #050506; padding: 32px; text-align: center; gap: 14px;
     }
-    .ei  { font-size: 48px; }
-    .et  { font-size: 18px; font-weight: 900; color: #fca5a5; }
-    .em  { font-size: 13px; color: rgba(255,255,255,.5); font-weight: 600; line-height: 1.6; max-width: 280px; }
+    .ei { font-size: 48px; }
+    .et { font-size: 18px; font-weight: 900; color: #fca5a5; }
+    .em { font-size: 13px; color: rgba(255,255,255,.5); font-weight: 600; line-height: 1.6; max-width: 280px; }
     .ert {
       margin-top: 8px; padding: 12px 28px; border-radius: 24px;
       border: 1.5px solid rgba(249,115,22,.5); background: rgba(249,115,22,.12);
       color: #f97316; font-size: 13px; font-weight: 800; cursor: pointer;
     }
+
+    /* ── No-URL state ── */
+    #noUrl {
+      position: fixed; inset: 0; z-index: 90;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: #050506; padding: 32px; text-align: center; gap: 16px;
+    }
   </style>
 </head>
 <body>
 
-  <!-- ── Progress bar (top) ── -->
-  <div id="progressWrap"><div id="progressBar"></div></div>
+<div class="bg"></div>
 
-  <!-- ── Header ── -->
+<div class="shell">
+
+  <!-- Header -->
   <div class="header">
-    <h1>AutoSPF+ AR Viewer</h1>
-    <p>Pinch to zoom • drag to rotate</p>
-    <div class="badge">🔬 MODEL VIEWER AR</div>
+    <div class="badge">🔬 AutoSPF+ AR</div>
+    <h1>View In Your Space</h1>
+    <p>iOS Quick Look AR — powered by Meshy AI</p>
   </div>
 
-  <!-- ── Damage pills (populated from ?damages= param) ── -->
-  <div id="pills"></div>
-
-  <!-- ── Green tint overlay for "Repaired" state ── -->
-  <div id="tint"></div>
-
-  <!--
-    MODEL VIEWER
-    ─────────────────────────────────────────────────────────────
-    ar-modes="quick-look" — iOS Safari Quick Look only.
-    WebXR is NOT supported on iPhone; scene-viewer is Android.
-    ios-src removed — model-viewer handles quick-look from src.
-    AR button is the slot element managed here (not by model-viewer's default).
-  -->
-  <model-viewer
-    id="mv"
-    alt="AutoSPF+ Vehicle 3D Model — Powered by Meshy AI"
-    ar
-    ar-modes="quick-look"
-    ar-placement="floor"
-    ar-scale="auto"
-    camera-controls
-    touch-action="pan-y"
-    auto-rotate
-    auto-rotate-delay="2500"
-    rotation-per-second="12deg"
-    shadow-intensity="1.5"
-    shadow-softness="0.72"
-    environment-image="neutral"
-    exposure="1.08"
-    camera-orbit="32deg 66deg auto"
-    field-of-view="35deg"
-    loading="eager"
-    reveal="auto"
-  >
-  </model-viewer>
-
-  <!-- ── Before / After toggle ── -->
-  <div id="toggle">
-    <button class="tBtn active-dmg" id="btnDmg" onclick="setState('before')">
-      ⚠ DAMAGED
-    </button>
-    <div class="tSep"></div>
-    <button class="tBtn" id="btnRep" onclick="setState('after')">
-      ✓ REPAIRED
-    </button>
-  </div>
-
-  <!-- ── AR button — DISABLED until model loads ── -->
-  <div id="arBtnSub">Loading 3D model…</div>
-  <button id="arBtn" type="button" disabled>
-    <span id="arBtnIcon">⏳</span>
-    <span id="arBtnLabel">Loading…</span>
-  </button>
-
-  <!-- ── Loading overlay ── -->
-  <div id="loading">
-    <div class="ring"></div>
-    <div class="lt">Loading 3D model…</div>
-    <div id="progPill">
-      <span id="progPct">0%</span>
-      <span id="progLbl">fetching</span>
+  <!-- Centre card -->
+  <div class="card">
+    <div class="ar-icon-ring">
+      <span class="ar-icon">🚗</span>
     </div>
+
+    <div class="card-title">3D Vehicle Model Ready</div>
+    <div class="card-sub">
+      Tap the button below to place the vehicle in your real environment using iOS Quick Look AR.
+    </div>
+
+    <div id="statusPill">
+      <div id="statusDot"></div>
+      <span id="statusText">Ready to launch AR</span>
+    </div>
+
+    <!-- Damage pills -->
+    <div id="pills"></div>
   </div>
 
-  <!-- ── Error overlay ── -->
-  <div id="errBox">
-    <div class="ei">⚠️</div>
-    <div class="et">Model failed to load</div>
-    <div class="em" id="errMsg">The 3D model could not be fetched.</div>
-    <button class="ert" onclick="location.reload()">↺ Try Again</button>
+  <!-- Bottom -->
+  <div class="actions">
+    <div id="toggle">
+      <button class="tBtn active-dmg" id="btnDmg" onclick="setMode('before')">⚠ DAMAGED</button>
+      <div class="tSep"></div>
+      <button class="tBtn" id="btnRep" onclick="setMode('after')">✓ REPAIRED</button>
+    </div>
+
+    <!--
+      The AR button uses the <a rel="ar"> trick:
+      iOS Quick Look intercepts this link click instantly
+      and streams the GLB itself — no browser pre-download needed.
+    -->
+    <button id="arBtn" onclick="launchQuickLook()">
+      <span>📱</span>
+      <span>View In Your Space</span>
+    </button>
   </div>
+</div>
+
+<!-- Error overlay -->
+<div id="errBox">
+  <div class="ei">⚠️</div>
+  <div class="et">No Model URL Found</div>
+  <div class="em" id="errMsg">Could not find a 3D model URL. Please go back and generate the model first.</div>
+  <button class="ert" onclick="history.back()">← Go Back</button>
+</div>
+
+<!-- No-URL overlay -->
+<div id="noUrl">
+  <div class="ei">🔗</div>
+  <div class="et">No Model URL</div>
+  <div class="em">Missing <code>?model=</code> parameter. Open this page from the AutoSPF+ app.</div>
+</div>
 
 <script>
 (function () {
   'use strict';
 
-  /* ══════════════════════════════════════════════════════
-     CONFIG — read ?model= URL parameter
-  ══════════════════════════════════════════════════════ */
-  var params  = new URLSearchParams(window.location.search);
-  var glbUrl  = params.get('model') || '';
-  var DEMO    = 'https://modelviewer.dev/shared-assets/models/glTF-Sample-Models/2.0/ToyCar/glTF-Binary/ToyCar.glb';
+  /* ══════════════════════════════
+     Read ?model= from URL
+  ══════════════════════════════ */
+  var params = new URLSearchParams(window.location.search);
+  var glbUrl = (params.get('model') || '').trim();
+
+  /* Damage pills */
   var damages = [];
   try {
-    var dmgParam = params.get('damages');
-    if (dmgParam) damages = JSON.parse(decodeURIComponent(dmgParam));
+    var dp = params.get('damages');
+    if (dp) damages = JSON.parse(decodeURIComponent(dp));
   } catch (_) {}
 
-  /* ══════════════════════════════════════════════════════
-     ELEMENT REFS
-  ══════════════════════════════════════════════════════ */
-  var mv          = document.getElementById('mv');
-  var loading     = document.getElementById('loading');
-  var errBox      = document.getElementById('errBox');
-  var errMsg      = document.getElementById('errMsg');
-  var progressBar = document.getElementById('progressBar');
-  var progPct     = document.getElementById('progPct');
-  var progLbl     = document.getElementById('progLbl');
-  var arBtn       = document.getElementById('arBtn');
-  var arBtnIcon   = document.getElementById('arBtnIcon');
-  var arBtnLabel  = document.getElementById('arBtnLabel');
-  var arBtnSub    = document.getElementById('arBtnSub');
-  var tint        = document.getElementById('tint');
-  var pills       = document.getElementById('pills');
-  var btnDmg      = document.getElementById('btnDmg');
-  var btnRep      = document.getElementById('btnRep');
-  var mode        = 'before';
-
-  /* ══════════════════════════════════════════════════════
-     STEP 1 — Apply GLB URL
-  ══════════════════════════════════════════════════════ */
-  if (!glbUrl) {
-    console.warn('[AutoSPF+ AR] No ?model= param — using demo GLB');
-    glbUrl = DEMO;
+  /* ══════════════════════════════
+     Validate URL
+  ══════════════════════════════ */
+  if (!glbUrl || !/^https?:\/\//i.test(glbUrl)) {
+    document.getElementById('noUrl').style.display = 'flex';
+    document.getElementById('arBtn').style.display = 'none';
+    postToRN({ type: 'WEBAR_ERROR', message: 'No model URL provided' });
+    return;
   }
-  console.log('[AutoSPF+ AR] Loading GLB:', glbUrl);
-  mv.setAttribute('src', glbUrl);
 
-  /* ══════════════════════════════════════════════════════
-     STEP 2 — AR Button logic
-     • DISABLED until model 'load' event fires
-     • On click: call mv.activateAR() which triggers Quick Look
-  ══════════════════════════════════════════════════════ */
-  arBtn.addEventListener('click', function () {
-    if (arBtn.disabled) return;
-    console.log('[AutoSPF+ AR] AR button tapped — calling activateAR()');
-    try {
-      mv.activateAR();
-    } catch (err) {
-      console.error('[AutoSPF+ AR] activateAR() failed:', err);
-    }
-  });
+  console.log('[AutoSPF+ AR] GLB URL:', glbUrl);
+  postToRN({ type: 'WEBAR_READY', modelUrl: glbUrl });
 
-  /* ══════════════════════════════════════════════════════
-     STEP 3 — Loading progress event
-  ══════════════════════════════════════════════════════ */
-  mv.addEventListener('progress', function (e) {
-    var p = (e.detail && typeof e.detail.totalProgress === 'number')
-      ? Math.round(e.detail.totalProgress * 100) : 0;
-    progressBar.style.width = p + '%';
-    progPct.textContent = p + '%';
-    if (p > 0 && p < 100) progLbl.textContent = 'downloading';
-  });
+  /* Update status */
+  document.getElementById('statusText').textContent = 'GLB ready — tap to launch';
 
-  /* ══════════════════════════════════════════════════════
-     STEP 4 — Model loaded: enable AR button
-  ══════════════════════════════════════════════════════ */
-  mv.addEventListener('load', function () {
-    console.log('[AutoSPF+ AR] ✅ Model loaded — enabling AR button');
-
-    // Hide loading overlay
-    loading.style.opacity = '0';
-    setTimeout(function () { loading.style.display = 'none'; }, 500);
-
-    // Fill progress bar
-    progressBar.style.width = '100%';
-    setTimeout(function () { progressBar.style.display = 'none'; }, 800);
-
-    // Enable AR button
-    arBtn.disabled = false;
-    arBtnIcon.textContent = '📱';
-    arBtnLabel.textContent = 'View In Your Space';
-    arBtnSub.textContent = 'Tap to launch iOS Quick Look AR';
-
-    clearTimeout(loadTimer);
-    postToRN({ type: 'MODEL_LOADED', modelUrl: glbUrl });
-  });
-
-  /* ══════════════════════════════════════════════════════
-     STEP 5 — Model error
-  ══════════════════════════════════════════════════════ */
-  mv.addEventListener('error', function (e) {
-    loading.style.display = 'none';
-    errBox.style.display  = 'flex';
-    errMsg.textContent    = 'The 3D model could not be loaded. The URL may have expired — please generate again.';
-    arBtn.disabled = true;
-    console.error('[AutoSPF+ AR] ❌ Model load error:', e);
-    postToRN({ type: 'WEBAR_ERROR', message: 'Model load failed' });
-  });
-
-  /* ══════════════════════════════════════════════════════
-     STEP 6 — AR status events
-  ══════════════════════════════════════════════════════ */
-  mv.addEventListener('ar-status', function (e) {
-    var status = (e.detail && e.detail.status) ? e.detail.status : '';
-    console.log('[AutoSPF+ AR] ar-status:', status);
-    if (status === 'session-started') postToRN({ type: 'AR_STARTED', mode: mode });
-    if (status === 'not-presenting')  postToRN({ type: 'AR_ENDED',   mode: mode });
-    if (status === 'failed') {
-      console.warn('[AutoSPF+ AR] AR session failed');
-      postToRN({ type: 'AR_FAILED' });
-    }
-  });
-
-  /* ══════════════════════════════════════════════════════
-     STEP 7 — Damage pills
-  ══════════════════════════════════════════════════════ */
+  /* ══════════════════════════════
+     Damage pills render
+  ══════════════════════════════ */
   var SEV = { high: '#ef4444', medium: '#f97316', low: '#10b981', critical: '#ef4444' };
+  var mode = 'before';
 
-  function renderPills(m) {
-    pills.innerHTML = '';
-    if (!damages.length) return;
+  function renderPills() {
+    var el = document.getElementById('pills');
+    el.innerHTML = '';
     damages.forEach(function (d) {
-      var c   = m === 'after' ? '#10b981' : (SEV[d.severity] || SEV.medium);
+      var c    = mode === 'after' ? '#10b981' : (SEV[d.severity] || SEV.medium);
       var pill = document.createElement('div');
       pill.className = 'pill';
       pill.innerHTML =
-        '<span class="pdot" style="background:' + c + ';box-shadow:0 0 8px ' + c + '"></span>' +
-        '<span style="color:' + c + '">' +
-        (m === 'after' ? '✓ ' : '') +
-        (d.affectedArea || d.type || 'Damage') +
-        '</span>';
-      pills.appendChild(pill);
+        '<span class="pdot" style="background:' + c + ';box-shadow:0 0 6px ' + c + '"></span>' +
+        '<span style="color:' + c + '">' + (mode === 'after' ? '✓ ' : '') + (d.affectedArea || d.type || 'Damage') + '</span>';
+      el.appendChild(pill);
     });
   }
+  renderPills();
 
-  /* ══════════════════════════════════════════════════════
-     STEP 8 — Before / After state
-  ══════════════════════════════════════════════════════ */
-  function setState(m) {
+  /* ══════════════════════════════
+     Before / After toggle
+  ══════════════════════════════ */
+  window.setMode = function (m) {
     mode = m;
-    tint.style.opacity = m === 'after' ? '1' : '0';
-    mv.setAttribute('exposure', m === 'after' ? '1.18' : '1.08');
-    btnDmg.className = 'tBtn' + (m === 'before' ? ' active-dmg' : '');
-    btnRep.className = 'tBtn' + (m === 'after'  ? ' active-rep' : '');
-    renderPills(m);
+    document.getElementById('btnDmg').className = 'tBtn' + (m === 'before' ? ' active-dmg' : '');
+    document.getElementById('btnRep').className = 'tBtn' + (m === 'after'  ? ' active-rep' : '');
+    renderPills();
     postToRN({ type: 'VARIANT_READY', mode: m });
-  }
-  window.setState = setState;
-  renderPills('before');
+  };
 
-  /* ══════════════════════════════════════════════════════
-     STEP 9 — RN ↔ WebView message bridge
-  ══════════════════════════════════════════════════════ */
+  /* ══════════════════════════════
+     Quick Look AR trigger
+     ──────────────────────────────
+     iOS Safari intercepts <a rel="ar"> clicks
+     and hands them to ARKit Quick Look directly.
+     The GLB is streamed by iOS itself — no browser
+     pre-download is required. This is instant.
+  ══════════════════════════════ */
+  window.launchQuickLook = function () {
+    console.log('[AutoSPF+ AR] Launching Quick Look for:', glbUrl);
+
+    document.getElementById('statusText').textContent = 'Launching AR…';
+    document.getElementById('statusDot').style.background = '#10b981';
+
+    // Create the <a rel="ar"> element
+    var a   = document.createElement('a');
+    a.href  = glbUrl;
+    a.rel   = 'ar';
+
+    // <a rel="ar"> MUST contain an <img> child — iOS requirement
+    var img = document.createElement('img');
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    img.width  = 1;
+    img.height = 1;
+    a.appendChild(img);
+
+    document.body.appendChild(a);
+    a.click();
+
+    // Clean up after a moment
+    setTimeout(function () {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      document.getElementById('statusText').textContent = 'GLB ready — tap to launch';
+      document.getElementById('statusDot').style.background = '#f97316';
+    }, 2000);
+
+    postToRN({ type: 'AR_LAUNCHED', modelUrl: glbUrl });
+  };
+
+  /* ══════════════════════════════
+     RN bridge
+  ══════════════════════════════ */
   function postToRN(data) {
     try {
       if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(data));
@@ -475,48 +357,19 @@
 
   function handleMessage(raw) {
     var msg;
-    try { msg = (typeof raw === 'string') ? JSON.parse(raw) : raw; } catch (_) { return; }
+    try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { return; }
     if (!msg || typeof msg !== 'object') return;
-
-    if (msg.type === 'SET_STATE') setState(msg.state === 'after' ? 'after' : 'before');
-
+    if (msg.type === 'SET_STATE')   setMode(msg.state === 'after' ? 'after' : 'before');
+    if (msg.type === 'ACTIVATE_AR') launchQuickLook();
     if (msg.type === 'WEBAR_INIT') {
       var p = msg.payload || msg;
-      if (p.modelUrl && p.modelUrl !== glbUrl) {
-        glbUrl = p.modelUrl;
-        mv.setAttribute('src', glbUrl);
-        arBtn.disabled = true;
-        arBtnIcon.textContent  = '⏳';
-        arBtnLabel.textContent = 'Loading…';
-        arBtnSub.textContent   = 'Loading 3D model…';
-      }
-      if (Array.isArray(p.damages) && p.damages.length) {
-        damages = p.damages;
-        renderPills(mode);
-      }
+      if (p.modelUrl) glbUrl = p.modelUrl;
+      if (Array.isArray(p.damages)) { damages = p.damages; renderPills(); }
       postToRN({ type: 'WEBAR_INIT_APPLIED' });
     }
-
-    if (msg.type === 'ACTIVATE_AR') {
-      if (!arBtn.disabled) mv.activateAR();
-    }
   }
-
   window.addEventListener('message',   function (e) { handleMessage(e.data); });
   document.addEventListener('message', function (e) { handleMessage(e.data); });
-
-  /* ══════════════════════════════════════════════════════
-     STEP 10 — Timeout guard (20 s)
-  ══════════════════════════════════════════════════════ */
-  var loadTimer = setTimeout(function () {
-    if (loading.style.display !== 'none') {
-      loading.style.display = 'none';
-      errBox.style.display  = 'flex';
-      errMsg.textContent    = 'Loading timed out. The Meshy AI model URL may have expired.';
-    }
-  }, 20000);
-
-  postToRN({ type: 'WEBAR_READY', modelUrl: glbUrl });
 
 })();
 </script>
