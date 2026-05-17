@@ -160,21 +160,22 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
 .ei{font-size:44px;}.et{font-size:17px;font-weight:900;color:#fca5a5;}
 .em{font-size:13px;color:rgba(255,255,255,.55);font-weight:600;line-height:1.5;}
 /* Hide AR button when device has no AR support */
-#arBtn[data-ar-status="failed"]{display:none;}
+/* ar-btn always visible once model loads — Quick Look hides it natively if unsupported */
 </style>
 </head>
 <body>
 <model-viewer id="mv"
   src="${safeModel}"
+  ios-src="${safeModel}"
   alt="AutoSPF+ vehicle 3D model"
-  ar ar-modes="scene-viewer quick-look webxr" ar-placement="floor" ar-scale="auto"
+  ar ar-modes="quick-look scene-viewer webxr" ar-placement="floor" ar-scale="auto"
   camera-controls touch-action="pan-y" interaction-prompt="auto"
   auto-rotate auto-rotate-delay="1800" rotation-per-second="12deg"
   shadow-intensity="1.35" shadow-softness="0.78"
   environment-image="neutral" exposure="1.05"
   camera-orbit="35deg 64deg auto" field-of-view="32deg"
   loading="eager" reveal="auto">
-  <button slot="ar-button" id="arBtn" type="button">View in AR ↗</button>
+  <button slot="ar-button" id="arBtn" type="button">📱 View in AR ↗</button>
 </model-viewer>
 <div id="tint"></div>
 <div id="pills"></div>
@@ -260,13 +261,23 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
     var s=e.detail&&e.detail.status?e.detail.status:'';
     if(s==='session-started')post({type:'AR_STARTED',mode:mode});
     if(s==='failed'){
-      // Device does not support AR — hide the button gracefully
-      var btn=document.getElementById('arBtn');
-      if(btn)btn.setAttribute('data-ar-status','failed');
-      post({type:'WEBAR_ERROR',message:'AR is not supported on this device.'});
+      // Quick Look failed via slot — try programmatic <a rel="ar"> (required for some WKWebView configs)
+      var glb=mv.getAttribute('src')||'';
+      if(glb){
+        var a=document.createElement('a');
+        a.setAttribute('rel','ar');
+        a.href=glb;
+        var img=document.createElement('img');
+        img.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        img.width=1;img.height=1;
+        a.appendChild(img);
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function(){if(a.parentNode)a.parentNode.removeChild(a);},500);
+      }
+      post({type:'WEBAR_ERROR',message:'AR launched via fallback link.'});
     }
     if(s==='not-presenting'){
-      // AR session ended normally — no error
       post({type:'AR_ENDED',mode:mode});
     }
   });
