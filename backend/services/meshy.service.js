@@ -230,28 +230,34 @@ export const startMeshyImageTo3D = async (files, options = {}) => {
 
   let sourceImageUrls = [];
   let meshyImageUrl = '';
-  try {
-    sourceImageUrls = await uploadImagesForMeshy(files);
 
-    // Force a .jpg URL — Meshy rejects images where the URL extension says .webp even if
-    // the Cloudinary transformation flag converts the content to JPEG.
-    const rawUrl = sourceImageUrls[0];
-    meshyImageUrl = (() => {
-      if (!rawUrl.includes('/res.cloudinary.com/')) return rawUrl;
-      if (!rawUrl.includes('/image/upload/')) return rawUrl;
-      let url = rawUrl;
-      if (!/\/f_jpg/.test(url)) {
-        url = url.replace('/image/upload/', '/image/upload/f_jpg,q_auto/');
-      }
-      url = url.replace(/\.(webp|avif|heic|heif|gif|bmp|tiff?)(\?|#|$)/i, '.jpg$2');
-      return url;
-    })();
-  } catch (cloudinaryError) {
-    console.warn(
-      '[Meshy] Cloudinary upload failed; using Meshy data URI fallback:',
-      cloudinaryError?.message || cloudinaryError
-    );
+  // Skip Cloudinary entirely — use base64 data URI directly.
+  // Meshy's image-to-3d endpoint accepts `data:image/jpeg;base64,...` URLs,
+  // so we can avoid Cloudinary upload failures (wrong preset, wrong keys, etc.).
+  // If Cloudinary IS correctly configured and the caller wants hosted URLs,
+  // they can call uploadImagesForMeshy separately before invoking this function.
+  try {
     meshyImageUrl = buildImageDataUri(files[0]);
+    console.log(`[Meshy] Using base64 data URI (${Math.round(files[0].buffer.length / 1024)}KB) — skipping Cloudinary`);
+  } catch (dataUriError) {
+    // Last resort: try Cloudinary upload
+    console.warn('[Meshy] Base64 data URI failed, trying Cloudinary:', dataUriError?.message);
+    try {
+      sourceImageUrls = await uploadImagesForMeshy(files);
+      const rawUrl = sourceImageUrls[0];
+      meshyImageUrl = (() => {
+        if (!rawUrl.includes('/res.cloudinary.com/')) return rawUrl;
+        if (!rawUrl.includes('/image/upload/')) return rawUrl;
+        let url = rawUrl;
+        if (!/\/f_jpg/.test(url)) url = url.replace('/image/upload/', '/image/upload/f_jpg,q_auto/');
+        url = url.replace(/\.(webp|avif|heic|heif|gif|bmp|tiff?)(\?|#|$)/i, '.jpg$2');
+        return url;
+      })();
+    } catch (cloudinaryError) {
+      const error = new Error(`Cannot prepare image for Meshy: ${dataUriError?.message || cloudinaryError?.message}`);
+      error.code = 'MESHY_IMAGE_PREP_FAILED';
+      throw error;
+    }
   }
 
   await validateMeshyImageUrl(meshyImageUrl);

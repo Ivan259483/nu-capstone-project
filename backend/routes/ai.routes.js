@@ -11,6 +11,7 @@ import {
   uploadImage,
   scanWithGPTVision,
   getScanById,
+  getWebARSession,
   generate3DFromScan,
   estimateFromDamages,
   proxyGlb,
@@ -27,7 +28,31 @@ const upload = multer({
 });
 
 router.post('/analyze', upload.array('images', 5), analyzeDamage);
-router.post('/generate-3d', upload.array('images', 5), generate3DModel);
+
+/**
+ * POST /api/ai/generate-3d
+ * - JSON `{ "scanId": "..." }` → Meshy from stored scan images (same as /generate-3d-from-scan).
+ * - multipart `images[]` → legacy upload flow (generate3DModel).
+ */
+router.post('/generate-3d', optionalAuthenticate, (req, res, next) => {
+  const contentType = String(req.headers['content-type'] || '');
+  if (contentType.includes('application/json')) {
+    const scanId = String(req.body?.scanId || '').trim();
+    if (!scanId) {
+      return res.status(400).json({
+        success: false,
+        message: 'JSON body must include scanId, or send multipart images for the legacy flow.',
+      });
+    }
+    return generate3DFromScan(req, res);
+  }
+  return upload.array('images', 5)(req, res, (err) => {
+    if (err) return next(err);
+    const scanId = String(req.body?.scanId || '').trim();
+    if (scanId) return generate3DFromScan(req, res);
+    return generate3DModel(req, res);
+  });
+});
 router.get('/generate-3d/:taskId', get3DModelStatus);
 router.post('/estimate', estimateCost);
 router.post('/calculate-cost', calculateCost);
@@ -38,7 +63,18 @@ router.post('/upload-image', upload.single('image'), uploadImage);
 /* ── NEW AI Scan Module — GPT-4 Vision (mock+real), Meshy 3D, Estimator ── */
 router.post('/scan', optionalAuthenticate, upload.array('images', 5), scanWithGPTVision);
 router.get('/scan/:id', optionalAuthenticate, getScanById);
-router.post('/generate-3d-from-scan', optionalAuthenticate, generate3DFromScan);
+router.get('/webar-session/:scanId', optionalAuthenticate, getWebARSession);
+// Accepts both JSON { scanId } (normal path) and multipart images[] (direct fallback when Cloudinary is down).
+router.post('/generate-3d-from-scan', optionalAuthenticate, (req, res, next) => {
+  const ct = String(req.headers['content-type'] || '');
+  if (ct.includes('multipart/form-data')) {
+    return upload.array('images', 5)(req, res, (err) => {
+      if (err) return next(err);
+      return generate3DFromScan(req, res);
+    });
+  }
+  return generate3DFromScan(req, res);
+});
 router.post('/estimate-from-damages', estimateFromDamages);
 
 /* ── GLB Proxy — pipes Meshy/Cloudinary GLB with CORS headers ── */

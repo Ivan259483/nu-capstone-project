@@ -2027,6 +2027,18 @@ export const getWebARSession = async (req, res) => {
 export const generate3DFromScan = async (req, res) => {
   try {
     const scanId = String(req.body?.scanId || '').trim();
+
+    // ── DIRECT MULTIPART PATH ────────────────────────────────────────────────
+    // When the mobile client sends multipart files (Cloudinary is broken/unconfigured),
+    // we bypass scan.imageUrls entirely and route to generate3DModel which already
+    // handles raw file uploads via startMeshyImageTo3D.
+    const hasDirectFiles = Array.isArray(req.files) && req.files.length > 0;
+    if (hasDirectFiles) {
+      console.log(`[generate3DFromScan] Direct file upload path — ${req.files.length} file(s), scanId=${scanId || 'none'}`);
+      return generate3DModel(req, res);
+    }
+    // ── END DIRECT MULTIPART PATH ────────────────────────────────────────────
+
     if (!scanId) {
       return res.status(400).json({ success: false, message: 'scanId is required.' });
     }
@@ -2037,15 +2049,13 @@ export const generate3DFromScan = async (req, res) => {
     }
 
     if (!Array.isArray(scan.imageUrls) || scan.imageUrls.length === 0) {
-      const missingCloud = getCloudinaryMissingConfigMessage().trim();
-      const message = !isCloudinaryConfigured()
-        ? `This scan has no stored image URLs because Cloudinary is not configured on the API server (${
-            missingCloud || 'set CLOUDINARY_* env vars'
-          }). Damage analysis can still run from raw uploads, but 3D needs hosted URLs—configure Cloudinary and run a new scan.`
-        : 'This scan has no uploaded images. Re-run the scan to enable 3D generation. If this keeps happening, check API logs for Cloudinary upload errors during POST /api/ai/scan.';
+      // No stored Cloudinary URLs. Tell client to retry with direct image upload.
       return res.status(400).json({
         success: false,
-        message,
+        status: 'no_images',
+        message:
+          'This scan has no stored images (Cloudinary upload may have failed). ' +
+          'Please retry — the app will upload your captured photo directly to the 3D pipeline.',
       });
     }
 
