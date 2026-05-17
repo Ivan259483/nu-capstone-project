@@ -2258,7 +2258,13 @@ export const proxyGlb = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Content-Type', upstream.headers['content-type'] || 'model/gltf-binary');
+
+    // Force GLB Content-Type — iOS Safari uses this to detect GLB and trigger Quick Look AR.
+    // If upstream returns application/octet-stream, Safari won't know it's a GLB.
+    res.setHeader('Content-Type', 'model/gltf-binary');
+
+    // Content-Disposition with .glb extension — required for iOS Quick Look filename detection.
+    res.setHeader('Content-Disposition', 'attachment; filename="model.glb"');
 
     const contentLength = upstream.headers['content-length'];
     if (contentLength) res.setHeader('Content-Length', contentLength);

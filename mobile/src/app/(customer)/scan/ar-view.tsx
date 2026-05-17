@@ -462,16 +462,26 @@ export default function ArViewScreen() {
   const openWebArInBrowser = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     try {
-      // MUST use Linking.openURL (real Safari) — NOT WebBrowser.openBrowserAsync.
-      // iOS Quick Look AR only launches from real Safari, not Safari View Controller
-      // (in-app browser). openBrowserAsync uses SFSafariViewController which silently
-      // blocks Quick Look AR triggers.
-      await Linking.openURL(webArBrowserUri);
+      // ── Strategy 1: Open raw Meshy GLB URL directly in Safari ──
+      // When Safari navigates to a .glb file, iOS automatically triggers
+      // Quick Look AR — no HTML page or model-viewer needed at all.
+      // This works 100% regardless of Render deployment status.
+      if (ready && modelUrl) {
+        // Use proxy URL so we control CORS + Content-Type headers for GLB
+        const proxyUrl = `${API_BASE_URL}/ai/proxy-glb?url=${encodeURIComponent(modelUrl)}`;
+        await Linking.openURL(proxyUrl);
+        return;
+      }
+
+      // ── Strategy 2: Fallback to the ar-viewer route on Render ──
+      // Used when no direct GLB URL is available.
+      const fallbackUrl = `${API_BASE_URL}/ai/ar-viewer?src=${encodeURIComponent(modelUrl || '')}`;
+      await Linking.openURL(fallbackUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not open browser.';
       setWebArError(message);
     }
-  }, [webArBrowserUri]);
+  }, [modelUrl, ready]);
 
   const handleWebViewMessage = useCallback(
     (event: { nativeEvent: { data: string } }) => {

@@ -198,13 +198,14 @@
        MODEL VIEWER
        src is set dynamically from ?model= URL parameter.
        ios-src = same GLB (iOS 14+ Quick Look supports .glb natively).
-       ar-modes order: scene-viewer (Android) → webxr → quick-look (iOS)
+       ar-modes: quick-look first so iOS Safari uses Quick Look immediately;
+       scene-viewer first can leave iOS on a non–Quick Look path (inert AR).
   ═══════════════════════════════════════════════════════════════ -->
   <model-viewer
     id="mv"
     alt="AutoSPF+ Vehicle 3D Model — Powered by Meshy AI"
     ar
-    ar-modes="scene-viewer webxr quick-look"
+    ar-modes="quick-look scene-viewer webxr"
     ar-placement="floor"
     ar-scale="auto"
     camera-controls
