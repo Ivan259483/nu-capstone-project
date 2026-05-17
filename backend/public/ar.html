@@ -308,25 +308,38 @@
   };
 
   /* ══════════════════════════════
-     Quick Look AR trigger
+     Route GLB through backend proxy
      ──────────────────────────────
-     iOS Safari intercepts <a rel="ar"> clicks
-     and hands them to ARKit Quick Look directly.
-     The GLB is streamed by iOS itself — no browser
-     pre-download is required. This is instant.
+     iOS Quick Look requires:
+       1. Content-Type: model/gltf-binary
+       2. Content-Disposition: attachment; filename="model.glb"
+     Our /api/ai/proxy-glb endpoint sets both.
+  ══════════════════════════════ */
+  function toProxiedUrl(url) {
+    try {
+      var u = new URL(url);
+      if (u.pathname.includes('/api/ai/proxy-glb')) return url;
+      if (u.origin === window.location.origin) return url;
+      return window.location.origin + '/api/ai/proxy-glb?url=' + encodeURIComponent(url);
+    } catch (_) {
+      return url;
+    }
+  }
+
+  /* ══════════════════════════════
+     Quick Look AR trigger
   ══════════════════════════════ */
   window.launchQuickLook = function () {
-    console.log('[AutoSPF+ AR] Launching Quick Look for:', glbUrl);
+    var proxyUrl = toProxiedUrl(glbUrl);
+    console.log('[AutoSPF+ AR] Launching Quick Look for:', proxyUrl);
 
     document.getElementById('statusText').textContent = 'Launching AR…';
     document.getElementById('statusDot').style.background = '#10b981';
 
-    // Create the <a rel="ar"> element
     var a   = document.createElement('a');
-    a.href  = glbUrl;
+    a.href  = proxyUrl;
     a.rel   = 'ar';
 
-    // <a rel="ar"> MUST contain an <img> child — iOS requirement
     var img = document.createElement('img');
     img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     img.width  = 1;
@@ -336,14 +349,13 @@
     document.body.appendChild(a);
     a.click();
 
-    // Clean up after a moment
     setTimeout(function () {
       if (a.parentNode) a.parentNode.removeChild(a);
       document.getElementById('statusText').textContent = 'GLB ready — tap to launch';
       document.getElementById('statusDot').style.background = '#f97316';
     }, 2000);
 
-    postToRN({ type: 'AR_LAUNCHED', modelUrl: glbUrl });
+    postToRN({ type: 'AR_LAUNCHED', modelUrl: proxyUrl });
   };
 
   /* ══════════════════════════════

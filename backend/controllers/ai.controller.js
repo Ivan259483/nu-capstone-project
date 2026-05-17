@@ -2263,6 +2263,13 @@ export const proxyGlb = async (req, res) => {
     // If upstream returns application/octet-stream, Safari won't know it's a GLB.
     res.setHeader('Content-Type', 'model/gltf-binary');
 
+    // ⚠️  CRITICAL for iOS Quick Look AR:
+    // Safari's <a rel="ar"> handler checks for Content-Disposition: attachment
+    // with a .glb filename. Without this header iOS silently refuses to open
+    // Quick Look — the button tap does nothing. This is the #1 reason Quick
+    // Look AR fails even when the GLB itself is perfectly valid.
+    res.setHeader('Content-Disposition', 'attachment; filename="model.glb"');
+
     const contentLength = upstream.headers['content-length'];
     if (contentLength) res.setHeader('Content-Length', contentLength);
 
