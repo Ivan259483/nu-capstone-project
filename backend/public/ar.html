@@ -351,29 +351,17 @@
   };
 
   /* ══════════════════════════════
-     Route GLB through backend proxy
+     Set AR button href directly
      ──────────────────────────────
-     iOS Quick Look requires:
-       1. Content-Type: model/gltf-binary
-       2. Content-Disposition: attachment; filename="model.glb"
-     Our /api/ai/proxy-glb endpoint sets both.
+     iOS Quick Look MUST receive the direct CDN URL (assets.meshy.ai).
+     Routing through a server-side proxy causes Quick Look to fail with
+     "Unable to open URL" because it cannot follow proxy redirects.
+     Pass glbUrl as-is — Safari fetches the GLB directly from Meshy CDN.
   ══════════════════════════════ */
-  function toProxiedUrl(url) {
-    try {
-      var u = new URL(url);
-      if (u.pathname.includes('/api/ai/proxy-glb')) return url;
-      if (u.origin === window.location.origin) return url;
-      return window.location.origin + '/api/ai/proxy-glb?url=' + encodeURIComponent(url);
-    } catch (_) {
-      return url;
-    }
-  }
-
   function refreshArUrl() {
-    var proxyUrl = toProxiedUrl(glbUrl);
-    arBtn.setAttribute('href', proxyUrl);
+    arBtn.setAttribute('href', glbUrl);
     debugUrlEl.textContent = glbUrl;
-    return proxyUrl;
+    return glbUrl;
   }
 
   refreshArUrl();
@@ -382,14 +370,14 @@
      Quick Look AR trigger
   ══════════════════════════════ */
   window.launchQuickLook = function () {
-    var proxyUrl = refreshArUrl();
-    console.log('[AutoSPF+ AR] Launching Quick Look for:', proxyUrl);
+    var url = refreshArUrl();
+    console.log('[AutoSPF+ AR] Launching Quick Look for:', url);
 
     statusText.textContent = 'Launching AR…';
     statusDot.style.background = '#10b981';
 
-    postToRN({ type: 'AR_LAUNCHED', modelUrl: proxyUrl });
-    return proxyUrl;
+    postToRN({ type: 'AR_LAUNCHED', modelUrl: url });
+    return url;
   };
 
   arBtn.addEventListener('click', function () {
