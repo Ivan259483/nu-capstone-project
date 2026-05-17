@@ -463,9 +463,13 @@ export default function ArViewScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     try {
       // ── Open the dedicated ar.html page in Safari ──
-      // iOS Quick Look requires a direct accessible GLB URL, not a proxied download,
-      // so we use the standalone AR HTML page hosted on Render, which uses <model-viewer>.
-      const arHtmlUrl = `${API_BASE_URL.replace('/api', '')}/ar.html?model=${encodeURIComponent(modelUrl || '')}`;
+      // We pass the proxied GLB URL so that:
+      //   1. Meshy CDN CORS restrictions are bypassed (proxy fetches server-side)
+      //   2. The proxy sets Content-Disposition: attachment; filename="model.glb"
+      //      which iOS Safari REQUIRES to trigger Quick Look AR via <a rel="ar">
+      // ar.html's toProxiedUrl() will detect it's already proxied and pass through.
+      const proxiedGlbUrl = buildProxiedGlbUri(modelUrl) ?? modelUrl ?? '';
+      const arHtmlUrl = `${API_ORIGIN}/ar.html?model=${encodeURIComponent(proxiedGlbUrl)}`;
       await Linking.openURL(arHtmlUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not open browser.';
