@@ -15,6 +15,8 @@ import {
   generate3DFromScan,
   estimateFromDamages,
   proxyGlb,
+  proxyGlbHead,
+  proxyGlbOptions,
   listAiScans,
 } from '../controllers/ai.controller.js';
 import { authenticate, optionalAuthenticate } from '../middleware/auth.middleware.js';
@@ -78,6 +80,8 @@ router.post('/generate-3d-from-scan', optionalAuthenticate, (req, res, next) => 
 router.post('/estimate-from-damages', estimateFromDamages);
 
 /* ── GLB Proxy — pipes Meshy/Cloudinary GLB with CORS headers ── */
+router.options('/proxy-glb', proxyGlbOptions);
+router.head('/proxy-glb', proxyGlbHead);
 router.get('/proxy-glb', proxyGlb);
 
 /* ── AR Session Tokens ──

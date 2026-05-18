@@ -56,6 +56,15 @@ export const API_BASE_URL = sanitizedApiUrl.endsWith('/api')
   ? sanitizedApiUrl
   : `${sanitizedApiUrl}/api`;
 
+/**
+ * When true, AR viewer uses the Cloudinary `raw` GLB URL directly instead of
+ * `/api/ai/proxy-glb` — use to verify failures are proxy-related (no Meshy regen).
+ * Set EXPO_PUBLIC_AR_DIRECT_GLB=1 in mobile/.env and restart Metro.
+ */
+export const AR_DIRECT_GLB =
+  process.env.EXPO_PUBLIC_AR_DIRECT_GLB === '1' ||
+  process.env.EXPO_PUBLIC_AR_DIRECT_GLB === 'true';
+
 if (__DEV__) {
   console.log('[Config] API_BASE_URL:', API_BASE_URL);
   const insecureHttpDev =

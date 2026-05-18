@@ -29,18 +29,31 @@ import {
 } from '@/features/ai-scan/components/PremiumScanner';
 import { aiScanStore, useAiScanStore } from '@/features/ai-scan/scanStore';
 import { pollAiScan3D, startAiScan3D } from '@/services/api/aiService';
-import { API_BASE_URL } from '@/config/env';
+import { API_BASE_URL, AR_DIRECT_GLB } from '@/config/env';
 
 type ViewState = 'before' | 'after';
 
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '');
 const WEBAR_PAGE_URI = `${API_ORIGIN}/webar/index.html`;
 
+const isCloudinaryRawGlbUrl = (clean: string) => {
+  try {
+    const u = new URL(clean);
+    return u.hostname === 'res.cloudinary.com' && u.pathname.includes('/raw/upload/');
+  } catch {
+    return false;
+  }
+};
+
 const buildProxiedGlbUri = (url: string | null | undefined) => {
   const clean = String(url || '').trim();
   if (!clean) return undefined;
   if (!/^https?:\/\//i.test(clean)) return clean;
   if (clean.includes('/api/ai/proxy-glb')) return clean;
+
+  if (AR_DIRECT_GLB && isCloudinaryRawGlbUrl(clean)) {
+    return clean;
+  }
 
   try {
     const parsed = new URL(clean);

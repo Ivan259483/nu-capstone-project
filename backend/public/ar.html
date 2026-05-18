@@ -301,6 +301,158 @@
 
   detectArSupport();
 
+  var bootZeroTimer = null;
+  var mvListenersAttached = false;
+
+  /* ════════════════════════════════════════
+     Damage pills
+  ════════════════════════════════════════ */
+  function renderPills() {
+    pills.innerHTML = '';
+    if (!Array.isArray(damages) || !damages.length) return;
+    damages.forEach(function (d) {
+      var c = mode === 'after' ? '#10b981' : (SEV[d.severity] || SEV.medium);
+      var pill = document.createElement('div');
+      pill.className = 'pill';
+      pill.innerHTML =
+        '<span class="pdot" style="background:' + c + ';box-shadow:0 0 6px ' + c + '"></span>' +
+        '<span style="color:' + c + '">' + (mode === 'after' ? '✓ ' : '') + (d.affectedArea || d.type || 'Damage') + '</span>';
+      pills.appendChild(pill);
+    });
+  }
+
+  /* ── HEAD probe then assign model-viewer src (status / content-type / length) ── */
+  function applyGlbWithHeadProbe(url) {
+    glbUrl = url;
+    debugUrlRow.textContent = 'URL: ' + glbUrl.slice(0, 80);
+    loadHint.textContent = 'Probing model URL (HEAD)…';
+    dbg('HEAD fetch: ' + (glbUrl.indexOf('cloudinary') > -1 ? 'Cloudinary' : glbUrl.indexOf('meshy') > -1 ? 'Meshy' : glbUrl.indexOf('proxy-glb') > -1 ? 'Proxy' : 'other'));
+
+    fetch(url, { method: 'HEAD', cache: 'no-store' })
+      .then(function (r) {
+        var ct = r.headers.get('content-type') || 'unknown';
+        var cl = r.headers.get('content-length') || '?';
+        dbg('HEAD ' + r.status + ' | type=' + ct + ' | len=' + cl);
+        debugUrlRow.textContent = 'HEAD ' + r.status + ' | ' + ct + ' | len=' + cl + ' — ' + glbUrl.slice(0, 48) + '…';
+        if (!r.ok) dbg('⚠️  HEAD not OK: HTTP ' + r.status);
+        if (ct.indexOf('html') > -1) dbg('❌ URL returns HTML, not a GLB');
+        if (ct.indexOf('json') > -1 && ct.indexOf('application/json') > -1) dbg('❌ URL returns JSON, not a GLB');
+        mv.setAttribute('src', glbUrl);
+        mv.setAttribute('ios-src', glbUrl);
+        loadHint.textContent = 'Connecting to 3D model server…';
+      })
+      .catch(function (err) {
+        dbg('HEAD probe error: ' + err.message + ' — assigning src anyway');
+        mv.setAttribute('src', glbUrl);
+        mv.setAttribute('ios-src', glbUrl);
+        loadHint.textContent = 'Connecting to 3D model server…';
+      });
+  }
+
+  function attachMvListenersOnce() {
+    if (mvListenersAttached) return;
+    mvListenersAttached = true;
+
+    mv.addEventListener('progress', function (e) {
+      var p = e.detail && e.detail.totalProgress ? Math.round(e.detail.totalProgress * 100) : 0;
+      if (prog) prog.textContent = p + '%';
+      if (p > 0 && p < 100) {
+        loadHint.textContent = 'Downloading 3D model (' + p + '%)…';
+      } else if (p === 0) {
+        loadHint.textContent = 'Waiting for first byte from server…';
+      }
+      if (p === 0) {
+        if (!bootZeroTimer) {
+          bootZeroTimer = setTimeout(function () {
+            if (prog.textContent === '0%') {
+              dbg('⚠️  Still 0% after 5s — possible expired URL or CORS block');
+              loadHint.textContent = '⚠️  Slow response — check if URL is still valid';
+            }
+          }, 5000);
+        }
+      } else {
+        clearTimeout(bootZeroTimer);
+        bootZeroTimer = null;
+      }
+    });
+
+    mv.addEventListener('load', function () {
+      loading.style.display = 'none';
+      debugUrlRow.style.color = '#10b981';
+      dbg('✅ Model loaded successfully');
+      postToRN({ type: 'MODEL_LOADED', modelUrl: glbUrl });
+      renderPills();
+    });
+
+    mv.addEventListener('error', function (e) {
+      loading.style.display = 'none';
+      var detail = e && e.detail ? JSON.stringify(e.detail) : 'unknown';
+      dbg('❌ model-viewer error: ' + detail);
+
+      var isExpired = glbUrl.indexOf('X-Amz-Expires') > -1 || glbUrl.indexOf('X-Amz-Signature') > -1;
+      var errDetail = isExpired
+        ? 'The Meshy signed URL may have expired. Regenerate the 3D model to get a fresh URL.'
+        : 'The 3D model could not be fetched. Check network connection and URL validity.';
+
+      errTitle.textContent = 'Model could not load';
+      errMsg.textContent = errDetail;
+      errBox.style.display = 'flex';
+      debugUrlRow.style.color = '#ef4444';
+      postToRN({ type: 'WEBAR_ERROR', message: errDetail });
+    });
+
+    mv.addEventListener('ar-status', function (e) {
+      var s = e.detail && e.detail.status ? e.detail.status : '';
+      dbg('ar-status: ' + s);
+
+      if (s === 'session-started') {
+        postToRN({ type: 'AR_STARTED', mode: mode });
+      }
+      if (s === 'not-presenting') {
+        postToRN({ type: 'AR_ENDED', mode: mode });
+      }
+      if (s === 'failed') {
+        dbg('⚠️  AR session failed — trying manual <a rel=ar> fallback');
+        var a = document.createElement('a');
+        a.setAttribute('rel', 'ar');
+        a.href = glbUrl;
+        var img = document.createElement('img');
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        img.width = 1; img.height = 1;
+        a.appendChild(img);
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 500);
+        postToRN({ type: 'AR_FALLBACK', mode: mode });
+      }
+    });
+
+    function handleMessage(raw) {
+      var msg;
+      try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { return; }
+      if (!msg || typeof msg !== 'object') return;
+
+      if (msg.type === 'SET_STATE') {
+        window.setMode(msg.state === 'after' ? 'after' : 'before');
+      }
+      if (msg.type === 'ACTIVATE_AR') {
+        var btn = mv.querySelector('[slot="ar-button"]');
+        if (btn) btn.click();
+      }
+      if (msg.type === 'WEBAR_INIT') {
+        var p = msg.payload || msg;
+        if (p.modelUrl) {
+          dbg('WEBAR_INIT: new modelUrl — HEAD probe');
+          applyGlbWithHeadProbe(p.modelUrl);
+        }
+        if (Array.isArray(p.damages)) { damages = p.damages; renderPills(); }
+        postToRN({ type: 'WEBAR_INIT_APPLIED' });
+      }
+    }
+    window.addEventListener('message', function (e) { handleMessage(e.data); });
+    document.addEventListener('message', function (e) { handleMessage(e.data); });
+  }
+
   /* ════════════════════════════════════════
      Resolve the GLB URL — token or direct
   ════════════════════════════════════════ */
@@ -341,148 +493,14 @@
   }
 
   /* ════════════════════════════════════════
-     Boot — set model-viewer src and attach events
+     Boot — listeners once, then HEAD probe → src
   ════════════════════════════════════════ */
   function boot() {
     dbg('Booting model-viewer…');
-    loadHint.textContent = 'Connecting to 3D model server…';
     postToRN({ type: 'WEBAR_READY', modelUrl: glbUrl });
-
-    // Verify the URL is reachable before handing to model-viewer
-    // (HEAD probe gives early diagnostics without downloading the whole file)
-    dbg('HEAD probe: ' + (glbUrl.includes('cloudinary') ? 'Cloudinary (permanent)' : glbUrl.includes('meshy') ? 'Meshy CDN (may expire!)' : 'Custom'));
-
-    mv.setAttribute('src', glbUrl);
-    mv.setAttribute('ios-src', glbUrl);  // iOS Quick Look reads this attribute
-
+    attachMvListenersOnce();
     renderPills();
-
-    /* ── Progress ── */
-    mv.addEventListener('progress', function (e) {
-      var p = e.detail && e.detail.totalProgress ? Math.round(e.detail.totalProgress * 100) : 0;
-      if (prog) prog.textContent = p + '%';
-      if (p > 0 && p < 100) {
-        loadHint.textContent = 'Downloading 3D model (' + p + '%)…';
-      } else if (p === 0) {
-        loadHint.textContent = 'Waiting for first byte from server…';
-      }
-      if (p === 0) {
-        // Still at 0% after 5 seconds — likely a network or URL issue
-        if (!boot._zeroTimer) {
-          boot._zeroTimer = setTimeout(function () {
-            if (prog.textContent === '0%') {
-              dbg('⚠️  Still 0% after 5s — possible expired URL or CORS block');
-              loadHint.textContent = '⚠️  Slow response — check if URL is still valid';
-            }
-          }, 5000);
-        }
-      } else {
-        clearTimeout(boot._zeroTimer);
-        boot._zeroTimer = null;
-      }
-    });
-
-    /* ── Model loaded ── */
-    mv.addEventListener('load', function () {
-      loading.style.display = 'none';
-      debugUrlRow.style.color = '#10b981';
-      dbg('✅ Model loaded successfully');
-      postToRN({ type: 'MODEL_LOADED', modelUrl: glbUrl });
-      renderPills();
-    });
-
-    /* ── Model error ── */
-    mv.addEventListener('error', function (e) {
-      loading.style.display = 'none';
-      var detail = e && e.detail ? JSON.stringify(e.detail) : 'unknown';
-      dbg('❌ model-viewer error: ' + detail);
-
-      // Diagnose the likely cause
-      var isExpired = glbUrl.includes('X-Amz-Expires') || glbUrl.includes('X-Amz-Signature');
-      var errDetail = isExpired
-        ? 'The Meshy signed URL may have expired. Regenerate the 3D model to get a fresh URL.'
-        : 'The 3D model could not be fetched. Check network connection and URL validity.';
-
-      errTitle.textContent = 'Model could not load';
-      errMsg.textContent = errDetail;
-      errBox.style.display = 'flex';
-      debugUrlRow.style.color = '#ef4444';
-      postToRN({ type: 'WEBAR_ERROR', message: errDetail });
-    });
-
-    /* ── AR status events ── */
-    mv.addEventListener('ar-status', function (e) {
-      var s = e.detail && e.detail.status ? e.detail.status : '';
-      dbg('ar-status: ' + s);
-
-      if (s === 'session-started') {
-        postToRN({ type: 'AR_STARTED', mode: mode });
-      }
-      if (s === 'not-presenting') {
-        postToRN({ type: 'AR_ENDED', mode: mode });
-      }
-      if (s === 'failed') {
-        dbg('⚠️  AR session failed — trying manual <a rel=ar> fallback');
-        // Fallback: programmatic Quick Look trigger
-        var a = document.createElement('a');
-        a.setAttribute('rel', 'ar');
-        a.href = glbUrl;
-        var img = document.createElement('img');
-        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-        img.width = 1; img.height = 1;
-        a.appendChild(img);
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 500);
-        postToRN({ type: 'AR_FALLBACK', mode: mode });
-      }
-    });
-
-    /* ── Message bridge from React Native WebView ── */
-    function handleMessage(raw) {
-      var msg;
-      try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { return; }
-      if (!msg || typeof msg !== 'object') return;
-
-      if (msg.type === 'SET_STATE') {
-        setMode(msg.state === 'after' ? 'after' : 'before');
-      }
-      if (msg.type === 'ACTIVATE_AR') {
-        var btn = mv.querySelector('[slot="ar-button"]');
-        if (btn) btn.click();
-      }
-      if (msg.type === 'WEBAR_INIT') {
-        var p = msg.payload || msg;
-        if (p.modelUrl) {
-          glbUrl = p.modelUrl;
-          mv.setAttribute('src', glbUrl);
-          mv.setAttribute('ios-src', glbUrl);
-          debugUrlRow.textContent = 'URL: ' + glbUrl.slice(0, 80);
-          dbg('WEBAR_INIT: new modelUrl applied');
-        }
-        if (Array.isArray(p.damages)) { damages = p.damages; renderPills(); }
-        postToRN({ type: 'WEBAR_INIT_APPLIED' });
-      }
-    }
-    window.addEventListener('message', function (e) { handleMessage(e.data); });
-    document.addEventListener('message', function (e) { handleMessage(e.data); });
-  }
-
-  /* ════════════════════════════════════════
-     Damage pills
-  ════════════════════════════════════════ */
-  function renderPills() {
-    pills.innerHTML = '';
-    if (!Array.isArray(damages) || !damages.length) return;
-    damages.forEach(function (d) {
-      var c = mode === 'after' ? '#10b981' : (SEV[d.severity] || SEV.medium);
-      var pill = document.createElement('div');
-      pill.className = 'pill';
-      pill.innerHTML =
-        '<span class="pdot" style="background:' + c + ';box-shadow:0 0 6px ' + c + '"></span>' +
-        '<span style="color:' + c + '">' + (mode === 'after' ? '✓ ' : '') + (d.affectedArea || d.type || 'Damage') + '</span>';
-      pills.appendChild(pill);
-    });
+    applyGlbWithHeadProbe(glbUrl);
   }
 
   /* ════════════════════════════════════════

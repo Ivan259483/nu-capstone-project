@@ -196,6 +196,19 @@ export const uploadGlbFromUrl = async (sourceGlbUrl, options = {}) => {
     throw error;
   }
 
+  const meta = uploadResponse.data || {};
+  const rt = meta.resource_type;
+  const bytes = meta.bytes;
+  const pid = meta.public_id;
+  console.log(
+    `[Cloudinary GLB] upload metadata: resource_type=${rt ?? '(missing)'} bytes=${bytes ?? '?'} public_id=${pid ?? '?'}`
+  );
+  if (rt !== 'raw') {
+    console.warn(
+      `[Cloudinary GLB] ⚠️  Expected resource_type "raw" but got "${rt}". GLB may be stored as image — check upload preset (must allow raw) and /raw/upload endpoint.`
+    );
+  }
+
   console.log(`[Cloudinary GLB] ✅ Permanent URL: ${secureUrl}`);
   return secureUrl;
 };

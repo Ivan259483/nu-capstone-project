@@ -2242,6 +2242,109 @@ export const generate3DFromScan = async (req, res) => {
  * returns the customer-facing estimate. The existing /api/ai/estimate is
  * preserved for the legacy scan flow.
  */
+const PROXY_GLB_ALLOWED_HOSTS = ['assets.meshy.ai', 'res.cloudinary.com', 'storage.googleapis.com'];
+/** GLB container magic: first uint32 little-endian must be 0x46546C67 ("glTF"). */
+const GLB_STREAM_MAGIC_LE = 0x46546c67;
+
+const proxyGlbHostAllowed = (hostname) =>
+  PROXY_GLB_ALLOWED_HOSTS.some((h) => hostname === h || hostname.endsWith(`.${h}`));
+
+const parseProxyGlbTarget = (req) => {
+  const rawUrl = String(req.query.url || '').trim();
+  if (!rawUrl) {
+    return { error: { status: 400, body: { success: false, message: 'Missing ?url= parameter.' } } };
+  }
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    return { error: { status: 400, body: { success: false, message: 'Invalid URL.' } } };
+  }
+  if (!proxyGlbHostAllowed(parsedUrl.hostname)) {
+    return { error: { status: 403, body: { success: false, message: 'Host not allowed for proxy.' } } };
+  }
+  return { rawUrl, parsedUrl };
+};
+
+const upstreamContentTypeLooksLikeHtmlOrJson = (ct) => {
+  const s = String(ct || '').toLowerCase();
+  if (!s) return false;
+  if (s.includes('text/html')) return true;
+  if (s.includes('application/json')) return true;
+  return false;
+};
+
+const setProxyGlbResponseHeaders = (res, contentLength) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Content-Type', 'model/gltf-binary');
+  res.setHeader('Content-Disposition', 'attachment; filename="model.glb"');
+  if (contentLength) res.setHeader('Content-Length', contentLength);
+};
+
+/**
+ * OPTIONS /api/ai/proxy-glb — CORS preflight for dev tools / custom clients.
+ */
+export const proxyGlbOptions = (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  res.status(204).end();
+};
+
+/**
+ * HEAD /api/ai/proxy-glb?url=… — same allowlist as GET; forwards upstream HEAD
+ * so WebView `fetch(…, { method: 'HEAD' })` gets real status / length without
+ * downloading the GLB twice via the GET stream handler.
+ */
+export const proxyGlbHead = async (req, res) => {
+  const parsed = parseProxyGlbTarget(req);
+  if (parsed.error) {
+    return res.status(parsed.error.status).json(parsed.error.body);
+  }
+  const { rawUrl } = parsed;
+  try {
+    const upstream = await axios.head(rawUrl, {
+      timeout: 30_000,
+      validateStatus: () => true,
+      headers: {
+        'User-Agent': 'AutoSPF-Backend/1.0',
+        Accept: 'model/gltf-binary,application/octet-stream,*/*',
+      },
+    });
+    const uct = upstream.headers['content-type'] || '';
+    const ucl = upstream.headers['content-length'] || '?';
+    console.log(
+      `[proxy-glb] HEAD upstream ${upstream.status} ct=${uct} cl=${ucl} url=${rawUrl.slice(0, 100)}${rawUrl.length > 100 ? '…' : ''}`
+    );
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+    if (upstream.status >= 400) {
+      return res.status(upstream.status).end();
+    }
+    if (upstreamContentTypeLooksLikeHtmlOrJson(uct)) {
+      return res.status(502).end();
+    }
+
+    res.setHeader('Content-Type', 'model/gltf-binary');
+    res.setHeader('Content-Disposition', 'attachment; filename="model.glb"');
+    if (upstream.headers['content-length']) {
+      res.setHeader('Content-Length', String(upstream.headers['content-length']));
+    }
+    return res.status(200).end();
+  } catch (error) {
+    const detail = error?.message || 'Unknown error';
+    console.error(`[proxy-glb] HEAD ❌ ${detail}`);
+    if (!res.headersSent) {
+      return res.status(502).json({ success: false, message: `HEAD upstream failed: ${detail}` });
+    }
+  }
+};
+
 /**
  * GET /api/ai/proxy-glb?url=ENCODED_MESHY_SIGNED_URL
  *
@@ -2252,57 +2355,142 @@ export const generate3DFromScan = async (req, res) => {
  * makes the request originate from the server, bypassing the CDN CORS policy.
  */
 export const proxyGlb = async (req, res) => {
-  const rawUrl = String(req.query.url || '').trim();
-
-  if (!rawUrl) {
-    return res.status(400).json({ success: false, message: 'Missing ?url= parameter.' });
+  const parsed = parseProxyGlbTarget(req);
+  if (parsed.error) {
+    return res.status(parsed.error.status).json(parsed.error.body);
   }
-
-  let parsedUrl;
-  try {
-    parsedUrl = new URL(rawUrl);
-  } catch {
-    return res.status(400).json({ success: false, message: 'Invalid URL.' });
-  }
-
-  // Only proxy Meshy CDN and Cloudinary assets — never act as an open relay
-  const ALLOWED_HOSTS = ['assets.meshy.ai', 'res.cloudinary.com', 'storage.googleapis.com'];
-  if (!ALLOWED_HOSTS.some((h) => parsedUrl.hostname === h || parsedUrl.hostname.endsWith('.' + h))) {
-    return res.status(403).json({ success: false, message: 'Host not allowed for proxy.' });
-  }
+  const { rawUrl } = parsed;
 
   try {
-    console.log('[proxy-glb] Fetching:', rawUrl.slice(0, 120) + (rawUrl.length > 120 ? '…' : ''));
     const upstream = await axios.get(rawUrl, {
       responseType: 'stream',
       timeout: 60_000,
+      validateStatus: () => true,
       headers: {
         'User-Agent': 'AutoSPF-Backend/1.0',
         Accept: 'model/gltf-binary,application/octet-stream,*/*',
       },
     });
 
-    // Permissive CORS so the WebView page on any local IP can load it
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    const status = upstream.status;
+    const uct = upstream.headers['content-type'] || '';
+    const ucl = upstream.headers['content-length'] || '?';
+    console.log(
+      `[proxy-glb] GET upstream ${status} ct=${uct} cl=${ucl} url=${rawUrl.slice(0, 100)}${rawUrl.length > 100 ? '…' : ''}`
+    );
 
-    // Force GLB Content-Type — iOS Safari uses this to detect GLB and trigger Quick Look AR.
-    // If upstream returns application/octet-stream, Safari won't know it's a GLB.
-    res.setHeader('Content-Type', 'model/gltf-binary');
+    if (status >= 400) {
+      upstream.data.destroy();
+      return res.status(502).json({
+        success: false,
+        message: `Upstream returned HTTP ${status}`,
+      });
+    }
 
-    // ⚠️  CRITICAL for iOS Quick Look AR:
-    // Safari's <a rel="ar"> handler checks for Content-Disposition: attachment
-    // with a .glb filename. Without this header iOS silently refuses to open
-    // Quick Look — the button tap does nothing. This is the #1 reason Quick
-    // Look AR fails even when the GLB itself is perfectly valid.
-    res.setHeader('Content-Disposition', 'attachment; filename="model.glb"');
+    if (upstreamContentTypeLooksLikeHtmlOrJson(uct)) {
+      upstream.data.destroy();
+      return res.status(502).json({
+        success: false,
+        message: `Upstream Content-Type is not binary GLB: ${uct}`,
+      });
+    }
 
-    const contentLength = upstream.headers['content-length'];
-    if (contentLength) res.setHeader('Content-Length', contentLength);
+    const stream = upstream.data;
+    let prefix = Buffer.alloc(0);
+    let finalized = false;
 
-    console.log('[proxy-glb] Streaming', contentLength ? `${(parseInt(contentLength) / 1024 / 1024).toFixed(1)} MB` : 'unknown size');
-    upstream.data.pipe(res);
+    const failPeek = (message) => {
+      if (finalized) return;
+      finalized = true;
+      try {
+        stream.destroy();
+      } catch (_) {}
+      if (!res.headersSent) {
+        res.status(502).json({ success: false, message });
+      } else {
+        try {
+          res.destroy();
+        } catch (_) {}
+      }
+    };
+
+    const succeedPeekAndPipe = () => {
+      if (finalized) return;
+      stream.removeListener('data', onData);
+      stream.removeListener('error', onStreamError);
+      stream.removeListener('end', onEnd);
+
+      const magic = prefix.readUInt32LE(0);
+      if (magic !== GLB_STREAM_MAGIC_LE) {
+        finalized = true;
+        try {
+          stream.destroy();
+        } catch (_) {}
+        if (!res.headersSent) {
+          return res.status(502).json({
+            success: false,
+            message: `Response body is not a GLB (magic 0x${magic.toString(16)}; expected 0x${GLB_STREAM_MAGIC_LE.toString(16)})`,
+          });
+        }
+        return res.destroy();
+      }
+
+      try {
+        stream.unshift(prefix);
+      } catch (e) {
+        finalized = true;
+        try {
+          stream.destroy();
+        } catch (_) {}
+        if (!res.headersSent) {
+          return res.status(502).json({
+            success: false,
+            message: `Could not re-queue GLB prefix: ${e?.message || 'unshift failed'}`,
+          });
+        }
+        return res.destroy();
+      }
+
+      finalized = true;
+      setProxyGlbResponseHeaders(res, upstream.headers['content-length']);
+      console.log(
+        `[proxy-glb] Streaming body (validated GLB magic) size=${upstream.headers['content-length'] || 'unknown'}`
+      );
+
+      stream.on('error', (err) => {
+        console.error('[proxy-glb] Stream error while piping:', err?.message || err);
+        try {
+          res.destroy();
+        } catch (_) {}
+      });
+      res.on('close', () => {
+        if (!stream.destroyed) stream.destroy();
+      });
+
+      stream.pipe(res);
+    };
+
+    const onStreamError = (err) => {
+      failPeek(err?.message || 'Upstream stream error');
+    };
+
+    const onEnd = () => {
+      if (finalized) return;
+      if (prefix.length < 4) {
+        failPeek('Upstream ended before GLB header (empty or truncated body)');
+      }
+    };
+
+    const onData = (chunk) => {
+      prefix = Buffer.concat([prefix, chunk]);
+      if (prefix.length >= 4) {
+        succeedPeekAndPipe();
+      }
+    };
+
+    stream.on('data', onData);
+    stream.on('error', onStreamError);
+    stream.on('end', onEnd);
   } catch (error) {
     const status = error?.response?.status;
     const detail = error?.message || 'Unknown error';
