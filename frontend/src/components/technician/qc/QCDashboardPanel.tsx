@@ -643,7 +643,10 @@ export default function QCDashboardPanel() {
   };
 
   return (
-    <div className="flex h-screen min-h-screen overflow-hidden" style={{ background: '#FAFAFA' }}>
+    <div
+      className="qc-dashboard-root flex h-screen min-h-screen overflow-hidden"
+      style={{ background: '#FAFAFA', colorScheme: 'light' }}
+    >
       <QCSidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}

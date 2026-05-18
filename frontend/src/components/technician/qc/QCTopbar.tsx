@@ -17,7 +17,7 @@ export default function QCTopbar({ sidebarCollapsed }: Props) {
     : 'QC';
 
   return (
-    <header className="[color-scheme:light] flex h-[60px] flex-shrink-0 items-center justify-between gap-4 bg-white px-6">
+    <header className="flex h-[60px] flex-shrink-0 items-center justify-between gap-4 bg-white px-6">
       {/* Search */}
       <div className="relative hidden w-72 max-w-full md:block group">
         <Search

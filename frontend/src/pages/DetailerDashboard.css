@@ -74,6 +74,20 @@
   color-scheme: light;
 }
 
+/*
+ * QC full takeover (`QCDashboardPanel`) is always a light UI (#FAFAFA / white), including when
+ * the outer `detailer-root` is `.dark`. Without this, inherited `color-scheme: dark` paints
+ * native inputs/search as solid black on production Chrome while Tailwind backgrounds are ignored.
+ */
+.qc-dashboard-root {
+  color-scheme: light;
+}
+
+.qc-dashboard-root :where(input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']), textarea, select) {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 /* QC review queue: local soft-border treatment for the full-takeover panel. */
 .detailer-root:not(.dark) .qc-review-header,
 .detailer-root:not(.dark) .qc-review-table-shell {
@@ -438,17 +452,17 @@
   border-color: #2A2A2A;
 }
 
-/* ── Inputs, Selects, Textareas ── */
-.detailer-root.dark input:not([type="checkbox"]):not([type="radio"]),
-.detailer-root.dark select,
-.detailer-root.dark textarea {
+/* ── Inputs, Selects, Textareas (main detailer shell only — QC takeover has no .detailer-layout) ── */
+.detailer-root.dark .detailer-layout input:not([type="checkbox"]):not([type="radio"]),
+.detailer-root.dark .detailer-layout select,
+.detailer-root.dark .detailer-layout textarea {
   background: #1A1A1A !important;
   border-color: #2A2A2A !important;
   color: #E5E5E5 !important;
 }
 
-.detailer-root.dark input::placeholder,
-.detailer-root.dark textarea::placeholder {
+.detailer-root.dark .detailer-layout input::placeholder,
+.detailer-root.dark .detailer-layout textarea::placeholder {
   color: #555555 !important;
 }
 
