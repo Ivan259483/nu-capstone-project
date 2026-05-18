@@ -5,11 +5,12 @@
  * Each profile action navigates to its own dedicated screen for a native feel.
  *
  * Groups:
- *   1. Profile         → Edit Profile, Upload Photo, Saved Vehicles, Address
- *   2. Security        → Change Password, Biometric Lock
- *   3. Preferences     → Preferred Branch/Staff, Notifications, Dark Mode
- *   4. Support & Legal → AI Chat, Help Center, Privacy Policy
- *   5. Session Control → Sign Out, Delete Account
+ *   1. Profile         → Edit Profile, Saved Vehicles, Address
+ *   2. Billing         → Payment History (→ /(screens)/payments)
+ *   3. Security        → Change Password, Biometric Lock
+ *   4. Preferences     → Preferred Branch/Staff, Notifications, Dark Mode
+ *   5. Support & Legal → AI Chat, Help Center, Privacy Policy
+ *   6. Session Control → Sign Out, Delete Account
  */
 
 import React, { useState, useEffect } from 'react';
@@ -273,6 +274,16 @@ export default function SettingsScreen() {
               title="Address & Location"
               subtitle="Home, work, or pick-up address"
               onPress={() => nav('/(screens)/address')}
+            />
+          </SettingsGroup>
+
+          {/* ═══ GROUP · BILLING ═══ */}
+          <SettingsGroup title="Billing" delay={175}>
+            <SettingsRow
+              iconName="card-outline"
+              title="Payment History"
+              subtitle="Transactions and receipts"
+              onPress={() => nav('/(screens)/payments')}
             />
           </SettingsGroup>
 

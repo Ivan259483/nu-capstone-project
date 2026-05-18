@@ -2114,6 +2114,8 @@ export default function CustomerDashboard() {
     { id: 'rw-2', title: '10% Coating Discount', points: 300, code: 'COAT10', desc: 'Applies to selected coating services.' },
     { id: 'rw-3', title: 'Priority Booking Slot', points: 500, code: 'FASTLANE', desc: 'Get priority queue schedule access.' },
   ];
+  const sidebarDisplayName = (user?.name || 'Customer').trim() || 'Customer';
+  const sidebarUserEmail = (user?.email || '').trim();
 
   return (
     <>
@@ -2127,37 +2129,35 @@ export default function CustomerDashboard() {
           />
         )}
 
-        {/* Sidebar */}
+        {/* Sidebar — theme aligned with Admin Hub sidebar */}
         <aside
-          className={`customer-sidebar ${sidebarCollapsed ? 'is-collapsed' : 'is-expanded'} ${sidebarLabelsHidden ? 'is-labels-hidden' : ''} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} fixed inset-y-0 left-0 z-30 flex flex-col border-r border-slate-200 bg-white ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+          className={`customer-sidebar ${sidebarCollapsed ? 'is-collapsed' : 'is-expanded'} ${sidebarLabelsHidden ? 'is-labels-hidden' : ''} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} fixed inset-y-0 left-0 z-30 flex flex-col bg-white ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
             }`}
         >
-          <button
-            type="button"
-            onClick={toggleSidebarCollapsed}
-            className="customer-sidebar-toggle hidden md:flex"
-            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-expanded={!sidebarCollapsed}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <iconify-icon
-              icon="solar:alt-arrow-left-linear"
-              width="18"
-              className="customer-sidebar-toggle-chevron"
-            ></iconify-icon>
-          </button>
-
-          <div className="customer-sidebar-brand h-16 flex items-center gap-3 border-b border-slate-100 shrink-0">
-            <span className="customer-sidebar-brand-mark flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm">
-              <iconify-icon icon="solar:shield-check-bold" width="18"></iconify-icon>
-            </span>
-            <span className="customer-sidebar-label font-semibold text-base text-slate-900">AutoSPF+</span>
+          <div className="flex h-16 shrink-0 items-center border-b border-slate-100 px-3 overflow-hidden">
+            <div className="customer-sidebar-user-header min-w-0 flex-1">
+              <div
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white shadow-sm"
+                style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}
+                aria-hidden
+              >
+                {(sidebarDisplayName || sidebarUserEmail || '?').charAt(0).toUpperCase()}
+              </div>
+              {!sidebarCollapsed && (
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-bold text-slate-900 leading-tight">{sidebarDisplayName}</div>
+                  <div className="truncate text-[11px] text-slate-500 leading-tight">{sidebarUserEmail || '—'}</div>
+                </div>
+              )}
+            </div>
           </div>
 
-          <nav className="customer-sidebar-nav flex-1 space-y-1 overflow-y-auto">
+          <nav className="customer-sidebar-nav">
+            {!sidebarCollapsed && <p className="customer-sidebar-section-heading">Main Menu</p>}
             <button
               onClick={() => nav('dashboard')}
-              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'dashboard' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              type="button"
+              className={`customer-sidebar-item ${activeSection === 'dashboard' ? 'is-active' : ''}`}
               aria-label="Dashboard"
               title={sidebarCollapsed ? 'Dashboard' : undefined}
             >
@@ -2170,12 +2170,7 @@ export default function CustomerDashboard() {
               onClick={() => nav('scan')}
               title={sidebarCollapsed ? 'AI Inspection History' : AI_INSPECTION_HISTORY_ENABLED ? undefined : 'Coming soon'}
               aria-label="AI Inspection History"
-              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${AI_INSPECTION_HISTORY_ENABLED
-                ? activeSection === 'scan'
-                  ? 'bg-slate-100 text-slate-900'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-                : 'text-slate-400 cursor-not-allowed opacity-80 hover:bg-transparent'
-                } disabled:pointer-events-none`}
+              className={`customer-sidebar-item ${AI_INSPECTION_HISTORY_ENABLED && activeSection === 'scan' ? 'is-active' : ''}`}
             >
               <iconify-icon icon="solar:scanner-linear" width="20" className="shrink-0"></iconify-icon>
               <span className="customer-sidebar-label flex-1 min-w-0 text-left leading-snug">AI Inspection History</span>
@@ -2184,23 +2179,25 @@ export default function CustomerDashboard() {
               </span>
             </button>
             <button
+              type="button"
               onClick={() => nav('bookings')}
-              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'bookings' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              className={`customer-sidebar-item ${activeSection === 'bookings' ? 'is-active' : ''}`}
               aria-label="My Bookings"
               title={sidebarCollapsed ? 'My Bookings' : undefined}
             >
               <iconify-icon icon="solar:calendar-linear" width="20" className="shrink-0"></iconify-icon>
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">My Bookings</span>
               {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length > 0 && (
-                <span className="customer-sidebar-extra ml-auto text-[9px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">
+                <span className="customer-sidebar-extra ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-600">
                   {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length}
                 </span>
               )}
             </button>
             {pickCustomerLiveTrackerBooking(myBookings) && (
             <button
+              type="button"
               onClick={() => nav('tracker')}
-              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'tracker' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              className={`customer-sidebar-item ${activeSection === 'tracker' ? 'is-active' : ''}`}
               aria-label="Live Tracker"
               title={sidebarCollapsed ? 'Live Tracker' : undefined}
             >
@@ -2210,8 +2207,9 @@ export default function CustomerDashboard() {
             )}
 
             <button
+              type="button"
               onClick={() => nav('documents')}
-              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'documents' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              className={`customer-sidebar-item ${activeSection === 'documents' ? 'is-active' : ''}`}
               aria-label="Documents"
               title={sidebarCollapsed ? 'Documents' : undefined}
             >
@@ -2220,8 +2218,9 @@ export default function CustomerDashboard() {
             </button>
 
             <button
+              type="button"
               onClick={() => nav('payments')}
-              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'payments' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              className={`customer-sidebar-item ${activeSection === 'payments' ? 'is-active' : ''}`}
               aria-label="Payment History"
               title={sidebarCollapsed ? 'Payment History' : undefined}
             >
@@ -2230,8 +2229,9 @@ export default function CustomerDashboard() {
             </button>
 
             <button
+              type="button"
               onClick={() => nav('rewards')}
-              className={`customer-sidebar-item w-full flex items-center gap-3 rounded-md font-medium outline-none transition-colors ${activeSection === 'rewards' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              className={`customer-sidebar-item ${activeSection === 'rewards' ? 'is-active' : ''}`}
               aria-label="Rewards"
               title={sidebarCollapsed ? 'Rewards' : undefined}
             >
@@ -2240,6 +2240,35 @@ export default function CustomerDashboard() {
             </button>
           </nav>
 
+          <div className="customer-sidebar-footer">
+            <button
+              type="button"
+              className="customer-sidebar-item customer-sidebar-item--danger"
+              onClick={async () => {
+                await logout();
+                navigate('/login');
+              }}
+              aria-label="Log out"
+              title={sidebarCollapsed ? 'Log out' : undefined}
+            >
+              <iconify-icon icon="solar:logout-2-linear" width="20" className="shrink-0"></iconify-icon>
+              {!sidebarCollapsed && <span className="customer-sidebar-label">Log Out</span>}
+            </button>
+            <button
+              type="button"
+              className="customer-sidebar-collapse-btn"
+              onClick={toggleSidebarCollapsed}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <iconify-icon
+                icon="solar:alt-arrow-left-linear"
+                width="16"
+                className="customer-sidebar-collapse-chevron shrink-0"
+              ></iconify-icon>
+              {!sidebarCollapsed && <span className="customer-sidebar-label font-medium">Collapse</span>}
+            </button>
+          </div>
         </aside>
 
         {/* Main Content */}

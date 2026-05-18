@@ -83,6 +83,32 @@ export interface BookingRecord {
     releaseSignedAt?: string;
   };
   notes?: string;
+  trackerStageMedia?: Array<{
+    stage?: string;
+    slot?: string;
+    photoUrl?: string;
+    description?: string;
+    uploadedAt?: string;
+    uploadedBy?: string;
+  }>;
+  serviceTrackingStage?: string | null;
+  serviceTrackingUpdatedAt?: string;
+  customerStatus?: string;
+  customerStatusUpdatedAt?: string;
+  paymentProofUrl?: string;
+  paymentStatus?: string;
+  orderNumber?: string | number;
+  approvedAt?: string;
+  qcCompletedAt?: string;
+  paidAt?: string;
+  estimatedCompletion?: string;
+  vehicleModel?: string;
+  vehicleColor?: string;
+  vehicleYear?: string;
+  vehicleMake?: string;
+  serviceStaffAssignments?: Array<{ name?: string }>;
+  assignedDetailer?: { name?: string };
+  rejectionReason?: string;
   vehiclePlate?: string;
   createdAt?: string;
   workflow?: {

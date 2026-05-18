@@ -119,6 +119,87 @@ export const uploadVehicleScanImages = async (files, options = {}) => {
 };
 
 /**
+ * Download a GLB from a (potentially expiring) URL and re-upload it to Cloudinary
+ * as a permanent `raw` resource. Returns a stable, non-expiring secure_url.
+ *
+ * This is the critical fix for Meshy's signed CDN URLs (assets.meshy.ai?X-Amz-Expires=3600)
+ * which expire before model-viewer can load them, causing "Loading 3D model 0%".
+ */
+export const uploadGlbFromUrl = async (sourceGlbUrl, options = {}) => {
+  if (!isCloudinaryConfigured()) {
+    const error = new Error(
+      `Cloudinary is not configured. ${getCloudinaryMissingConfigMessage()}`
+    );
+    error.code = 'CLOUDINARY_NOT_CONFIGURED';
+    throw error;
+  }
+
+  const config = getCloudinaryConfig();
+  const folder = String(options.folder || config.uploadFolder || 'vehicle-models').trim();
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const publicId = options.publicId || `glb_${timestamp}_${randomId(8)}`;
+
+  // Cloudinary raw upload endpoint (for non-image binary files like .glb)
+  const endpoint = `https://api.cloudinary.com/v1_1/${config.cloudName}/raw/upload`;
+
+  console.log(`[Cloudinary GLB] Downloading GLB from: ${sourceGlbUrl.slice(0, 80)}…`);
+  const glbResponse = await axios.get(sourceGlbUrl, {
+    responseType: 'arraybuffer',
+    timeout: 120_000,
+    headers: {
+      'User-Agent': 'AutoSPF-Backend/1.0',
+      Accept: 'model/gltf-binary,application/octet-stream,*/*',
+    },
+  });
+
+  const glbBuffer = Buffer.from(glbResponse.data);
+  console.log(`[Cloudinary GLB] Downloaded ${(glbBuffer.length / 1024 / 1024).toFixed(2)} MB. Uploading to Cloudinary…`);
+
+  const formData = new FormData();
+  formData.append('file', glbBuffer, {
+    filename: options.filename || `model_${publicId}.glb`,
+    contentType: 'model/gltf-binary',
+  });
+  formData.append('folder', folder);
+  formData.append('resource_type', 'raw');
+
+  if (hasSignedCredentials(config)) {
+    const signature = buildCloudinarySignature({
+      folder,
+      public_id: publicId,
+      timestamp,
+    });
+    formData.append('api_key', config.apiKey);
+    formData.append('timestamp', timestamp);
+    formData.append('public_id', publicId);
+    formData.append('signature', signature);
+  } else if (hasUnsignedPreset(config)) {
+    formData.append('upload_preset', config.uploadPreset);
+  } else {
+    const error = new Error('Cloudinary: neither signed credentials nor upload preset available.');
+    error.code = 'CLOUDINARY_NO_AUTH';
+    throw error;
+  }
+
+  const uploadResponse = await axios.post(endpoint, formData, {
+    headers: formData.getHeaders(),
+    timeout: 180_000,
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  });
+
+  const secureUrl = uploadResponse.data?.secure_url;
+  if (!secureUrl || typeof secureUrl !== 'string') {
+    const error = new Error('Cloudinary GLB upload succeeded but no secure_url was returned.');
+    error.code = 'CLOUDINARY_UPLOAD_INVALID_RESPONSE';
+    throw error;
+  }
+
+  console.log(`[Cloudinary GLB] ✅ Permanent URL: ${secureUrl}`);
+  return secureUrl;
+};
+
+/**
  * Upload a raw Buffer (e.g. mask PNG) to Cloudinary and return the secure_url.
  */
 export const uploadBufferToCloudinary = async (buffer, options = {}) => {

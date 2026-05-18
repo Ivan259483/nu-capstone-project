@@ -281,7 +281,7 @@ export const startMeshyImageTo3D = async (files, options = {}) => {
     enable_pbr: options.enablePbr !== false,
     should_remesh: options.shouldRemesh !== false,
     should_texture: options.shouldTexture !== false,
-    target_polycount: Number(options.targetPolycount || 30000),
+    target_polycount: Number(options.targetPolycount || 50000),
     target_formats: ['glb'],
   };
 

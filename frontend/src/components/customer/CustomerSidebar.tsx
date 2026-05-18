@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
     LayoutDashboard,
     Calendar,
@@ -8,9 +8,9 @@ import {
     Settings,
     LogOut,
     FileText,
-    Sparkles
+    Sparkles,
+    ChevronLeft,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -22,8 +22,10 @@ interface SidebarProps {
     className?: string;
 }
 
+/** Standalone customer sidebar — styles match CustomerDashboard / Admin Hub (see index.css `.customer-sidebar-*`). */
 export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, className }) => {
-    const { logout } = useAuth();
+    const { logout, user } = useAuth();
+    const [collapsed, setCollapsed] = useState(false);
 
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -34,60 +36,75 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
         { id: 'documents', label: 'Documents & Waivers', icon: FileText },
         { id: 'notifications', label: 'Notifications', icon: Bell },
         { id: 'settings', label: 'Settings', icon: Settings },
-    ];
+    ] as const;
+
+    const displayName = (user?.name || 'Customer').trim() || 'Customer';
+    const email = (user?.email || '').trim();
 
     return (
-        <aside className={cn("hidden lg:flex flex-col w-64 glass border-r h-screen sticky top-0 rounded-none border-white/5", className)}>
-            <div className="p-6 border-b border-white/5">
-                <div className="flex items-center gap-2">
-                    <img 
-                        src="/images/autospf-logo.png" 
-                        alt="AutoSPF+" 
-                        className="h-8 object-contain"
-                    />
-                </div>
-                <div className="mt-2 text-xs text-violet-400 opacity-80 uppercase tracking-wider font-medium">
-                    Customer Panel
+        <aside
+            className={cn(
+                'customer-sidebar hidden lg:flex flex-col h-screen sticky top-0 bg-white rounded-none',
+                collapsed ? 'is-collapsed' : 'is-expanded',
+                'is-transition-ready',
+                className
+            )}
+        >
+            <div className="flex h-16 shrink-0 items-center border-b border-slate-100 px-3 overflow-hidden">
+                <div className="customer-sidebar-user-header min-w-0 flex-1">
+                    <div
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white shadow-sm"
+                        style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}
+                        aria-hidden
+                    >
+                        {(displayName || email || '?').charAt(0).toUpperCase()}
+                    </div>
+                    {!collapsed && (
+                        <div className="min-w-0 flex-1">
+                            <div className="truncate text-[13px] font-bold text-slate-900 leading-tight">{displayName}</div>
+                            <div className="truncate text-[11px] text-slate-500 leading-tight">{email || '—'}</div>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            <nav className="flex-1 p-4 space-y-2 overflow-y-auto w-full">
-                {navItems.map((item) => (
-                    <Button
-                        key={item.id}
-                        variant="ghost"
-                        className={cn(
-                            "w-full justify-start gap-3 h-11 transition-all duration-300 rounded-lg",
-                            activeTab === item.id
-                                ? item.id === 'ai-estimator'
-                                    ? 'bg-indigo-500/15 text-indigo-300 shadow-sm border border-indigo-500/30'
-                                    : 'font-medium bg-violet-500/10 text-violet-300 shadow-sm border border-violet-500/20 shadow-violet-500/5'
-                                : item.id === 'ai-estimator'
-                                    ? 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 border border-transparent hover:border-indigo-500/20'
-                                    : 'text-[var(--text-secondary)] hover:text-white hover:bg-white/5 border border-transparent hover:border-violet-500/10'
-                        )}
-                        onClick={() => onTabChange(item.id as TabType)}
-                    >
-                        <item.icon className={cn(
-                            "w-5 h-5",
-                            activeTab === item.id
-                                ? item.id === 'ai-estimator' ? 'text-indigo-400' : 'text-violet-400'
-                                : item.id === 'ai-estimator' ? 'text-indigo-500' : 'text-[var(--text-secondary)] group-hover:text-white'
-                        )} />
-                        {item.label}
-                    </Button>
-                ))}
+            <nav className="customer-sidebar-nav">
+                {!collapsed && <p className="customer-sidebar-section-heading">Main Menu</p>}
+                {navItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeTab === item.id;
+                    return (
+                        <button
+                            key={item.id}
+                            type="button"
+                            className={cn('customer-sidebar-item', isActive && 'is-active')}
+                            onClick={() => onTabChange(item.id as TabType)}
+                        >
+                            <Icon className="h-5 w-5 shrink-0" strokeWidth={2} />
+                            <span className="customer-sidebar-label flex-1 min-w-0 text-left">{item.label}</span>
+                        </button>
+                    );
+                })}
             </nav>
 
-            <div className="p-4 border-t border-white/5">
-                <Button
-                    variant="ghost"
-                    className="w-full justify-start gap-3 text-red-400 hover:text-red-300 hover:bg-red-950/20 rounded-lg transition-colors"
-                    onClick={logout}
+            <div className="customer-sidebar-footer">
+                <button
+                    type="button"
+                    className="customer-sidebar-item customer-sidebar-item--danger"
+                    onClick={() => logout()}
                 >
-                    <LogOut className="w-5 h-5" />
-                    Sign Out
-                </Button>
+                    <LogOut className="h-5 w-5 shrink-0" strokeWidth={2} />
+                    {!collapsed && <span className="customer-sidebar-label">Log Out</span>}
+                </button>
+                <button
+                    type="button"
+                    className="customer-sidebar-collapse-btn"
+                    onClick={() => setCollapsed((c) => !c)}
+                    aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                >
+                    <ChevronLeft className="h-4 w-4 customer-sidebar-collapse-chevron shrink-0 text-slate-500" strokeWidth={2} />
+                    {!collapsed && <span className="customer-sidebar-label font-medium">Collapse</span>}
+                </button>
             </div>
         </aside>
     );

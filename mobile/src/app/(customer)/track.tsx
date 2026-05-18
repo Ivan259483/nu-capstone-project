@@ -22,6 +22,8 @@ import {
   Platform,
   Image,
   Alert,
+  Modal,
+  useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import Svg, { Circle } from 'react-native-svg';
@@ -49,6 +51,14 @@ import { useQuery } from '@tanstack/react-query';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { TabBarHeight } from '@/constants/theme';
 import { isDefaultTrackBookingRow } from '@/utils/customerBookingLifecycle';
+import {
+  bumpCustomerTrackerIndexForInProgressGateComplete,
+  bumpCustomerTrackerIndexForReceivedGateComplete,
+  getCustomerStageSlotPhotos,
+  MOBILE_TRACKER_STEP_MEDIA_STAGE,
+  type TrackerMediaStage,
+} from '@/utils/customer-tracker-stage-media';
+import { getTrackerPipelineProgressPct } from '@/utils/tracker-pipeline-progress';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -131,13 +141,6 @@ function resolveStep(booking: any): number {
 
   // 3. order.status — last resort; cannot distinguish quality_check from ready_pickup
   return STATUS_TO_STEP[s] ?? 0;
-}
-
-// Progress % — web formula: (currentIdx / (steps.length - 1)) * 100
-function getPct(idx: number): number {
-  if (idx < 0) return 0;
-  if (idx >= TRACKER_STEPS.length - 1) return 100;
-  return Math.round((idx / (TRACKER_STEPS.length - 1)) * 100);
 }
 
 // ─── Time Helpers (mirrors web getStepTimestamps + formatEtaLabel) ─────────────
@@ -305,16 +308,53 @@ function TimelineStep({
   currentIdx,
   timestamp,
   isLast,
+  booking,
+  mediaStage,
 }: {
   step: typeof TRACKER_STEPS[number];
   index: number;
   currentIdx: number;
   timestamp: string;
   isLast: boolean;
+  booking: any | null;
+  mediaStage: TrackerMediaStage | null;
 }) {
+  const { width: windowWidth } = useWindowDimensions();
+  const [galleryStartIndex, setGalleryStartIndex] = useState<number | null>(null);
+  const [galleryPage, setGalleryPage] = useState(0);
+  const galleryScrollRef = useRef<ScrollView>(null);
+  const insetsModal = useSafeAreaInsets();
+
   const isDone    = currentIdx > index;
   const isActive  = currentIdx === index;
   const isPending = currentIdx < index;
+
+  const shots = useMemo(() => {
+    if (!booking || !mediaStage) return [];
+    return getCustomerStageSlotPhotos(booking, mediaStage);
+  }, [booking, mediaStage]);
+
+  const galleryOpen = galleryStartIndex !== null && shots.length > 0;
+
+  useEffect(() => {
+    if (shots.length === 0) setGalleryStartIndex(null);
+  }, [shots.length]);
+
+  useEffect(() => {
+    if (!galleryOpen || galleryStartIndex === null) return;
+    setGalleryPage(galleryStartIndex);
+    const id = requestAnimationFrame(() => {
+      galleryScrollRef.current?.scrollTo({
+        x: galleryStartIndex * windowWidth,
+        animated: false,
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [galleryOpen, galleryStartIndex, windowWidth]);
+
+  const closeGallery = () => {
+    setGalleryStartIndex(null);
+  };
 
   const glowOp = useSharedValue(0);
   useEffect(() => {
@@ -330,6 +370,7 @@ function TimelineStep({
     } else {
       glowOp.value = 0;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Reanimated shared value ref
   }, [isActive]);
 
   const glowStyle = useAnimatedStyle(() => ({ opacity: glowOp.value }));
@@ -402,6 +443,117 @@ function TimelineStep({
             <Text style={tl.activeText}>In progress</Text>
           </View>
         )}
+
+        {mediaStage ? (
+          <>
+            {shots.length > 0 ? (
+              <>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={tl.mediaScroll}
+                  contentContainerStyle={tl.mediaScrollContent}
+                >
+                  {shots.map((shot, si) => (
+                    <TouchableOpacity
+                      key={`${shot.url}-${si}`}
+                      activeOpacity={0.85}
+                      onPress={() => setGalleryStartIndex(si)}
+                      style={tl.mediaItem}
+                    >
+                      <Image source={{ uri: shot.url }} style={tl.mediaThumb} resizeMode="cover" />
+                      <Text style={tl.mediaCaption} numberOfLines={1}>
+                        {shot.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+                <Text style={tl.mediaCountHint}>
+                  {shots.length === 1
+                    ? '1 photo'
+                    : `${shots.length} photos · swipe left/right in viewer`}
+                </Text>
+              </>
+            ) : isActive && mediaStage === 'quality_check' ? (
+              <Text style={tl.mediaPending}>
+                Upload pending — awaiting QC form photo from the shop.
+              </Text>
+            ) : null}
+
+            <Modal
+              visible={galleryOpen}
+              transparent
+              animationType="fade"
+              onRequestClose={closeGallery}
+            >
+              <View style={[tl.modalRoot, { paddingTop: insetsModal.top + 8, paddingBottom: insetsModal.bottom + 8 }]}>
+                <View style={tl.modalHeader}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <Text style={tl.modalStage}>{step.label}</Text>
+                    <Text style={tl.modalCounter}>
+                      Photo {Math.min(galleryPage + 1, shots.length)} of {shots.length}
+                    </Text>
+                    {shots.length > 1 ? (
+                      <Text style={tl.modalSwipeHint}>Swipe sideways to view each photo</Text>
+                    ) : null}
+                  </View>
+                  <TouchableOpacity
+                    onPress={closeGallery}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close photo viewer"
+                  >
+                    <Text style={tl.modalClose}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {shots.length > 1 ? (
+                  <View style={tl.modalDots}>
+                    {shots.map((_, di) => (
+                      <View
+                        key={`dot-${di}`}
+                        style={[
+                          tl.modalDot,
+                          di === galleryPage ? tl.modalDotActive : tl.modalDotInactive,
+                        ]}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+
+                <ScrollView
+                  ref={galleryScrollRef}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={tl.modalGalleryScroll}
+                  onMomentumScrollEnd={(e) => {
+                    const w = e.nativeEvent.layoutMeasurement.width;
+                    const x = e.nativeEvent.contentOffset.x;
+                    const page = Math.round(x / Math.max(w, 1));
+                    setGalleryPage(Math.max(0, Math.min(page, shots.length - 1)));
+                  }}
+                >
+                  {shots.map((shot, si) => (
+                    <View
+                      key={`gallery-${shot.url}-${si}`}
+                      style={[tl.modalGalleryPage, { width: windowWidth }]}
+                    >
+                      <Image
+                        source={{ uri: shot.url }}
+                        style={tl.modalGalleryImage}
+                        resizeMode="contain"
+                      />
+                      <Text style={tl.modalGalleryLabel} numberOfLines={2}>
+                        {shot.label}
+                      </Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            </Modal>
+          </>
+        ) : null}
       </View>
     </View>
   );
@@ -465,6 +617,114 @@ const tl = StyleSheet.create({
   },
   activeDot:  { width: 6, height: 6, borderRadius: 3, backgroundColor: C.orange },
   activeText: { fontSize: 11, fontWeight: '600', color: C.orange },
+
+  mediaScroll: { marginTop: 10, maxHeight: 102 },
+  mediaScrollContent: { gap: 10, paddingRight: 4 },
+  mediaItem: { width: 84 },
+  mediaThumb: {
+    width: 76,
+    height: 76,
+    borderRadius: 10,
+    backgroundColor: C.surfaceAlt,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  mediaCaption: {
+    marginTop: 4,
+    fontSize: 10,
+    fontWeight: '600',
+    color: C.textMut,
+    maxWidth: 84,
+  },
+  mediaPending: {
+    marginTop: 10,
+    fontSize: 11,
+    lineHeight: 16,
+    color: C.textDim,
+    fontStyle: 'italic',
+  },
+  mediaCountHint: {
+    marginTop: 6,
+    fontSize: 10,
+    fontWeight: '600',
+    color: C.textDim,
+    letterSpacing: 0.2,
+  },
+
+  modalRoot: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+  modalStage: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: C.textMut,
+    marginBottom: 2,
+  },
+  modalCounter: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: C.text,
+    letterSpacing: -0.3,
+  },
+  modalSwipeHint: {
+    marginTop: 4,
+    fontSize: 11,
+    color: C.textDim,
+  },
+  modalClose: { fontSize: 15, fontWeight: '700', color: C.orange, paddingTop: 2 },
+  modalDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 10,
+  },
+  modalDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  modalDotActive: {
+    backgroundColor: C.orange,
+    transform: [{ scale: 1.15 }],
+  },
+  modalDotInactive: {
+    backgroundColor: C.textDim,
+    opacity: 0.45,
+  },
+  modalGalleryScroll: {
+    flex: 1,
+    width: '100%',
+  },
+  modalGalleryPage: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    minHeight: 320,
+  },
+  modalGalleryImage: {
+    width: '100%',
+    flex: 1,
+    minHeight: 260,
+    maxHeight: 520,
+  },
+  modalGalleryLabel: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: '600',
+    color: C.textSec,
+    textAlign: 'center',
+    paddingHorizontal: 8,
+  },
 });
 
 // ─── History Card ─────────────────────────────────────────────────────────────
@@ -713,7 +973,7 @@ export default function TrackScreen() {
     setPaymentProofLocal(null);
   }, [bookingFromQuery?.id]);
 
-  const booking = useMemo(() => {
+  const booking = useMemo((): BookingRecord | null => {
     if (!bookingFromQuery) return null;
     if (paymentProofLocal) {
       return { ...bookingFromQuery, paymentProofUrl: paymentProofLocal };
@@ -816,8 +1076,29 @@ export default function TrackScreen() {
 
   // ── Derived state ──
   // forceStepIdx takes priority: used during the 1.5s Step 5 buffer before ServiceCompleteCard
-  const stepIdx   = forceStepIdx !== null ? forceStepIdx : (booking ? resolveStep(booking) : -1);
-  const pct       = getPct(stepIdx);
+  const resolvedStepRaw = booking ? resolveStep(booking) : -1;
+  let resolvedStepBumped = resolvedStepRaw;
+  if (booking && resolvedStepRaw >= 0) {
+    resolvedStepBumped = bumpCustomerTrackerIndexForReceivedGateComplete(booking, resolvedStepRaw, 'dashboard5');
+    resolvedStepBumped = bumpCustomerTrackerIndexForInProgressGateComplete(booking, resolvedStepBumped, 'dashboard5');
+  }
+  const stepIdx = forceStepIdx !== null ? forceStepIdx : resolvedStepBumped;
+  const pct = useMemo(() => {
+    if (!booking) return 0;
+    const status = String(booking.status || '').toLowerCase();
+    const tsKey = String(booking.serviceTrackingStage ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/-/g, '_');
+    const paymentPaid = String(booking.paymentStatus || '').toLowerCase() === 'paid';
+    const postPayComplete =
+      paymentPaid && (status === 'completed' || status === 'released' || tsKey === 'released');
+    if (postPayComplete) return 100;
+    return getTrackerPipelineProgressPct({
+      serviceTrackingStage: booking.serviceTrackingStage,
+      status: booking.status,
+    });
+  }, [booking]);
   const hasActive = !!booking && isDefaultTrackBookingRow(booking?.status || '');
 
   const stepTimestamps = booking ? getStepTimestamps(booking) : ['', '', '', '', ''];
@@ -1103,6 +1384,8 @@ export default function TrackScreen() {
                     currentIdx={stepIdx}
                     timestamp={stepTimestamps[i]}
                     isLast={i === TRACKER_STEPS.length - 1}
+                    booking={booking}
+                    mediaStage={MOBILE_TRACKER_STEP_MEDIA_STAGE[step.id] ?? null}
                   />
                 ))}
               </View>

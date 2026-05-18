@@ -19,8 +19,10 @@ import {
   getCloudinaryMissingConfigMessage,
   isCloudinaryConfigured,
   uploadBufferToCloudinary,
+  uploadGlbFromUrl,
   uploadVehicleScanImages,
 } from '../utils/cloudinaryStorage.utils.js';
+
 import {
   normalizeDamageCategory,
   detectVehiclePart,
@@ -1081,15 +1083,40 @@ export const get3DModelStatus = async (req, res) => {
     const modelUrl = extractModelUrl(payload);
 
     if (status === 'ar_ready' && modelUrl) {
+      // ── Persist GLB permanently to Cloudinary before saving to DB ──────────
+      // Meshy signed URLs (assets.meshy.ai?X-Amz-Expires=3600) expire within 1 h.
+      // model-viewer will get a 403/410 and stay at "Loading 3D model 0%".
+      // Fix: download the GLB now and store it in Cloudinary as a permanent URL.
+      let permanentModelUrl = modelUrl; // fallback to raw Meshy URL if Cloudinary fails
+
+      if (isCloudinaryConfigured()) {
+        try {
+          console.log(`[Meshy Poll] ☁️  Uploading GLB to Cloudinary for permanent hosting…`);
+          permanentModelUrl = await uploadGlbFromUrl(modelUrl, {
+            folder: `${MESHY_CLOUDINARY_FOLDER}/models`,
+            filename: `vehicle_${taskId}.glb`,
+          });
+          console.log(`[Meshy Poll] ✅ Permanent GLB URL: ${permanentModelUrl}`);
+        } catch (glbErr) {
+          // Non-fatal: use the raw Meshy URL so AR still works right now.
+          // The URL will expire in ~1 hour so user should reload if they come back later.
+          console.warn(`[Meshy Poll] ⚠️  Cloudinary GLB upload failed (using raw Meshy URL as fallback):`, glbErr?.message);
+          permanentModelUrl = modelUrl;
+        }
+      } else {
+        console.warn(`[Meshy Poll] ⚠️  Cloudinary not configured — GLB URL will expire. Configure CLOUDINARY_* env vars for permanent hosting.`);
+      }
+
       try {
         await AIScan.findOneAndUpdate(
           { modelTaskId: taskId },
           {
             modelStatus: 'ready',
-            modelUrl,
-            repairedModelUrl: modelUrl,
+            modelUrl: permanentModelUrl,
+            repairedModelUrl: permanentModelUrl,
           }
         );
+        console.log(`[Meshy Poll] 💾 Scan updated with ${permanentModelUrl === modelUrl ? 'raw Meshy' : 'Cloudinary permanent'} URL`);
       } catch (dbErr) {
         console.warn(`[Meshy Poll] Could not persist ready model for taskId=${taskId}:`, dbErr?.message);
       }
@@ -1097,12 +1124,13 @@ export const get3DModelStatus = async (req, res) => {
       return res.json({
         success: true,
         status: 'ar_ready',
-        model_url: modelUrl,
-        repaired_model_url: modelUrl,
+        model_url: permanentModelUrl,
+        repaired_model_url: permanentModelUrl,
         progress: 100,
         task_id: taskId,
       });
     }
+
 
     if (status === 'ar_ready' && !modelUrl) {
       console.error(`[Meshy] Task ${taskId} succeeded but no .glb URL was returned.`);
@@ -2099,7 +2127,7 @@ export const generate3DFromScan = async (req, res) => {
       enable_pbr: true,
       should_remesh: true,
       should_texture: true,
-      target_polycount: 30000,
+      target_polycount: 50000,
       target_formats: ['glb'],
     };
 

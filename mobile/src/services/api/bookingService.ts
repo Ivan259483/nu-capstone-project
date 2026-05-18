@@ -1,6 +1,25 @@
 import { apiClient, cachedGet, TTL } from '@/services/api/client';
 import type { ApiEnvelope, BookingRecord, ServiceOption } from '@/services/api/types';
 import { isBookingCountedAsActiveOnHome } from '@/utils/customerBookingLifecycle';
+import {
+  cacheDirectory,
+  writeAsStringAsync,
+  EncodingType,
+} from 'expo-file-system/legacy';
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const g = globalThis as unknown as { btoa?: (s: string) => string };
+  if (!g.btoa) throw new Error('Cannot encode receipt');
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const end = Math.min(i + chunkSize, bytes.length);
+    const sub = bytes.subarray(i, end);
+    binary += String.fromCharCode.apply(null, Array.from(sub) as unknown as number[]);
+  }
+  return g.btoa(binary);
+}
 
 const normalizeBooking = (raw: any): BookingRecord => {
   const id = raw?.id || raw?._id || '';
@@ -197,5 +216,36 @@ export const bookingService = {
   async operateRelease(bookingId: string, payload: { releaseSignature: string }): Promise<BookingRecord> {
     const response = await apiClient.post<ApiEnvelope<any>>(`/orders/${bookingId}/release`, payload);
     return normalizeBooking(response.data.data);
+  },
+
+  /**
+   * Download receipt PDF to app cache and return a `file://` URI.
+   * Prefer this over in-memory `data:` URIs — WebView + huge base64 PDFs often crash the app.
+   */
+  async saveOrderReceiptPdfToCache(orderId: string): Promise<string> {
+    const response = await apiClient.get<ArrayBuffer>(
+      `/orders/${encodeURIComponent(orderId)}/billing/receipt-pdf`,
+      { responseType: 'arraybuffer' }
+    );
+    const ct = String(response.headers['content-type'] || '');
+    const buf = response.data as unknown as ArrayBuffer;
+    if (ct.includes('application/json')) {
+      const text = new TextDecoder().decode(new Uint8Array(buf));
+      let msg = 'Receipt not available';
+      try {
+        const j = JSON.parse(text) as { message?: string };
+        if (j?.message) msg = j.message;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    const base64 = arrayBufferToBase64(buf);
+    const dir = cacheDirectory;
+    if (!dir) throw new Error('Storage not available');
+    const safeId = orderId.replace(/[^a-zA-Z0-9_-]/g, '') || 'order';
+    const fileUri = `${dir}receipt-${safeId}.pdf`;
+    await writeAsStringAsync(fileUri, base64, { encoding: EncodingType.Base64 });
+    return fileUri;
   },
 };

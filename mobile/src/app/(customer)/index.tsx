@@ -64,7 +64,16 @@ withDelay, Easing, interpolate, Extrapolation,
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
 import { bookingService } from '@/services/api/bookingService';
+import type { BookingRecord } from '@/services/api/types';
 import { isBookingCountedAsActiveOnHome } from '@/utils/customerBookingLifecycle';
+import {
+  bookingShowsCustomerLiveTracker,
+  pickCustomerLiveTrackerBooking,
+} from '@/utils/customer-live-tracker-pick';
+import {
+  getCustomerHomeHeroPill,
+  resolveCustomerHomeRailStep,
+} from '@/utils/customer-home-rail-step';
 import { TabBarHeight } from '@/constants/theme';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -136,24 +145,7 @@ const GB = {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // STATIC DATA
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-type SI = { label: string; color: string; fill: string; icon: string; step: number };
-const STATUS: Record<string, SI> = {
-  pending:       { label:'Booked',                 color:D.Y, fill:D.Yf, icon:'receipt-outline',           step:0 },
-  confirmed:     { label:'Confirmed',              color:D.B, fill:D.Bf, icon:'checkmark-circle-outline',  step:1 },
-  assigned:      { label:'Technician Assigned',    color:D.V, fill:D.Vf, icon:'person-outline',            step:2 },
-  received:      { label:'Checked-In',             color:D.C, fill:D.Cf, icon:'car-outline',               step:3 },
-  queued:        { label:'In Queue',               color:D.Y, fill:D.Yf, icon:'time-outline',              step:1 },
-  'in-progress': { label:'In Service',             color:D.A, fill:D.Af, icon:'construct-outline',         step:4 },
-  in_progress:   { label:'In Service',             color:D.A, fill:D.Af, icon:'construct-outline',         step:4 },
-  completed:     { label:'Quality Check',          color:D.G, fill:D.Gf, icon:'shield-checkmark-outline',  step:5 },
-  quality_check: { label:'Quality Check',          color:D.G, fill:D.Gf, icon:'shield-checkmark-outline',  step:5 },
-  paid:          { label:'Payment Settled',        color:D.G, fill:D.Gf, icon:'card-outline',              step:6 },
-  ready:         { label:'Ready for Pickup',       color:D.G, fill:D.Gf, icon:'checkmark-done-outline',    step:6 },
-  released:      { label:'Released',               color:D.G, fill:D.Gf, icon:'car-sport-outline',         step:7 },
-  cancelled:     { label:'Cancelled',              color:D.R, fill:D.Rf, icon:'close-circle-outline',      step:0 },
-};
-
-// Matches the 8-stage WORKFLOW_PIPELINE in track.tsx
+// Home 8-step rail labels (must match `CUSTOMER_HOME_RAIL_LABELS` in customer-home-rail-step.ts)
 const STEPS = ['Booked', 'Confirmed', 'Assigned', 'Checked-In', 'In Service', 'QC', 'Payment', 'Released'];
 
 const SERVICES = [
@@ -819,6 +811,25 @@ function QuickSection({ router, completed }: any) {
           </GBCard>
         </Tap>
       </Animated.View>
+
+      <Animated.View entering={FadeInUp.delay(480).duration(200)} style={{marginTop:10}}>
+        <Tap onPress={() => router.push('/(screens)/payments')}>
+          <GBCard colors={GB.gold} radius={22} bg={D.s1} style={sh('#000',0.16,10,3)}>
+            <LinearGradient colors={[D.Gof,'transparent']} start={{x:0,y:0}} end={{x:1,y:0}} style={StyleSheet.absoluteFill} />
+            <View style={[$.qaRail,{backgroundColor:D.Go}]} />
+            <View style={$.qaWideBody}>
+              <View style={[$.qaSmIcon,{backgroundColor:D.Gof}]}>
+                <Ionicons name="wallet-outline" size={18} color={D.Go} />
+              </View>
+              <View style={{flex:1,marginLeft:14}}>
+                <Text style={$.qaSmName}>Payment History</Text>
+                <Text style={$.qaSubLbl}>Transactions and receipts</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={13} color={D.w24} style={{marginLeft:8}} />
+            </View>
+          </GBCard>
+        </Tap>
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -1181,9 +1192,13 @@ export default function HomeScreen() {
   });
 
   const active = bookings
-    .filter((b: any) => isBookingCountedAsActiveOnHome(b.status))
-    .sort((a: any, b: any) => new Date(b.createdAt||0).getTime()-new Date(a.createdAt||0).getTime());
-  const job = active[0] || null;
+    .filter((b: BookingRecord) => isBookingCountedAsActiveOnHome(b.status))
+    .sort(
+      (a: BookingRecord, b: BookingRecord) =>
+        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+  const trackerScope = bookings.filter((b: BookingRecord) => bookingShowsCustomerLiveTracker(b));
+  const job = pickCustomerLiveTrackerBooking(trackerScope) ?? active[0] ?? null;
   const completed = bookings.filter((b: any) => ['completed','released','paid'].includes(b.status));
   const history = completed.slice(0, 5);
   const totalSpend = history.reduce((s: number, b: any) => s + (b.totalPrice || 0), 0);
@@ -1192,15 +1207,11 @@ export default function HomeScreen() {
     new Date((b.completedAt||b.updatedAt||new Date()) as string).getTime() > d7.getTime()
   ) || null;
 
-  const st: SI | null = job ? STATUS[job.status] || {
-    label: String(job.status||'').replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase()),
-    color:D.w55, fill:D.w04, icon:'ellipse-outline', step:0,
-  } : null;
+  const st = job ? getCustomerHomeHeroPill(job) : null;
 
   const stepFor = useCallback((): number => {
     if (!job) return 0;
-    const si = STATUS[job.status];
-    return si?.step ?? 0;
+    return resolveCustomerHomeRailStep(job);
   }, [job]);
 
   const fn = profile?.full_name?.split(' ')[0] || 'Friend';
