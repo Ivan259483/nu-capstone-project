@@ -55,6 +55,20 @@
 
 /* Light mode is the default — no overrides needed */
 
+/*
+ * Native <input>/<textarea>/<select> follow the document color scheme. The app
+ * still ships <meta name="color-scheme" content="dark" /> in index.html for the
+ * marketing shell, which makes controls render as dark slabs inside the light
+ * detailer theme. Scope the correct scheme per detailer theme.
+ */
+.detailer-root.light-mode {
+  color-scheme: light;
+}
+
+.detailer-root.dark {
+  color-scheme: dark;
+}
+
 /* QC review queue: local soft-border treatment for the full-takeover panel. */
 .detailer-root:not(.dark) .qc-review-header,
 .detailer-root:not(.dark) .qc-review-table-shell {
