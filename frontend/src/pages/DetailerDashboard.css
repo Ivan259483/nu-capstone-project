@@ -79,13 +79,38 @@
  * the outer `detailer-root` is `.dark`. Without this, inherited `color-scheme: dark` paints
  * native inputs/search as solid black on production Chrome while Tailwind backgrounds are ignored.
  */
-.qc-dashboard-root {
+.detailer-shell .qc-dashboard-root {
   color-scheme: light;
+  scrollbar-color: rgba(148, 163, 184, 0.42) transparent;
+  scrollbar-width: thin;
 }
 
 .qc-dashboard-root :where(input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']), textarea, select) {
   -webkit-appearance: none;
   appearance: none;
+}
+
+/* QC / Live Tracker: soft light WebKit scrollbars (wins over .detailer-shell ::-webkit-scrollbar later in file) */
+.detailer-shell .qc-dashboard-root ::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.detailer-shell .qc-dashboard-root ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.detailer-shell .qc-dashboard-root ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.38);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.detailer-shell .qc-dashboard-root ::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.48);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 /* QC review queue: local soft-border treatment for the full-takeover panel. */
@@ -501,17 +526,17 @@
   background: #1A1A1A;
 }
 
-/* ── Scrollbars ── */
-.detailer-root.dark ::-webkit-scrollbar-track {
+/* ── Scrollbars (Obsidian shell only — QC has its own light scrollbars) ── */
+.detailer-root.dark .detailer-layout ::-webkit-scrollbar-track {
   background: #111111;
 }
 
-.detailer-root.dark ::-webkit-scrollbar-thumb {
+.detailer-root.dark .detailer-layout ::-webkit-scrollbar-thumb {
   background: #2A2A2A;
   border-radius: 4px;
 }
 
-.detailer-root.dark ::-webkit-scrollbar-thumb:hover {
+.detailer-root.dark .detailer-layout ::-webkit-scrollbar-thumb:hover {
   background: #3A3A3A;
 }
 

@@ -607,7 +607,7 @@ function OrderSidebarCard({
     <button
       type="button"
       onClick={onSelect}
-      className={`group w-full rounded-2xl py-3.5 pl-3.5 pr-3.5 text-left transition-all duration-200 ${
+      className={`group w-full rounded-3xl py-3.5 pl-3.5 pr-3.5 text-left transition-all duration-200 ${
         selected
           ? 'bg-blue-50/70 shadow-[0_12px_36px_-8px_rgba(37,99,235,0.22)]'
           : 'bg-white shadow-[0_8px_28px_-6px_rgba(15,23,42,0.08)] hover:bg-white hover:shadow-[0_14px_40px_-8px_rgba(37,99,235,0.14)]'
@@ -654,7 +654,7 @@ function MilestoneStepper({ job }: { job: QCJob }) {
 
   return (
     <div className="shrink-0 bg-transparent px-6 py-4">
-      <div className="rounded-[24px] bg-white/95 px-5 py-4 shadow-[0_22px_55px_-22px_rgba(15,23,42,0.12),0_8px_24px_-14px_rgba(15,23,42,0.07)]">
+      <div className="rounded-[30px] bg-white/95 px-5 py-4 shadow-[0_22px_55px_-22px_rgba(15,23,42,0.12),0_8px_24px_-14px_rgba(15,23,42,0.07)]">
         <div className="grid grid-cols-4">
         {TRACKER_GATES.map((gate, index) => {
           const state = getGateState(job, index);
@@ -700,7 +700,7 @@ function PhotoComplianceCard({ job, viewerIsQualityChecker }: { job: QCJob; view
   const currentCount = countFilledGateSlots(mediaList, tracker.currentGate.id);
 
   return (
-    <section className="qc-live-panel rounded-[24px] bg-white/95 p-4 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
+    <section className="qc-live-panel rounded-[30px] bg-white/95 p-4 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Photo compliance</p>
@@ -842,7 +842,7 @@ function QCHandoffOrderCard({
   );
 
   return (
-    <section className="qc-live-panel rounded-[24px] bg-white/95 p-4 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
+    <section className="qc-live-panel rounded-[30px] bg-white/95 p-4 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-100/90 text-sky-800 shadow-[0_4px_14px_-6px_rgba(14,165,233,0.35)]">
@@ -940,7 +940,7 @@ function QCPlateValidationCard({
     : 'bg-rose-50/85 text-rose-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_8px_24px_-10px_rgba(244,63,94,0.28)]';
 
   return (
-    <section className="qc-live-panel rounded-[24px] bg-white/95 p-4 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
+    <section className="qc-live-panel rounded-[30px] bg-white/95 p-4 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
       <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Plate number</p>
       <h3 className="mt-1 text-sm font-black text-slate-950">Validation</h3>
       <label htmlFor="qc-plate-input-aside" className="mt-3 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
@@ -973,7 +973,7 @@ function QCPlateValidationCard({
 function QCValidationSummaryCard({ validation }: { validation: QCGateValidation }) {
   const rows = buildQCGateSummaryRows(validation);
   return (
-    <section className="qc-live-panel rounded-[24px] bg-white/95 p-4 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
+    <section className="qc-live-panel rounded-[30px] bg-white/95 p-4 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
       <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Validation summary</p>
       <h3 className="mt-1 text-sm font-black text-slate-950">Gate readiness</h3>
       <div className="mt-4 space-y-2.5">
@@ -1009,7 +1009,7 @@ function QCGateChecklistPanel({
   const scoreText = validation.thresholdMet ? 'text-emerald-700' : 'text-rose-600';
 
   return (
-    <div className="mt-5 rounded-[24px] bg-white/95 p-5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.14),0_10px_32px_-16px_rgba(15,23,42,0.09)]">
+    <div className="mt-5 rounded-[30px] bg-white/95 p-5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.14),0_10px_32px_-16px_rgba(15,23,42,0.09)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Quality control checkpoints</p>
@@ -1238,7 +1238,7 @@ function CurrentGateCard({
   };
 
   return (
-    <section className="qc-live-panel rounded-[26px] bg-white/95 p-5 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
+    <section className="qc-live-panel rounded-[32px] bg-white/95 p-5 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
       <input
         ref={inputRef}
         type="file"
@@ -1329,10 +1329,10 @@ function CurrentGateCard({
               ? QC_FORM_SLOT_SHORT
               : TRACKER_PHOTO_SLOT_SHORT[slot as TrackerPhotoSlotKey];
           const shellClass = isChecklist
-            ? 'flex flex-col overflow-hidden rounded-[20px] bg-amber-50/45 shadow-[0_14px_36px_-14px_rgba(234,88,12,0.22),inset_0_1px_0_rgba(255,255,255,0.92)]'
+            ? 'flex flex-col overflow-hidden rounded-[24px] bg-amber-50/45 shadow-[0_14px_36px_-14px_rgba(234,88,12,0.22),inset_0_1px_0_rgba(255,255,255,0.92)]'
             : isQcForm
-              ? 'flex flex-col overflow-hidden rounded-[20px] bg-violet-50/45 shadow-[0_14px_36px_-14px_rgba(139,92,246,0.2),inset_0_1px_0_rgba(255,255,255,0.92)]'
-              : 'flex flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_10px_32px_-14px_rgba(15,23,42,0.1),inset_0_1px_0_rgba(255,255,255,0.95)]';
+              ? 'flex flex-col overflow-hidden rounded-[24px] bg-violet-50/45 shadow-[0_14px_36px_-14px_rgba(139,92,246,0.2),inset_0_1px_0_rgba(255,255,255,0.92)]'
+              : 'flex flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_10px_32px_-14px_rgba(15,23,42,0.1),inset_0_1px_0_rgba(255,255,255,0.95)]';
           const qcTileWidth = currentStage === 'quality_check' && isQcForm ? ' w-full max-w-md' : '';
           return (
             <div key={slot} className={`${shellClass}${qcTileWidth}`}>
@@ -1606,7 +1606,7 @@ function ShopFloorLogCard({
   };
 
   return (
-    <section className="qc-live-panel rounded-[26px] bg-white/95 p-5 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
+    <section className="qc-live-panel rounded-[32px] bg-white/95 p-5 shadow-[0_20px_50px_-22px_rgba(15,23,42,0.11),0_8px_24px_-12px_rgba(15,23,42,0.07)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
@@ -1620,7 +1620,7 @@ function ShopFloorLogCard({
         </span>
       </div>
 
-      <div className="mt-4 rounded-[22px] bg-slate-50/90 p-3 shadow-[inset_0_2px_12px_rgba(15,23,42,0.04)]">
+      <div className="mt-4 rounded-[26px] bg-slate-50/90 p-3 shadow-[inset_0_2px_12px_rgba(15,23,42,0.04)]">
         <label className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Post update</label>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
           <textarea
@@ -1644,13 +1644,13 @@ function ShopFloorLogCard({
 
       <div className="mt-4 space-y-2">
         {updates.length === 0 ? (
-          <div className="rounded-[22px] bg-slate-50/90 px-4 py-8 text-center shadow-[inset_0_2px_16px_rgba(15,23,42,0.04)]">
+          <div className="rounded-[26px] bg-slate-50/90 px-4 py-8 text-center shadow-[inset_0_2px_16px_rgba(15,23,42,0.04)]">
             <p className="text-sm font-black text-slate-700">No updates posted yet.</p>
             <p className="mt-1 text-xs font-semibold text-slate-500">Service notes will appear here chronologically.</p>
           </div>
         ) : (
           updates.map((update) => (
-            <div key={update.id} className="rounded-[22px] bg-slate-50/80 px-4 py-3 shadow-[0_4px_18px_-8px_rgba(15,23,42,0.07)]">
+            <div key={update.id} className="rounded-[26px] bg-slate-50/80 px-4 py-3 shadow-[0_4px_18px_-8px_rgba(15,23,42,0.07)]">
               <p className="text-sm font-bold leading-snug text-slate-900">{update.content}</p>
               <p className="mt-1 text-xs font-semibold text-slate-500">
                 {update.author} - {relTime(update.createdAt)}
@@ -1826,7 +1826,7 @@ function SelectedOrderPanel({
   );
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-gradient-to-b from-slate-50/70 via-white to-slate-50/70">
+    <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-[36px] bg-gradient-to-b from-slate-50/70 via-white to-slate-50/70">
       <div className="shrink-0 bg-white/80 px-6 py-5 shadow-[0_12px_32px_rgba(15,23,42,0.035)]">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
@@ -2277,9 +2277,9 @@ export default function QCLiveTrackerView({
 
   if (loading) {
     return (
-      <div className="qc-live-shell h-[calc(100vh-96px)] w-full overflow-hidden rounded-[34px] bg-white/95 p-3 shadow-[0_24px_70px_-16px_rgba(15,23,42,0.14)]">
+      <div className="qc-live-shell h-[calc(100vh-96px)] w-full overflow-hidden rounded-[40px] bg-white/95 p-3 shadow-[0_24px_70px_-16px_rgba(15,23,42,0.14)]">
         <div className="flex h-full gap-3">
-          <div className="w-[300px] shrink-0 rounded-[26px] bg-slate-50/80 p-4">
+          <div className="w-[300px] shrink-0 rounded-[32px] bg-slate-50/80 p-4">
             <div className="h-8 w-32 animate-pulse rounded-lg bg-slate-100" />
             <div className="mt-5 space-y-3">
               {[1, 2, 3, 4].map((item) => (
@@ -2297,7 +2297,7 @@ export default function QCLiveTrackerView({
 
   if (trackedOrders.length === 0) {
     return (
-      <div className="qc-live-panel flex h-[calc(100vh-96px)] flex-col items-center justify-center rounded-[34px] bg-white/95 text-center shadow-[0_20px_60px_-14px_rgba(15,23,42,0.12)]">
+      <div className="qc-live-panel flex h-[calc(100vh-96px)] flex-col items-center justify-center rounded-[40px] bg-white/95 text-center shadow-[0_20px_60px_-14px_rgba(15,23,42,0.12)]">
         <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100/90 text-slate-400 shadow-[0_8px_24px_-8px_rgba(15,23,42,0.1)]">
           <Radio size={26} strokeWidth={1.5} />
         </div>
@@ -2310,9 +2310,9 @@ export default function QCLiveTrackerView({
   }
 
   return (
-    <div className="qc-live-shell h-[calc(100vh-96px)] w-full overflow-hidden rounded-[34px] bg-white/95 p-3 shadow-[0_24px_70px_-16px_rgba(15,23,42,0.14)]">
+    <div className="qc-live-shell h-[calc(100vh-96px)] w-full overflow-hidden rounded-[40px] bg-white/95 p-3 shadow-[0_24px_70px_-16px_rgba(15,23,42,0.14)]">
       <div className="flex h-full min-h-0 flex-col gap-3 lg:flex-row">
-        <aside className="flex h-[320px] w-full shrink-0 flex-col overflow-hidden rounded-[28px] bg-slate-50/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] lg:h-full lg:w-[300px]">
+        <aside className="flex h-[320px] w-full shrink-0 flex-col overflow-hidden rounded-[36px] bg-slate-50/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] lg:h-full lg:w-[300px]">
           <div className="flex items-center justify-between gap-3 px-5 py-5">
             <div>
               <p className="text-lg font-black tracking-tight text-slate-950">Live Orders</p>
