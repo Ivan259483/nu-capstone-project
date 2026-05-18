@@ -159,18 +159,21 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
   background:#050506;padding:28px;text-align:center;gap:12px;}
 .ei{font-size:44px;}.et{font-size:17px;font-weight:900;color:#fca5a5;}
 .em{font-size:13px;color:rgba(255,255,255,.55);font-weight:600;line-height:1.5;}
-/* Debug log panel */
-#dbg{position:fixed;bottom:max(80px,env(safe-area-inset-bottom,80px));left:10px;right:10px;z-index:15;
-  background:rgba(10,10,14,.82);border:1px solid rgba(255,255,255,.10);border-radius:12px;
-  padding:8px 10px;font-size:9px;font-weight:600;color:rgba(255,255,255,.45);
-  line-height:1.5;white-space:pre-wrap;word-break:break-all;max-height:70px;overflow-y:auto;pointer-events:none;}
+/* Debug log panel — z-index MUST be above loading (20) and errBox (20) */
+#dbg{position:fixed;bottom:max(12px,env(safe-area-inset-bottom,12px));left:10px;right:10px;z-index:30;
+  background:rgba(0,0,0,.92);border:1.5px solid #f97316;border-radius:10px;
+  padding:8px 10px;font-size:9px;font-weight:700;color:#ffd580;
+  line-height:1.6;white-space:pre-wrap;word-break:break-all;max-height:90px;overflow-y:auto;pointer-events:none;}
 .l-hint{font-size:10px;color:rgba(255,255,255,.28);margin-top:4px;text-align:center;}
+.l-url{font-size:8px;color:#f97316;margin-top:2px;text-align:center;word-break:break-all;padding:0 8px;}
 </style>
 </head>
 <body>
+<!--
+  NOTE: src and ios-src are NOT set as HTML attributes.
+  They are assigned via JS after a fetch HEAD probe so we can log status+content-type.
+-->
 <model-viewer id="mv"
-  src="${safeModel}"
-  ios-src="${safeModel}"
   alt="AutoSPF+ vehicle 3D model"
   ar ar-modes="quick-look webxr" ar-placement="floor" ar-scale="auto"
   camera-controls touch-action="pan-y" interaction-prompt="auto"
@@ -179,11 +182,11 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
   environment-image="neutral" exposure="1.05"
   camera-orbit="35deg 64deg auto" field-of-view="32deg"
   loading="eager" reveal="auto">
-  <button slot="ar-button" id="arBtn" type="button">📱 View in AR ↗</button>
+  <button slot="ar-button" id="arBtn" type="button">📱 View In Your Space</button>
 </model-viewer>
 <div id="tint"></div>
 <div id="pills"></div>
-<div id="loading"><div class="ring"></div><div class="lt">Loading 3D model…</div><div class="ls" id="prog">0%</div><div class="l-hint" id="lhint">Fetching from server…</div></div>
+<div id="loading"><div class="ring"></div><div class="lt">Loading 3D model…</div><div class="ls" id="prog">0%</div><div class="l-hint" id="lhint">Probing model URL…</div><div class="l-url" id="lurlDisplay">…</div></div>
 <div id="errBox"><div class="ei">⚠️</div><div class="et" id="etitle">Model could not load</div><div class="em" id="emsg">The 3D model could not be fetched. Check your connection and try again.</div></div>
 <div id="dbg">AR Debug: initializing…</div>
 <script>
@@ -203,6 +206,7 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
   var etitle=document.getElementById('etitle');
   var emsg=document.getElementById('emsg');
   var dbgEl=document.getElementById('dbg');
+  var lurlDisplay=document.getElementById('lurlDisplay');
   var dbgLines=[];
   var zeroTimer=null;
 
@@ -212,7 +216,7 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
     var line='['+ts+'] '+msg;
     console.log('[AR-WebView]',msg);
     dbgLines.push(line);
-    if(dbgLines.length>5)dbgLines.shift();
+    if(dbgLines.length>8)dbgLines.shift();
     if(dbgEl)dbgEl.textContent=dbgLines.join('\n');
   }
 
@@ -225,11 +229,69 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
     return url&&(url.indexOf('X-Amz-Expires')>-1||url.indexOf('X-Amz-Signature')>-1);
   }
 
-  dbg('Init — model: '+(MODEL_URL?MODEL_URL.slice(0,50)+'…':'MISSING'));
+  /* ── Show URL in loading screen ── */
+  function showUrl(url){
+    var short=url?url.slice(0,60)+(url.length>60?'…':''):'(empty)';
+    if(lurlDisplay)lurlDisplay.textContent=short;
+  }
+
+  dbg('MODEL_URL: '+MODEL_URL.slice(0,70));
+  showUrl(MODEL_URL);
   if(isExpiringUrl(MODEL_URL)){
-    dbg('⚠️  URL is Meshy signed (may expire!)');
+    dbg('⚠️  Meshy signed URL — WILL EXPIRE in ~1hr');
   } else if(MODEL_URL.indexOf('cloudinary')>-1){
-    dbg('✅ Cloudinary URL (permanent)');
+    dbg('✅ Cloudinary URL — permanent');
+  } else if(MODEL_URL.indexOf('proxy-glb')>-1){
+    dbg('🔄 Proxy URL — depends on backend+source URL');
+  } else if(!MODEL_URL){
+    dbg('❌ MODEL_URL is EMPTY');
+  }
+
+  /* ── fetch HEAD probe before assigning src ── */
+  /* This tells us: HTTP status, Content-Type, whether backend is reachable */
+  if(MODEL_URL){
+    dbg('Probing URL (HEAD)…');
+    if(lhint)lhint.textContent='Probing URL reachability…';
+    fetch(MODEL_URL,{method:'HEAD',cache:'no-store'})
+      .then(function(r){
+        var ct=r.headers.get('content-type')||'unknown';
+        var cl=r.headers.get('content-length')||'?';
+        dbg('HEAD '+r.status+' | type='+ct+' | size='+cl+'B');
+        if(!r.ok){
+          dbg('❌ HEAD failed: HTTP '+r.status);
+          if(lhint)lhint.textContent='❌ Server returned HTTP '+r.status;
+          post({type:'WEBAR_ERROR',message:'URL probe failed: HTTP '+r.status});
+        } else if(ct.indexOf('gltf')>-1||ct.indexOf('octet')>-1||ct.indexOf('binary')>-1){
+          dbg('✅ Valid GLB content-type: '+ct);
+          if(lhint)lhint.textContent='✅ Valid GLB — loading into viewer…';
+        } else if(ct.indexOf('html')>-1){
+          dbg('❌ URL returns HTML (login/redirect?): '+ct);
+          if(lhint)lhint.textContent='❌ URL returned HTML (not a GLB)';
+          post({type:'WEBAR_ERROR',message:'URL returns HTML not GLB: '+ct});
+        } else {
+          dbg('⚠️  Unexpected content-type: '+ct);
+          if(lhint)lhint.textContent='⚠️  Unexpected type: '+ct;
+        }
+        /* Assign src AFTER probe (success or fail) so model-viewer can try */
+        mv.setAttribute('src',MODEL_URL);
+        mv.setAttribute('ios-src',MODEL_URL);
+      })
+      .catch(function(err){
+        dbg('❌ HEAD fetch threw: '+err.message);
+        if(lhint)lhint.textContent='❌ Network error: '+err.message;
+        /* Still assign src — maybe model-viewer handles it differently */
+        mv.setAttribute('src',MODEL_URL);
+        mv.setAttribute('ios-src',MODEL_URL);
+        post({type:'WEBAR_ERROR',message:'Network probe error: '+err.message});
+      });
+  } else {
+    dbg('❌ MODEL_URL empty — model-viewer will not load');
+    if(lhint)lhint.textContent='❌ No model URL provided';
+    if(etitle)etitle.textContent='No Model URL';
+    if(emsg)emsg.textContent='The 3D model URL is missing. Try regenerating the 3D model.';
+    if(loading)loading.style.display='none';
+    if(errBox)errBox.style.display='flex';
+    post({type:'WEBAR_ERROR',message:'MODEL_URL is empty'});
   }
 
   function renderPills(m){
@@ -404,6 +466,13 @@ export default function ArViewScreen() {
     if (!ready || !modelUrl) return '';
     const proxiedModel = buildProxiedGlbUri(modelUrl) ?? '';
     const proxiedRepaired = buildProxiedGlbUri(repairedModelUrl || modelUrl) ?? proxiedModel;
+    // ── Critical: log exact URLs so you can verify in Metro/Expo logs ──
+    console.log('[AR] ══════════════════════════════════');
+    console.log('[AR] raw modelUrl (from store):', modelUrl);
+    console.log('[AR] proxied URL → model-viewer src:', proxiedModel);
+    console.log('[AR] proxied repaired:', proxiedRepaired);
+    console.log('[AR] URL type:', proxiedModel.includes('cloudinary') ? 'CLOUDINARY ✅' : proxiedModel.includes('X-Amz-Expires') ? 'MESHY SIGNED ⚠️' : proxiedModel.includes('proxy-glb') ? 'PROXY 🔄' : proxiedModel ? 'OTHER' : 'EMPTY ❌');
+    console.log('[AR] ══════════════════════════════════');
     return buildInlineWebArHtml(proxiedModel, proxiedRepaired, scan?.damages ?? []);
   }, [ready, modelUrl, repairedModelUrl, scan?.damages]);
 
