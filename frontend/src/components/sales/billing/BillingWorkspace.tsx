@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Loader2, Save, CreditCard, Banknote, Smartphone, Wallet, Trash2 } from 'lucide-react';
+import { Loader2, Save, Banknote, Smartphone, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   BillingService,
@@ -43,7 +43,7 @@ export default function BillingWorkspace({
   const [discType, setDiscType] = useState<'fixed' | 'percent'>('fixed');
   const [discVal, setDiscVal] = useState(0);
   const [discReason, setDiscReason] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'gcash' | 'maya' | 'card'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'gcash'>('cash');
   const [cashReceived, setCashReceived] = useState<number | ''>('');
 
   const load = useCallback(async () => {
@@ -346,8 +346,6 @@ export default function BillingWorkspace({
                 [
                   { id: 'cash', label: 'Cash', icon: Banknote },
                   { id: 'gcash', label: 'GCash', icon: Smartphone },
-                  { id: 'maya', label: 'Maya', icon: Wallet },
-                  { id: 'card', label: 'Card', icon: CreditCard },
                 ] as const
               ).map((pm) => {
                 const Icon = pm.icon;

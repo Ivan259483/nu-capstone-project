@@ -673,11 +673,8 @@ export default function POSWorkspace() {
           return;
         }
         const balanceDue = put.data.computed?.balanceDue ?? 0;
-        const mapPm = (pm: string): 'cash' | 'gcash' | 'maya' | 'card' => {
-          if (pm === 'gcash' || pm === 'maya' || pm === 'card') return pm;
-          if (pm === 'bank_transfer') return 'card';
-          return 'cash';
-        };
+        const mapPm = (pm: string): 'cash' | 'gcash' =>
+          pm === 'gcash' ? 'gcash' : 'cash';
         const pm = mapPm(paymentMethod);
         const chk = await BillingService.checkout(effectiveOrderId, {
           paymentMethod: pm,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, CreditCard, Banknote, Smartphone, Building2, Wallet, Tag, ChevronRight, Landmark } from 'lucide-react';
+import { Loader2, Banknote, Smartphone, Tag, ChevronRight, Landmark } from 'lucide-react';
 import { CartItem, formatPeso } from '@/lib/salesData';
 
 interface Props {
@@ -18,10 +18,7 @@ interface Props {
 
 const PAYMENT_METHODS = [
   { id: 'pm-cash', value: 'cash', label: 'Cash', icon: Banknote, color: 'text-emerald-600' },
-  { id: 'pm-card', value: 'card', label: 'Card', icon: CreditCard, color: 'text-blue-600' },
   { id: 'pm-gcash', value: 'gcash', label: 'GCash', icon: Smartphone, color: 'text-blue-500' },
-  { id: 'pm-maya', value: 'maya', label: 'Maya', icon: Wallet, color: 'text-green-600' },
-  { id: 'pm-bank', value: 'bank_transfer', label: 'Bank', icon: Building2, color: 'text-slate-600' },
 ];
 
 export default function PaymentSummaryPanel({
@@ -120,7 +117,7 @@ export default function PaymentSummaryPanel({
         {/* Payment Method */}
         <div>
           <p className="text-xs font-semibold text-slate-700 mb-2.5">Payment Method</p>
-          <div className="grid grid-cols-5 gap-1.5">
+          <div className="grid grid-cols-2 gap-1.5">
             {PAYMENT_METHODS.map((pm) => {
               const Icon = pm.icon;
               const isActive = paymentMethod === pm.value;
