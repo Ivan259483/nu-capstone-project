@@ -69,6 +69,11 @@
   color-scheme: dark;
 }
 
+/* QC live tracker is a full light chrome; reinforce native control scheme (search, etc.). */
+.detailer-root:not(.dark) .qc-live-shell {
+  color-scheme: light;
+}
+
 /* QC review queue: local soft-border treatment for the full-takeover panel. */
 .detailer-root:not(.dark) .qc-review-header,
 .detailer-root:not(.dark) .qc-review-table-shell {
