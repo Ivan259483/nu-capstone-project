@@ -159,8 +159,12 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
   background:#050506;padding:28px;text-align:center;gap:12px;}
 .ei{font-size:44px;}.et{font-size:17px;font-weight:900;color:#fca5a5;}
 .em{font-size:13px;color:rgba(255,255,255,.55);font-weight:600;line-height:1.5;}
-/* Hide AR button when device has no AR support */
-/* ar-btn always visible once model loads — Quick Look hides it natively if unsupported */
+/* Debug log panel */
+#dbg{position:fixed;bottom:max(80px,env(safe-area-inset-bottom,80px));left:10px;right:10px;z-index:15;
+  background:rgba(10,10,14,.82);border:1px solid rgba(255,255,255,.10);border-radius:12px;
+  padding:8px 10px;font-size:9px;font-weight:600;color:rgba(255,255,255,.45);
+  line-height:1.5;white-space:pre-wrap;word-break:break-all;max-height:70px;overflow-y:auto;pointer-events:none;}
+.l-hint{font-size:10px;color:rgba(255,255,255,.28);margin-top:4px;text-align:center;}
 </style>
 </head>
 <body>
@@ -168,7 +172,7 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
   src="${safeModel}"
   ios-src="${safeModel}"
   alt="AutoSPF+ vehicle 3D model"
-  ar ar-modes="webxr scene-viewer quick-look" ar-placement="floor" ar-scale="auto"
+  ar ar-modes="quick-look webxr" ar-placement="floor" ar-scale="auto"
   camera-controls touch-action="pan-y" interaction-prompt="auto"
   auto-rotate auto-rotate-delay="1800" rotation-per-second="12deg"
   shadow-intensity="1.35" shadow-softness="0.78"
@@ -179,8 +183,9 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
 </model-viewer>
 <div id="tint"></div>
 <div id="pills"></div>
-<div id="loading"><div class="ring"></div><div class="lt">Loading 3D model…</div><div class="ls" id="prog">0%</div></div>
-<div id="errBox"><div class="ei">⚠️</div><div class="et">Model could not load</div><div class="em">The 3D model could not be fetched. Check your connection and try again.</div></div>
+<div id="loading"><div class="ring"></div><div class="lt">Loading 3D model…</div><div class="ls" id="prog">0%</div><div class="l-hint" id="lhint">Fetching from server…</div></div>
+<div id="errBox"><div class="ei">⚠️</div><div class="et" id="etitle">Model could not load</div><div class="em" id="emsg">The 3D model could not be fetched. Check your connection and try again.</div></div>
+<div id="dbg">AR Debug: initializing…</div>
 <script>
 (function(){
   var MODEL_URL=${JSON.stringify(safeModel)};
@@ -194,9 +199,37 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
   var loading=document.getElementById('loading');
   var errBox=document.getElementById('errBox');
   var prog=document.getElementById('prog');
+  var lhint=document.getElementById('lhint');
+  var etitle=document.getElementById('etitle');
+  var emsg=document.getElementById('emsg');
+  var dbgEl=document.getElementById('dbg');
+  var dbgLines=[];
+  var zeroTimer=null;
+
+  /* ── Debug log ── */
+  function dbg(msg){
+    var ts=new Date().toISOString().slice(11,19);
+    var line='['+ts+'] '+msg;
+    console.log('[AR-WebView]',msg);
+    dbgLines.push(line);
+    if(dbgLines.length>5)dbgLines.shift();
+    if(dbgEl)dbgEl.textContent=dbgLines.join('\n');
+  }
 
   function post(d){
     try{if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify(d));}catch(e){}
+  }
+
+  /* ── Detect if URL is a Meshy expiring signed URL ── */
+  function isExpiringUrl(url){
+    return url&&(url.indexOf('X-Amz-Expires')>-1||url.indexOf('X-Amz-Signature')>-1);
+  }
+
+  dbg('Init — model: '+(MODEL_URL?MODEL_URL.slice(0,50)+'…':'MISSING'));
+  if(isExpiringUrl(MODEL_URL)){
+    dbg('⚠️  URL is Meshy signed (may expire!)');
+  } else if(MODEL_URL.indexOf('cloudinary')>-1){
+    dbg('✅ Cloudinary URL (permanent)');
   }
 
   function renderPills(m){
@@ -216,9 +249,8 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
   function applyMode(m){
     mode=m==='after'?'after':'before';
     var src=mode==='after'?REPAIRED_URL:MODEL_URL;
-    if(mv.getAttribute('src')!==src)mv.setAttribute('src',src);
+    if(mv.getAttribute('src')!==src){mv.setAttribute('src',src);dbg('src switched → '+mode);}
     tint.style.opacity=mode==='after'?'1':'0';
-    // exposure is a reflected attribute on <model-viewer>, not a plain JS property
     mv.setAttribute('exposure',mode==='after'?'1.18':'1.05');
     renderPills(mode);
     post({type:'VARIANT_READY',mode:mode,baked:false});
@@ -244,24 +276,48 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
   mv.addEventListener('progress',function(e){
     var p=e.detail&&e.detail.totalProgress?Math.round(e.detail.totalProgress*100):0;
     if(prog)prog.textContent=p+'%';
+    if(p>0){
+      if(lhint)lhint.textContent='Downloading model ('+p+'%)…';
+      clearTimeout(zeroTimer);zeroTimer=null;
+    } else {
+      if(lhint)lhint.textContent='Waiting for server response…';
+      if(!zeroTimer){
+        zeroTimer=setTimeout(function(){
+          if(prog&&prog.textContent==='0%'){
+            dbg('⚠️  Still 0% after 5s — URL may be expired or CORS blocked');
+            if(lhint)lhint.textContent='⚠️  No response — URL may have expired';
+          }
+        },5000);
+      }
+    }
   });
 
   mv.addEventListener('load',function(){
+    clearTimeout(zeroTimer);
     loading.style.display='none';
+    dbg('✅ Model loaded OK');
     post({type:'MODEL_LOADED',modelUrl:MODEL_URL,baked:false});
   });
 
-  mv.addEventListener('error',function(){
+  mv.addEventListener('error',function(e){
+    clearTimeout(zeroTimer);
     loading.style.display='none';
+    var detail=e&&e.detail?JSON.stringify(e.detail):'';
+    dbg('❌ model error: '+detail);
+    var expired=isExpiringUrl(MODEL_URL);
+    if(etitle)etitle.textContent=expired?'Model URL expired':'Model could not load';
+    if(emsg)emsg.textContent=expired
+      ?'The Meshy signed URL has expired. Go back and regenerate the 3D model to get a fresh link.'
+      :'The 3D model could not be fetched. Check network and try again.';
     errBox.style.display='flex';
-    post({type:'WEBAR_ERROR',message:'The 3D model could not be loaded.'});
+    post({type:'WEBAR_ERROR',message:expired?'Model URL expired':'Model load error'});
   });
 
   mv.addEventListener('ar-status',function(e){
     var s=e.detail&&e.detail.status?e.detail.status:'';
+    dbg('ar-status: '+s);
     if(s==='session-started')post({type:'AR_STARTED',mode:mode});
     if(s==='failed'){
-      // Quick Look failed via slot — try programmatic <a rel="ar"> (required for some WKWebView configs)
       var glb=mv.getAttribute('src')||'';
       if(glb){
         var a=document.createElement('a');
@@ -275,15 +331,14 @@ model-viewer{position:fixed;inset:0;width:100%;height:100%;
         a.click();
         setTimeout(function(){if(a.parentNode)a.parentNode.removeChild(a);},500);
       }
-      post({type:'WEBAR_ERROR',message:'AR launched via fallback link.'});
+      post({type:'WEBAR_ERROR',message:'AR fallback link triggered.'});
     }
-    if(s==='not-presenting'){
-      post({type:'AR_ENDED',mode:mode});
-    }
+    if(s==='not-presenting')post({type:'AR_ENDED',mode:mode});
   });
 
   renderPills('before');
   post({type:'WEBAR_READY'});
+  dbg('WEBAR_READY posted');
 })();
 <\/script>
 </body>

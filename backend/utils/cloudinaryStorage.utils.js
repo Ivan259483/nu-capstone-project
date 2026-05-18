@@ -161,7 +161,8 @@ export const uploadGlbFromUrl = async (sourceGlbUrl, options = {}) => {
     contentType: 'model/gltf-binary',
   });
   formData.append('folder', folder);
-  formData.append('resource_type', 'raw');
+  // NOTE: resource_type is part of the URL path (/raw/upload), NOT a form field.
+  // Including it in the body would cause a Cloudinary signature mismatch.
 
   if (hasSignedCredentials(config)) {
     const signature = buildCloudinarySignature({

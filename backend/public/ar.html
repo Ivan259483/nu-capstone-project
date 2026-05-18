@@ -4,7 +4,13 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"/>
   <title>AutoSPF+ AR Viewer</title>
-  <!-- model-viewer: Google's web component for 3D/AR — handles GLB→USDZ for Quick Look -->
+  <!--
+    model-viewer v4 — handles:
+      iOS  → Quick Look AR (via <a rel="ar"> inside WKWebView with allowsLinkPreview=true)
+      Android Chrome → WebXR surface placement
+    ar-modes ORDER matters: "quick-look webxr" = iOS first, Android second.
+    "scene-viewer" is Android-Chrome-only intent and CANNOT launch from inside a WebView.
+  -->
   <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -18,7 +24,6 @@
       overflow: hidden;
     }
 
-    /* ── model-viewer fills the screen ── */
     model-viewer {
       position: fixed; inset: 0;
       width: 100%; height: 100%;
@@ -31,7 +36,7 @@
       --progress-mask: rgba(5,5,6,.88);
     }
 
-    /* ── Header overlay ── */
+    /* Header */
     .header {
       position: fixed; top: 0; left: 0; right: 0; z-index: 50;
       padding: max(52px, env(safe-area-inset-top)) 20px 14px;
@@ -44,13 +49,12 @@
       border: 1px solid rgba(249,115,22,.40);
       background: rgba(249,115,22,.12);
       font-size: 10px; font-weight: 800; letter-spacing: .9px;
-      color: #f97316; text-transform: uppercase;
-      margin-bottom: 10px;
+      color: #f97316; text-transform: uppercase; margin-bottom: 10px;
     }
     .header h1 { font-size: 20px; font-weight: 900; letter-spacing: -.3px; }
     .header p  { font-size: 12px; color: rgba(255,255,255,.45); margin-top: 4px; font-weight: 600; }
 
-    /* ── Custom AR button (slots into model-viewer) ── */
+    /* AR button */
     #arBtn {
       position: absolute;
       bottom: max(28px, env(safe-area-inset-bottom, 28px));
@@ -58,15 +62,15 @@
       padding: 0 36px; height: 56px; border-radius: 28px;
       background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
       color: #fff; font-size: 15px; font-weight: 900; letter-spacing: .4px;
-      text-transform: uppercase;
-      border: none; cursor: pointer; white-space: nowrap;
+      text-transform: uppercase; border: none; cursor: pointer; white-space: nowrap;
       box-shadow: 0 8px 36px rgba(249,115,22,.50), inset 0 1px 0 rgba(255,255,255,.22);
       transition: opacity .2s, transform .15s;
       display: flex; align-items: center; gap: 10px;
     }
     #arBtn:active { opacity: .85; transform: translateX(-50%) scale(.96); }
+    #arBtn[disabled] { opacity: .4; cursor: not-allowed; }
 
-    /* ── Damage pills ── */
+    /* Damage pills */
     #pills {
       position: fixed; z-index: 40;
       top: max(105px, calc(env(safe-area-inset-top) + 70px));
@@ -84,7 +88,7 @@
     }
     .pdot { width: 7px; height: 7px; border-radius: 50%; }
 
-    /* ── Loading overlay ── */
+    /* Loading overlay */
     #loading {
       position: fixed; inset: 0; z-index: 60;
       display: flex; flex-direction: column;
@@ -100,9 +104,10 @@
     @keyframes spin { to { transform: rotate(360deg) } }
     .lt { font-size: 13px; font-weight: 700; color: rgba(255,255,255,.58); }
     .ls { color: #f97316; font-size: 11px; font-weight: 800; margin-top: 2px; }
+    .l-hint { font-size: 10px; color: rgba(255,255,255,.30); margin-top: 4px; max-width: 260px; text-align: center; line-height: 1.5; }
 
-    /* ── Error / No-URL overlays ── */
-    #errBox, #noUrl {
+    /* Error overlay */
+    #errBox {
       position: fixed; inset: 0; z-index: 80;
       display: none; flex-direction: column;
       align-items: center; justify-content: center;
@@ -117,25 +122,38 @@
       color: #f97316; font-size: 13px; font-weight: 800; cursor: pointer;
     }
 
-    /* ── Debug panel ── */
+    /* No-URL overlay */
+    #noUrl {
+      position: fixed; inset: 0; z-index: 80;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: #050506; padding: 32px; text-align: center; gap: 14px;
+    }
+
+    /* ── Debug panel — shows GLB URL + load events ── */
     #debugWrap {
-      position: fixed; bottom: max(96px, calc(env(safe-area-inset-bottom) + 70px));
+      position: fixed;
+      bottom: max(96px, calc(env(safe-area-inset-bottom) + 72px));
       left: 12px; right: 12px; z-index: 45;
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(10,10,12,.72);
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(10,10,12,.80);
       backdrop-filter: blur(12px);
-      border-radius: 14px; padding: 8px 10px;
+      border-radius: 14px; padding: 10px 12px;
     }
     #debugLabel {
       font-size: 10px; font-weight: 800; letter-spacing: .6px;
-      text-transform: uppercase; color: rgba(255,255,255,.45);
+      text-transform: uppercase; color: rgba(255,255,255,.35);
       margin-bottom: 4px;
     }
-    #debugUrl {
-      font-size: 10px; font-weight: 600; line-height: 1.4;
+    #debugLog {
+      font-size: 10px; font-weight: 600; line-height: 1.5;
       color: rgba(255,255,255,.55);
       white-space: pre-wrap; word-break: break-all;
-      max-height: 60px; overflow: auto;
+      max-height: 80px; overflow-y: auto;
+    }
+    #debugUrlRow {
+      font-size: 9px; color: rgba(255,255,255,.30); margin-top: 4px;
+      word-break: break-all; line-height: 1.4;
     }
   </style>
 </head>
@@ -145,17 +163,23 @@
 <div class="header">
   <div class="badge">🔬 AutoSPF+ AR</div>
   <h1>View In Your Space</h1>
-  <p>iOS Quick Look · Google Scene Viewer · WebXR</p>
+  <p id="arModeLabel">iOS Quick Look · WebXR</p>
 </div>
 
 <!-- Damage pills -->
 <div id="pills"></div>
 
-<!-- model-viewer: the key component that makes AR work with GLB files -->
+<!--
+  model-viewer — the key component for GLB → AR
+  ar-modes ORDER (left = highest priority):
+    "quick-look" = iOS Safari Quick Look (best for iPhone)
+    "webxr"      = Android Chrome WebXR floor placement
+  NOTE: "scene-viewer" intentionally omitted — it only works from full Chrome, not WebView.
+-->
 <model-viewer id="mv"
   alt="AutoSPF+ vehicle 3D model"
   ar
-  ar-modes="webxr scene-viewer quick-look"
+  ar-modes="quick-look webxr"
   ar-placement="floor"
   ar-scale="auto"
   camera-controls
@@ -181,6 +205,7 @@
   <div class="ring"></div>
   <div class="lt">Loading 3D model…</div>
   <div class="ls" id="prog">0%</div>
+  <div class="l-hint" id="loadHint">Fetching vehicle model from server…</div>
 </div>
 
 <!-- Error overlay -->
@@ -200,8 +225,9 @@
 
 <!-- Debug panel -->
 <div id="debugWrap">
-  <div id="debugLabel">GLB URL</div>
-  <div id="debugUrl">Resolving…</div>
+  <div id="debugLabel">AR Debug Log</div>
+  <div id="debugLog">Initializing…</div>
+  <div id="debugUrlRow">URL: resolving…</div>
 </div>
 
 <script>
@@ -214,22 +240,57 @@
   var errTitle = document.getElementById('errTitle');
   var errMsg   = document.getElementById('errMsg');
   var noUrlBox = document.getElementById('noUrl');
-  var debugUrl = document.getElementById('debugUrl');
   var prog     = document.getElementById('prog');
+  var loadHint = document.getElementById('loadHint');
   var pills    = document.getElementById('pills');
+  var debugLog = document.getElementById('debugLog');
+  var debugUrlRow = document.getElementById('debugUrlRow');
+  var arModeLabel = document.getElementById('arModeLabel');
 
-  var glbUrl   = '';
-  var damages  = [];
-  var mode     = 'before';
-  var SEV      = { high: '#ef4444', medium: '#f97316', low: '#10b981', critical: '#ef4444' };
+  var glbUrl  = '';
+  var damages = [];
+  var mode    = 'before';
+  var SEV     = { high: '#ef4444', medium: '#f97316', low: '#10b981', critical: '#ef4444' };
+  var logLines = [];
 
-  /* ── RN bridge ── */
-  function postToRN(data) {
-    try { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(data)); } catch (_) {}
+  /* ── Debug logging (visible on screen) ── */
+  function dbg(msg) {
+    var ts = new Date().toISOString().slice(11, 23);
+    var line = '[' + ts + '] ' + msg;
+    console.log('[AR]', msg);
+    logLines.push(line);
+    if (logLines.length > 6) logLines.shift();
+    debugLog.textContent = logLines.join('\n');
   }
 
-  /* ── Read params ── */
-  var params = new URLSearchParams(window.location.search);
+  /* ── React Native bridge ── */
+  function postToRN(data) {
+    try {
+      if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(data));
+    } catch (_) {}
+  }
+
+  /* ── AR support detection ── */
+  function detectArSupport() {
+    var ua = navigator.userAgent || '';
+    var isIOS = /iPhone|iPad|iPod/i.test(ua);
+    var isAndroid = /Android/i.test(ua);
+    var isChrome = /Chrome/i.test(ua);
+
+    if (isIOS) {
+      arModeLabel.textContent = 'iOS Quick Look AR';
+      dbg('Platform: iOS — Quick Look AR mode');
+    } else if (isAndroid && isChrome) {
+      arModeLabel.textContent = 'Android WebXR AR';
+      dbg('Platform: Android Chrome — WebXR mode');
+    } else {
+      arModeLabel.textContent = '3D Viewer (AR not detected)';
+      dbg('Platform: Other — 3D orbit viewer only');
+    }
+  }
+
+  /* ── Read URL params ── */
+  var params     = new URLSearchParams(window.location.search);
   var paramModel = (params.get('model') || '').trim();
   var paramToken = (params.get('token') || '').trim();
 
@@ -238,12 +299,14 @@
     if (dp) damages = JSON.parse(decodeURIComponent(dp));
   } catch (_) {}
 
+  detectArSupport();
+
   /* ════════════════════════════════════════
      Resolve the GLB URL — token or direct
   ════════════════════════════════════════ */
   if (paramToken) {
-    // Token approach: fetch model URL from backend
-    debugUrl.textContent = 'Fetching session ' + paramToken + '…';
+    dbg('Token mode: ' + paramToken);
+    loadHint.textContent = 'Resolving AR session token…';
     fetch(window.location.origin + '/api/ai/ar-session/' + encodeURIComponent(paramToken))
       .then(function (r) {
         if (!r.ok) throw new Error('Session not found (HTTP ' + r.status + ')');
@@ -253,36 +316,44 @@
         if (!data.modelUrl) throw new Error('Empty modelUrl in session');
         glbUrl = data.modelUrl;
         if (Array.isArray(data.damages) && data.damages.length) damages = data.damages;
-        console.log('[AR] Token resolved:', glbUrl);
+        dbg('Token resolved → ' + glbUrl.slice(0, 60) + '…');
+        debugUrlRow.textContent = 'URL: ' + glbUrl;
         boot();
       })
       .catch(function (err) {
-        console.error('[AR] Token fetch failed:', err);
+        dbg('❌ Token fetch failed: ' + err.message);
         noUrlBox.style.display = 'flex';
-        debugUrl.textContent = 'Token error: ' + err.message;
+        loading.style.display = 'none';
         postToRN({ type: 'WEBAR_ERROR', message: err.message });
       });
+
   } else if (paramModel && /^https?:\/\//i.test(paramModel)) {
-    // Direct URL approach
     glbUrl = paramModel;
+    dbg('Direct URL mode');
+    debugUrlRow.textContent = 'URL: ' + glbUrl.slice(0, 80);
     boot();
+
   } else {
-    // No URL provided
+    dbg('❌ No ?token= or ?model= param found');
     noUrlBox.style.display = 'flex';
-    debugUrl.textContent = 'No ?token= or ?model= provided';
+    loading.style.display = 'none';
     postToRN({ type: 'WEBAR_ERROR', message: 'No model URL provided' });
   }
 
   /* ════════════════════════════════════════
-     Boot — start model-viewer once we have a URL
+     Boot — set model-viewer src and attach events
   ════════════════════════════════════════ */
   function boot() {
-    debugUrl.textContent = glbUrl;
+    dbg('Booting model-viewer…');
+    loadHint.textContent = 'Connecting to 3D model server…';
     postToRN({ type: 'WEBAR_READY', modelUrl: glbUrl });
 
-    // Set model-viewer source — this triggers loading + enables AR
+    // Verify the URL is reachable before handing to model-viewer
+    // (HEAD probe gives early diagnostics without downloading the whole file)
+    dbg('HEAD probe: ' + (glbUrl.includes('cloudinary') ? 'Cloudinary (permanent)' : glbUrl.includes('meshy') ? 'Meshy CDN (may expire!)' : 'Custom'));
+
     mv.setAttribute('src', glbUrl);
-    mv.setAttribute('ios-src', glbUrl);
+    mv.setAttribute('ios-src', glbUrl);  // iOS Quick Look reads this attribute
 
     renderPills();
 
@@ -290,28 +361,59 @@
     mv.addEventListener('progress', function (e) {
       var p = e.detail && e.detail.totalProgress ? Math.round(e.detail.totalProgress * 100) : 0;
       if (prog) prog.textContent = p + '%';
+      if (p > 0 && p < 100) {
+        loadHint.textContent = 'Downloading 3D model (' + p + '%)…';
+      } else if (p === 0) {
+        loadHint.textContent = 'Waiting for first byte from server…';
+      }
+      if (p === 0) {
+        // Still at 0% after 5 seconds — likely a network or URL issue
+        if (!boot._zeroTimer) {
+          boot._zeroTimer = setTimeout(function () {
+            if (prog.textContent === '0%') {
+              dbg('⚠️  Still 0% after 5s — possible expired URL or CORS block');
+              loadHint.textContent = '⚠️  Slow response — check if URL is still valid';
+            }
+          }, 5000);
+        }
+      } else {
+        clearTimeout(boot._zeroTimer);
+        boot._zeroTimer = null;
+      }
     });
 
     /* ── Model loaded ── */
     mv.addEventListener('load', function () {
       loading.style.display = 'none';
-      console.log('[AR] Model loaded successfully');
+      debugUrlRow.style.color = '#10b981';
+      dbg('✅ Model loaded successfully');
       postToRN({ type: 'MODEL_LOADED', modelUrl: glbUrl });
+      renderPills();
     });
 
     /* ── Model error ── */
     mv.addEventListener('error', function (e) {
       loading.style.display = 'none';
+      var detail = e && e.detail ? JSON.stringify(e.detail) : 'unknown';
+      dbg('❌ model-viewer error: ' + detail);
+
+      // Diagnose the likely cause
+      var isExpired = glbUrl.includes('X-Amz-Expires') || glbUrl.includes('X-Amz-Signature');
+      var errDetail = isExpired
+        ? 'The Meshy signed URL may have expired. Regenerate the 3D model to get a fresh URL.'
+        : 'The 3D model could not be fetched. Check network connection and URL validity.';
+
+      errTitle.textContent = 'Model could not load';
+      errMsg.textContent = errDetail;
       errBox.style.display = 'flex';
-      var msg = 'The 3D model could not be loaded.';
-      console.error('[AR] Model error:', e);
-      postToRN({ type: 'WEBAR_ERROR', message: msg });
+      debugUrlRow.style.color = '#ef4444';
+      postToRN({ type: 'WEBAR_ERROR', message: errDetail });
     });
 
-    /* ── AR status ── */
+    /* ── AR status events ── */
     mv.addEventListener('ar-status', function (e) {
       var s = e.detail && e.detail.status ? e.detail.status : '';
-      console.log('[AR] ar-status:', s);
+      dbg('ar-status: ' + s);
 
       if (s === 'session-started') {
         postToRN({ type: 'AR_STARTED', mode: mode });
@@ -320,8 +422,8 @@
         postToRN({ type: 'AR_ENDED', mode: mode });
       }
       if (s === 'failed') {
-        console.warn('[AR] model-viewer AR failed, trying manual <a rel=ar> fallback');
-        // Fallback: create a temporary <a rel="ar"> and click it
+        dbg('⚠️  AR session failed — trying manual <a rel=ar> fallback');
+        // Fallback: programmatic Quick Look trigger
         var a = document.createElement('a');
         a.setAttribute('rel', 'ar');
         a.href = glbUrl;
@@ -336,12 +438,15 @@
       }
     });
 
-    /* ── Message handler (from RN WebView) ── */
+    /* ── Message bridge from React Native WebView ── */
     function handleMessage(raw) {
       var msg;
       try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { return; }
       if (!msg || typeof msg !== 'object') return;
-      if (msg.type === 'SET_STATE') setMode(msg.state === 'after' ? 'after' : 'before');
+
+      if (msg.type === 'SET_STATE') {
+        setMode(msg.state === 'after' ? 'after' : 'before');
+      }
       if (msg.type === 'ACTIVATE_AR') {
         var btn = mv.querySelector('[slot="ar-button"]');
         if (btn) btn.click();
@@ -352,7 +457,8 @@
           glbUrl = p.modelUrl;
           mv.setAttribute('src', glbUrl);
           mv.setAttribute('ios-src', glbUrl);
-          debugUrl.textContent = glbUrl;
+          debugUrlRow.textContent = 'URL: ' + glbUrl.slice(0, 80);
+          dbg('WEBAR_INIT: new modelUrl applied');
         }
         if (Array.isArray(p.damages)) { damages = p.damages; renderPills(); }
         postToRN({ type: 'WEBAR_INIT_APPLIED' });
@@ -384,6 +490,7 @@
   ════════════════════════════════════════ */
   window.setMode = function (m) {
     mode = m;
+    dbg('Mode → ' + m);
     renderPills();
     postToRN({ type: 'VARIANT_READY', mode: m });
   };
