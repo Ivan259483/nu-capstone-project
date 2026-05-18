@@ -135,6 +135,7 @@ const aiScanSchema = new mongoose.Schema(
     modelTaskId: { type: String, default: '' },
     modelUrl: { type: String, default: '' },
     repairedModelUrl: { type: String, default: '' },
+    usdzUrl: { type: String, default: '' },
     modelStatus: {
       type: String,
       enum: ['idle', 'processing', 'ready', 'failed', 'unavailable'],

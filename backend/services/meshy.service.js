@@ -282,7 +282,7 @@ export const startMeshyImageTo3D = async (files, options = {}) => {
     should_remesh: options.shouldRemesh !== false,
     should_texture: options.shouldTexture !== false,
     target_polycount: Number(options.targetPolycount || 50000),
-    target_formats: ['glb'],
+    target_formats: ['glb', 'usdz'],
   };
 
   // Probe all known Meshy endpoint variants — different plans expose different prefixes

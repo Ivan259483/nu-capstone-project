@@ -506,6 +506,12 @@ const isGlbUrl = (url) => {
   return cleaned.endsWith('.glb');
 };
 
+const isUsdzUrl = (url) => {
+  if (typeof url !== 'string') return false;
+  const cleaned = url.split('?')[0].split('#')[0].toLowerCase().trim();
+  return cleaned.endsWith('.usdz');
+};
+
 const collectUrlStrings = (value, label, acc = []) => {
   if (!value) return acc;
   if (typeof value === 'string') {
@@ -587,6 +593,31 @@ const extractModelUrl = (payload = {}) => {
   return null;
 };
 
+const extractUsdzUrl = (payload = {}) => {
+  const usdzCandidates = [
+    { label: 'model_urls.usdz', url: payload?.model_urls?.usdz },
+    { label: 'result.model_urls.usdz', url: payload?.result?.model_urls?.usdz },
+    { label: 'output.model_urls.usdz', url: payload?.output?.model_urls?.usdz },
+    { label: 'data.model_urls.usdz', url: payload?.data?.model_urls?.usdz },
+    { label: 'usdz_url', url: payload?.usdz_url },
+    { label: 'result.usdz_url', url: payload?.result?.usdz_url },
+    { label: 'output.usdz_url', url: payload?.output?.usdz_url },
+    { label: 'data.usdz_url', url: payload?.data?.usdz_url },
+  ];
+
+  for (const candidate of usdzCandidates) {
+    if (typeof candidate.url !== 'string' || !candidate.url.trim()) continue;
+    if (isUsdzUrl(candidate.url)) {
+      const selectedUrl = candidate.url.trim();
+      console.log('[Meshy] Selected USDZ URL:', selectedUrl);
+      return selectedUrl;
+    }
+    console.warn(`[Meshy] Rejected non-USDZ URL candidate (${candidate.label}):`, candidate.url);
+  }
+
+  return null;
+};
+
 const extractTaskId = (payload = {}) => {
   const candidate = (
     payload?.task_id
@@ -647,7 +678,7 @@ const startMeshyTask = async (files) => {
     should_remesh: true,
     should_texture: true,
     target_polycount: 30000,
-    target_formats: ['glb'],
+    target_formats: ['glb', 'usdz'],
   };
 
   console.log('[Meshy] Starting image-to-3d with payload:', JSON.stringify(jsonPayload, null, 2));
@@ -1081,6 +1112,7 @@ export const get3DModelStatus = async (req, res) => {
       logMeshyUrlDiagnostics(payload);
     }
     const modelUrl = extractModelUrl(payload);
+    const usdzUrl = status === 'ar_ready' ? extractUsdzUrl(payload) : null;
 
     if (status === 'ar_ready' && modelUrl) {
       // ── Persist GLB permanently to Cloudinary before saving to DB ──────────
@@ -1108,13 +1140,18 @@ export const get3DModelStatus = async (req, res) => {
       }
 
       try {
+        const readyUpdate = {
+          modelStatus: 'ready',
+          modelUrl: permanentModelUrl,
+          repairedModelUrl: permanentModelUrl,
+        };
+        if (usdzUrl) {
+          readyUpdate.usdzUrl = usdzUrl;
+        }
+
         await AIScan.findOneAndUpdate(
           { modelTaskId: taskId },
-          {
-            modelStatus: 'ready',
-            modelUrl: permanentModelUrl,
-            repairedModelUrl: permanentModelUrl,
-          }
+          readyUpdate
         );
         console.log(`[Meshy Poll] 💾 Scan updated with ${permanentModelUrl === modelUrl ? 'raw Meshy' : 'Cloudinary permanent'} URL`);
       } catch (dbErr) {
@@ -1126,6 +1163,7 @@ export const get3DModelStatus = async (req, res) => {
         status: 'ar_ready',
         model_url: permanentModelUrl,
         repaired_model_url: permanentModelUrl,
+        ...(usdzUrl ? { usdz_url: usdzUrl } : {}),
         progress: 100,
         task_id: taskId,
       });
@@ -1935,6 +1973,7 @@ export const getScanById = async (req, res) => {
         modelTaskId: scan.modelTaskId || '',
         modelUrl: scan.modelUrl || '',
         repairedModelUrl: scan.repairedModelUrl || '',
+        usdzUrl: scan.usdzUrl || '',
         modelStatus: scan.modelStatus || 'idle',
         createdAt: scan.createdAt,
       },
@@ -2128,7 +2167,7 @@ export const generate3DFromScan = async (req, res) => {
       should_remesh: true,
       should_texture: true,
       target_polycount: 50000,
-      target_formats: ['glb'],
+      target_formats: ['glb', 'usdz'],
     };
 
     // Probe all known Meshy endpoint variants in priority order.

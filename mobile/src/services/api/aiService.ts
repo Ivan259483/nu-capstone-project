@@ -739,6 +739,7 @@ export interface AiScan3DProgress {
   progress: number;
   modelUrl?: string;
   repairedModelUrl?: string;
+  modelUsdzUrl?: string | null;
   message?: string;
 }
 
@@ -1053,6 +1054,10 @@ export const pollAiScan3D = async (
       typeof response.data?.repaired_model_url === 'string' && response.data.repaired_model_url
         ? response.data.repaired_model_url
         : undefined;
+    const modelUsdzUrl =
+      typeof response.data?.usdz_url === 'string' && response.data.usdz_url
+        ? response.data.usdz_url
+        : undefined;
 
     const update: AiScan3DProgress = {
       status: status === 'ar_ready' ? 'ar_ready' : status === 'failed' ? 'failed' : 'processing',
@@ -1060,6 +1065,7 @@ export const pollAiScan3D = async (
       progress: status === 'ar_ready' ? 100 : progress,
       modelUrl,
       repairedModelUrl,
+      modelUsdzUrl,
       message: response.data?.message ? String(response.data.message) : undefined,
     };
 

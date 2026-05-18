@@ -109,6 +109,7 @@ export interface ModelGenerationResult {
   taskId?: string;
   modelUrl?: string;
   repairedModelUrl?: string;
+  modelUsdzUrl?: string | null;
   progress?: number;
   message?: string;
 }
@@ -146,6 +147,7 @@ export interface ScanWorkflowState {
   modelTaskId: string | null;
   modelUrl: string | null;
   repairedModelUrl: string | null;
+  modelUsdzUrl: string | null;
   modelStatus: 'idle' | 'processing' | 'ready' | 'failed' | 'unavailable';
   modelProgress: number;
 

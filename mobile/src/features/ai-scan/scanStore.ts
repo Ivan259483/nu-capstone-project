@@ -40,6 +40,7 @@ export interface AiScanStoreState {
   modelTaskId: string | null;
   modelUrl: string | null;
   repairedModelUrl: string | null;
+  modelUsdzUrl: string | null;
   modelProgress: number;
   modelMessage: string;
 
@@ -58,6 +59,7 @@ const INITIAL_STATE: AiScanStoreState = {
   modelTaskId: null,
   modelUrl: null,
   repairedModelUrl: null,
+  modelUsdzUrl: null,
   modelProgress: 0,
   modelMessage: '',
   notes: '',
@@ -101,6 +103,7 @@ export const aiScanStore = {
       modelTaskId: null,
       modelUrl: null,
       repairedModelUrl: null,
+      modelUsdzUrl: null,
       modelProgress: 0,
       modelMessage: '',
     });
@@ -148,6 +151,7 @@ export const aiScanStore = {
       modelTaskId: progress.taskId ?? state.modelTaskId,
       modelUrl: progress.modelUrl ?? state.modelUrl,
       repairedModelUrl: progress.repairedModelUrl ?? state.repairedModelUrl,
+      modelUsdzUrl: progress.modelUsdzUrl ?? state.modelUsdzUrl,
       modelProgress: progress.progress,
       modelMessage: progress.message ?? state.modelMessage,
     });

@@ -100,17 +100,132 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+const buildSceneViewerUrl = (modelUrl) =>
+  `https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(modelUrl)}`;
+
+const getPublicOrigin = (req) => {
+  const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim();
+  const proto = forwardedProto || req.protocol || 'http';
+  return `${proto}://${req.get('host')}`;
+};
+
+const buildLaunchUrl = (req, token) =>
+  `${getPublicOrigin(req)}/api/ai/ar-launch?token=${encodeURIComponent(token)}`;
+
+const buildArLaunchFallbackHtml = ({
+  title,
+  message,
+  usdzUrl,
+  sceneViewerUrl,
+}) => {
+  const safeTitle = String(title || 'AR Launch');
+  const safeMessage = String(message || 'AR launch is unavailable.');
+  const usdzLink = usdzUrl
+    ? `<a class="btn" href="${usdzUrl}">Open USDZ Link</a>`
+    : '';
+  const sceneLink = sceneViewerUrl
+    ? `<a class="btn secondary" href="${sceneViewerUrl}">Open Scene Viewer Link</a>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>${safeTitle}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      background: #0a0a0c;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: 100%;
+      max-width: 460px;
+      border-radius: 16px;
+      padding: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(16, 16, 20, 0.92);
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 800;
+      margin-bottom: 10px;
+      color: #f97316;
+    }
+    p {
+      color: rgba(255, 255, 255, 0.75);
+      font-size: 14px;
+      line-height: 1.55;
+      margin-bottom: 16px;
+    }
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .btn {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 44px;
+      border-radius: 12px;
+      text-decoration: none;
+      font-weight: 700;
+      color: #fff;
+      background: linear-gradient(135deg, #f97316, #fb923c);
+    }
+    .btn.secondary {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>${safeTitle}</h1>
+      <p>${safeMessage}</p>
+      <div class="actions">
+        ${usdzLink}
+        ${sceneLink}
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+};
+
 router.post('/ar-session', (req, res) => {
-  const { modelUrl, repairedModelUrl, damages } = req.body || {};
+  const { modelUrl, repairedModelUrl, usdzUrl, damages } = req.body || {};
   if (!modelUrl) return res.status(400).json({ error: 'modelUrl is required' });
   const token = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  const sceneViewerUrl = buildSceneViewerUrl(modelUrl);
+  const launchUrl = buildLaunchUrl(req, token);
   arSessions.set(token, {
     modelUrl,
     repairedModelUrl: repairedModelUrl || modelUrl,
+    usdzUrl: typeof usdzUrl === 'string' ? usdzUrl : '',
+    sceneViewerUrl,
     damages: damages || [],
     createdAt: Date.now(),
   });
-  res.json({ token });
+  res.json({
+    token,
+    launchUrl,
+    sceneViewerUrl,
+    ...(typeof usdzUrl === 'string' && usdzUrl.trim() ? { usdzUrl: usdzUrl.trim() } : {}),
+  });
 });
 
 router.get('/ar-session/:token', (req, res) => {
@@ -119,8 +234,90 @@ router.get('/ar-session/:token', (req, res) => {
   res.json({
     modelUrl: data.modelUrl,
     repairedModelUrl: data.repairedModelUrl,
+    ...(data.usdzUrl ? { usdzUrl: data.usdzUrl } : {}),
+    sceneViewerUrl: data.sceneViewerUrl || buildSceneViewerUrl(data.modelUrl),
     damages: data.damages,
   });
+});
+
+router.get('/ar-launch', (req, res) => {
+  const token = String(req.query.token || '').trim();
+  if (!token) {
+    return res
+      .status(400)
+      .type('html')
+      .send(buildArLaunchFallbackHtml({
+        title: 'Missing AR Token',
+        message: 'The AR launch link is missing its token. Please regenerate the QR code from the app.',
+      }));
+  }
+
+  const data = arSessions.get(token);
+  if (!data) {
+    return res
+      .status(404)
+      .type('html')
+      .send(buildArLaunchFallbackHtml({
+        title: 'AR Session Expired',
+        message: 'This AR launch session has expired. Please generate a new QR code from the app.',
+      }));
+  }
+
+  const ua = String(req.get('user-agent') || '');
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+  const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|YaBrowser|DuckDuckGo/i.test(ua);
+
+  const usdzUrl = String(data.usdzUrl || '').trim();
+  const sceneViewerUrl = String(data.sceneViewerUrl || buildSceneViewerUrl(data.modelUrl || '')).trim();
+
+  if (isIOS) {
+    if (!usdzUrl) {
+      return res
+        .status(400)
+        .type('html')
+        .send(buildArLaunchFallbackHtml({
+          title: 'USDZ Not Available',
+          message: 'This model does not include a USDZ file yet. Please regenerate the 3D model and try again.',
+        }));
+    }
+
+    if (!isSafari) {
+      return res
+        .status(200)
+        .type('html')
+        .send(buildArLaunchFallbackHtml({
+          title: 'Open In Safari',
+          message: 'For iPhone AR, open this link in Safari to launch Quick Look.',
+          usdzUrl,
+        }));
+    }
+
+    return res.redirect(302, usdzUrl);
+  }
+
+  if (isAndroid) {
+    if (!sceneViewerUrl) {
+      return res
+        .status(400)
+        .type('html')
+        .send(buildArLaunchFallbackHtml({
+          title: 'Scene Viewer URL Missing',
+          message: 'Could not build the Android Scene Viewer URL for this AR session.',
+        }));
+    }
+    return res.redirect(302, sceneViewerUrl);
+  }
+
+  return res
+    .status(200)
+    .type('html')
+    .send(buildArLaunchFallbackHtml({
+      title: 'Unsupported Device',
+      message: 'This device or browser is not supported for native AR launch. Use iPhone Safari or Android Chrome.',
+      usdzUrl: usdzUrl || undefined,
+      sceneViewerUrl: sceneViewerUrl || undefined,
+    }));
 });
 
 /* ── QC Staff Portal — list all AI scans ── */
