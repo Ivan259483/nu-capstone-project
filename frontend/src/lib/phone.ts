@@ -67,3 +67,12 @@ export function formatContactNoInputFromProfile(phone?: string): string {
   if (isValidPhilippineMobileInput(compact)) return normalizePhilippineMobileInput(compact);
   return phone.trim();
 }
+
+/** Pick the best display phone from auth/profile sources (never surface ciphertext). */
+export function resolveProfilePhoneDisplay(...candidates: Array<string | undefined | null>): string {
+  for (const candidate of candidates) {
+    const formatted = formatContactNoInputFromProfile(candidate || '');
+    if (formatted) return formatted;
+  }
+  return '';
+}

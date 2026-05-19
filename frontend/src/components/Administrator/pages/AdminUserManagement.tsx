@@ -280,7 +280,7 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
       if (updated != null) {
         const ago = nowTick - updated;
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
+          <div className="ah-user-activity">
             <span className="ah-badge ah-badge-inactive">Offline</span>
             <span style={{ fontSize: 11, color: '#94a3b8' }}>
               Account updated {formatRelativeAgo(ago)}
@@ -289,7 +289,7 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
         );
       }
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
+        <div className="ah-user-activity">
           <span className="ah-badge ah-badge-inactive">Offline</span>
           <span style={{ fontSize: 11, color: '#94a3b8' }}>No session yet</span>
         </div>
@@ -298,14 +298,14 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
     const ago = nowTick - seen;
     if (ago < PRESENCE_ONLINE_MS) {
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
+        <div className="ah-user-activity">
           <span className="ah-badge ah-badge-success">Active now</span>
           <span style={{ fontSize: 11, color: '#64748b' }}>{formatRelativeAgo(ago)}</span>
         </div>
       );
     }
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
+      <div className="ah-user-activity">
         <span className="ah-badge ah-badge-inactive">Offline</span>
         <span style={{ fontSize: 11, color: '#64748b' }}>
           Last active {formatRelativeAgo(ago)}
@@ -314,17 +314,20 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
     );
   };
 
+  const pageStart = filtered.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1;
+  const pageEnd = Math.min(page * ITEMS_PER_PAGE, filtered.length);
+
   return (
-    <div className="ah-page-enter" style={{ display: 'flex', flexDirection: 'column', gap: 24, flex: '1 1 auto', width: '100%', minWidth: 0, minHeight: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+    <div className="ah-page-enter ah-users-page">
+      <div className="ah-users-page-header">
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 600, color: '#0f172a', margin: 0 }}>User Management</h1>
-          <p style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>Manage all registered accounts, roles, and access levels</p>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>User Management</h1>
+          <p style={{ fontSize: 14, color: '#64748b', marginTop: 6, marginBottom: 0 }}>Manage all registered accounts, roles, and access levels</p>
         </div>
         <button className="ah-btn-primary" onClick={() => setCreateOpen(true)}><Plus size={15} /> Create User</button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 16 }}>
+      <div className="ah-users-kpi-grid">
         {[
           { label: 'Total users', value: totalUsersCount, color: '#2563eb', helper: 'All accounts' },
           { label: 'Active accounts', value: activeAccountsCount, color: '#059669', helper: 'Can sign in' },
@@ -332,15 +335,15 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
           { label: 'Pending verification', value: pendingAccountsCount, color: '#d97706', helper: 'Needs activation' },
           { label: 'Archived accounts', value: archivedAccountsCount, color: '#64748b', helper: 'Access disabled' },
         ].map(stat => (
-          <div key={stat.label} className="ah-kpi-card" style={{ padding: 16 }}>
-            <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', letterSpacing: '0.02em', margin: 0 }}>{stat.label}</p>
-            <p className="tabular-nums" style={{ fontSize: 28, fontWeight: 700, color: stat.color, margin: '4px 0 0' }}>{stat.value}</p>
-            <p style={{ fontSize: 11, color: '#94a3b8', margin: '3px 0 0' }}>{stat.helper}</p>
+          <div key={stat.label} className="ah-users-stat-card" style={{ ['--ah-stat-accent' as string]: stat.color }}>
+            <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', margin: 0 }}>{stat.label}</p>
+            <p className="tabular-nums" style={{ fontSize: 30, fontWeight: 800, color: stat.color, margin: '6px 0 0', letterSpacing: '-0.03em' }}>{stat.value}</p>
+            <p style={{ fontSize: 11, color: '#94a3b8', margin: '4px 0 0' }}>{stat.helper}</p>
           </div>
         ))}
       </div>
 
-      <div className="ah-card-section ah-table-card" style={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div className="ah-card-section ah-users-table-card">
         <div className="ah-user-toolbar" style={{ boxShadow: '0 4px 18px -12px rgba(15,23,42,0.07)', flexShrink: 0 }}>
           <div className="ah-user-toolbar-main">
             <div className="ah-user-search-wrap">
@@ -396,15 +399,23 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
           </p>
         </div>
 
-        <div style={{ overflow: 'auto', flex: '1 1 auto', minHeight: 0 }}>
-          <table className="ah-table">
+        <div className="ah-users-table-scroll">
+          <table className="ah-table ah-users-table">
+            <colgroup>
+              <col style={{ width: '24%' }} />
+              <col style={{ width: '22%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '15%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '15%' }} />
+            </colgroup>
             <thead><tr>
               <th style={{ cursor: 'pointer' }} onClick={() => handleSort('name')}>User <ArrowUpDown size={11} style={{ display: 'inline', marginLeft: 4, color: sortField === 'name' ? '#2563eb' : '#cbd5e1' }} /></th>
               <th>Email address</th>
               <th style={{ cursor: 'pointer' }} onClick={() => handleSort('role')}>Access role <ArrowUpDown size={11} style={{ display: 'inline', marginLeft: 4, color: sortField === 'role' ? '#2563eb' : '#cbd5e1' }} /></th>
-              <th style={{ cursor: 'pointer', textAlign: 'center' }} onClick={() => handleSort('status')}>Status and activity <ArrowUpDown size={11} style={{ display: 'inline', marginLeft: 4, color: sortField === 'status' ? '#2563eb' : '#cbd5e1' }} /></th>
+              <th style={{ cursor: 'pointer' }} onClick={() => handleSort('status')}>Status and activity <ArrowUpDown size={11} style={{ display: 'inline', marginLeft: 4, color: sortField === 'status' ? '#2563eb' : '#cbd5e1' }} /></th>
               <th>Created date</th>
-              <th style={{ textAlign: 'center' }}>Quick actions</th>
+              <th style={{ textAlign: 'right' }}>Actions</th>
             </tr></thead>
             <tbody>
               {loading ? Array.from({ length: 5 }).map((_, index) => (
@@ -413,71 +424,45 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
                 <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>No users match your current filters.</td></tr>
               ) : paginated.map(user => (
                 <tr key={user.id || user._id}>
-                  <td><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #60a5fa, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, flexShrink: 0 }}>{(user.name || '?')[0]?.toUpperCase()}</div>
-                    <div><p style={{ fontWeight: 600, color: '#1e293b', margin: 0, fontSize: 14 }}>{user.name || 'Unnamed user'}</p><p className="font-mono" style={{ fontSize: 10, color: '#94a3b8', margin: 0 }}>ID: {(user.id || user._id || '').slice(-8) || '—'}</p></div>
-                  </div></td>
-                  <td><span className="font-mono" style={{ fontSize: 12, color: '#475569' }}>{user.email || '—'}</span></td>
-                  <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', borderRadius: 6, fontSize: 12, fontWeight: 500, border: 'none', boxShadow: '0 1px 2px rgba(37,99,235,0.12), inset 0 0 0 1px rgba(191,219,254,0.6)' }}><ShieldCheck size={11} />{getRoleLabel(user.role)}</span></td>
                   <td>
-                    <div style={{ display: 'flex', justifyContent: 'center' }}>
-                      {renderActivity(user)}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg, #60a5fa, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0, boxShadow: '0 4px 12px rgba(37,99,235,0.25)' }}>{(user.name || '?')[0]?.toUpperCase()}</div>
+                      <div style={{ minWidth: 0 }}>
+                        <p className="ah-cell-truncate" style={{ fontWeight: 600, color: '#1e293b', margin: 0, fontSize: 14 }}>{user.name || 'Unnamed user'}</p>
+                        <p className="font-mono ah-cell-truncate" style={{ fontSize: 10, color: '#94a3b8', margin: 0 }}>ID: {(user.id || user._id || '').slice(-8) || '—'}</p>
+                      </div>
                     </div>
                   </td>
+                  <td><span className="font-mono ah-cell-truncate" style={{ fontSize: 12, color: '#475569', display: 'block' }}>{user.email || '—'}</span></td>
+                  <td>
+                    <span className="ah-user-role-pill"><ShieldCheck size={11} className="shrink-0" /><span>{getRoleLabel(user.role)}</span></span>
+                  </td>
+                  <td>{renderActivity(user)}</td>
                   <td><span className="font-mono" style={{ fontSize: 12, color: '#94a3b8' }}>{user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span></td>
-                  <td style={{ textAlign: 'center' }}>
-                    <div style={{ display: 'inline-flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <button
-                        onClick={() => setViewUser(user)}
-                        style={{ minWidth: 92, padding: '5px 10px', borderRadius: 8, border: 'none', background: '#f8fafc', cursor: 'pointer', color: '#334155', transition: 'all 0.15s', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: 'inset 0 0 0 1px rgba(226,232,240,0.9)' }}
-                        title="View details"
-                        aria-label={`View ${user.name || 'user'} details`}
-                      >
-                        <Eye size={13} />
-                        View
+                  <td style={{ textAlign: 'right' }}>
+                    <div className="ah-user-actions">
+                      <button type="button" className="ah-user-action-btn" onClick={() => setViewUser(user)} title="View details" aria-label={`View ${user.name || 'user'} details`}>
+                        <Eye size={15} />
                       </button>
                       {canMutateAccount(user) ? (
                         <>
-                          <button
-                            onClick={() => setEditUser(user)}
-                            style={{ minWidth: 92, padding: '5px 10px', borderRadius: 8, border: 'none', background: '#f8fafc', cursor: 'pointer', color: '#334155', transition: 'all 0.15s', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: 'inset 0 0 0 1px rgba(226,232,240,0.9)' }}
-                            title="Edit account"
-                            aria-label={`Edit ${user.name || 'user'}`}
-                          >
-                            <Edit2 size={13} />
-                            Edit
+                          <button type="button" className="ah-user-action-btn" onClick={() => setEditUser(user)} title="Edit account" aria-label={`Edit ${user.name || 'user'}`}>
+                            <Edit2 size={15} />
                           </button>
                           {normalizeUserStatus(user.status) === 'active' && canArchiveOrRestoreAccount(user) && (
-                            <button
-                              onClick={() => handleArchive(user)}
-                              style={{ minWidth: 100, padding: '5px 10px', borderRadius: 8, border: 'none', background: '#fff1f2', cursor: 'pointer', color: '#be123c', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: 'inset 0 0 0 1px rgba(251,207,232,0.95)' }}
-                              title="Archive account"
-                              aria-label={`Archive ${user.name || 'user'}`}
-                            >
-                              <Archive size={13} />
-                              Archive
+                            <button type="button" className="ah-user-action-btn ah-user-action-btn--danger" onClick={() => handleArchive(user)} title="Archive account" aria-label={`Archive ${user.name || 'user'}`}>
+                              <Archive size={15} />
                             </button>
                           )}
                           {normalizeUserStatus(user.status) === 'suspended' && canArchiveOrRestoreAccount(user) && (
-                            <button
-                              onClick={() => handleActivate(user)}
-                              style={{ minWidth: 100, padding: '5px 10px', borderRadius: 8, border: 'none', background: '#ecfdf5', cursor: 'pointer', color: '#047857', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: 'inset 0 0 0 1px rgba(167,243,208,0.95)' }}
-                              title="Restore account"
-                              aria-label={`Restore ${user.name || 'user'}`}
-                            >
-                              <RotateCcw size={13} />
-                              Restore
+                            <button type="button" className="ah-user-action-btn ah-user-action-btn--success" onClick={() => handleActivate(user)} title="Restore account" aria-label={`Restore ${user.name || 'user'}`}>
+                              <RotateCcw size={15} />
                             </button>
                           )}
                         </>
                       ) : (
-                        <button
-                          disabled
-                          style={{ minWidth: 92, padding: '5px 10px', borderRadius: 8, border: 'none', background: '#f8fafc', cursor: 'not-allowed', color: '#cbd5e1', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, boxShadow: 'inset 0 0 0 1px rgba(226,232,240,0.9)' }}
-                          title={isCurrentUser(user) ? 'Manage your own account from profile settings' : 'You do not have permission to modify this account'}
-                        >
-                          <Edit2 size={13} />
-                          Edit
+                        <button type="button" className="ah-user-action-btn" disabled title={isCurrentUser(user) ? 'Manage your own account from profile settings' : 'You do not have permission to modify this account'} aria-label="Edit disabled">
+                          <Edit2 size={15} />
                         </button>
                       )}
                     </div>
@@ -488,9 +473,9 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
           </table>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', background: '#fafbfc', flexShrink: 0, boxShadow: '0 -4px 18px -10px rgba(15,23,42,0.05)', gap: 12, flexWrap: 'wrap' }}>
+        <div className="ah-users-table-footer">
           <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>
-            Showing {filtered.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1}–{Math.min(page * ITEMS_PER_PAGE, filtered.length)} of {filtered.length} • Page {totalPages === 0 ? 0 : page} of {totalPages}
+            Showing <strong style={{ color: '#475569' }}>{pageStart}–{pageEnd}</strong> of <strong style={{ color: '#475569' }}>{filtered.length}</strong> users · Page {totalPages === 0 ? 0 : page} of {totalPages}
           </p>
           <div style={{ display: 'flex', gap: 4 }}>
             <button onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page === 1} style={{ padding: 6, borderRadius: 8, border: 'none', background: 'transparent', cursor: page === 1 ? 'not-allowed' : 'pointer', color: '#64748b', opacity: page === 1 ? 0.4 : 1 }}><ChevronLeft size={15} /></button>

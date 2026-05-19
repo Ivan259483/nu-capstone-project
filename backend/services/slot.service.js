@@ -632,12 +632,28 @@ export async function getSlotsForRange(startStr, endStr) {
     const daySchedule = getDaySchedule(config.recurringSchedule, dateStr);
 
     if (closedByEmergency || closure || !daySchedule?.open) {
+      const closedReason = closedByEmergency
+        ? 'emergency'
+        : closure
+          ? 'closure'
+          : 'recurring';
+      const closureLabel = closure
+        ? [closure.reason, closure.note].filter(Boolean).join(' — ')
+        : null;
       return {
         date: dateStr,
         isClosed: true,
+        closedReason,
+        closureLabel,
         totalSlots: 0,
         bookedSlots: 0,
         availableSlots: 0,
+        /** Max bookings allowed in one time band (admin "Capacity per time slot"). */
+        perSlotCapacity: 0,
+        /** Smallest remaining seats in any single time band — matches admin number when day is empty. */
+        minAvailablePerSlot: 0,
+        /** Hour bands in range (e.g. 9 for 08:00–17:00 @ 60m). Client fallback if minAvailablePerSlot missing. */
+        timeBandCount: 0,
         fullSlots: 0,
         almostFullSlots: 0,
         pendingCount: pendingByDate[dateStr] || 0,
@@ -647,6 +663,13 @@ export async function getSlotsForRange(startStr, endStr) {
 
     const slots = buildSlotAvailability(daySchedule, bookedByDateTime[dateStr] || {});
     const summary = summarizeSlotAvailability(slots);
+    const perSlotCapacity = Math.max(0, Number(daySchedule?.slots || 0));
+    const stillBookable = slots.filter((s) => Math.max(0, Number(s.available || 0)) > 0);
+    const minAvailablePerSlot =
+      stillBookable.length > 0
+        ? Math.min(...stillBookable.map((s) => Math.max(0, Number(s.available || 0))))
+        : 0;
+    const timeBandCount = slots.length;
 
     let status = 'AVAILABLE';
     if (summary.totalCapacity <= 0 || summary.allSlotsFull) status = 'FULL';
@@ -658,6 +681,9 @@ export async function getSlotsForRange(startStr, endStr) {
       totalSlots: summary.totalCapacity,
       bookedSlots: summary.bookedSlots,
       availableSlots: summary.availableSlots,
+      perSlotCapacity,
+      minAvailablePerSlot,
+      timeBandCount,
       fullSlots: summary.fullSlots,
       almostFullSlots: summary.almostFullSlots,
       pendingCount: pendingByDate[dateStr] || 0,

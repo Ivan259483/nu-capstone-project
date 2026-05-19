@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Search, ChevronUp, ChevronDown, ChevronsUpDown, AlertTriangle, Eye,
+  Search, ChevronUp, ChevronDown, ChevronsUpDown, AlertTriangle,
   ChevronLeft, ChevronRight, SlidersHorizontal, ClipboardList, Loader2,
+  Radio, CheckCircle2,
 } from 'lucide-react';
+import { getQCJobWorkflowAction, getQCJobActionLabel } from '@/lib/qc-job-workflow';
 import QCStatusBadge, { type QCStatus } from './QCStatusBadge';
 import type { QCJob } from '@/hooks/useQCData';
 
@@ -317,13 +319,27 @@ export default function QCJobsTable({ jobs, loading, onSelectJob }: Props) {
                 </td>
                 <td className="border-b border-slate-100/80 bg-white px-4 py-4 transition-colors group-hover:bg-slate-50/80 group-focus:bg-blue-50/70"><QCStatusBadge status={job.status as QCStatus} /></td>
                 <td className="rounded-r-xl border-b border-slate-100/80 bg-white px-4 py-4 text-right transition-colors group-hover:bg-slate-50/80 group-focus:bg-blue-50/70">
-                  <button
-                    type="button"
-                    onClick={(event) => { event.stopPropagation(); openJob(job.id); }}
-                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm shadow-slate-200/40 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 group-hover:border-blue-200 group-hover:text-blue-700"
-                  >
-                    <Eye size={14} /> Review
-                  </button>
+                  {(() => {
+                    const action = getQCJobWorkflowAction(job);
+                    const isTracker = action === 'live-tracker';
+                    return (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openJob(job.id);
+                        }}
+                        className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold shadow-sm transition-all ${
+                          isTracker
+                            ? 'border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100'
+                            : 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:border-emerald-300 hover:bg-emerald-100'
+                        }`}
+                      >
+                        {isTracker ? <Radio size={14} /> : <CheckCircle2 size={14} />}
+                        {getQCJobActionLabel(action)}
+                      </button>
+                    );
+                  })()}
                 </td>
               </tr>
             ))}

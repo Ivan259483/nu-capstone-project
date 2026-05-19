@@ -227,11 +227,11 @@ function InventoryPanelInner({ embedded = false }: { embedded?: boolean }) {
   }, {});
 
   const mainInnerStyle: React.CSSProperties = embedded
-    ? { maxWidth: 1560, margin: '0 auto', padding: 0 }
-    : { maxWidth: 1400, margin: '0 auto', padding: '32px 24px' };
+    ? { width: '100%', maxWidth: 'none', margin: 0, padding: 0, boxSizing: 'border-box' }
+    : { width: '100%', maxWidth: 1400, margin: '0 auto', padding: '32px 24px', boxSizing: 'border-box' };
 
   const mainSurfaceStyle: React.CSSProperties = embedded
-    ? { flex: 1, minHeight: 0, overflow: 'auto', background: 'transparent' }
+    ? { flex: 1, minHeight: 0, minWidth: 0, width: '100%', overflow: 'auto', background: 'transparent' }
     : { flex: 1, minHeight: '100vh', overflow: 'auto', background: '#f8fafc' };
 
   const pageBody = (

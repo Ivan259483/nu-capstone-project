@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 
+/** Mon–Fri open, Sat–Sun closed (dow: 0=Sun … 6=Sat). */
 export const buildDefaultRecurringSchedule = () => ([
   { dow: 0, open: false, from: '08:00', to: '17:00', slots: 10 },
   { dow: 1, open: true,  from: '08:00', to: '17:00', slots: 10 },
@@ -7,7 +8,7 @@ export const buildDefaultRecurringSchedule = () => ([
   { dow: 3, open: true,  from: '08:00', to: '17:00', slots: 10 },
   { dow: 4, open: true,  from: '08:00', to: '17:00', slots: 10 },
   { dow: 5, open: true,  from: '08:00', to: '17:00', slots: 10 },
-  { dow: 6, open: true,  from: '08:00', to: '17:00', slots: 7 },
+  { dow: 6, open: false, from: '08:00', to: '17:00', slots: 7 },
 ]);
 
 const recurringScheduleSchema = new mongoose.Schema(

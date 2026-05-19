@@ -7,14 +7,85 @@
  *   - Socket.io `booking_updated` (emitted by approveBooking/rejectBooking)
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { getBackendSocketUrl } from '@/lib/api';
-import { fetchSlotRange, type RangeSlotSummary } from './calendarService';
+import { fetchRecurringHoursSchedule, fetchSlotRange, type RangeSlotSummary } from './calendarService';
+import type { RecurringScheduleRow } from '@/lib/shopSlotBands';
+import { getBandCountForYmd, getPerSlotCapacityForYmd } from '@/lib/shopSlotBands';
 import type { DayStatus } from './calendarTypes';
 
 // ── Month cache ───────────────────────────────────────────────────────────────
 const monthCache = new Map<string, RangeSlotSummary[]>();
+
+/** In-memory weekly schedule (shared with Availability Controls) — used to derive band count when /api/slots/range is old. */
+let cachedRecurringSchedule: RecurringScheduleRow[] | null = null;
+
+/**
+ * Bump when /api/slots/range payload or client interpretation changes.
+ * Prevents stale in-memory month data (e.g. old "45 slots" totals) after deploy.
+ */
+const SLOT_RANGE_CACHE_SCHEMA = 2;
+
+/** Call after admin saves availability so the calendar picks up new open/closed days. */
+export function clearCalendarSlotsCache() {
+  monthCache.clear();
+  cachedRecurringSchedule = null;
+}
+
+/**
+ * Month cell: per-time-band seats left, not sum(9×capacity).
+ * 1) Prefer API minAvailablePerSlot
+ * 2) Else derive bands from GET /api/admin/availability/hours (same logic as backend) + range totals
+ * 3) Else API timeBandCount / perSlotCapacity / aggregate fallback
+ */
+function resolveMonthCellSlotsLeft(
+  s: RangeSlotSummary,
+  schedule: RecurringScheduleRow[] | null | undefined,
+): number {
+  const m = Number(s.minAvailablePerSlot);
+  if (Number.isFinite(m)) return Math.max(0, m);
+
+  const total = Number(s.totalSlots);
+  const avail = Number(s.availableSlots);
+  if (schedule && schedule.length > 0 && !s.isClosed) {
+    const n = getBandCountForYmd(s.date, schedule);
+    const capFromSchedule = getPerSlotCapacityForYmd(s.date, schedule);
+    if (
+      n > 0
+      && capFromSchedule > 0
+      && Number.isFinite(total) && total > 0
+      && Number.isFinite(avail)
+    ) {
+      const expectedTotal = n * capFromSchedule;
+      if (total === expectedTotal) {
+        const bookedSeats = Math.max(0, total - avail);
+        return Math.max(0, capFromSchedule - bookedSeats);
+      }
+    }
+  }
+
+  const nApi = Number(s.timeBandCount);
+  if (
+    !s.isClosed
+    && Number.isFinite(nApi) && nApi > 0
+    && Number.isFinite(total) && total > 0
+    && Number.isFinite(avail)
+    && total % nApi === 0
+  ) {
+    const cap = Math.round(total / nApi);
+    const bookedSeats = Math.max(0, total - avail);
+    return Math.max(0, cap - bookedSeats);
+  }
+
+  const p = Number(s.perSlotCapacity);
+  const booked = Number(s.bookedSlots);
+  if (!s.isClosed && Number.isFinite(p) && p > 0 && Number.isFinite(booked) && booked === 0) {
+    return Math.floor(p);
+  }
+
+  return Math.max(0, Number(s.availableSlots) || 0);
+}
 
 // ── Status normaliser (backend uses UPPER, DayStatus uses lower) ──────────────
 function normaliseStatus(s: string): DayStatus {
@@ -32,8 +103,12 @@ export interface DayMapEntry {
   totalSlots: number;
   bookedSlots: number;
   availableSlots: number;
+  perSlotCapacity: number;
+  minAvailablePerSlot: number;
   pendingCount: number;
   isClosed: boolean;
+  closedReason?: 'emergency' | 'closure' | 'recurring' | null;
+  closureLabel?: string | null;
 }
 
 export interface UseCalendarSlotsReturn {
@@ -50,8 +125,11 @@ function getMonthRange(year: number, month: number) {
 }
 
 export function useCalendarSlots(year: number, month: number): UseCalendarSlotsReturn {
-  const cacheKey = `${year}-${month}`;
+  const cacheKey = `${year}-${month}-sr${SLOT_RANGE_CACHE_SCHEMA}`;
   const [summaries, setSummaries] = useState<RangeSlotSummary[]>(() => monthCache.get(cacheKey) ?? []);
+  const [recurringSchedule, setRecurringSchedule] = useState<RecurringScheduleRow[] | null>(
+    () => cachedRecurringSchedule,
+  );
   const [loading, setLoading] = useState(!monthCache.has(cacheKey));
   const mountedRef = useRef(true);
   const socketRef = useRef<Socket | null>(null);
@@ -59,16 +137,26 @@ export function useCalendarSlots(year: number, month: number): UseCalendarSlotsR
   const load = useCallback(async (bust = false) => {
     if (!bust && monthCache.has(cacheKey)) {
       setSummaries(monthCache.get(cacheKey)!);
+      if (cachedRecurringSchedule?.length) setRecurringSchedule(cachedRecurringSchedule);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
       const { start, end } = getMonthRange(year, month);
-      const data = await fetchSlotRange(start, end);
+      const [data, sched] = await Promise.all([
+        fetchSlotRange(start, end),
+        (async () => {
+          if (cachedRecurringSchedule?.length) return cachedRecurringSchedule;
+          const rows = await fetchRecurringHoursSchedule();
+          if (rows?.length) cachedRecurringSchedule = rows;
+          return rows;
+        })(),
+      ]);
       if (!mountedRef.current) return;
       monthCache.set(cacheKey, data);
       setSummaries(data);
+      if (sched?.length) setRecurringSchedule(sched);
     } catch {
       // silent — caller shows error toast if needed
     } finally {
@@ -117,22 +205,30 @@ export function useCalendarSlots(year: number, month: number): UseCalendarSlotsR
 
   const refresh = useCallback(() => {
     monthCache.delete(cacheKey);
+    cachedRecurringSchedule = null;
     load(true);
   }, [cacheKey, load]);
 
-  // Convert summaries to the DayMapEntry map the calendar renders
-  const dayMap = new Map<string, DayMapEntry>();
-  for (const s of summaries) {
-    dayMap.set(s.date, {
-      dateKey: s.date,
-      status: normaliseStatus(s.status),
-      totalSlots: s.totalSlots,
-      bookedSlots: s.bookedSlots,
-      availableSlots: s.availableSlots,
-      pendingCount: s.pendingCount,
-      isClosed: s.isClosed,
-    });
-  }
+  const dayMap = useMemo(() => {
+    const map = new Map<string, DayMapEntry>();
+    const sched = recurringSchedule?.length ? recurringSchedule : cachedRecurringSchedule;
+    for (const s of summaries) {
+      map.set(s.date, {
+        dateKey: s.date,
+        status: normaliseStatus(s.status),
+        totalSlots: s.totalSlots,
+        bookedSlots: s.bookedSlots,
+        availableSlots: s.availableSlots,
+        perSlotCapacity: Number.isFinite(Number(s.perSlotCapacity)) ? Math.max(0, Number(s.perSlotCapacity)) : 0,
+        minAvailablePerSlot: resolveMonthCellSlotsLeft(s, sched),
+        pendingCount: s.pendingCount,
+        isClosed: s.isClosed,
+        closedReason: s.closedReason ?? null,
+        closureLabel: s.closureLabel ?? null,
+      });
+    }
+    return map;
+  }, [summaries, recurringSchedule]);
 
   return { dayMap, loading, refresh };
 }

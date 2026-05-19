@@ -22,6 +22,7 @@ import {
   normalizeToCanonical,
 } from '../constants/roles.js';
 import { parseOptionalPhilippineMobile } from '../utils/phone.utils.js';
+import { serializeUserForClient } from '../utils/phone-client.utils.js';
 
 const getQueryByIdOrFirebaseUid = (id) => {
   // If it's a 24-character hex string, assume it's a valid ObjectId
@@ -362,11 +363,11 @@ export const updateUser = async (req, res, next) => {
       });
     }
 
-    // 6. Ensure API returns success
+    // 6. Ensure API returns success (decrypted phone for profile forms)
     res.json({
       success: true,
       message: 'User updated successfully',
-      data: updatedUser,
+      data: serializeUserForClient(updatedUser),
     });
   } catch (error) {
     console.error("❌ Update User Error:", error);

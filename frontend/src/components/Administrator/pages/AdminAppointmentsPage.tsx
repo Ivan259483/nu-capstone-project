@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { CalendarDays, SlidersHorizontal, Users } from 'lucide-react';
 import SalesSmartCalendar from '@/components/sales/calendar/SalesSmartCalendar';
 import AvailabilityControls from './AvailabilityControls';
-import { getSafeUserRole } from '@/lib/roles';
+import { getSafeUserRole, SETTINGS_MANAGER_ROLES } from '@/lib/roles';
 
 interface Props {
   onNavigate: (page: string) => void;
@@ -16,8 +16,10 @@ interface Props {
 type SchedulingTab = 'calendar' | 'availability';
 
 export default function AdminAppointmentsPage({ onNavigate, currentUserRole }: Props) {
+  // Availability Controls are shown to any full-admin role (administrator + office_admin).
+  // Sales can see the Calendar tab via APPOINTMENT_VIEW_ROLES but NOT Availability Controls.
   const isAdministrator = useMemo(
-    () => getSafeUserRole(currentUserRole) === 'administrator',
+    () => SETTINGS_MANAGER_ROLES.includes(getSafeUserRole(currentUserRole) as any),
     [currentUserRole],
   );
   const [activeTab, setActiveTab] = useState<SchedulingTab>('calendar');
@@ -40,8 +42,10 @@ export default function AdminAppointmentsPage({ onNavigate, currentUserRole }: P
           <p className="text-[11px] font-semibold tracking-wide text-blue-600">Operations</p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Appointments & scheduling</h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-600">
-            Full shop calendar with live slot counts. Open any day for booking detail; drag cards to reschedule when the API allows —
-            conflicts are blocked automatically.
+            Full shop calendar with live slot counts. Open/closed days follow{' '}
+            <strong>Availability Controls</strong> (weekly schedule, date closures, holidays).
+            Orange <strong>Closed</strong> on a weekday usually means a scheduled closure or
+            that day is marked off in the weekly schedule.
           </p>
         </div>
         <button

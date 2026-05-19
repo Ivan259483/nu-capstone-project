@@ -15,6 +15,7 @@ import {
 import { getBaseApiUrl } from '@/lib/api';
 import { invalidate, invalidateAll } from '@/lib/queryCache';
 import { getSharedSocket, refreshSocketAuth, destroySharedSocket } from '@/hooks/useRealtimeSync';
+import { formatContactNoInputFromProfile, normalizePhilippineMobileInput } from '@/lib/phone';
 
 // NOTE: Firestore is intentionally NOT used for role lookup.
 // Role is sourced from the MongoDB backend API (GET /api/users?email=...)
@@ -81,7 +82,7 @@ interface AuthContextType {
     signup: (email: string, password: string, name: string) => Promise<{ success: boolean; message?: string }>;
     resetPassword: (email: string) => Promise<{ success: boolean; message?: string }>;
     logout: () => void;
-    updateUser: (user: User, options?: { localOnly?: boolean }) => Promise<{ success: boolean; message?: string; offline?: boolean; reason?: 'timeout' | 'network' | 'error' }>;
+    updateUser: (user: User, options?: { localOnly?: boolean }) => Promise<{ success: boolean; message?: string; offline?: boolean; reason?: 'timeout' | 'network' | 'error'; phone?: string }>;
     setAuthUser: (user: User | null) => void;
     markLoginInProgress: () => void;
     markLoginComplete: () => void;
@@ -232,7 +233,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                                             role: (migratedRole ||
                                                 getSafeUserRole(me.role as string, CUSTOMER_ROLE)) as User['role'],
                                             avatar: (me.avatar as string | undefined) ?? mergedUser.avatar,
-                                            phone: (me.phone as string | undefined) ?? mergedUser.phone,
+                                            phone: formatContactNoInputFromProfile(me.phone as string | undefined)
+                                                || mergedUser.phone,
                                             isActive:
                                                 typeof me.isActive === 'boolean'
                                                     ? me.isActive
@@ -606,8 +608,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             const migratedRole = migrateLegacyUserRole(found.role);
             const newRole = migratedRole || currentUser.role;
-            const nextPhone = found.phone || currentUser.phone;
-            const phoneChanged = String(nextPhone || '') !== String(currentUser.phone || '');
+            const foundPhone = formatContactNoInputFromProfile(found.phone);
+            const currentPhone = formatContactNoInputFromProfile(currentUser.phone);
+            const nextPhone = foundPhone || currentPhone;
+            const phoneChanged = nextPhone !== currentPhone;
             const hasChanged = newRole !== currentUser.role
                 || found.name !== currentUser.name
                 || (found._id || found.id) !== currentUser._id
@@ -620,7 +624,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     name: found.name || currentUser.name,
                     role: newRole as import('@/types').UserRole,
                     avatar: found.avatar || currentUser.avatar,
-                    phone: nextPhone || currentUser.phone,
+                    phone: nextPhone || undefined,
                     isActive: found.isActive ?? currentUser.isActive,
                     lastActive: found.updatedAt || currentUser.lastActive,
                 };
@@ -656,16 +660,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const json = await resp.json();
                 const me = json.data;
                 if (!me || cancelled) return;
-                const raw = me.phone;
-                if (raw == null || String(raw).trim() === '') return;
+                const hydratedPhone = formatContactNoInputFromProfile(
+                    typeof me.phone === 'string' ? me.phone : me.phone != null ? String(me.phone) : '',
+                );
+                if (!hydratedPhone) return;
 
                 setUser((prev) => {
                     if (!prev || cancelled) return prev;
-                    if (String(prev.phone ?? '').trim()) return prev;
+                    if (formatContactNoInputFromProfile(prev.phone)) return prev;
 
                     const merged: User = {
                         ...prev,
-                        phone: typeof raw === 'string' ? raw.trim() : String(raw).trim(),
+                        phone: hydratedPhone,
                         _id: me.id || me._id || prev._id,
                     };
                     const sanitized = sanitizeUser(merged);
@@ -1371,47 +1377,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const updateUser = useCallback(async (
         updatedUser: User,
         options?: { localOnly?: boolean }
-    ): Promise<{ success: boolean; message?: string; offline?: boolean; reason?: 'timeout' | 'network' | 'error' }> => {
+    ): Promise<{ success: boolean; message?: string; offline?: boolean; reason?: 'timeout' | 'network' | 'error'; phone?: string }> => {
+        const normalizedPhone = formatContactNoInputFromProfile(updatedUser.phone)
+            || normalizePhilippineMobileInput(updatedUser.phone || '');
+
         const applyLocalUpdate = (userData: User) => {
-            const sanitized = sanitizeUser(userData);
+            const withPhone: User = {
+                ...userData,
+                phone: formatContactNoInputFromProfile(userData.phone) || normalizedPhone || userData.phone,
+            };
+            const sanitized = sanitizeUser(withPhone);
             userStorage.update(sanitized);
             userStorage.setCurrentUser(sanitized);
-            setUser(userData); // Keep the exact userData for React state, avoiding missing avatar
+            setUser(withPhone);
+            try {
+                const backendRaw = localStorage.getItem('autospf_backend_user');
+                if (backendRaw) {
+                    const bu = JSON.parse(backendRaw);
+                    bu.phone = withPhone.phone;
+                    if (withPhone._id) bu._id = withPhone._id;
+                    localStorage.setItem('autospf_backend_user', JSON.stringify(bu));
+                }
+            } catch {
+                /* ignore */
+            }
         };
 
         if (options?.localOnly) {
-            applyLocalUpdate(updatedUser);
-            return { success: true, offline: true, reason: 'network' };
+            applyLocalUpdate({ ...updatedUser, phone: normalizedPhone || updatedUser.phone });
+            return { success: true, offline: true, reason: 'network', phone: normalizedPhone || undefined };
         }
 
         try {
-            console.log('📦 [Frontend] Attempting API update with avatar length:', updatedUser.avatar?.length || 0);
             const response = await UserService.patchMyProfile({
                 name: updatedUser.name,
                 email: updatedUser.email,
                 avatar: updatedUser.avatar,
-                phone: updatedUser.phone,
+                phone: normalizedPhone || updatedUser.phone,
             });
 
-            console.log('✅ [Frontend] Update User API Response Data:', response.data);
-
             if (response.success) {
-                // Merge backend response with existing user state to preserve frontend-only fields
-                // (e.g., id = Firebase UID, which the Mongoose document returns as _id)
-                const backendData = response.data || {};
+                const backendData = (response.data || {}) as Record<string, unknown>;
+                const apiPhone = formatContactNoInputFromProfile(
+                    typeof backendData.phone === 'string' ? backendData.phone : undefined,
+                ) || normalizedPhone;
+
                 const mergedData: User = {
                     ...updatedUser,
                     ...backendData,
-                    id: updatedUser.id, // Always preserve the Firebase UID as `id`
-                    _id: backendData._id || updatedUser._id,
-                    phone: backendData.phone || updatedUser.phone,
+                    id: updatedUser.id,
+                    _id: (backendData._id as string | undefined) || (backendData.id as string | undefined) || updatedUser._id,
+                    name: (backendData.name as string | undefined) || updatedUser.name,
+                    phone: apiPhone || undefined,
                 };
-                console.log('✨ [Frontend] Applying merged data to state:', mergedData);
                 applyLocalUpdate(mergedData);
-                // Update session cache too
                 const token = localStorage.getItem('autospf_token') || '';
                 setSessionCache(mergedData, token);
-                return { success: true };
+                return { success: true, phone: apiPhone || undefined };
             }
             return { success: false, message: response.message || 'Update failed' };
         } catch (error: any) {
@@ -1420,9 +1442,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const isTimeout = error?.code === 'ECONNABORTED' || /timeout/i.test(message);
             const isNetwork = !error?.response || /network/i.test(message);
             const reason: 'timeout' | 'network' | 'error' = isTimeout ? 'timeout' : isNetwork ? 'network' : 'error';
-            // Apply local update as offline fallback but signal to caller it was not persisted
-            applyLocalUpdate(updatedUser);
-            return { success: true, offline: true, reason };
+            applyLocalUpdate({ ...updatedUser, phone: normalizedPhone || updatedUser.phone });
+            return { success: true, offline: true, reason, phone: normalizedPhone || undefined };
         }
     }, [sanitizeUser]);
 

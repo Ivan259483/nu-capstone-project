@@ -38,6 +38,7 @@ import {
   TRACKER_QC_FORM_SLOT_KEY,
   QC_FORM_SLOT_SHORT,
 } from '@/lib/tracker-gate-photo-slots';
+import { clearLiveTrackerDeepLinkJobId, readLiveTrackerDeepLinkJobId } from '@/lib/qc-job-workflow';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSafeUserRole, STAFF_QC_ROLE } from '@/lib/roles';
 import {
@@ -1939,7 +1940,7 @@ export default function QCLiveTrackerView({
   const { user } = useAuth();
   const viewerIsQualityChecker = getSafeUserRole(user?.role) === STAFF_QC_ROLE;
   const [localJobs, setLocalJobs] = useState<QCJob[]>(jobs);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(() => readLiveTrackerDeepLinkJobId());
   const [selectedOrderDetailsLoading, setSelectedOrderDetailsLoading] = useState(false);
   const selectedDetailRequestRef = useRef(0);
   const qcDebugMountIdRef = useRef(0);
@@ -2069,7 +2070,17 @@ export default function QCLiveTrackerView({
       return;
     }
 
-    if (selectedJobId && trackedOrders.some((job) => job.id === selectedJobId)) return;
+    if (selectedJobId && trackedOrders.some((job) => job.id === selectedJobId)) {
+      clearLiveTrackerDeepLinkJobId();
+      return;
+    }
+
+    const deepLinkId = readLiveTrackerDeepLinkJobId();
+    if (deepLinkId && trackedOrders.some((job) => job.id === deepLinkId)) {
+      setSelectedJobId(deepLinkId);
+      clearLiveTrackerDeepLinkJobId();
+      return;
+    }
 
     const firstActive = trackedOrders.find((job) => !getTrackerState(job).isComplete);
     setSelectedJobId((firstActive || trackedOrders[0]).id);

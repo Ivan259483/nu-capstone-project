@@ -282,10 +282,10 @@
 
 .adminhub-root .ah-user-toolbar-main {
   width: 100%;
-  max-width: 1240px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   display: grid;
-  grid-template-columns: minmax(260px, 1.45fr) minmax(170px, 0.9fr) minmax(190px, 0.95fr) auto;
+  grid-template-columns: minmax(220px, 1.6fr) minmax(150px, 0.75fr) minmax(160px, 0.8fr) auto;
   align-items: center;
   gap: 12px;
 }
@@ -310,18 +310,228 @@
 
 .adminhub-root .ah-user-active-filters {
   width: 100%;
-  max-width: 1240px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   flex-wrap: wrap;
 }
 
 .adminhub-root .ah-user-toolbar-tip {
-  padding: 0 20px 12px;
-  text-align: center;
+  padding: 0 20px 14px;
+  text-align: left;
+}
+
+/* ── User Management — full-width premium layout ─────── */
+.adminhub-root .ah-users-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.adminhub-root .ah-users-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  width: 100%;
+}
+
+.adminhub-root .ah-users-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.adminhub-root .ah-users-stat-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  padding: 16px 18px;
+  background: linear-gradient(165deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 28px -12px rgba(15, 23, 42, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.adminhub-root .ah-users-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--ah-stat-accent, #2563eb);
+  border-radius: 16px 16px 0 0;
+}
+
+.adminhub-root .ah-users-stat-card:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 12px rgba(15, 23, 42, 0.06),
+    0 12px 32px -14px rgba(15, 23, 42, 0.14);
+}
+
+.adminhub-root .ah-users-table-card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.adminhub-root .ah-users-table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  width: 100%;
+}
+
+.adminhub-root .ah-users-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.adminhub-root .ah-users-table th,
+.adminhub-root .ah-users-table td {
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.adminhub-root .ah-users-table .ah-cell-truncate {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.adminhub-root .ah-users-table tbody tr {
+  transition: background 0.15s ease;
+}
+
+.adminhub-root .ah-users-table tbody tr:hover {
+  background: linear-gradient(90deg, rgba(239, 246, 255, 0.55), rgba(255, 255, 255, 0.9));
+}
+
+.adminhub-root .ah-user-role-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.65);
+}
+
+.adminhub-root .ah-user-role-pill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-user-activity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.adminhub-root .ah-user-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.adminhub-root .ah-user-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+  background: #f8fafc;
+  color: #475569;
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.95);
+}
+
+.adminhub-root .ah-user-action-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.adminhub-root .ah-user-action-btn--danger {
+  background: #fff1f2;
+  color: #be123c;
+  box-shadow: inset 0 0 0 1px rgba(251, 207, 232, 0.9);
+}
+
+.adminhub-root .ah-user-action-btn--danger:hover:not(:disabled) {
+  background: #ffe4e6;
+  color: #9f1239;
+}
+
+.adminhub-root .ah-user-action-btn--success {
+  background: #ecfdf5;
+  color: #047857;
+  box-shadow: inset 0 0 0 1px rgba(167, 243, 208, 0.9);
+}
+
+.adminhub-root .ah-user-action-btn--success:hover:not(:disabled) {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.adminhub-root .ah-user-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.adminhub-root .ah-users-table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 20px;
+  background: linear-gradient(180deg, #fafbfc, #f8fafc);
+  flex-shrink: 0;
+  box-shadow: 0 -4px 18px -10px rgba(15, 23, 42, 0.05);
+}
+
+@media (max-width: 1200px) {
+  .adminhub-root .ah-users-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .adminhub-root .ah-users-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1240px) {

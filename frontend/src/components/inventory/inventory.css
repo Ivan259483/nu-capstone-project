@@ -29,6 +29,40 @@
   background: transparent;
 }
 
+.inv-root.inv-root--embedded > main {
+  width: 100%;
+  min-width: 0;
+}
+
+.inv-items-page,
+.inv-items-page--embedded {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.inv-items-table-card,
+.inv-items-table-scroll {
+  width: 100%;
+  min-width: 0;
+}
+
+.inv-items-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.inv-items-table th,
+.inv-items-table td {
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.inv-items-table td .truncate {
+  max-width: 100%;
+}
+
 .inv-embedded-tabs {
   flex-shrink: 0;
   display: flex;

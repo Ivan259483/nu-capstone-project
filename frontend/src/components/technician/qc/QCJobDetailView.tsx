@@ -1,12 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { ArrowLeft, AlertTriangle, CheckCircle2, RotateCcw, User, Wrench, Camera, Clock, Car, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { ArrowLeft, AlertTriangle, CheckCircle2, RotateCcw, User, Wrench, Camera, Clock, Car, Radio, ShieldCheck } from 'lucide-react';
 import QCStatusBadge from './QCStatusBadge';
 import QCImageComparisonSlider from './QCImageComparisonSlider';
-import QCChecklistPanel from './QCChecklistPanel';
 import QCAIDetectionCard from './QCAIDetectionCard';
 import QCReturnModal from './QCReturnModal';
-import QCServiceControlPanel, { type ServiceStage } from './QCServiceControlPanel';
 import type { QCJob } from '@/hooks/useQCData';
 
 interface Props {
@@ -15,12 +12,10 @@ interface Props {
   onBack: () => void;
   onApprove: (id: string) => Promise<boolean>;
   onReturn: (id: string, reason: string) => Promise<boolean>;
-  onUpdateChecklist: (id: string, items: { item: string; passed: boolean; note?: string }[]) => Promise<boolean>;
-  onUpdateStage?: (id: string, stage: ServiceStage) => Promise<boolean>;
-  onAssignStaff?: (id: string, assignments: { slot: string; name: string; role: string }[]) => Promise<boolean>;
+  onOpenLiveTracker?: () => void;
 }
 
-export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onReturn, onUpdateChecklist, onUpdateStage, onAssignStaff }: Props) {
+export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onReturn, onOpenLiveTracker }: Props) {
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [approving, setApproving] = useState(false);
 
@@ -85,8 +80,35 @@ export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onRetu
   const beforeSrc = (job as any).photos?.before?.[0] || '';
   const afterSrc = (job as any).photos?.after?.[0] || '';
 
+  const checklist = Array.isArray((job as any).qcChecklist) ? ((job as any).qcChecklist as { item: string; passed: boolean }[]) : [];
+  const checklistPassed = checklist.filter((row) => row.passed).length;
+
   return (
     <>
+      <div className="mb-5 flex flex-col gap-3 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50/90 to-slate-50/80 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm">
+            <Radio size={16} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900">Shop-floor QC lives in Live Tracker</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-slate-600">
+              Gate photos, plate check, and checklist scoring stay in Live Tracker. This page is for final sign-off only.
+            </p>
+          </div>
+        </div>
+        {onOpenLiveTracker ? (
+          <button
+            type="button"
+            onClick={onOpenLiveTracker}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-3.5 py-2 text-xs font-semibold text-blue-700 shadow-sm transition hover:bg-blue-50"
+          >
+            <Radio size={14} />
+            Open in Live Tracker
+          </button>
+        ) : null}
+      </div>
+
       {/* Breadcrumb + Header */}
       <div className="mb-6">
         <div className="flex items-center gap-2 text-sm text-slate-400 mb-4">
@@ -100,7 +122,7 @@ export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onRetu
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">{job.jobId}</h1>
+              <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Sign off · {job.jobId}</h1>
               <QCStatusBadge status={job.status} />
               {job.aiFlag && (
                 <span className="flex items-center gap-1 text-xs font-medium text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
@@ -217,24 +239,45 @@ export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onRetu
             </div>
           </div>
 
-          {/* QC Checklist */}
-          <QCChecklistPanel
-            orderId={job.id}
-            initialItems={(job as any).qcChecklist}
-            onSave={(items) => onUpdateChecklist(job.id, items)}
-          />
-
-          {/* ── Service Tracker Control Panel ── */}
-          {(onUpdateStage || onAssignStaff) && (
-            <QCServiceControlPanel
-              jobId={job.id}
-              currentStage={(job as any).serviceTrackingStage as ServiceStage | undefined}
-              currentAssignments={(job as any).serviceStaffAssignments || []}
-              trackerStageMedia={(job as any).trackerStageMedia || []}
-              onUpdateStage={onUpdateStage ?? (async () => false)}
-              onAssignStaff={onAssignStaff ?? (async () => false)}
-            />
-          )}
+          {/* QC checklist summary (editable in Live Tracker) */}
+          <div className="rounded-xl bg-white p-5 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <ShieldCheck size={14} className="text-slate-400" />
+                Checklist status
+              </h3>
+              {onOpenLiveTracker ? (
+                <button
+                  type="button"
+                  onClick={onOpenLiveTracker}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                >
+                  Edit in Live Tracker
+                </button>
+              ) : null}
+            </div>
+            <p className="text-2xl font-bold tabular-nums text-slate-900">
+              {checklist.length > 0 ? `${checklistPassed}/${checklist.length}` : '—'}
+              <span className="ml-2 text-sm font-medium text-slate-500">items passed</span>
+            </p>
+            {checklist.length > 0 ? (
+              <ul className="mt-3 space-y-1.5">
+                {checklist.slice(0, 5).map((row) => (
+                  <li key={row.item} className="flex items-center gap-2 text-xs text-slate-600">
+                    <span className={row.passed ? 'text-emerald-600' : 'text-slate-300'}>
+                      {row.passed ? '✓' : '○'}
+                    </span>
+                    <span className="truncate">{row.item}</span>
+                  </li>
+                ))}
+                {checklist.length > 5 ? (
+                  <li className="text-xs text-slate-400">+{checklist.length - 5} more in Live Tracker</li>
+                ) : null}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs text-slate-500">No checklist saved yet — complete gates in Live Tracker.</p>
+            )}
+          </div>
 
           {/* Quality Decision */}
           <div className="bg-white rounded-xl shadow-sm p-5">

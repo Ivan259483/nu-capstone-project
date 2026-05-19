@@ -22,7 +22,10 @@ import {
 import { invalidateDateCache } from './useBookingsByDate';
 import type { CalendarBooking } from './calendarTypes';
 import { EXCLUDED_STATUSES } from './calendarTypes';
+import type { DayMapEntry } from './useCalendarSlots';
 import DraggableBooking from './DraggableBooking';
+
+const CALENDAR_BLOCK_NOTE = 'Blocked from appointments calendar';
 
 // ── Status display map ────────────────────────────────────────────────────────
 const STATUS_META: Record<string, { label: string; dot: string; bg: string; text: string }> = {
@@ -298,11 +301,12 @@ interface DayPanelProps {
   date: Date;
   bookings: CalendarBooking[];
   loading: boolean;
+  dayInfo?: DayMapEntry;
   onClose: () => void;
   onRefresh: () => void;
 }
 
-export default function DayPanel({ date, bookings, loading, onClose, onRefresh }: DayPanelProps) {
+export default function DayPanel({ date, bookings, loading, dayInfo, onClose, onRefresh }: DayPanelProps) {
   const dateIso = date.toLocaleDateString('en-CA');
   const label = date.toLocaleDateString('en-PH', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -319,6 +323,13 @@ export default function DayPanel({ date, bookings, loading, onClose, onRefresh }
     return from <= dateIso && to >= dateIso;
   });
   const isBlocked = selectedClosures.length > 0;
+  const isClosedOnCalendar = dayInfo?.isClosed ?? false;
+  const closedReason = dayInfo?.closedReason ?? null;
+  const isWeeklyDayOff = closedReason === 'recurring';
+  const isEmergencyClosed = closedReason === 'emergency';
+  const closedLabel = dayInfo?.closureLabel
+    || (isWeeklyDayOff ? 'Weekly day off (Sat/Sun or schedule in Availability Controls)' : null)
+    || (isEmergencyClosed ? 'Emergency closure is on for today' : null);
 
   const handleActionComplete = (_id: string) => {
     onRefresh();
@@ -339,9 +350,14 @@ export default function DayPanel({ date, bookings, loading, onClose, onRefresh }
   }, []);
 
   const handleBlockDate = async () => {
+    const confirmed = window.confirm(
+      `Block ${label} for new customer bookings?\n\nThis adds a scheduled closure (same as Availability Controls). Existing bookings stay on the calendar. Use Unblock date to reopen.`,
+    );
+    if (!confirmed) return;
+
     setClosureActioning(true);
     try {
-      await createAvailabilityClosure(dateIso);
+      await createAvailabilityClosure(dateIso, CALENDAR_BLOCK_NOTE);
       toast.success('Date blocked', { description: `${label} is no longer available for bookings.` });
       await loadClosures();
       onRefresh();
@@ -430,39 +446,51 @@ export default function DayPanel({ date, bookings, loading, onClose, onRefresh }
         </div>
 
         <div className="flex-shrink-0 px-4 py-3 shadow-[0_1px_0_0_rgba(226,232,240,0.7)]">
-          <div className={`flex items-center justify-between gap-3 rounded-2xl px-3.5 py-3 shadow-sm ${
-            isBlocked
+          <div className={`flex flex-col gap-2 rounded-2xl px-3.5 py-3 shadow-sm ${
+            isClosedOnCalendar || isBlocked
               ? 'bg-orange-50 text-orange-950 ring-1 ring-orange-200/80'
               : 'bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200/80'
           }`}>
+            <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[10px] font-black uppercase tracking-[0.16em] opacity-70">
                 Booking availability
               </p>
-              <p className="mt-0.5 truncate text-sm font-bold">
+              <p className="mt-0.5 text-sm font-bold leading-snug">
                 {closuresLoading
-                  ? 'Checking blocked-date status…'
-                  : isBlocked
-                    ? 'Blocked for customer bookings'
+                  ? 'Checking status…'
+                  : isClosedOnCalendar
+                    ? 'Closed on calendar'
                     : 'Open for customer bookings'}
               </p>
+              {isClosedOnCalendar && closedLabel && (
+                <p className="mt-1 text-[11px] font-medium leading-snug opacity-90">{closedLabel}</p>
+              )}
+              {isWeeklyDayOff && (
+                <p className="mt-1 text-[11px] font-medium leading-snug opacity-80">
+                  Change weekly hours under Appointments → Availability Controls.
+                </p>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={isBlocked ? handleUnblockDate : handleBlockDate}
-              disabled={closuresLoading || closureActioning}
-              className={`shrink-0 rounded-xl px-3 py-2 text-xs font-black shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                isBlocked
-                  ? 'bg-white text-orange-700 hover:bg-orange-100'
-                  : 'bg-white text-emerald-700 hover:bg-emerald-100'
-              }`}
-            >
-              {closureActioning
-                ? 'Saving…'
-                : isBlocked
-                  ? 'Unblock date'
-                  : 'Block date'}
-            </button>
+            {!isWeeklyDayOff && !isEmergencyClosed && (
+              <button
+                type="button"
+                onClick={isBlocked ? handleUnblockDate : handleBlockDate}
+                disabled={closuresLoading || closureActioning}
+                className={`shrink-0 rounded-xl px-3 py-2 text-xs font-black shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  isBlocked
+                    ? 'bg-white text-orange-700 hover:bg-orange-100'
+                    : 'bg-white text-emerald-700 hover:bg-emerald-100'
+                }`}
+              >
+                {closureActioning
+                  ? 'Saving…'
+                  : isBlocked
+                    ? 'Unblock date'
+                    : 'Block date'}
+              </button>
+            )}
+            </div>
           </div>
         </div>
 

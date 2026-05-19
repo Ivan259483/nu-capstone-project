@@ -123,17 +123,28 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
   }, [items]);
 
 
+  const pageStart = filtered.length === 0 ? 0 : (page - 1) * perPage + 1;
+  const pageEnd = Math.min(page * perPage, filtered.length);
+  const restockCount = items.filter((i) => i.status === 'critical' || i.status === 'out-of-stock').length;
+
   return (
     <>
-      <div className="space-y-5">
-        <div className={`flex items-center gap-4 flex-wrap ${embedded ? 'justify-end' : 'justify-between'}`}>
-          {!embedded && (
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">{filtered.length} items{activeCategory !== 'All' && <span className="text-gray-400 font-medium"> in {activeCategory}</span>}</h2>
-            <p className="text-xs text-gray-400 font-medium mt-0.5">{items.filter((i) => i.status === 'critical' || i.status === 'out-of-stock').length} items need restocking</p>
+      <div className={`inv-items-page space-y-5 w-full min-w-0${embedded ? ' inv-items-page--embedded' : ''}`}>
+        <div className="flex w-full items-center gap-4 flex-wrap justify-between">
+          <div className={embedded ? 'min-w-0' : undefined}>
+            {!embedded ? (
+              <>
+                <h2 className="text-lg font-bold text-gray-900">{filtered.length} items{activeCategory !== 'All' && <span className="text-gray-400 font-medium"> in {activeCategory}</span>}</h2>
+                <p className="text-xs text-gray-400 font-medium mt-0.5">{restockCount} items need restocking</p>
+              </>
+            ) : (
+              <p className="text-sm font-medium text-gray-500">
+                <span className="font-semibold text-gray-800">{filtered.length}</span> items
+                {restockCount > 0 ? <span className="text-amber-600"> · {restockCount} need restock</span> : null}
+              </p>
+            )}
           </div>
-          )}
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3">
             <button onClick={handleExportCSV} className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150 active:scale-95 shadow-sm"><Download size={15} /><span className="hidden sm:inline">Export CSV</span></button>
             <button onClick={() => { setEditingItem(null); setAddEditOpen(true); }} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md glow-blue"><Plus size={16} />Add Item</button>
           </div>
@@ -162,9 +173,20 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
           <div className="flex items-center gap-2 text-xs text-gray-400 font-medium"><SlidersHorizontal size={13} /><span className="hidden sm:inline">{filtered.length} results</span></div>
         </div>
 
-        <div className="rounded-2xl overflow-hidden" style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.035)', boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 16px rgba(0,0,0,0.015)' }}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px]">
+        <div className="inv-items-table-card w-full rounded-2xl overflow-hidden" style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.035)', boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 16px rgba(0,0,0,0.015)' }}>
+          <div className="inv-items-table-scroll w-full overflow-x-auto">
+            <table className="inv-items-table w-full table-fixed">
+              <colgroup>
+                <col style={{ width: 44 }} />
+                <col />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '17%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: 108 }} />
+              </colgroup>
               <thead>
                 <tr style={{ background: 'rgba(248,250,253,0.65)' }}>
                   <th className="w-10 px-4 py-3.5"><button onClick={toggleSelectAll} className="text-gray-300 hover:text-blue-600 transition-colors">{selectedIds.size === paginated.length && paginated.length > 0 ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}</button></th>
@@ -191,13 +213,13 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
                     <td className="px-4 py-3.5 w-10"><button onClick={() => toggleSelect(item.id)} className="text-gray-300 hover:text-blue-600 transition-colors">{selectedIds.has(item.id) ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}</button></td>
                     <td className="px-4 py-3.5">
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-sm font-semibold text-gray-800 truncate max-w-[200px]">{item.name}</span>
+                        <span className="block truncate text-sm font-semibold text-gray-800">{item.name}</span>
                         <span className="text-[11px] text-gray-400 font-mono">{item.sku}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3.5"><span className="text-[11px] font-medium text-gray-500 bg-gray-50/80 px-2.5 py-1 rounded-md">{item.category}</span></td>
                     <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2 min-w-[140px]">
+                      <div className="flex w-full min-w-0 items-center gap-2">
                         {editingQtyId === item.id ? (
                           <div className="flex items-center gap-1">
                             <input type="number" value={editingQtyValue} onChange={(e) => setEditingQtyValue(e.target.value)} className="w-16 text-sm font-semibold text-gray-800 border border-blue-300 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-blue-200 font-tabular" onKeyDown={(e) => { if (e.key === 'Enter') handleInlineQtySave(item); if (e.key === 'Escape') setEditingQtyId(null); }} autoFocus />
@@ -217,10 +239,10 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
                     </td>
                     <td className="px-4 py-3.5"><StatusBadge status={item.status} size="sm" /></td>
                     <td className="px-4 py-3.5"><span className="text-sm font-semibold text-gray-700 font-tabular">₱{item.costPerUnit.toFixed(2)}</span></td>
-                    <td className="px-4 py-3.5"><span className="text-xs text-gray-500 font-medium truncate max-w-[140px] block">{item.supplierName || '—'}</span></td>
+                    <td className="px-4 py-3.5"><span className="block truncate text-xs font-medium text-gray-500">{item.supplierName || '—'}</span></td>
                     <td className="px-4 py-3.5"><span className="text-xs text-gray-400 font-medium font-tabular">{new Date(item.lastRestocked).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></td>
                     <td className="px-4 py-3.5">
-                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <div className={`flex items-center justify-end gap-0.5 ${embedded ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'} transition-opacity duration-200`}>
                         <button onClick={() => handleInlineQtyEdit(item)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all duration-150" title="Quick edit quantity"><Edit2 size={14} /></button>
                         <button onClick={() => { setEditingItem(item); setAddEditOpen(true); }} className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all duration-150" title="Edit item details"><Eye size={14} /></button>
                         <button onClick={() => setDeleteId(item.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all duration-150" title="Delete"><Trash2 size={14} /></button>
@@ -233,12 +255,18 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
           </div>
           {filtered.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3" style={{ borderTop: '1px solid rgba(0,0,0,0.04)', background: 'rgba(248,250,253,0.5)' }}>
-              <div className="flex items-center gap-2 text-xs text-gray-400">
-                <span>Showing</span>
-                <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }} className="text-xs font-semibold text-gray-600 bg-white border border-gray-200 rounded-lg px-2 py-1 outline-none cursor-pointer">
-                  {[10, 20, 50].map((n) => <option key={`per-page-${n}`} value={n}>{n}</option>)}
-                </select>
-                <span>of <strong className="text-gray-700 font-tabular">{filtered.length}</strong> items</span>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                <span>
+                  Showing <strong className="text-gray-700 font-tabular">{pageStart}–{pageEnd}</strong> of{' '}
+                  <strong className="text-gray-700 font-tabular">{filtered.length}</strong> items
+                </span>
+                <span className="hidden text-gray-300 sm:inline">·</span>
+                <label className="flex items-center gap-1.5">
+                  <span>Per page</span>
+                  <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }} className="text-xs font-semibold text-gray-600 bg-white border border-gray-200 rounded-lg px-2 py-1 outline-none cursor-pointer">
+                    {[10, 20, 50].map((n) => <option key={`per-page-${n}`} value={n}>{n}</option>)}
+                  </select>
+                </label>
               </div>
               <div className="flex items-center gap-1">
                 <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-500 hover:bg-white hover:border hover:border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all">← Prev</button>

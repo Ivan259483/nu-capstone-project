@@ -8,7 +8,7 @@
  * — Approve / Reject only inside DayPanel (never on calendar cells)
  */
 
-import React, { useMemo, useState, useCallback, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import {
   ChevronLeft,
@@ -41,6 +41,7 @@ import {
 const DndContext = _DndContext as React.ComponentType<React.ComponentProps<typeof _DndContext>>;
 const DragOverlay = _DragOverlay as React.ComponentType<React.ComponentProps<typeof _DragOverlay>>;
 import { toast } from 'sonner';
+import { fetchAvailabilityClosures, type AvailabilityClosure } from './calendarService';
 import { useCalendarSlots, type DayMapEntry } from './useCalendarSlots';
 import { useBookingsByDate, invalidateDateCache } from './useBookingsByDate';
 import DayPanel from './DayPanel';
@@ -103,10 +104,17 @@ function DayCell({
   const vis = STATUS_VISUAL[status];
   const hasPending = (info?.pendingCount ?? 0) > 0;
   const bookingCount = info?.bookedSlots ?? 0;
-  const slotsLeft = info ? Math.max(0, info.totalSlots - info.bookedSlots) : null;
+  /** Month cell: show least free seats in any one time band (matches admin "Capacity per time slot"), not sum across all hours. */
+  const slotsLeft = info && !info.isClosed ? Math.max(0, info.minAvailablePerSlot) : null;
 
   const statusLine = info?.isClosed
-    ? 'Closed'
+    ? (info.closureLabel
+        ? `Closed · ${info.closureLabel}`
+        : info.closedReason === 'recurring'
+          ? 'Closed · Day off'
+          : info.closedReason === 'emergency'
+            ? 'Closed · Emergency'
+            : 'Closed')
     : slotsLeft !== null
       ? `${slotsLeft} slot${slotsLeft === 1 ? '' : 's'}`
       : vis.label;
@@ -237,6 +245,28 @@ export default function SalesSmartCalendar() {
 
   // Month-level slot data (with real-time socket updates)
   const { dayMap, loading: slotsLoading, refresh } = useCalendarSlots(year, month);
+  const [monthClosures, setMonthClosures] = useState<AvailabilityClosure[]>([]);
+
+  const loadMonthClosures = useCallback(async () => {
+    const monthStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const monthEnd = new Date(year, month + 1, 0).toLocaleDateString('en-CA');
+    try {
+      const rows = await fetchAvailabilityClosures();
+      setMonthClosures(
+        rows.filter((row) => {
+          const from = new Date(row.fromDate).toLocaleDateString('en-CA');
+          const to = new Date(row.toDate).toLocaleDateString('en-CA');
+          return from <= monthEnd && to >= monthStart;
+        }),
+      );
+    } catch {
+      setMonthClosures([]);
+    }
+  }, [year, month]);
+
+  useEffect(() => {
+    loadMonthClosures();
+  }, [loadMonthClosures]);
 
   // Per-date bookings (only fetched on click)
   const selectedKey = selectedDate ? dateKey(selectedDate) : null;
@@ -298,8 +328,9 @@ export default function SalesSmartCalendar() {
   // ── Panel close / refresh ───────────────────────────────────────────────────
   const handlePanelRefresh = useCallback(() => {
     refetchDay();
-    refresh(); // also bust the month slot cache
-  }, [refetchDay, refresh]);
+    refresh();
+    loadMonthClosures();
+  }, [refetchDay, refresh, loadMonthClosures]);
 
   // ── Drag and Drop ──────────────────────────────────────────────────────────
   const handleDragEnd = useCallback((event: DragEndEvent) => {
@@ -460,6 +491,36 @@ export default function SalesSmartCalendar() {
         ))}
       </div>
 
+      {monthClosures.length > 0 && (
+        <div
+          className="mb-4 rounded-2xl bg-amber-50/95 px-4 py-3 text-amber-950 shadow-[0_8px_28px_-10px_rgba(180,83,9,0.2)] ring-1 ring-amber-200/70"
+          role="status"
+        >
+          <p className="text-sm font-semibold">
+            {monthClosures.length} scheduled closure{monthClosures.length === 1 ? '' : 's'} this month
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-amber-900/90">
+            Orange <strong>Closed</strong> weekdays are usually from these blocks (calendar “Block date” or Availability Controls), not your weekly Mon–Fri schedule.
+          </p>
+          <ul className="mt-2 space-y-1 text-xs font-medium text-amber-950/90">
+            {monthClosures.slice(0, 6).map((row) => {
+              const from = new Date(row.fromDate).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+              const to = new Date(row.toDate).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+              const range = from === to ? from : `${from} – ${to}`;
+              return (
+                <li key={row._id}>
+                  {range}
+                  {(row.note || row.reason) ? ` · ${row.note || row.reason}` : ''}
+                </li>
+              );
+            })}
+            {monthClosures.length > 6 && (
+              <li className="text-amber-800/80">+{monthClosures.length - 6} more in Availability Controls</li>
+            )}
+          </ul>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="mb-4 flex flex-shrink-0 flex-wrap items-center gap-2.5">
         <div className="flex items-center gap-1 rounded-2xl bg-white/95 p-1 shadow-[0_8px_28px_-8px_rgba(15,23,42,0.12),0_2px_8px_rgba(15,23,42,0.05)]">
@@ -596,6 +657,7 @@ export default function SalesSmartCalendar() {
           date={selectedDate}
           bookings={dayBookings}
           loading={dayLoading}
+          dayInfo={selectedKey ? dayMap.get(selectedKey) : undefined}
           onClose={() => setSelectedDate(null)}
           onRefresh={handlePanelRefresh}
         />

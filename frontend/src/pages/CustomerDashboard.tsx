@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { invalidate } from '../lib/queryCache';
 import { ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
-import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking } from '../lib/phone';
+import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking, normalizePhilippineMobileInput, resolveProfilePhoneDisplay } from '../lib/phone';
 import { normalizePlateNumber } from '../lib/plate';
 import { usePublishedBookingPackages } from '../lib/customer-booking-catalog';
 import {
@@ -29,6 +29,7 @@ import {
 import { getTrackerPipelineProgressPct } from '../lib/tracker-pipeline-progress';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '../lib/cloudinary-delivery-url';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
+import { CustomerPaymentHistorySection } from '../components/customer/CustomerPaymentHistorySection';
 import { compressImageForBookingProof } from '../lib/compress-image-for-upload';
 import VehicleGarageForm from '@/components/shared/VehicleGarageForm';
 import {
@@ -733,8 +734,6 @@ export default function CustomerDashboard() {
   const [bookingAgreed, setBookingAgreed] = useState(false);
   const [bookingTermsReachedEnd, setBookingTermsReachedEnd] = useState(false);
   const [bookingDownpaymentProof, setBookingDownpaymentProof] = useState<string | null>(null);
-  // True when booking was opened from a garage vehicle card (pre-filled, read-only vehicle fields)
-  const [bookingFromVehicle, setBookingFromVehicle] = useState(false);
   const bookingBodyRef = useRef<HTMLDivElement | null>(null);
   const packageListRef = useRef<HTMLDivElement | null>(null);
   const packageCardRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -1057,21 +1056,57 @@ export default function CustomerDashboard() {
     return `${String(hour).padStart(2, '0')}:${minute}`;
   };
 
+  const applyBookingGarageSelection = useCallback((v: any, idx: number) => {
+    const vKey = getVehiclePriceKey(v.type);
+    setBookingSelectedVehicleIdx(idx);
+    setBookingVehicleType(vKey);
+    setBookingForm((f) => {
+      const next = {
+        ...f,
+        vehicleMake: v.make || '',
+        vehicleModel: v.model || '',
+        vehicleYear: v.year || '',
+        vehiclePlate: resolveGarageVehiclePlate(v),
+        vehicleColor: v.color || '',
+        vehicleCategory: v.type || '',
+        vehicleTransmission: v.transmission || '',
+        vehicleFuelType: v.fuelType || '',
+      };
+      if (f.service) {
+        const svc = bookingPackages.find((p) => p.id === f.service);
+        const price = svc?.prices[vKey as keyof typeof svc.prices];
+        if (price != null) {
+          next.servicePrice = price;
+        } else {
+          next.service = '';
+          next.serviceName = '';
+          next.servicePrice = 0;
+        }
+      }
+      return next;
+    });
+  }, [bookingPackages]);
+
   const openBookingModal = async (preSelectedVehicle?: any, options?: { presetPackageId?: string }) => {
     setBookingOpen(true); setBookingStep(1); setBookingDone(false);
     setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null);
     setSlotStatuses([]); setBookedSlots([]); setSlotError(''); setMonthAvailability({});
-    const targetVehicle = preSelectedVehicle || vehicles[0];
+    // Only pre-select when opened from a garage card — never auto-pick the first vehicle
+    const targetVehicle = preSelectedVehicle ?? null;
     const detectedKey = targetVehicle ? getVehiclePriceKey(targetVehicle.type) : 'hatchback';
     setBookingVehicleType(detectedKey);
-    // Use ID-based lookup — reference equality (indexOf) can fail if array was recreated
     const targetId = targetVehicle?._id || targetVehicle?.id;
-    const targetIdx = targetId
-      ? vehicles.findIndex(v => (v._id || v.id) === targetId)
-      : targetVehicle ? 0 : -1;
-    setBookingSelectedVehicleIdx(targetIdx);
-    // Track whether booking was opened FROM a vehicle card (pre-fills & locks vehicle fields)
-    setBookingFromVehicle(!!preSelectedVehicle);
+    const targetIdx = targetVehicle
+      ? (targetId
+          ? vehicles.findIndex((v) => (v._id || v.id) === targetId)
+          : vehicles.findIndex(
+              (v) =>
+                v.make === targetVehicle.make &&
+                v.model === targetVehicle.model &&
+                resolveGarageVehiclePlate(v) === resolveGarageVehiclePlate(targetVehicle),
+            ))
+      : -1;
+    setBookingSelectedVehicleIdx(targetIdx >= 0 ? targetIdx : -1);
     const presetPkg = options?.presetPackageId
       ? bookingPackages.find((p) => p.id === options.presetPackageId)
       : undefined;
@@ -1560,20 +1595,21 @@ export default function CustomerDashboard() {
   const [profile, setProfile] = useState({
     fullName: user?.name || '',
     email: user?.email || '',
-    phone: formatContactNoInputFromProfile((user as any)?.phone || ''),
+    phone: resolveProfilePhoneDisplay((user as any)?.phone),
   });
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   const [profileSaved, setProfileSaved] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      setProfile(p => ({
-        ...p,
-        fullName: user.name || '',
-        email: user.email || '',
-        phone: formatContactNoInputFromProfile((user as any).phone) || formatContactNoInputFromProfile(p.phone) || p.phone,
-      }));
-    }
+    if (!user) return;
+    const syncedPhone = resolveProfilePhoneDisplay((user as any).phone);
+    setProfile((p) => ({
+      ...p,
+      fullName: user.name || '',
+      email: user.email || '',
+      // Only overwrite the field when auth has a valid phone — never clear a saved/edited value.
+      phone: syncedPhone || p.phone,
+    }));
   }, [user]);
 
   // Booking Step 2: keep Contact No. in sync when auth/profile gains a phone after modal opened (or field still empty).
@@ -1615,15 +1651,21 @@ export default function CustomerDashboard() {
       return;
     }
 
+    const phoneToSave = normalizePhilippineMobileInput(profile.phone);
+
     try {
       const result = await updateUser({
         ...user,
         name: profile.fullName,
         email: profile.email,
-        phone: profile.phone,
+        phone: phoneToSave,
       });
 
       if (result.success && !result.offline) {
+        const savedPhone = resolveProfilePhoneDisplay(result.phone, phoneToSave, profile.phone);
+        if (savedPhone) {
+          setProfile((p) => ({ ...p, phone: savedPhone }));
+        }
         setProfileSaved(true);
         setTimeout(() => setProfileSaved(false), 3000);
       } else if (result.offline) {
@@ -1822,32 +1864,15 @@ export default function CustomerDashboard() {
     }
   }, [bookingOpen, location.pathname]);
 
-  // Keep bookingVehicleType in sync with the selected vehicle's actual type
-  // This handles: page reload, logout/login, vehicles loading after modal opens
+  // Keep bookingVehicleType in sync when the user has explicitly selected a garage vehicle
   useEffect(() => {
-    if (vehicles.length === 0) return;
+    if (vehicles.length === 0 || bookingSelectedVehicleIdx < 0) return;
     const selectedV = vehicles[bookingSelectedVehicleIdx];
     if (selectedV?.type) {
       const correctKey = getVehiclePriceKey(selectedV.type);
       setBookingVehicleType(correctKey);
-    } else if (bookingOpen && bookingSelectedVehicleIdx === -1 && vehicles[0]?.type) {
-      // Modal is open but no vehicle selected yet — default to first vehicle
-      const correctKey = getVehiclePriceKey(vehicles[0].type);
-      setBookingVehicleType(correctKey);
-      setBookingSelectedVehicleIdx(0);
-      setBookingForm(f => ({
-        ...f,
-        vehicleMake: f.vehicleMake || vehicles[0].make || '',
-        vehicleModel: f.vehicleModel || vehicles[0].model || '',
-        vehicleYear: f.vehicleYear || vehicles[0].year || '',
-        vehicleColor: f.vehicleColor || vehicles[0].color || '',
-        vehiclePlate: f.vehiclePlate || resolveGarageVehiclePlate(vehicles[0]) || '',
-        vehicleCategory: f.vehicleCategory || vehicles[0].type || '',
-        vehicleTransmission: f.vehicleTransmission || vehicles[0].transmission || '',
-        vehicleFuelType: f.vehicleFuelType || vehicles[0].fuelType || '',
-      }));
     }
-  }, [vehicles, bookingSelectedVehicleIdx, bookingOpen]);
+  }, [vehicles, bookingSelectedVehicleIdx]);
 
   // If the form lost plate but the selected garage row has one, copy it so Step 2 / Sales see the real plate.
   useEffect(() => {
@@ -3677,182 +3702,12 @@ export default function CustomerDashboard() {
                 </div>
               </div>
             ) : activeSection === 'payments' ? (
-              <div className="space-y-6 pb-10">
-                {/* Header */}
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <div>
-                    <h2 className="text-[22px] font-semibold text-slate-900 tracking-tight">Payment History</h2>
-                    <p className="text-sm text-slate-500 mt-0.5">All reservation fees and full payments per booking.</p>
-                  </div>
-                  <span className="text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded-full px-3 py-1">
-                    {myBookings.filter((b: any) => !['pending', 'cancelled', 'failed'].includes(normTrackerStr(b?.status))).length} booking{myBookings.filter((b: any) => !['pending', 'cancelled', 'failed'].includes(normTrackerStr(b?.status))).length !== 1 ? 's' : ''}
-                  </span>
-                </div>
-
-                {/* Summary Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Total Bookings</p>
-                    <p className="text-2xl font-bold text-slate-900">{myBookings.filter((b: any) => !['pending', 'cancelled', 'failed'].includes(normTrackerStr(b?.status))).length}</p>
-                  </div>
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Reservation Fees</p>
-                    <p className="text-2xl font-bold text-indigo-600">
-                      ₱{(myBookings.filter((b: any) => ['approved', 'confirmed', 'received', 'in_progress', 'completed', 'released', 'paid'].includes(normTrackerStr(b?.status))).length * 500).toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="col-span-2 sm:col-span-1 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Full Payments</p>
-                    <p className="text-2xl font-bold text-emerald-600">
-                      ₱{myBookings
-                          .filter((b: any) => {
-                            const s = normTrackerStr(b?.status);
-                            return String(b.paymentStatus || '').toLowerCase() === 'paid' || ['completed', 'released', 'paid'].includes(s);
-                          })
-                          .reduce((sum: number, b: any) => sum + Number(b.totalPrice || b.totalAmount || 0), 0)
-                          .toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Payment List */}
-                    {myBookings.filter((b: any) => !['pending', 'cancelled', 'failed'].includes(normTrackerStr(b?.status))).length === 0 ? (
-                  <div className="bg-white border border-slate-200 rounded-xl p-10 text-center shadow-sm">
-                    <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-50">
-                      <iconify-icon icon="solar:card-2-linear" width="24" className="text-slate-300"></iconify-icon>
-                    </div>
-                    <p className="text-sm font-semibold text-slate-900">No payment records yet</p>
-                    <p className="text-xs text-slate-500 mt-1">Book a service to see your payment history here.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {[...myBookings]
-                      .filter((b: any) => !['pending', 'cancelled', 'failed'].includes(normTrackerStr(b?.status)))
-                      .sort((a: any, b: any) => new Date(b.createdAt || b.date || 0).getTime() - new Date(a.createdAt || a.date || 0).getTime())
-                      .map((b: any) => {
-                        const orderId = b.id || b._id;
-                        const st = normTrackerStr(b?.status);
-                        const total = Number(b.totalPrice || b.totalAmount || 0);
-                        const remaining = Math.max(total - 500, 0);
-                        const vehicle = [b.vehicleYear, b.vehicleMake, b.vehicleModel].filter(Boolean).join(' ') || b.vehicleInfo || '—';
-                        const dateStr = b.date || b.bookingDate || b.createdAt;
-                        const formattedDate = dateStr ? new Date(dateStr).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-                        const proofUrl: string | null = (b as any).paymentProofUrl || (b as any).downpaymentProof || null;
-
-                        const reservationStatesPaid = [
-                          'approved',
-                          'confirmed',
-                          'assigned',
-                          'received',
-                          'in_progress',
-                          'ready_for_payment',
-                          'completed',
-                          'released',
-                          'paid',
-                        ];
-                        const reservationPaid = reservationStatesPaid.includes(st) || Boolean(proofUrl);
-                        const resvBadge = reservationPaid ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">Paid</span>
-                        ) : st === 'rejected' ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700 border border-red-200">Rejected</span>
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 border border-amber-200">Pending</span>
-                        );
-
-                        // Treat as paid if: paymentStatus is 'paid' OR order is completed/released/paid
-                        // (handles existing orders created before the paymentStatus=paid backend fix)
-                        const isFullyPaid = String(b.paymentStatus || '').toLowerCase() === 'paid' || ['completed', 'released', 'paid'].includes(st);
-                        const fullBadge = isFullyPaid
-                          ? <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">✓ Paid</span>
-                          : <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-600 border border-amber-200">Pending</span>;
-
-                        return (
-                          <div key={orderId} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden hover:border-slate-300 transition-colors">
-                            {/* Booking Header */}
-                            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                <iconify-icon icon="solar:card-bold" width="16" className="text-indigo-500 shrink-0"></iconify-icon>
-                                <div className="min-w-0">
-                                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-none">{b.orderNumber || b.bookingReference || String(orderId).slice(-8)}</p>
-                                  <p className="text-sm font-semibold text-slate-800 truncate mt-0.5">{b.serviceName || b.serviceType || 'Service'}</p>
-                                </div>
-                              </div>
-                              <div className="text-right shrink-0 ml-3">
-                                <p className="text-[10px] text-slate-400">{formattedDate}</p>
-                                <p className="text-xs font-bold text-slate-700 mt-0.5">{vehicle}</p>
-                              </div>
-                            </div>
-
-                            {/* Payment Rows */}
-                            <div className="divide-y divide-slate-100">
-                              {/* Row 1: Reservation Fee */}
-                              <div className="flex items-center justify-between px-5 py-3.5 gap-3 flex-wrap">
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
-                                    <iconify-icon icon="solar:lock-keyhole-minimalistic-linear" width="15" className="text-indigo-500"></iconify-icon>
-                                  </div>
-                                  <div>
-                                    <p className="text-xs font-semibold text-slate-700">Reservation Fee</p>
-                                    <p className="text-[10px] text-slate-400">Paid online via GCash</p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-3 ml-auto">
-                                  {proofUrl && (
-                                    <button
-                                      onClick={() => setPaymentLightboxUrl(proofUrl)}
-                                      className="flex items-center gap-1 text-[10px] font-semibold text-indigo-600 hover:text-indigo-800 underline underline-offset-2 transition-colors"
-                                    >
-                                      <iconify-icon icon="solar:gallery-linear" width="12"></iconify-icon>
-                                      View proof
-                                    </button>
-                                  )}
-                                  {resvBadge}
-                                  <span className="text-sm font-bold text-slate-900 w-16 text-right">₱500</span>
-                                </div>
-                              </div>
-
-                              {/* Row 2: Full Payment */}
-                              <div className="flex items-center justify-between px-5 py-3.5 gap-3 flex-wrap">
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
-                                    <iconify-icon icon="solar:wallet-money-linear" width="15" className="text-emerald-600"></iconify-icon>
-                                  </div>
-                                  <div>
-                                    <p className="text-xs font-semibold text-slate-700">Full Payment</p>
-                                    <p className="text-[10px] text-slate-400">Paid onsite upon service completion</p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2 ml-auto flex-wrap justify-end">
-                                  <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
-                                    {fullBadge}
-                                    {isFullyPaid && (
-                                      <button
-                                        type="button"
-                                        onClick={() => void openCustomerOrderReceiptPdf(String(orderId))}
-                                        className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100 transition-colors"
-                                      >
-                                        <iconify-icon icon="solar:bill-list-linear" width="12"></iconify-icon>
-                                        View receipt
-                                      </button>
-                                    )}
-                                  </div>
-                                  <span className="text-sm font-bold text-slate-900 min-w-[4.5rem] text-right tabular-nums">
-                                    {remaining > 0 ? `₱${remaining.toLocaleString()}` : '—'}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Total Row */}
-                            <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-t border-slate-100">
-                              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total</p>
-                              <p className="text-base font-bold text-slate-900">{total > 0 ? `₱${total.toLocaleString()}` : '—'}</p>
-                            </div>
-                          </div>
-                        );
-                      })}
-                  </div>
-                )}
+              <>
+                <CustomerPaymentHistorySection
+                  bookings={myBookings}
+                  onViewPaymentProof={setPaymentLightboxUrl}
+                  onViewReceipt={(orderId) => void openCustomerOrderReceiptPdf(orderId)}
+                />
 
                 {orderReceiptPdfUrl && (
                   <div
@@ -3902,7 +3757,7 @@ export default function CustomerDashboard() {
                     </div>
                   </div>
                 )}
-              </div>
+              </>
             ) : activeSection === 'rewards' ? (
               <div className="space-y-6 pb-10">
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -4494,7 +4349,7 @@ export default function CustomerDashboard() {
                           <p style={{ fontSize: 12, color: 'rgba(255,255,255,.4)', margin: '0 0 12px', fontWeight: 500 }}>
                             {rejectedBooking.rejectionReason || 'Your payment proof could not be verified.'}
                           </p>
-                          <button onClick={() => { setBookingOpen(true); setBookingStep(1); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.3)', borderRadius: 10, padding: '8px 16px', color: '#a5b4fc', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                          <button onClick={() => void openBookingModal()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.3)', borderRadius: 10, padding: '8px 16px', color: '#a5b4fc', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                             <iconify-icon icon="solar:restart-bold" width="13"></iconify-icon>
                             Book Again
                           </button>
@@ -5705,16 +5560,33 @@ export default function CustomerDashboard() {
                         <p className="mt-1 text-xs font-medium text-slate-500">Pricing updates automatically based on the selected class.</p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <div className="inline-flex items-center gap-2 rounded-full border-0 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 shadow-sm shadow-blue-600/12">
-                          <iconify-icon icon="solar:tag-price-linear" width="14"></iconify-icon>
-                          {VEHICLE_OPTIONS.find(o => o.type === bookingVehicleType)?.label || bookingVehicleType}
+                        <div className={`inline-flex items-center gap-2 rounded-full border-0 px-3 py-1.5 text-xs font-bold shadow-sm ${
+                          bookingSelectedVehicleIdx >= 0
+                            ? 'bg-blue-50 text-blue-700 shadow-blue-600/12'
+                            : 'bg-amber-50 text-amber-800 shadow-amber-600/10'
+                        }`}>
+                          <iconify-icon icon={bookingSelectedVehicleIdx >= 0 ? 'solar:tag-price-linear' : 'solar:hand-stars-linear'} width="14"></iconify-icon>
+                          {bookingSelectedVehicleIdx >= 0
+                            ? (VEHICLE_OPTIONS.find(o => o.type === bookingVehicleType)?.label || bookingVehicleType)
+                            : 'Tap a vehicle below'}
                         </div>
                       </div>
                     </div>
 
+                    {vehicles.length > 0 && bookingSelectedVehicleIdx < 0 ? (
+                      <div className="booking-service-hint booking-service-hint--amber mb-3 flex items-start gap-3 rounded-[22px] px-4 py-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/90 text-amber-600 shadow-sm shadow-amber-600/10">
+                          <iconify-icon icon="solar:info-circle-bold" width="18"></iconify-icon>
+                        </div>
+                        <p className="text-xs font-medium leading-relaxed text-amber-900">
+                          <span className="font-bold">Tap your vehicle</span> to lock in pricing and auto-fill details on the next step.
+                        </p>
+                      </div>
+                    ) : null}
+
                     {vehicles.length === 0 ? (
-                      <div className="flex items-start gap-3 rounded-2xl border-0 bg-blue-50/80 px-4 py-3 shadow-sm shadow-blue-600/10">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm shadow-blue-600/15">
+                      <div className="booking-service-hint booking-service-hint--blue flex items-start gap-3 rounded-[22px] px-4 py-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/90 text-blue-600 shadow-sm shadow-blue-600/10">
                           <iconify-icon icon="solar:info-circle-bold" width="18"></iconify-icon>
                         </div>
                         <div>
@@ -5731,22 +5603,7 @@ export default function CustomerDashboard() {
                             <button
                               key={i}
                               type="button"
-                              onClick={() => {
-                                setBookingSelectedVehicleIdx(i);
-                                setBookingVehicleType(vKey);
-                                setBookingForm(f => ({
-                                  ...f,
-                                  service: '', servicePrice: 0,
-                                  vehicleMake: v.make || '',
-                                  vehicleModel: v.model || '',
-                                  vehicleYear: v.year || '',
-                                  vehiclePlate: resolveGarageVehiclePlate(v),
-                                  vehicleColor: v.color || '',
-                                  vehicleCategory: v.type || '',
-                                  vehicleTransmission: v.transmission || '',
-                                  vehicleFuelType: v.fuelType || '',
-                                }));
-                              }}
+                              onClick={() => applyBookingGarageSelection(v, i)}
                               className={`booking-service-vehicle-card flex min-w-0 items-center gap-3 rounded-2xl border-0 px-3.5 py-3 text-left transition-all ${isActive
                                 ? 'is-active border-0 bg-slate-950 text-white'
                                 : 'border-0 bg-white text-slate-700 hover:bg-white'
@@ -5773,7 +5630,11 @@ export default function CustomerDashboard() {
                     <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
                         <div>
                           <p className="text-sm font-bold text-slate-950">Select a protection package</p>
-                          <p className="mt-1 text-xs font-medium text-slate-500">Prices reflect your selected vehicle class.</p>
+                          <p className="mt-1 text-xs font-medium text-slate-500">
+                            {bookingSelectedVehicleIdx >= 0
+                              ? 'Prices reflect your selected vehicle class.'
+                              : 'Sample Hatchback pricing shown until you pick a vehicle above.'}
+                          </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
@@ -5897,7 +5758,7 @@ export default function CustomerDashboard() {
                   </div>
 
                   {/* Vehicle Fields — read-only from garage, or editable if not pre-selected */}
-                  {bookingFromVehicle ? (
+                  {bookingSelectedVehicleIdx >= 0 && bookingSelectedVehicleIdx < vehicles.length ? (
                     /* ── Read-only vehicle info from garage ── */
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
@@ -6205,16 +6066,24 @@ export default function CustomerDashboard() {
                       const dayInfo = monthAvailability[iso];
                       // Use API-driven status; fall back to closed for safety while loading.
                       const status: DayAvailabilityStatus = dayInfo?.status || 'closed';
+                      const errorCode = dayInfo?.errorCode || null;
+                      const isPast = errorCode === 'PAST_DATE';
+                      // Distinguish "shop closed" (schedule/closure) from "fully booked"
+                      const isShopClosed = !isPast && status === 'closed';
+                      const isFullyBooked = status === 'full';
                       const disabled = !!dayInfo?.unavailable || status === 'closed' || status === 'full';
                       const isSelected = bookingForm.date === iso;
-                      const unavailableReason =
-                        dayInfo?.reason
-                        || (status === 'full' ? 'All booking slots for this date are fully booked.' : 'This date is unavailable.');
-                      const dotColor = status === 'available' ? '#22c55e' : 'transparent';
+                      const unavailableReason = isPast
+                        ? 'Past date — no longer available.'
+                        : isFullyBooked
+                          ? (dayInfo?.reason || 'All booking slots for this date are fully booked.')
+                          : isShopClosed
+                            ? (dayInfo?.reason || 'Shop is closed on this day.')
+                            : '';
                       cells.push(
                         <button key={iso} type="button" disabled={disabled}
                           title={disabled ? unavailableReason : undefined}
-                          aria-label={disabled ? `Unavailable date: ${unavailableReason}` : undefined}
+                          aria-label={disabled ? `Unavailable: ${unavailableReason}` : `Select ${iso}`}
                           onClick={() => {
                             if (disabled) return;
                             const prevTime = bookingForm.time;
@@ -6225,28 +6094,46 @@ export default function CustomerDashboard() {
                           }}
                           style={{
                             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                            gap: 3, width: '100%', aspectRatio: '1', borderRadius: '50%', border: 'none',
+                            position: 'relative',
+                            gap: 2, width: '100%', aspectRatio: '1', borderRadius: '50%', border: 'none',
                             cursor: disabled ? 'default' : 'pointer',
-                            opacity: monthAvailLoading ? 0.4 : 1,
-                            background: isSelected ? '#0f172a'
-                              : isToday && !disabled ? 'rgba(15,23,42,0.06)'
-                                : 'transparent',
+                            opacity: monthAvailLoading ? 0.35 : 1,
+                            background: isSelected
+                              ? '#0f172a'
+                              : isShopClosed
+                                ? 'rgba(239,68,68,0.08)'
+                                : isFullyBooked
+                                  ? 'rgba(245,158,11,0.08)'
+                                  : isToday && !disabled
+                                    ? 'rgba(15,23,42,0.06)'
+                                    : 'transparent',
                             transition: 'all 0.15s',
                           }}>
                           <span style={{
-                            fontSize: 14,
+                            fontSize: 13,
                             fontWeight: isSelected ? 700 : isToday ? 700 : 500,
-                            color: isSelected ? '#fff'
-                              : disabled ? '#9ca3af'
-                                : isToday ? '#0f172a'
-                                    : '#374151',
+                            color: isSelected
+                              ? '#fff'
+                              : isShopClosed
+                                ? '#fca5a5'
+                                : isFullyBooked
+                                  ? '#fcd34d'
+                                  : isPast
+                                    ? '#d1d5db'
+                                    : isToday
+                                      ? '#0f172a'
+                                      : '#374151',
                             lineHeight: 1,
                           }}>{day}</span>
-                          {status === 'available' && (
-                            <span style={{
-                              width: 4, height: 4, borderRadius: '50%',
-                              background: isSelected ? 'rgba(255,255,255,0.6)' : dotColor,
-                            }} />
+                          {/* Indicator dots / badges */}
+                          {status === 'available' && !isSelected && (
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e' }} aria-hidden />
+                          )}
+                          {isShopClosed && !isSelected && (
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#94a3b8' }} aria-hidden />
+                          )}
+                          {isFullyBooked && !isSelected && (
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#f59e0b' }} aria-hidden />
                           )}
                         </button>
                       );
@@ -6254,17 +6141,35 @@ export default function CustomerDashboard() {
                     return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>{cells}</div>;
                   })()}
 
-                  {/* Legend — 3 real states */}
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 12 }}>
-                    {[
-                      { c: '#22c55e', l: 'Available' },
-                      { c: '#9ca3af', l: 'Unavailable' },
-                    ].map(({ c, l }) => (
-                      <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: c }} />
-                        <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500 }}>{l}</span>
-                      </div>
-                    ))}
+                  {/* Calendar legend — one guide (matches colored dots on dates) */}
+                  <div
+                    style={{
+                      marginTop: 14,
+                      borderRadius: 12,
+                      background: '#f8fafc',
+                      padding: '10px 12px',
+                    }}
+                    role="note"
+                    aria-label="Calendar date availability"
+                  >
+                    <p style={{ margin: '0 0 8px', textAlign: 'center', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#94a3b8' }}>
+                      What the dots mean
+                    </p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px 16px' }}>
+                      {[
+                        { dot: '#22c55e', label: 'Available', hint: 'pick this day' },
+                        { dot: '#94a3b8', label: 'Closed', hint: 'shop not open' },
+                        { dot: '#f59e0b', label: 'Fully booked', hint: 'no times left' },
+                      ].map((item) => (
+                        <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: item.dot, flexShrink: 0 }} aria-hidden />
+                          <span style={{ fontSize: 11, color: '#475569', fontWeight: 500 }}>
+                            {item.label}
+                            <span style={{ fontWeight: 400, color: '#94a3b8' }}> — {item.hint}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Divider */}
@@ -6338,20 +6243,11 @@ export default function CustomerDashboard() {
                     </div>
                   )}
 
-                  {/* Time slot legend */}
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginTop: 10 }}>
-                    {[
-                      { c: '#374151', l: 'Available' },
-                      { c: '#fca5a5', l: 'Full' },
-                      { c: '#d1d5db', l: 'Closed' },
-                    ].map(({ c, l }) => (
-                      <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: c, border: '1px solid #e5e7eb' }} />
-                        <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500 }}>{l}</span>
-                      </div>
-                    ))}
-                  </div>
-
+                  {bookingForm.date && slotStatuses.length > 0 && (
+                    <p style={{ marginTop: 10, fontSize: 11, color: '#94a3b8', textAlign: 'center', lineHeight: 1.45 }}>
+                      Tap a white time to select it. Gray buttons are unavailable.
+                    </p>
+                  )}
 
                   {/* Notes */}
                   <div style={{ marginTop: 20 }}>
@@ -6812,7 +6708,9 @@ export default function CustomerDashboard() {
                 resolveGarageVehiclePlate(garageVForPlate);
               const plateNormStep = normalizePlateNumber(effectivePlateRaw);
               const plateOk = plateNormStep.length >= 4 && plateNormStep.length <= 9;
-              const step1Valid = !!bookingForm.service;
+              const bookingVehicleChosen =
+                vehicles.length === 0 || (bookingSelectedVehicleIdx >= 0 && bookingSelectedVehicleIdx < vehicles.length);
+              const step1Valid = !!bookingForm.service && bookingVehicleChosen;
               const vehicleFieldsValid =
                 !!bookingForm.vehicleMake &&
                 !!(bookingForm.vehicleModel || '').trim() &&
@@ -6838,7 +6736,10 @@ export default function CustomerDashboard() {
 
               // Hint shown below button when blocked
                 const hintText =
-                  bookingStep === 1 ? (!step1Valid ? 'Select a service to continue' : '') :
+                  bookingStep === 1 ? (
+                    !bookingVehicleChosen ? 'Tap your vehicle above to continue' :
+                    !bookingForm.service ? 'Select a protection package to continue' : ''
+                  ) :
                     bookingStep === 2 ? (!step2Valid ? 'Complete all required fields above' : '') :
                       bookingStep === 3 ? (
                       !bookingForm.date ? 'Select a date' :
@@ -6910,7 +6811,7 @@ export default function CustomerDashboard() {
                               if (!mergedPlate) errs.vehiclePlate = 'Plate number is required.';
                               else if (!plateOk) errs.vehiclePlate = 'Use 4–9 letters/numbers (spaces ignored).';
                             }
-                            if (!bookingFromVehicle) {
+                            if (!(bookingSelectedVehicleIdx >= 0 && bookingSelectedVehicleIdx < vehicles.length)) {
                               if (!bookingForm.vehicleMake) errs.vehicleMake = 'Select a brand.';
                               if (!(bookingForm.vehicleModel || '').trim()) errs.vehicleModel = 'Model is required.';
                               if (!bookingForm.vehicleColor) errs.vehicleColor = 'Select a color.';

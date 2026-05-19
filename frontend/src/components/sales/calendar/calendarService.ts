@@ -5,6 +5,7 @@
  */
 
 import type { CalendarBooking } from './calendarTypes';
+import type { RecurringScheduleRow } from '@/lib/shopSlotBands';
 
 function getToken(): string {
   return (
@@ -26,9 +27,17 @@ const authHeaders = (): HeadersInit => ({
 export interface RangeSlotSummary {
   date: string;
   isClosed: boolean;
+  closedReason?: 'emergency' | 'closure' | 'recurring' | null;
+  closureLabel?: string | null;
   totalSlots: number;
   bookedSlots: number;
   availableSlots: number;
+  /** Admin "Capacity per time slot" (max seats in one hourly window). */
+  perSlotCapacity?: number;
+  /** Least remaining seats in any single window — use for month cells so 5 ≠ 9×5. */
+  minAvailablePerSlot?: number;
+  /** Open-hour bands that day (e.g. 9). Used if minAvailablePerSlot is missing (stale cache / old server). */
+  timeBandCount?: number;
   almostFullSlots: number;
   fullSlots: number;
   pendingCount: number;
@@ -36,7 +45,7 @@ export interface RangeSlotSummary {
 }
 
 export async function fetchSlotRange(start: string, end: string): Promise<RangeSlotSummary[]> {
-  const res = await fetch(`/api/slots/range?start=${start}&end=${end}`, {
+  const res = await fetch(`/api/slots/range?start=${start}&end=${end}&_cal=2`, {
     headers: authHeaders(),
   });
   // 401/403 = session expired/invalid — return empty, don't throw
@@ -45,6 +54,15 @@ export async function fetchSlotRange(start: string, end: string): Promise<RangeS
   const json = await res.json();
   if (!json.success || !Array.isArray(json.data)) return [];
   return json.data as RangeSlotSummary[];
+}
+
+/** Weekly hours + per-slot capacity (same source as Availability Controls). */
+export async function fetchRecurringHoursSchedule(): Promise<RecurringScheduleRow[] | null> {
+  const res = await fetch('/api/admin/availability/hours', { headers: authHeaders() });
+  if (res.status === 401 || res.status === 403) return null;
+  if (!res.ok) return null;
+  const data = await res.json();
+  return Array.isArray(data) ? (data as RecurringScheduleRow[]) : null;
 }
 
 // ── Single-date full slot detail ───────────────────────────────────────────────
@@ -113,7 +131,7 @@ export async function createAvailabilityClosure(date: string, note?: string): Pr
       fromDate: date,
       toDate: date,
       reason: 'Custom',
-      note: note || 'Blocked from Sales calendar',
+      note: note || 'Blocked from appointments calendar',
     }),
   });
   const json = await res.json();

@@ -12,6 +12,10 @@ import QCChecklistPanel from './QCChecklistPanel';
 import QCAIDetectionCard from './QCAIDetectionCard';
 import QCImageComparisonSlider from './QCImageComparisonSlider';
 import QCLiveTrackerView from './QCLiveTrackerView';
+import {
+  getQCJobWorkflowAction,
+  stashLiveTrackerDeepLinkJobId,
+} from '@/lib/qc-job-workflow';
 import { useQCData } from '@/hooks/useQCData';
 
 type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'before-after' | 'ai-detection' | 'customer-notes' | 'reports' | 'live-tracker';
@@ -552,8 +556,24 @@ export default function QCDashboardPanel() {
   const aiPendingCount = jobs.filter((j) => j.aiFlag).length;
 
   const handleSelectJob = (jobId: string) => {
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) return;
+
     setSelectedJobId(jobId);
+
+    if (getQCJobWorkflowAction(job) === 'live-tracker') {
+      stashLiveTrackerDeepLinkJobId(jobId);
+      navigateTo('live-tracker');
+      return;
+    }
+
     navigateTo('job-detail');
+  };
+
+  const handleOpenJobInLiveTracker = (jobId: string) => {
+    setSelectedJobId(jobId);
+    stashLiveTrackerDeepLinkJobId(jobId);
+    navigateTo('live-tracker');
   };
 
   const renderContent = () => {
@@ -570,8 +590,10 @@ export default function QCDashboardPanel() {
                   Quality Control
                 </span>
                 <h1 className="mt-3 text-2xl font-bold text-slate-950">Jobs for Review</h1>
-                <p className="mt-1 text-sm text-slate-500">
-                  Complete review queue - {pendingCount} job{pendingCount !== 1 ? 's' : ''} awaiting validation
+                <p className="mt-1 max-w-2xl text-sm text-slate-500">
+                  Triage queue — open active jobs in <span className="font-semibold text-slate-700">Live Tracker</span> for
+                  photos, checklist, and gates. Use <span className="font-semibold text-slate-700">Sign off</span> when the
+                  vehicle is ready for final approve or return ({pendingCount} pending).
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2.5">
@@ -604,9 +626,7 @@ export default function QCDashboardPanel() {
             onBack={() => navigateTo('jobs')}
             onApprove={approveJob}
             onReturn={returnJob}
-            onUpdateChecklist={updateChecklist}
-            onUpdateStage={updateServiceStatus}
-            onAssignStaff={assignServiceStaff}
+            onOpenLiveTracker={() => selectedJobId && handleOpenJobInLiveTracker(selectedJobId)}
           />
         );
 
