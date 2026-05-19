@@ -28,6 +28,8 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { getBaseApiUrl } from "@/lib/api";
 import { getDashboardPathForRole, getSafeUserRole } from "@/lib/roles";
+import { signOut } from "firebase/auth";
+import { auth } from "@/config/firebase";
 import { buildRegisterE164, validateRegisterNationalDigits } from "@/lib/phone";
 import { REGISTER_COUNTRY_DIALS } from "@/lib/countries-dial-data";
 import { RegisterPhoneField } from "@/components/auth/RegisterPhoneField";
@@ -93,7 +95,7 @@ export default function Login() {
     const { t } = useLanguage();
     const navigate = useNavigate();
     const location = useLocation();
-    const { login, resetPassword, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser } = useAuth();
+    const { login, resetPassword, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser, prepareForLogin } = useAuth();
 
     /* ── Form state ── */
     const [showPassword, setShowPassword] = useState(false);
@@ -153,6 +155,7 @@ export default function Login() {
     const [ppfTermsAgreed, setPpfTermsAgreed] = useState(false);
     const [registerWebsiteTermsAgreed, setRegisterWebsiteTermsAgreed] = useState(false);
     const prevTabRef = useRef<"login" | "register">(tab);
+    const [sessionClearedForLogin, setSessionClearedForLogin] = useState(false);
 
     const registerPwRules = useMemo(() => registerPasswordRules(registerForm.password), [registerForm.password]);
     const registerPwAllValid = useMemo(
@@ -266,6 +269,18 @@ export default function Login() {
         }
     }, []);
 
+    /* ── Clear stale admin/customer session so QC can sign in on a shared browser ── */
+    useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            await prepareForLogin();
+            if (!cancelled) setSessionClearedForLogin(true);
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [prepareForLogin]);
+
     /* ── Redirect helper ── */
     const performRedirect = useCallback((role: string) => {
         const redirectUrl = sessionStorage.getItem("redirect_after_login");
@@ -287,23 +302,13 @@ export default function Login() {
         navigate(dashboardPath, { replace: true });
     }, [navigate]);
 
-    /* ── Redirect on auth state ── */
+    /* ── Redirect on auth state (only after stale session cleared on /login) ── */
     useEffect(() => {
-        console.log('🔄 [DEBUG-Login] useEffect triggered =>', {
-            hasUser: !!user,
-            role: user?.role,
-            isAuthLoading,
-            isFirebaseAuthReady,
-            hasToken: !!localStorage.getItem('autospf_token'),
-        });
-        // GUARD: Only redirect once Firebase has confirmed the session.
-        // Without this, a stale localStorage user would trigger a redirect
-        // before onAuthStateChanged verifies the token is still valid.
+        if (!sessionClearedForLogin) return;
         if (user && !isAuthLoading && isFirebaseAuthReady) {
-            console.log('🚀 [DEBUG-Login] REDIRECTING user with role:', user.role, '=> path:', getDashboardPathForRole(user.role));
             performRedirect(user.role);
         }
-    }, [user, isAuthLoading, isFirebaseAuthReady, performRedirect]);
+    }, [user, isAuthLoading, isFirebaseAuthReady, performRedirect, sessionClearedForLogin]);
 
 
 
@@ -510,7 +515,9 @@ export default function Login() {
                 return;
             }
 
-            // OTP verified — store JWT and hydrate AuthContext immediately.
+            // OTP verified — drop any other Firebase account (e.g. admin) before applying QC JWT.
+            await signOut(auth).catch(() => {});
+
             const backendUser = json.data?.user;
             const backendToken = json.data?.token;
 

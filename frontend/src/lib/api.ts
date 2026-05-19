@@ -6,16 +6,26 @@ import { auth } from '@/config/firebase';
 const PRODUCTION_API_URL = 'https://nu-capstone-project.onrender.com/api';
 const PRODUCTION_BACKEND_ORIGIN = 'https://nu-capstone-project.onrender.com';
 
+const LOCAL_API_URL = 'http://localhost:3000/api';
+const LOCAL_BACKEND_ORIGIN = 'http://localhost:3000';
+
 export const getBaseApiUrl = () => {
-    const raw = import.meta.env.VITE_API_URL;
-    // Dev: same-origin "/api" only works via Vite proxy and often returns empty-body 500 when Express
-    // is not reachable on VITE_BACKEND_URL — ignore it and hit Express directly.
-    if (import.meta.env.DEV && String(raw ?? '').trim() === '/api') {
-        return 'http://localhost:3000/api';
+    const raw = String(import.meta.env.VITE_API_URL ?? '').trim();
+    const useRemoteInDev = import.meta.env.VITE_USE_REMOTE_API === 'true';
+
+    // Dev: default to local Express unless explicitly opting into remote API.
+    if (import.meta.env.DEV && !useRemoteInDev) {
+        if (!raw || raw === '/api' || raw.includes('onrender.com')) {
+            return LOCAL_API_URL;
+        }
+        return raw;
+    }
+
+    if (raw === '/api') {
+        return import.meta.env.DEV ? LOCAL_API_URL : PRODUCTION_API_URL;
     }
     if (raw) return raw;
-    // Dev: direct Express (CORS allows localhost:5173 in backend config).
-    if (import.meta.env.DEV) return 'http://localhost:3000/api';
+    if (import.meta.env.DEV) return LOCAL_API_URL;
     return PRODUCTION_API_URL;
 };
 
@@ -107,7 +117,15 @@ const api = axios.create({
 
 // Socket connection URL — origin only (no /api); override with VITE_BACKEND_URL
 export const getBackendSocketUrl = () => {
-    return import.meta.env.VITE_BACKEND_URL || PRODUCTION_BACKEND_ORIGIN;
+    const raw = String(import.meta.env.VITE_BACKEND_URL ?? '').trim();
+    const useRemoteInDev = import.meta.env.VITE_USE_REMOTE_API === 'true';
+    if (import.meta.env.DEV && !useRemoteInDev) {
+        if (!raw || raw.includes('onrender.com')) {
+            return LOCAL_BACKEND_ORIGIN;
+        }
+        return raw;
+    }
+    return raw || PRODUCTION_BACKEND_ORIGIN;
 };
 
 // Request Interceptor: Attach Authorization Header

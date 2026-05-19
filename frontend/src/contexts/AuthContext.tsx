@@ -28,7 +28,7 @@ const BACKEND_URL = getBaseApiUrl();
    ═══════════════════════════════════════════════════════ */
 const SESSION_CACHE_KEY = 'autospf_session_cache';
 const SESSION_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
-const SESSION_CACHE_VERSION = 4; // Bump: middleware + client now reconcile role from MongoDB (fixes stale JWT/session QC label)
+const SESSION_CACHE_VERSION = 5; // Bump: clear stale Firebase/JWT sessions when switching accounts (QC vs admin)
 
 interface SessionCache {
     user: User;
@@ -71,6 +71,56 @@ function clearSessionCache(): void {
     localStorage.removeItem(SESSION_CACHE_KEY);
 }
 
+/** Wipe JWT + backend profile caches (shared by logout and account switch on /login). */
+function clearAuthStorage(): void {
+    clearSessionCache();
+    localStorage.removeItem('autospf_token');
+    localStorage.removeItem('autospf_backend_user');
+}
+
+async function fetchAuthMe(
+    token: string,
+    signal?: AbortSignal,
+): Promise<Record<string, unknown> | null> {
+    try {
+        const resp = await fetch(`${BACKEND_URL}/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: signal ?? AbortSignal.timeout(8000),
+        });
+        if (!resp.ok) return null;
+        const json = await resp.json();
+        const me = json.data as Record<string, unknown> | undefined;
+        return me && typeof me === 'object' ? me : null;
+    } catch {
+        return null;
+    }
+}
+
+function buildUserFromAuthMe(
+    me: Record<string, unknown>,
+    firebaseUser?: { uid: string; email?: string | null; displayName?: string | null; photoURL?: string | null },
+): User {
+    const migratedRole = migrateLegacyUserRole(me.role as string);
+    const mongoId = String(me.id || me._id || '');
+    const meEmail = String(me.email || '').toLowerCase();
+    const fbEmail = String(firebaseUser?.email || '').toLowerCase();
+    const firebaseMatchesJwt = Boolean(firebaseUser && meEmail && fbEmail && meEmail === fbEmail);
+
+    return {
+        id: firebaseMatchesJwt ? firebaseUser!.uid : mongoId,
+        _id: mongoId,
+        email: String(me.email || ''),
+        name: String(me.name || firebaseUser?.displayName || 'User'),
+        role: (migratedRole || getSafeUserRole(me.role as string, CUSTOMER_ROLE)) as User['role'],
+        createdAt: (me.createdAt as string | undefined) || new Date().toISOString(),
+        password: '',
+        isActive: typeof me.isActive === 'boolean' ? me.isActive : true,
+        lastActive: (me.updatedAt as string | undefined) || new Date().toISOString(),
+        avatar: (me.avatar as string | undefined) || firebaseUser?.photoURL || undefined,
+        phone: formatContactNoInputFromProfile(me.phone as string | undefined) || undefined,
+    };
+}
+
 /* ═══════════════════════════════════════════════════════ */
 
 interface AuthContextType {
@@ -86,6 +136,8 @@ interface AuthContextType {
     setAuthUser: (user: User | null) => void;
     markLoginInProgress: () => void;
     markLoginComplete: () => void;
+    /** Clear stale Firebase/JWT before signing in as a different user (e.g. QC after admin). */
+    prepareForLogin: () => Promise<void>;
     deleteAccount: (password: string) => Promise<{ success: boolean; message?: string }>;
 }
 
@@ -184,16 +236,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setIsLoading(true);
                 try {
                     const existingStored = userStorage.getCurrentUser();
+                    const fbEmail = String(firebaseUser.email || '').toLowerCase();
+
+                    const storedToken = localStorage.getItem('autospf_token');
+                    const validToken =
+                        storedToken && storedToken !== 'undefined' && storedToken !== 'null'
+                            ? storedToken
+                            : null;
+
+                    // ── JWT is source of truth (fixes QC login while another Firebase user is still signed in) ──
+                    if (validToken) {
+                        const me = await fetchAuthMe(validToken);
+                        if (me) {
+                            const meEmail = String(me.email || '').toLowerCase();
+                            if (me.isActive === false) {
+                                console.warn('🔒 [AuthContext] JWT user inactive — forcing logout.');
+                                clearAuthStorage();
+                                userStorage.setCurrentUser(null);
+                                setUser(null);
+                                await signOut(auth).catch(() => {});
+                                setIsLoading(false);
+                                setIsFirebaseAuthReady(true);
+                                return;
+                            }
+
+                            let jwtUser = buildUserFromAuthMe(me, firebaseUser);
+                            if (meEmail && fbEmail && meEmail !== fbEmail) {
+                                console.warn(
+                                    `⚠️ [AuthContext] Firebase (${fbEmail}) ≠ JWT (${meEmail}) — using JWT and signing out Firebase.`,
+                                );
+                                await signOut(auth).catch(() => {});
+                                jwtUser = buildUserFromAuthMe(me);
+                            }
+
+                            const sanitizedJwt = sanitizeUser(jwtUser);
+                            userStorage.setCurrentUser(sanitizedJwt);
+                            setUser(jwtUser);
+                            localStorage.setItem('autospf_backend_user', JSON.stringify({
+                                ...me,
+                                role: jwtUser.role,
+                            }));
+                            setSessionCache(jwtUser, validToken);
+                            console.log(`✅ [AuthContext] Restored session from JWT /auth/me — role: ${jwtUser.role}`);
+                            setIsLoading(false);
+                            setIsFirebaseAuthReady(true);
+                            return;
+                        }
+                    }
 
                     // ── Ultra-fast path: session cache hit — merge GET /auth/me so sidebar role matches MongoDB (JWT role goes stale) ──
                     const cached = getSessionCache();
-                    if (cached && cached.user.id === firebaseUser.uid) {
+                    const cachedEmail = String(cached?.user.email || '').toLowerCase();
+                    const cacheEmailMatchesFirebase =
+                        Boolean(cachedEmail && fbEmail && cachedEmail === fbEmail);
+                    const cacheUidMatchesFirebase = cached?.user.id === firebaseUser.uid;
+                    if (cached && (cacheUidMatchesFirebase || cacheEmailMatchesFirebase)) {
                         // Strictly reject suspended/inactive accounts even on cache hit
                         if (cached.user.isActive === false) {
                             console.warn('🔒 [AuthContext] Session cache hit but user is inactive — forcing logout.');
-                            clearSessionCache();
-                            localStorage.removeItem('autospf_token');
-                            localStorage.removeItem('autospf_backend_user');
+                            clearAuthStorage();
                             userStorage.setCurrentUser(null);
                             setUser(null);
                             await signOut(auth).catch(() => {});
@@ -309,9 +410,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             // Block suspended/inactive accounts immediately
                             if (backendUser && backendUser.isActive === false) {
                                 console.warn('🔒 [AuthContext] Backend sync returned inactive user — forcing logout.');
-                                clearSessionCache();
-                                localStorage.removeItem('autospf_token');
-                                localStorage.removeItem('autospf_backend_user');
+                                clearAuthStorage();
                                 userStorage.setCurrentUser(null);
                                 setUser(null);
                                 await signOut(auth).catch(() => {});
@@ -345,9 +444,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             // If specifically ACCOUNT_INACTIVE, force logout
                             if (syncResp.status === 403 && errBody?.code === 'ACCOUNT_INACTIVE') {
                                 console.warn('🔒 [AuthContext] socialLogin returned ACCOUNT_INACTIVE — forcing logout.');
-                                clearSessionCache();
-                                localStorage.removeItem('autospf_token');
-                                localStorage.removeItem('autospf_backend_user');
+                                clearAuthStorage();
                                 userStorage.setCurrentUser(null);
                                 setUser(null);
                                 await signOut(auth).catch(() => {});
@@ -417,59 +514,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const backendToken = localStorage.getItem('autospf_token');
                 const backendUserRaw = localStorage.getItem('autospf_backend_user');
 
-                if (backendToken && backendUserRaw) {
-                    console.log('ℹ️ [AuthContext] No Firebase session but backend token found — restoring backend-only user.');
-                    try {
-                        const parsed = JSON.parse(backendUserRaw);
-
-                        // Block suspended/inactive backend-only accounts
-                        if (parsed.isActive === false) {
-                            console.warn('🔒 [AuthContext] Backend-only user is inactive — clearing session.');
+                if (backendToken && backendToken !== 'undefined' && backendToken !== 'null') {
+                    console.log('ℹ️ [AuthContext] No Firebase session — restoring from JWT /auth/me.');
+                    const me = await fetchAuthMe(backendToken);
+                    if (me) {
+                        if (me.isActive === false) {
+                            console.warn('🔒 [AuthContext] Backend-only user inactive — clearing session.');
+                            clearAuthStorage();
                             userStorage.setCurrentUser(null);
                             setUser(null);
-                            localStorage.removeItem('autospf_token');
-                            localStorage.removeItem('autospf_backend_user');
-                            clearSessionCache();
-                            setIsLoading(false);
-                            setIsFirebaseAuthReady(true);
-                            return;
+                        } else {
+                            const restoredUser = buildUserFromAuthMe(me);
+                            const sanitized = sanitizeUser(restoredUser);
+                            userStorage.setCurrentUser(sanitized);
+                            setUser(restoredUser);
+                            localStorage.setItem(
+                                'autospf_backend_user',
+                                JSON.stringify({ ...me, role: restoredUser.role }),
+                            );
+                            setSessionCache(restoredUser, backendToken);
                         }
-
-                        const restoredUser: User = {
-                            id: parsed._id || parsed.id || '',
-                            _id: parsed._id || parsed.id || '',
-                            email: parsed.email || '',
-                            name: parsed.name || '',
-                            role: getSafeUserRole(parsed.role, CUSTOMER_ROLE),
-                            createdAt: parsed.createdAt || new Date().toISOString(),
-                            password: '',
-                            isActive: parsed.isActive ?? true,
-                            lastActive: parsed.lastActive || new Date().toISOString(),
-                            avatar: parsed.avatar || undefined,
-                        };
-                        if (restoredUser.role !== parsed.role) {
-                            localStorage.setItem('autospf_backend_user', JSON.stringify({ ...parsed, role: restoredUser.role }));
-                        }
-                        const sanitized = sanitizeUser(restoredUser);
-                        userStorage.setCurrentUser(sanitized);
-                        setUser(restoredUser);
-                        setSessionCache(restoredUser, backendToken);
-                    } catch {
-                        console.warn('⚠️ [AuthContext] Could not parse autospf_backend_user — clearing session.');
+                    } else {
+                        console.warn('⚠️ [AuthContext] Invalid backend JWT — clearing session.');
+                        clearAuthStorage();
                         userStorage.setCurrentUser(null);
                         setUser(null);
-                        localStorage.removeItem('autospf_token');
-                        localStorage.removeItem('autospf_backend_user');
-                        clearSessionCache();
                     }
                 } else {
-                    // Genuine sign-out — Firebase has no session AND no backend-only token
                     console.log('ℹ️ [AuthContext] Firebase signed out — clearing full session.');
+                    clearAuthStorage();
                     userStorage.setCurrentUser(null);
                     setUser(null);
-                    localStorage.removeItem('autospf_token');
-                    localStorage.removeItem('autospf_backend_user');
-                    clearSessionCache();
                 }
                 setIsLoading(false);
                 setIsFirebaseAuthReady(true);
@@ -711,10 +786,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             loginInProgressRef.current = true;
             loginResolvedRef.current = false;
 
-            // Clear stale caches so no stale role data can leak through
-            clearSessionCache();
-            localStorage.removeItem('autospf_backend_user');
+            // Clear stale caches + Firebase so a previous admin session cannot hijack QC login
+            clearAuthStorage();
             userStorage.setCurrentUser(null);
+            setUser(null);
+            await signOut(auth).catch(() => {});
 
             console.log('🚀 [DEBUG-login] Starting login for:', email);
             console.log('🚀 [DEBUG-login] BACKEND_URL is:', BACKEND_URL);
@@ -1321,14 +1397,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
+    const prepareForLogin = useCallback(async () => {
+        loginInProgressRef.current = true;
+        loginResolvedRef.current = false;
+        clearAuthStorage();
+        userStorage.setCurrentUser(null);
+        setUser(null);
+        await signOut(auth).catch(() => {});
+        loginInProgressRef.current = false;
+    }, []);
+
     const logout = useCallback(async () => {
         try {
             destroySharedSocket();
             await signOut(auth);
-            localStorage.removeItem('autospf_token');
+            clearAuthStorage();
             userStorage.setCurrentUser(null);
             setUser(null);
-            clearSessionCache();
             try {
                 invalidateAll();
             } catch {
@@ -1459,9 +1544,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthUser: (u: User | null) => {
             setUser(u);
             if (u) {
-                // When externally setting a user (e.g. after Google login),
-                // mark auth as ready so ProtectedRoute renders immediately
-                // instead of showing the skeleton loader.
+                const token = localStorage.getItem('autospf_token') || '';
+                if (token && token !== 'undefined' && token !== 'null') {
+                    setSessionCache(u, token);
+                    try {
+                        localStorage.setItem(
+                            'autospf_backend_user',
+                            JSON.stringify({ ...u, _id: u._id || u.id, role: u.role }),
+                        );
+                    } catch {
+                        /* quota */
+                    }
+                }
                 setIsFirebaseAuthReady(true);
                 setIsLoading(false);
                 loginResolvedRef.current = true;
@@ -1469,8 +1563,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
         markLoginInProgress: () => { loginInProgressRef.current = true; },
         markLoginComplete: () => { loginInProgressRef.current = false; },
+        prepareForLogin,
         deleteAccount,
-    }), [user, isLoading, isFirebaseAuthReady, login, signup, resetPassword, logout, updateUser, deleteAccount]);
+    }), [user, isLoading, isFirebaseAuthReady, login, signup, resetPassword, logout, updateUser, deleteAccount, prepareForLogin]);
 
     return (
         <AuthContext.Provider value={value}>
