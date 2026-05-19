@@ -13,6 +13,9 @@ import {
     onAuthStateChanged
 } from 'firebase/auth';
 import { getBaseApiUrl } from '@/lib/api';
+
+/** Resolved per call so Vite env / port changes apply after restart without stale module constant. */
+const apiUrl = () => getBaseApiUrl();
 import { invalidate, invalidateAll } from '@/lib/queryCache';
 import { getSharedSocket, refreshSocketAuth, destroySharedSocket } from '@/hooks/useRealtimeSync';
 import { formatContactNoInputFromProfile, normalizePhilippineMobileInput } from '@/lib/phone';
@@ -20,7 +23,6 @@ import { formatContactNoInputFromProfile, normalizePhilippineMobileInput } from 
 // NOTE: Firestore is intentionally NOT used for role lookup.
 // Role is sourced from the MongoDB backend API (GET /api/users?email=...)
 // to avoid Firestore "client is offline" errors blocking authentication.
-const BACKEND_URL = getBaseApiUrl();
 
 /* ═══════════════════════════════════════════════════════
    SESSION CACHE — persist role + profile across refreshes
@@ -83,7 +85,7 @@ async function fetchAuthMe(
     signal?: AbortSignal,
 ): Promise<Record<string, unknown> | null> {
     try {
-        const resp = await fetch(`${BACKEND_URL}/auth/me`, {
+        const resp = await fetch(`${apiUrl()}/auth/me`, {
             headers: { Authorization: `Bearer ${token}` },
             signal: signal ?? AbortSignal.timeout(8000),
         });
@@ -316,7 +318,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             restoredToken !== 'null'
                         ) {
                             try {
-                                const meResp = await fetch(`${BACKEND_URL}/auth/me`, {
+                                const meResp = await fetch(`${apiUrl()}/auth/me`, {
                                     headers: { Authorization: `Bearer ${restoredToken}` },
                                     signal: AbortSignal.timeout(8000),
                                 });
@@ -389,7 +391,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         // Force-refresh Firebase ID token to ensure it is not stale
                         await firebaseUser.getIdToken(true);
 
-                        const syncResp = await fetch(`${BACKEND_URL}/auth/social-login`, {
+                        const syncResp = await fetch(`${apiUrl()}/auth/social-login`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -643,7 +645,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             // Prefer authenticated /auth/me — returns the session user with decrypted phone (same as dashboard needs).
             if (token && token !== 'undefined' && token !== 'null') {
-                const meResp = await fetch(`${BACKEND_URL}/auth/me`, {
+                const meResp = await fetch(`${apiUrl()}/auth/me`, {
                     headers: { Authorization: `Bearer ${token}` },
                     signal: AbortSignal.timeout(5000),
                 });
@@ -656,7 +658,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Fallback: unauthenticated directory lookup (may omit fields or fail cross-origin on some setups).
             if (!found) {
                 const resp = await fetch(
-                    `${BACKEND_URL}/users?email=${encodeURIComponent(email)}`,
+                    `${apiUrl()}/users?email=${encodeURIComponent(email)}`,
                     { signal: AbortSignal.timeout(5000) }
                 );
                 if (!resp.ok) return;
@@ -727,7 +729,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         void (async () => {
             try {
-                const resp = await fetch(`${BACKEND_URL}/auth/me`, {
+                const resp = await fetch(`${apiUrl()}/auth/me`, {
                     headers: { Authorization: `Bearer ${token}` },
                     signal: AbortSignal.timeout(8000),
                 });
@@ -793,14 +795,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await signOut(auth).catch(() => {});
 
             console.log('🚀 [DEBUG-login] Starting login for:', email);
-            console.log('🚀 [DEBUG-login] BACKEND_URL is:', BACKEND_URL);
+            console.log('🚀 [DEBUG-login] apiUrl() is:', apiUrl());
 
             // ── Backend first: password is verified server-side (Mongo + bcrypt). ──
             // Finishing here when possible avoids requiring a matching Firebase Auth user
             // (common when accounts exist in Mongo but were never synced to Firebase).
             let backendPayload: { status: number; ok: boolean; body: any } | null = null;
             try {
-                const resp = await fetch(`${BACKEND_URL}/auth/login`, {
+                const resp = await fetch(`${apiUrl()}/auth/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password }),
@@ -1014,12 +1016,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 if (!backendPayload) {
                     // Fetch failed (connection refused, timeout, DNS, etc.) — do not blame Firebase/password.
                     const baseHint =
-                        BACKEND_URL.startsWith('http')
-                            ? `Start the Express backend (cd backend && npm run dev) on that host/port, or fix VITE_API_URL.`
-                            : `Start the Express backend and ensure Vite can proxy to it (frontend/vite.config.ts → VITE_BACKEND_URL, default http://localhost:3000).`;
+                        apiUrl().startsWith('http')
+                            ? `Start the Express backend (cd backend && npm run dev). Check that PORT in backend/.env matches VITE_BACKEND_URL in frontend/.env.development (often 8080).`
+                            : `Start the Express backend and set VITE_BACKEND_URL in frontend/.env.development (e.g. http://localhost:8080).`;
                     return {
                         success: false,
-                        message: `Cannot reach the API (base: ${BACKEND_URL}). ${baseHint}`,
+                        message: `Cannot reach the API (base: ${apiUrl()}). ${baseHint}`,
                     };
                 }
 
@@ -1065,7 +1067,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                 // Firebase auth succeeded → user is real. Try social-login to auto-create MongoDB user.
                 try {
-                    const syncResp = await fetch(`${BACKEND_URL}/auth/social-login`, {
+                    const syncResp = await fetch(`${apiUrl()}/auth/social-login`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -1074,7 +1076,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             provider: 'firebase',
                             providerId: firebaseUser.uid,
                         }),
-                        signal: AbortSignal.timeout(10000),
+                        signal: AbortSignal.timeout(30_000),
                     });
                     const syncJson = await syncResp.json().catch(() => ({}));
 
@@ -1308,7 +1310,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // /social-login which creates the user without OTP verification.
             let backendSynced = false;
             try {
-                const resp = await fetch(`${BACKEND_URL}/auth/register`, {
+                const resp = await fetch(`${apiUrl()}/auth/register`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password, name, role: 'customer', firebaseUid: firebaseUser.uid }),
@@ -1334,7 +1336,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Fallback: use social-login to ensure the backend user record exists
             if (!backendSynced) {
                 try {
-                    const resp = await fetch(`${BACKEND_URL}/auth/social-login`, {
+                    const resp = await fetch(`${apiUrl()}/auth/social-login`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -1430,7 +1432,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return { success: false, message: 'You are not logged in.' };
         }
         try {
-            const response = await fetch(`${BACKEND_URL}/auth/account`, {
+            const response = await fetch(`${apiUrl()}/auth/account`, {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json',
