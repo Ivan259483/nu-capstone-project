@@ -1333,7 +1333,8 @@ export default function DetailerDashboard() {
     /* ── QC FULL-TAKEOVER LAYOUT ── */
     if (activeTab === 'qc_review') {
         return (
-            <div className={`detailer-shell detailer-root${isDark ? ' dark' : ' light-mode'}`}>
+            /* QC chrome is always light (#FAFAFA); never inherit .detailer-root.dark typography */
+            <div className="detailer-shell detailer-root light-mode">
                 <QCDashboardPanel />
 
                 {warrantyReceiptJob && (
