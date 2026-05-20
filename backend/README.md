@@ -387,12 +387,14 @@ const response = await fetch(`${API_BASE}/products`, {
 
 Hobby/free tiers may **sleep** the Node process after idle time. The first browser request after sleep waits for a **cold boot** (often tens of seconds).
 
-- **In-process `setInterval` that calls your own `/api/health` does not prevent sleep**: when the process is stopped, no timers run.
+- **In-process `setInterval` that calls your own `/health` does not prevent sleep**: when the process is stopped, no timers run.
 - **Do this instead**:
-  1. In your host’s service settings, set the **Health check path** to `/api/health` (same route as `GET /api/health` in `server.js`).
-  2. Use an **external** HTTP monitor (e.g. UptimeRobot, cron-job.org, GitHub Actions on a schedule) to `GET` `https://<your-deployed-api-host>/api/health` every **5 minutes** (or the minimum interval your plan allows). Example production host: `https://nu-capstone-project.onrender.com`. Use the same host you configure for the API (see frontend `VITE_API_URL` / `VITE_BACKEND_URL`).
+  1. In your host’s service settings, set the **Health check path** to `/health` (same route as `GET /health` in `server.js`).
+  2. Use an **external** HTTP monitor (e.g. UptimeRobot, cron-job.org, GitHub Actions on a schedule) to `GET` `https://<your-deployed-api-host>/health` every **5 minutes** (or the minimum interval your plan allows). Example production host: `https://nu-capstone-project.onrender.com`. Use the same host you configure for the API (see frontend `VITE_API_URL` / `VITE_BACKEND_URL`).
 
-The health response body is unchanged (`success`, `message`, `timestamp`); it uses a short **`Cache-Control: public, max-age=60`** so repeated probes do not fight `no-store` on the rest of the API.
+The health response is intentionally cheap and does not call the database:
+`{ "status": "ok", "uptime": 123.45, "timestamp": "2026-05-20T12:00:00.000Z" }`.
+`GET /api/health` remains available as a backwards-compatible alias.
 
 ## 📞 Support
 

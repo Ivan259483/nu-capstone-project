@@ -182,17 +182,20 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
-
-// Health check endpoint (Railway healthcheck path; safe to cache briefly)
-app.get('/api/health', (req, res) => {
-  res.setHeader('Cache-Control', 'public, max-age=60');
-  res.json({
-    success: true,
-    message: 'Server is running',
-    timestamp: new Date().toISOString(),
-  });
+const getHealthPayload = () => ({
+  status: 'ok',
+  uptime: process.uptime(),
+  timestamp: new Date().toISOString(),
 });
+
+const healthCheckHandler = (req, res) => {
+  res.status(200).json(getHealthPayload());
+};
+
+app.get('/health', healthCheckHandler);
+
+// Backward-compatible API-prefixed health check for existing host settings/monitors.
+app.get('/api/health', healthCheckHandler);
 
 // API Routes
 app.use('/api/auth', authLimiter, authRoutes); // Stricter rate limit on auth
