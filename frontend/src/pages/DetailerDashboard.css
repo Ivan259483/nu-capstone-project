@@ -74,6 +74,22 @@
   color-scheme: light;
 }
 
+.detailer-root .qc-live-order-backdrop[role="dialog"] {
+  background: rgba(2, 6, 23, 0.6) !important;
+  border: 0 !important;
+  color: inherit !important;
+}
+
+.detailer-root .qc-live-order-modal {
+  background: #ffffff !important;
+  border: 0 !important;
+  color: #0f172a !important;
+}
+
+.detailer-root .qc-live-order-modal label {
+  color: inherit !important;
+}
+
 /*
  * QC full takeover (`QCDashboardPanel`) is always a light UI (#FAFAFA / white), including when
  * the outer `detailer-root` is `.dark`. Without this, inherited `color-scheme: dark` paints

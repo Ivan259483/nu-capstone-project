@@ -608,42 +608,42 @@ function OrderSidebarCard({
     <button
       type="button"
       onClick={onSelect}
-      className={`group w-full rounded-3xl py-3.5 pl-3.5 pr-3.5 text-left transition-all duration-200 ${
+      className={`group w-full rounded-[30px] p-5 text-left transition-all duration-200 ${
         selected
-          ? 'bg-blue-50/70 shadow-[0_12px_36px_-8px_rgba(37,99,235,0.22)]'
-          : 'bg-white shadow-[0_8px_28px_-6px_rgba(15,23,42,0.08)] hover:bg-white hover:shadow-[0_14px_40px_-8px_rgba(37,99,235,0.14)]'
+          ? 'bg-blue-50/80 shadow-[0_14px_40px_-10px_rgba(37,99,235,0.24)]'
+          : 'bg-white shadow-[0_10px_32px_-8px_rgba(15,23,42,0.08)] hover:bg-white hover:shadow-[0_16px_44px_-10px_rgba(37,99,235,0.15)]'
       } ${tracker.isComplete ? 'opacity-60' : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-mono text-[11px] font-black uppercase tracking-[0.08em] text-slate-500">
+          <p className="truncate font-mono text-xs font-black uppercase tracking-[0.08em] text-slate-500">
             {truncateOrderId(job.jobId)}
           </p>
-          <p className="mt-1 truncate text-sm font-black text-slate-950">{formatCustomer(job.customer)}</p>
+          <p className="mt-1.5 truncate text-base font-black text-slate-950">{formatCustomer(job.customer)}</p>
         </div>
-        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black tabular-nums text-slate-600">
+        <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black tabular-nums text-slate-600">
           {tracker.progressPct}%
         </span>
       </div>
 
-      <p className="mt-2 line-clamp-2 text-xs font-semibold leading-snug text-slate-500">
+      <p className="mt-3 line-clamp-2 text-sm font-semibold leading-snug text-slate-500">
         {vehicleDisplay} + {serviceDisplay}
       </p>
 
-      <div className="mt-3 flex items-center justify-between gap-2">
-        <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-white/90 px-2 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.06)]">
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-[0.08em] text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.06)]">
           <span className={`h-2 w-2 shrink-0 rounded-full ${tracker.currentGate.dotClass}`} />
           <span className="truncate">{tracker.currentGate.shortLabel}</span>
         </span>
         {warning ? (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-amber-700 shadow-[0_4px_14px_-6px_rgba(245,158,11,0.35)]">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.08em] text-amber-700 shadow-[0_4px_14px_-6px_rgba(245,158,11,0.35)]">
             <AlertTriangle className="h-3 w-3" />
             Update
           </span>
         ) : null}
       </div>
 
-      <div className="mt-3">
+      <div className="mt-4">
         <MiniProgressBar job={job} />
       </div>
     </button>
@@ -1664,21 +1664,7 @@ function ShopFloorLogCard({
   );
 }
 
-function SelectedOrderPanel({
-  job,
-  detailsLoading,
-  viewerIsQualityChecker,
-  onAdvance,
-  onUploadStagePhoto,
-  onDeleteTrackerStagePhoto,
-  onAddStaffNote,
-  onLocalStageUpdate,
-  onLocalStageMedia,
-  onLocalStaffNote,
-  onSaveQCHandoffSheet,
-  onLocalHandoffPatch,
-  onPersistQcChecklist,
-}: {
+type SelectedOrderPanelProps = {
   job: QCJob;
   detailsLoading?: boolean;
   viewerIsQualityChecker: boolean;
@@ -1698,7 +1684,27 @@ function SelectedOrderPanel({
     orderId: string,
     items: { item: string; passed: boolean; note?: string }[]
   ) => Promise<boolean>;
-}) {
+  onClose?: () => void;
+  titleId?: string;
+};
+
+function SelectedOrderPanel({
+  job,
+  detailsLoading,
+  viewerIsQualityChecker,
+  onAdvance,
+  onUploadStagePhoto,
+  onDeleteTrackerStagePhoto,
+  onAddStaffNote,
+  onLocalStageUpdate,
+  onLocalStageMedia,
+  onLocalStaffNote,
+  onSaveQCHandoffSheet,
+  onLocalHandoffPatch,
+  onPersistQcChecklist,
+  onClose,
+  titleId,
+}: SelectedOrderPanelProps) {
   const tracker = getTrackerState(job);
   const warning = needsCustomerUpdate(job);
   const vehicleDisplay = formatVehicle(job);
@@ -1832,29 +1838,41 @@ function SelectedOrderPanel({
         <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <p className="truncate font-mono text-[11px] font-black uppercase tracking-[0.12em] text-slate-400">{job.jobId}</p>
-            <h2 className="mt-1 truncate text-xl font-black tracking-tight text-slate-950">{formatCustomer(job.customer)}</h2>
+            <h2 id={titleId} className="mt-1 truncate text-xl font-black tracking-tight text-slate-950">{formatCustomer(job.customer)}</h2>
             <p className="mt-1 truncate text-sm font-bold text-slate-600">{vehicleDisplay}</p>
             <p className="mt-0.5 truncate text-sm font-semibold text-slate-500">{serviceDisplay}</p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700 shadow-[0_4px_14px_-6px_rgba(16,185,129,0.3)]">
-              <Wifi className="h-3.5 w-3.5" />
-              Live
-            </span>
-            {warning ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-amber-700 shadow-[0_4px_14px_-6px_rgba(245,158,11,0.35)]">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Needs Customer Update
+          <div className="flex items-start gap-3 xl:justify-end">
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700 shadow-[0_4px_14px_-6px_rgba(16,185,129,0.3)]">
+                <Wifi className="h-3.5 w-3.5" />
+                Live
               </span>
+              {warning ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-amber-700 shadow-[0_4px_14px_-6px_rgba(245,158,11,0.35)]">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Needs Customer Update
+                </span>
+              ) : null}
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-blue-700 shadow-[0_4px_14px_-6px_rgba(59,130,246,0.28)]">
+                <span className={`h-2 w-2 rounded-full ${tracker.currentGate.dotClass}`} />
+                {tracker.currentGate.label}
+              </span>
+              <span className="rounded-full bg-slate-950 px-3 py-1.5 text-[10px] font-black tabular-nums text-white">
+                {tracker.progressPct}%
+              </span>
+            </div>
+            {onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus:ring-4 focus:ring-blue-100"
+                aria-label="Close order detail"
+              >
+                <X className="h-4 w-4" />
+              </button>
             ) : null}
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-blue-700 shadow-[0_4px_14px_-6px_rgba(59,130,246,0.28)]">
-              <span className={`h-2 w-2 rounded-full ${tracker.currentGate.dotClass}`} />
-              {tracker.currentGate.label}
-            </span>
-            <span className="rounded-full bg-slate-950 px-3 py-1.5 text-[10px] font-black tabular-nums text-white">
-              {tracker.progressPct}%
-            </span>
           </div>
         </div>
       </div>
@@ -1862,7 +1880,7 @@ function SelectedOrderPanel({
       <MilestoneStepper job={job} />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-        <div className="grid gap-5" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(240px, 280px)' }}>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,7fr)_minmax(280px,3fr)]">
           <div className="min-w-0 space-y-5">
             <CurrentGateCard
               key={`${job.id}-${tracker.currentGate.id}`}
@@ -1879,7 +1897,7 @@ function SelectedOrderPanel({
             <ShopFloorLogCard job={job} onAddStaffNote={onAddStaffNote} onLocalStaffNote={onLocalStaffNote} />
           </div>
 
-          <aside className="sticky top-0 h-fit space-y-5 self-start">
+          <aside className="h-fit space-y-5 self-start lg:sticky lg:top-0">
             {viewerIsQualityChecker && tracker.currentGate.id === 'quality_check' ? (
               <>
                 <PhotoComplianceCard job={job} viewerIsQualityChecker={viewerIsQualityChecker} />
@@ -1912,6 +1930,47 @@ function SelectedOrderPanel({
   );
 }
 
+type LiveTrackerOrderModalProps = Omit<SelectedOrderPanelProps, 'onClose' | 'titleId'> & {
+  onClose: () => void;
+};
+
+function LiveTrackerOrderModal({ onClose, ...panelProps }: LiveTrackerOrderModalProps) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const titleId = 'live-tracker-order-modal-title';
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={overlayRef}
+      className="qc-live-order-backdrop fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+      onClick={(event) => {
+        if (event.target === overlayRef.current) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+    >
+      <div className="qc-live-order-modal h-[90vh] max-h-[90vh] w-full max-w-[1100px] overflow-hidden rounded-[36px] bg-white shadow-[0_34px_90px_-26px_rgba(15,23,42,0.55),0_18px_42px_-24px_rgba(15,23,42,0.35)]">
+        <SelectedOrderPanel {...panelProps} onClose={onClose} titleId={titleId} />
+      </div>
+    </div>
+  );
+}
+
 export default function QCLiveTrackerView({
   jobs,
   loading,
@@ -1940,7 +1999,7 @@ export default function QCLiveTrackerView({
   const { user } = useAuth();
   const viewerIsQualityChecker = getSafeUserRole(user?.role) === STAFF_QC_ROLE;
   const [localJobs, setLocalJobs] = useState<QCJob[]>(jobs);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(() => readLiveTrackerDeepLinkJobId());
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedOrderDetailsLoading, setSelectedOrderDetailsLoading] = useState(false);
   const selectedDetailRequestRef = useRef(0);
   const qcDebugMountIdRef = useRef(0);
@@ -2075,19 +2134,21 @@ export default function QCLiveTrackerView({
       return;
     }
 
+    if (selectedJobId) {
+      setSelectedJobId(null);
+      return;
+    }
+
     const deepLinkId = readLiveTrackerDeepLinkJobId();
     if (deepLinkId && trackedOrders.some((job) => job.id === deepLinkId)) {
       setSelectedJobId(deepLinkId);
       clearLiveTrackerDeepLinkJobId();
       return;
     }
-
-    const firstActive = trackedOrders.find((job) => !getTrackerState(job).isComplete);
-    setSelectedJobId((firstActive || trackedOrders[0]).id);
   }, [selectedJobId, trackedOrders]);
 
   const selectedJob = useMemo(
-    () => trackedOrders.find((job) => job.id === selectedJobId) || trackedOrders[0] || null,
+    () => (selectedJobId ? trackedOrders.find((job) => job.id === selectedJobId) || null : null),
     [selectedJobId, trackedOrders]
   );
 
@@ -2286,20 +2347,25 @@ export default function QCLiveTrackerView({
     [onSaveQCHandoffSheet, refreshSelectedOrderDetails]
   );
 
+  const closeSelectedOrder = useCallback(() => {
+    setSelectedJobId(null);
+  }, []);
+
   if (loading) {
     return (
       <div className="qc-live-shell h-[calc(100vh-96px)] w-full overflow-hidden rounded-[40px] bg-white/95 p-3 shadow-[0_24px_70px_-16px_rgba(15,23,42,0.14)]">
-        <div className="flex h-full gap-3">
-          <div className="w-[300px] shrink-0 rounded-[32px] bg-slate-50/80 p-4">
-            <div className="h-8 w-32 animate-pulse rounded-lg bg-slate-100" />
-            <div className="mt-5 space-y-3">
-              {[1, 2, 3, 4].map((item) => (
-                <div key={item} className="h-32 animate-pulse rounded-xl bg-slate-100" />
-              ))}
+        <div className="flex h-full flex-col overflow-hidden rounded-[36px] bg-slate-50/85">
+          <div className="flex items-center justify-between gap-3 px-6 py-6">
+            <div>
+              <div className="h-7 w-32 animate-pulse rounded-lg bg-slate-100" />
+              <div className="mt-2 h-4 w-28 animate-pulse rounded-md bg-slate-100" />
             </div>
+            <div className="h-7 w-12 animate-pulse rounded-full bg-slate-100" />
           </div>
-          <div className="flex-1 p-5">
-            <div className="h-full animate-pulse rounded-2xl bg-slate-100" />
+          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 pb-5 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+            {[1, 2, 3, 4, 5, 6].map((item) => (
+              <div key={item} className="h-40 animate-pulse rounded-[30px] bg-white shadow-[0_10px_32px_-8px_rgba(15,23,42,0.08)]" />
+            ))}
           </div>
         </div>
       </div>
@@ -2322,32 +2388,32 @@ export default function QCLiveTrackerView({
 
   return (
     <div className="qc-live-shell h-[calc(100vh-96px)] w-full overflow-hidden rounded-[40px] bg-white/95 p-3 shadow-[0_24px_70px_-16px_rgba(15,23,42,0.14)]">
-      <div className="flex h-full min-h-0 flex-col gap-3 lg:flex-row">
-        <aside className="flex h-[320px] w-full shrink-0 flex-col overflow-hidden rounded-[36px] bg-slate-50/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] lg:h-full lg:w-[300px]">
-          <div className="flex items-center justify-between gap-3 px-5 py-5">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[36px] bg-slate-50/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
+        <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex items-center justify-between gap-3 px-6 py-6">
             <div>
-              <p className="text-lg font-black tracking-tight text-slate-950">Live Orders</p>
-              <p className="text-xs font-semibold text-slate-400">Today active lane</p>
+              <p className="text-xl font-black tracking-tight text-slate-950">Live Orders</p>
+              <p className="text-sm font-semibold text-slate-400">Today active lane</p>
             </div>
-            <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-black tabular-nums text-emerald-700 shadow-[0_4px_14px_-6px_rgba(16,185,129,0.3)]">
+            <span className="rounded-full bg-emerald-50 px-3.5 py-1.5 text-xs font-black tabular-nums text-emerald-700 shadow-[0_4px_14px_-6px_rgba(16,185,129,0.3)]">
               {activeCount}
             </span>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
+          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 pb-5 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
             {trackedOrders.map((job) => (
               <OrderSidebarCard
                 key={job.id}
                 job={job}
-                selected={job.id === selectedJob?.id}
+                selected={job.id === selectedJobId}
                 onSelect={() => setSelectedJobId(job.id)}
               />
             ))}
           </div>
-        </aside>
+        </section>
 
         {selectedJob ? (
-          <SelectedOrderPanel
+          <LiveTrackerOrderModal
             key={selectedJob.id}
             job={selectedJob}
             detailsLoading={selectedOrderDetailsLoading}
@@ -2362,6 +2428,7 @@ export default function QCLiveTrackerView({
             onSaveQCHandoffSheet={handleSaveQCHandoffSheet}
             onLocalHandoffPatch={patchLocalHandoff}
             onPersistQcChecklist={onPersistQcChecklist}
+            onClose={closeSelectedOrder}
           />
         ) : null}
       </div>
