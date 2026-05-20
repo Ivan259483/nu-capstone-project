@@ -1,6 +1,7 @@
 import { apiClient, cachedGet, TTL } from '@/services/api/client';
 import type { ApiEnvelope, BookingRecord, ServiceOption } from '@/services/api/types';
 import { isBookingCountedAsActiveOnHome } from '@/utils/customerBookingLifecycle';
+import { pickCustomerLiveTrackerBooking } from '@/utils/customer-live-tracker-pick';
 import {
   cacheDirectory,
   writeAsStringAsync,
@@ -60,6 +61,11 @@ type BookingListParams = {
   sortOrder?: 'asc' | 'desc';
 };
 
+const hasHttpStatus = (error: unknown, status: number): boolean =>
+  typeof error === 'object' &&
+  error !== null &&
+  (error as { response?: { status?: number } }).response?.status === status;
+
 export const bookingService = {
   async getMyBookings(params: BookingListParams = {}): Promise<BookingRecord[]> {
     const data = await cachedGet<ApiEnvelope<any[]>>('/bookings', {
@@ -78,8 +84,11 @@ export const bookingService = {
   async getLatestActiveBooking(): Promise<BookingRecord | null> {
     const bookings = await this.getMyBookings({
       limit: 20,
-      status: 'pending,pending_confirmation,confirmed,approved,assigned,received,in_progress,ready_for_payment,paid',
+      status: 'pending,pending_confirmation,confirmed,approved,assigned,received,in_progress,ready_for_payment,completed,paid',
     });
+    const trackerBooking = pickCustomerLiveTrackerBooking(bookings);
+    if (trackerBooking) return trackerBooking;
+
     const active = bookings
       .filter((booking) => isActiveBookingStatus(booking.status))
       .sort((a, b) => {
@@ -138,6 +147,24 @@ export const bookingService = {
   async getBookingById(bookingId: string): Promise<BookingRecord> {
     const response = await apiClient.get<ApiEnvelope<any>>(`/bookings/${bookingId}`);
     return normalizeBooking(response.data.data);
+  },
+
+  /**
+   * Fetch the lightweight customer-facing live tracker media for a booking.
+   */
+  async getBookingTrackerMedia(bookingId: string): Promise<BookingRecord> {
+    try {
+      const response = await apiClient.get<ApiEnvelope<any>>(
+        `/bookings/${encodeURIComponent(bookingId)}/tracker-media`,
+        { meta: { suppressExpectedErrorLog: true } } as any
+      );
+      return normalizeBooking(response.data.data);
+    } catch (error) {
+      if (hasHttpStatus(error, 404)) {
+        return this.getBookingById(bookingId);
+      }
+      throw error;
+    }
   },
 
   /**

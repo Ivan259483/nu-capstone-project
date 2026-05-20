@@ -145,6 +145,49 @@ function selectActiveBooking(bookings: Booking[], user: User) {
     .sort(sortByLivePriority)[0] || null;
 }
 
+function hasTrackerStageMediaField(booking: unknown): boolean {
+  return Boolean(
+    booking &&
+    typeof booking === 'object' &&
+    Object.prototype.hasOwnProperty.call(booking, 'trackerStageMedia')
+  );
+}
+
+function mergeTrackerMediaPayload<T extends Booking | null>(
+  booking: T,
+  payload: any
+): T {
+  if (!booking || !payload) return booking;
+  return {
+    ...booking,
+    ...(payload.status !== undefined ? { status: payload.status } : {}),
+    ...(payload.paymentStatus !== undefined ? { paymentStatus: payload.paymentStatus } : {}),
+    ...(payload.serviceTrackingStage !== undefined ? { serviceTrackingStage: payload.serviceTrackingStage } : {}),
+    ...(payload.serviceStaffAssignments !== undefined ? { serviceStaffAssignments: payload.serviceStaffAssignments || [] } : {}),
+    ...(hasTrackerStageMediaField(payload)
+      ? { trackerStageMedia: Array.isArray(payload.trackerStageMedia) ? payload.trackerStageMedia : [] }
+      : {}),
+    ...(payload.updatedAt ? { updatedAt: payload.updatedAt } : {}),
+  } as T;
+}
+
+function preserveExistingTrackerMedia(previous: Booking | null, incoming: Booking | null): Booking | null {
+  if (!previous || !incoming) return incoming;
+  if (String(previous.id || '') !== String(incoming.id || '')) return incoming;
+  const previousMedia = Array.isArray(previous.trackerStageMedia) ? previous.trackerStageMedia : [];
+  const incomingMedia = Array.isArray(incoming.trackerStageMedia) ? incoming.trackerStageMedia : [];
+  if (
+    !hasTrackerStageMediaField(previous) ||
+    (hasTrackerStageMediaField(incoming) && (incomingMedia.length > 0 || previousMedia.length === 0))
+  ) {
+    return incoming;
+  }
+  return {
+    ...incoming,
+    trackerStageMedia: previousMedia,
+  };
+}
+
 function titleCase(value?: string | null) {
   if (!value) return '';
   return value
@@ -394,6 +437,7 @@ export default function CustomerLiveTrackerPage() {
   const [activeBooking, setActiveBooking] = useState<Booking | null>(null);
   const [detailer, setDetailer] = useState<User | null>(null);
   const activeBookingIdRef = useRef<string | null>(null);
+  const trackerMediaHydrationKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const fetchNotifications = async () => {
@@ -442,7 +486,7 @@ export default function CustomerLiveTrackerPage() {
     const applyBooking = (nextBooking: Booking | null) => {
       if (!isMounted) return;
       activeBookingIdRef.current = nextBooking?.id || null;
-      setActiveBooking(nextBooking);
+      setActiveBooking((previous) => preserveExistingTrackerMedia(previous, nextBooking));
       setIsLoading(false);
     };
 
@@ -511,7 +555,7 @@ export default function CustomerLiveTrackerPage() {
           ...(event.paymentStatus !== undefined ? { paymentStatus: event.paymentStatus } : {}),
           ...(event.invoiceId !== undefined ? { invoiceId: event.invoiceId } : {}),
           ...(event.updatedAt ? { updatedAt: event.updatedAt } : {}),
-        };
+        } as Booking;
       });
 
       return true;
@@ -577,6 +621,40 @@ export default function CustomerLiveTrackerPage() {
       unsubscribe?.();
     };
   }, [user]);
+
+  useEffect(() => {
+    const activeId = String(activeBooking?.id || (activeBooking as any)?._id || '').trim();
+    if (!activeId) return;
+
+    const hydrationKey = [
+      activeId,
+      activeBooking?.updatedAt || '',
+      (activeBooking as any)?.serviceTrackingStage || '',
+    ].join(':');
+    if (trackerMediaHydrationKeysRef.current.has(hydrationKey)) return;
+    trackerMediaHydrationKeysRef.current.add(hydrationKey);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await OrderService.getTrackerMedia(activeId);
+        const payload = response?.success ? response.data : null;
+        if (cancelled || !payload) return;
+
+        setActiveBooking((previous) => {
+          const previousId = String(previous?.id || (previous as any)?._id || '').trim();
+          if (!previous || previousId !== activeId) return previous;
+          return mergeTrackerMediaPayload(previous, payload);
+        });
+      } catch (error) {
+        console.warn('[CustomerLiveTracker] Failed to hydrate tracker media:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeBooking?.id, activeBooking?.updatedAt, (activeBooking as any)?.serviceTrackingStage]);
 
   useEffect(() => {
     const resolveDetailer = async () => {

@@ -23,6 +23,96 @@ let subscribers: ((payload: any) => void)[] = [];
 let globalQueryClient: QueryClient | null = null;
 let ordersRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
+const ORDER_REALTIME_PATCH_FIELDS = [
+  'status',
+  'paymentStatus',
+  'serviceTrackingStage',
+  'serviceTrackingUpdatedAt',
+  'serviceStaffAssignments',
+  'trackerStageMedia',
+  'updatedAt',
+  'invoiceId',
+] as const;
+
+function toIdString(value: unknown): string {
+  if (!value) return '';
+  if (typeof value === 'object') {
+    const obj = value as { _id?: unknown; id?: unknown; toString?: () => string };
+    return toIdString(obj._id || obj.id || obj.toString?.());
+  }
+  return String(value);
+}
+
+function normalizeOrderRealtimePayload(payload: any): Record<string, any> | null {
+  const source = payload?.collection === 'orders' && payload?.fullDocument
+    ? payload.fullDocument
+    : payload;
+  const id = toIdString(
+    source?.id ||
+    source?._id ||
+    source?.bookingId ||
+    source?.orderId ||
+    payload?.documentKey?._id
+  );
+
+  if (!id) return null;
+
+  const patch: Record<string, any> = {
+    id,
+    _id: id,
+  };
+
+  for (const field of ORDER_REALTIME_PATCH_FIELDS) {
+    if (source && Object.prototype.hasOwnProperty.call(source, field)) {
+      patch[field] = source[field];
+    }
+  }
+
+  return patch;
+}
+
+function orderIdsMatch(current: any, patch: Record<string, any>): boolean {
+  const patchId = toIdString(patch.id || patch._id);
+  const currentId = toIdString(current?.id || current?._id || current?.bookingId || current?.orderId);
+  return Boolean(patchId && currentId && patchId === currentId);
+}
+
+function mergeOrderRealtimePatch<T>(current: T, patch: Record<string, any>): T {
+  if (!current || typeof current !== 'object') return current;
+  if (!orderIdsMatch(current, patch)) return current;
+
+  const next: Record<string, any> = { ...(current as Record<string, any>) };
+  for (const field of ORDER_REALTIME_PATCH_FIELDS) {
+    if (patch[field] !== undefined) {
+      next[field] = patch[field];
+    }
+  }
+  next.id = next.id || patch.id;
+  next._id = next._id || patch._id;
+  return next as T;
+}
+
+function patchOrderQueryCaches(payload: any): void {
+  if (!globalQueryClient) return;
+  const patch = normalizeOrderRealtimePayload(payload);
+  if (!patch) return;
+  const id = toIdString(patch.id || patch._id);
+  if (!id) return;
+
+  globalQueryClient.setQueriesData({ queryKey: ['bookings'] }, (current: any) => {
+    if (!Array.isArray(current)) return current;
+    return current.map((row) => mergeOrderRealtimePatch(row, patch));
+  });
+
+  globalQueryClient.setQueryData(['booking', id], (current: any) =>
+    current ? mergeOrderRealtimePatch(current, patch) : current
+  );
+
+  globalQueryClient.setQueryData(['booking', id, 'tracker-media'], (current: any) =>
+    current ? mergeOrderRealtimePatch(current, patch) : current
+  );
+}
+
 export const getSharedSocket = async (): Promise<Socket> => {
   if (!sharedSocket || !sharedSocket.connected) {
     if (sharedSocket) {
@@ -77,6 +167,7 @@ function attachGlobalSocketListeners(socket: Socket): void {
 
   socket.on('db_change', (payload: any) => {
     if (payload.collection === 'orders') {
+      patchOrderQueryCaches(payload);
       scheduleOrdersRefresh(`${payload.collection} db_change`, payload);
       return;
     }
@@ -85,24 +176,29 @@ function attachGlobalSocketListeners(socket: Socket): void {
     subscribers.forEach((sub) => sub(payload));
   });
 
-  const onOrderEvent = (source: string, orderId?: string) => {
-    scheduleOrdersRefresh(source, {
+  const onOrderEvent = (source: string, payload: any) => {
+    const fullDocument = normalizeOrderRealtimePayload(payload);
+    const orderId = toIdString(fullDocument?.id || fullDocument?._id || payload?.bookingId || payload?.orderId);
+    const subscriberPayload = {
       collection: 'orders',
       operationType: 'update',
       documentKey: { _id: orderId },
-    });
+      fullDocument,
+    };
+    patchOrderQueryCaches(subscriberPayload);
+    scheduleOrdersRefresh(source, subscriberPayload);
   };
 
   socket.on('orderUpdated', (payload: any) => {
-    onOrderEvent('orderUpdated', payload?.orderId);
+    onOrderEvent('orderUpdated', payload);
   });
 
   socket.on('booking:status_updated', (payload: any) => {
-    onOrderEvent('booking:status_updated', payload?.bookingId || payload?.orderId);
+    onOrderEvent('booking:status_updated', payload);
   });
 
   socket.on('booking:status', (payload: any) => {
-    onOrderEvent('booking:status', payload?.bookingId || payload?.orderId);
+    onOrderEvent('booking:status', payload);
   });
 }
 

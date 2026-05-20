@@ -67,7 +67,7 @@ apiClient.interceptors.request.use(async (config) => {
     config.headers = config.headers || {};
     (config.headers as Record<string, string>).Authorization = `Bearer ${token}`;
   }
-  if (__DEV__) {
+  if (__DEV__ && !Boolean((config as any)?.meta?.suppressExpectedErrorLog)) {
     console.log(`[API] ${(config.method || 'GET').toUpperCase()} ${config.baseURL}${config.url}`);
   }
   return config;
@@ -81,6 +81,8 @@ apiClient.interceptors.response.use(
     const path = config?.url || '';
     const message = (error.response?.data as any)?.message || error.message || 'Unknown API error';
     const invalidatesAuthSession = shouldInvalidateAuthSession(status, path, message);
+    const suppressExpectedErrorLog =
+      Boolean((config as any)?.meta?.suppressExpectedErrorLog) && status === 404;
 
     if (invalidatesAuthSession && !isHandlingAuthInvalid) {
       isHandlingAuthInvalid = true;
@@ -123,8 +125,8 @@ apiClient.interceptors.response.use(
           (method === 'get' && /\/ai\/scan\//i.test(path)) ||
           (method === 'post' && /\/ai\/generate-3d-from-scan\b/i.test(path)));
 
-      if (invalidatesAuthSession || isLogoutFailure || isSocialLoginMiss) {
-        // Expected auth edge cases: keep rejecting, but do not flood the console.
+      if (invalidatesAuthSession || isLogoutFailure || isSocialLoginMiss || suppressExpectedErrorLog) {
+        // Expected edge cases: keep rejecting, but do not flood the console.
       } else if (!error.response) {
         console.warn(`[API] WARN NETWORK ${config?.method?.toUpperCase()} ${url} \u2014 ${message}`);
       } else if (isNgrokLikelyWrongTunnel404) {

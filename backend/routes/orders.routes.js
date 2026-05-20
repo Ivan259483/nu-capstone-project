@@ -180,6 +180,13 @@ router.get(
 );
 
 /**
+ * @route GET /api/orders/:id/tracker-media
+ * @desc Lightweight live tracker media for customer web/mobile trackers
+ * @access Private
+ */
+router.get('/:id/tracker-media', orderController.getOrderTrackerMedia);
+
+/**
  * @route GET /api/orders/:id
  * @desc Get order by ID
  * @access Private

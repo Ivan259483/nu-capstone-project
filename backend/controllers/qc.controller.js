@@ -579,8 +579,12 @@ export const approveJob = async (req, res, next) => {
       io.emit('orderUpdated', {
         orderId: order._id,
         status: order.status,
+        serviceTrackingStage: 'ready_pickup',
+        serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || new Date(),
         paymentStatus: order.paymentStatus || null,
+        serviceStaffAssignments: order.serviceStaffAssignments || [],
         trackerStageMedia: order.trackerStageMedia || [],
+        updatedAt: new Date().toISOString(),
       });
       // Targeted event for the customer's live tracker
       const customerId = typeof order.customer === 'object'
@@ -591,6 +595,7 @@ export const approveJob = async (req, res, next) => {
           bookingId: order._id.toString(),
           status: order.status,
           serviceTrackingStage: 'ready_pickup',
+          serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || new Date(),
           paymentStatus: order.paymentStatus || null,
           serviceStaffAssignments: order.serviceStaffAssignments || [],
           trackerStageMedia: order.trackerStageMedia || [],
@@ -828,9 +833,12 @@ export const updateServiceStatus = async (req, res, next) => {
         orderId: order._id,
         status: order.status,
         serviceTrackingStage: stage,
+        serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || new Date(),
         paymentStatus: order.paymentStatus || null,
         invoiceId: order.invoiceId || null,
+        serviceStaffAssignments: order.serviceStaffAssignments || [],
         trackerStageMedia: order.trackerStageMedia || [],
+        updatedAt: new Date().toISOString(),
       });
       // Targeted event for the customer's live tracker
       const customerId = typeof order.customer === 'object'
@@ -841,6 +849,7 @@ export const updateServiceStatus = async (req, res, next) => {
           bookingId: order._id.toString(),
           status: order.status,
           serviceTrackingStage: stage,
+          serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || new Date(),
           paymentStatus: order.paymentStatus || null,
           invoiceId: order.invoiceId || null,
           serviceStaffAssignments: order.serviceStaffAssignments || [],

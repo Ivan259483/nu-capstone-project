@@ -478,6 +478,57 @@ function mapCustomerVehicleApiRecord(v: any) {
   };
 }
 
+function bookingRowId(booking: any): string {
+  return String(booking?.id || booking?._id || '').trim();
+}
+
+function hasTrackerStageMediaField(booking: any): boolean {
+  return Boolean(booking && Object.prototype.hasOwnProperty.call(booking, 'trackerStageMedia'));
+}
+
+function mergeTrackerMediaPayload<T extends Record<string, any> | null | undefined>(
+  booking: T,
+  payload: any
+): T {
+  if (!booking || !payload) return booking;
+  return {
+    ...booking,
+    ...(payload.status !== undefined ? { status: payload.status } : {}),
+    ...(payload.paymentStatus !== undefined ? { paymentStatus: payload.paymentStatus } : {}),
+    ...(payload.serviceTrackingStage !== undefined ? { serviceTrackingStage: payload.serviceTrackingStage } : {}),
+    ...(payload.serviceStaffAssignments !== undefined ? { serviceStaffAssignments: payload.serviceStaffAssignments || [] } : {}),
+    ...(hasTrackerStageMediaField(payload)
+      ? { trackerStageMedia: Array.isArray(payload.trackerStageMedia) ? payload.trackerStageMedia : [] }
+      : {}),
+    ...(payload.updatedAt ? { updatedAt: payload.updatedAt } : {}),
+  } as T;
+}
+
+function mergeBookingsPreservingTrackerMedia(previous: any[], incoming: any[]): any[] {
+  if (!previous.length) return incoming;
+  const previousById = new Map(previous.map((booking) => [bookingRowId(booking), booking]));
+  return incoming.map((booking) => {
+    const previousBooking = previousById.get(bookingRowId(booking));
+    const previousMedia = Array.isArray(previousBooking?.trackerStageMedia)
+      ? previousBooking.trackerStageMedia
+      : [];
+    const incomingMedia = Array.isArray(booking?.trackerStageMedia)
+      ? booking.trackerStageMedia
+      : [];
+    if (
+      !previousBooking ||
+      !hasTrackerStageMediaField(previousBooking) ||
+      (hasTrackerStageMediaField(booking) && (incomingMedia.length > 0 || previousMedia.length === 0))
+    ) {
+      return booking;
+    }
+    return {
+      ...booking,
+      trackerStageMedia: previousMedia,
+    };
+  });
+}
+
 export default function CustomerDashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(getStoredSidebarCollapsed);
@@ -533,6 +584,7 @@ export default function CustomerDashboard() {
 
   // My Bookings
   const [myBookings, setMyBookings] = useState<any[]>([]);
+  const myBookingsRef = useRef<any[]>([]);
   const [myBookingsLoading, setMyBookingsLoading] = useState(false);
   const [customerBookingsLoadedOnce, setCustomerBookingsLoadedOnce] = useState(false);
   const customerBookingsLoadedOnceRef = useRef(false);
@@ -554,6 +606,7 @@ export default function CustomerDashboard() {
   /** Socket-driven silent refetch — avoids full page reload; see bookings `load()` effect. */
   const loadBookingsRef = useRef<((opts?: { silent?: boolean }) => Promise<void>) | null>(null);
   const silentBookingsRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trackerMediaHydrationKeysRef = useRef<Set<string>>(new Set());
 
   const scheduleSilentBookingsRefetch = useCallback(() => {
     if (silentBookingsRefetchTimerRef.current) clearTimeout(silentBookingsRefetchTimerRef.current);
@@ -562,6 +615,10 @@ export default function CustomerDashboard() {
       loadBookingsRef.current?.({ silent: true });
     }, 400);
   }, []);
+
+  useEffect(() => {
+    myBookingsRef.current = myBookings;
+  }, [myBookings]);
 
   const closeCustomerOrderReceiptPdf = useCallback(() => {
     setOrderReceiptPdfUrl((prev) => {
@@ -632,8 +689,8 @@ export default function CustomerDashboard() {
   const handleBookingStatus = useCallback((event: BookingStatusEvent) => {
     const { bookingId, serviceTrackingStage, serviceStaffAssignments, trackerStageMedia, status, paymentStatus, invoiceId } = event;
     if (!bookingId) return;
-    setMyBookings((prev: any[]) =>
-      prev.map((b: any) => {
+    setMyBookings((prev: any[]) => {
+      const next = prev.map((b: any) => {
         const id = String(b.id ?? b._id ?? '');
         const bid = String(bookingId ?? '');
         if (id !== bid) return b;
@@ -646,8 +703,10 @@ export default function CustomerDashboard() {
           ...(serviceStaffAssignments?.length ? { serviceStaffAssignments } : {}),
           ...(trackerStageMedia !== undefined ? { trackerStageMedia } : {}),
         };
-      })
-    );
+      });
+      myBookingsRef.current = next;
+      return next;
+    });
     invalidate('/bookings');
   }, []);
 
@@ -1542,7 +1601,9 @@ export default function CustomerDashboard() {
             const id = created.id || created._id;
             const idStr = id != null ? String(id) : '';
             const next = prev.filter((b: any) => String(b.id || b._id || '') !== idStr);
-            return [created, ...next];
+            const merged = [created, ...next];
+            myBookingsRef.current = merged;
+            return merged;
           });
           if (created.status === 'pending_confirmation') {
             setPendingConfirmationBooking(created);
@@ -1893,9 +1954,11 @@ export default function CustomerDashboard() {
               return cid === myId || o.customerName === user.name;
             })
             .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-          setMyBookings(mine);
+          const mergedMine = mergeBookingsPreservingTrackerMedia(myBookingsRef.current, mine);
+          myBookingsRef.current = mergedMine;
+          setMyBookings(mergedMine);
 
-          const nextDocuments = mine.slice(0, 8).map((booking: any, index: number) => {
+          const nextDocuments = mergedMine.slice(0, 8).map((booking: any, index: number) => {
             const serviceName = displayServiceTitle(booking.serviceName || booking.serviceType);
             const status = (booking.status || '').toLowerCase();
             const docType = status === 'completed' || status === 'released' ? 'report' : 'waiver';
@@ -1912,7 +1975,7 @@ export default function CustomerDashboard() {
           });
           setDocuments(nextDocuments);
 
-          const nextActivities = mine.slice(0, 8).map((booking: any) => ({
+          const nextActivities = mergedMine.slice(0, 8).map((booking: any) => ({
             id: booking._id || booking.id,
             title: displayServiceTitle(booking.serviceName || booking.serviceType),
             statusLabel: humanizeBookingStatus(booking.status),
@@ -1948,6 +2011,53 @@ export default function CustomerDashboard() {
       }
     };
   }, [activeSection, user]);
+
+  const activeTrackerBooking = useMemo(() => pickCustomerLiveTrackerBooking(myBookings), [myBookings]);
+
+  useEffect(() => {
+    const activeId = bookingRowId(activeTrackerBooking);
+    if (!activeId || !CUSTOMER_BOOKINGS_DATA_SECTIONS.includes(activeSection)) return;
+
+    const hydrationKey = [
+      activeId,
+      activeTrackerBooking?.updatedAt || '',
+      activeTrackerBooking?.serviceTrackingStage || '',
+    ].join(':');
+    if (trackerMediaHydrationKeysRef.current.has(hydrationKey)) return;
+    trackerMediaHydrationKeysRef.current.add(hydrationKey);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { OrderService } = await import('../lib/order-service');
+        const response = await OrderService.getTrackerMedia(activeId);
+        const payload = response?.success ? response.data : null;
+        if (cancelled || !payload) return;
+
+        setMyBookings((prev) => {
+          const next = prev.map((booking) =>
+            bookingRowId(booking) === activeId
+              ? mergeTrackerMediaPayload(booking, payload)
+              : booking
+          );
+          myBookingsRef.current = next;
+          return next;
+        });
+      } catch (error) {
+        console.warn('[CustomerTrackerMedia] Failed to hydrate tracker media:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeSection,
+    activeTrackerBooking?.id,
+    activeTrackerBooking?._id,
+    activeTrackerBooking?.updatedAt,
+    activeTrackerBooking?.serviceTrackingStage,
+  ]);
 
   useEffect(() => {
     if (location.pathname === '/customer/book' && !bookRouteAutoOpenRef.current) {

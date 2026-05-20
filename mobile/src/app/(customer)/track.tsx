@@ -6,8 +6,8 @@
  *   1. Appointment Confirmed  → status: confirmed / approved / assigned
  *   2. Vehicle Arrive         → status: received / serviceTrackingStage: received
  *   3. Service In Progress    → status: in_progress / customerStatus: washing|detailing|finishing
- *   4. Quality Check          → status: completed / serviceTrackingStage: quality_check
- *   5. Ready for Pickup       → status: paid / released / serviceTrackingStage: ready_pickup
+ *   4. Quality Check          → serviceTrackingStage: quality_check
+ *   5. Ready for Pickup       → status: ready_for_payment / completed / paid / released / serviceTrackingStage: ready_pickup
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -52,10 +52,17 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { TabBarHeight } from '@/constants/theme';
 import { isDefaultTrackBookingRow } from '@/utils/customerBookingLifecycle';
 import {
+  bookingShowsCustomerLiveTracker,
+  pickCustomerLiveTrackerBooking,
+} from '@/utils/customer-live-tracker-pick';
+import {
   bumpCustomerTrackerIndexForInProgressGateComplete,
   bumpCustomerTrackerIndexForReceivedGateComplete,
+  CUSTOMER_TRACKER_GATE_MIN_PHOTOS,
+  customerGateMinSlotCount,
   getCustomerStageSlotPhotos,
   MOBILE_TRACKER_STEP_MEDIA_STAGE,
+  resolveTrackerStageDescription,
   type TrackerMediaStage,
 } from '@/utils/customer-tracker-stage-media';
 import { getTrackerPipelineProgressPct } from '@/utils/tracker-pipeline-progress';
@@ -81,11 +88,41 @@ const C = {
 
 // ─── 5-Step Pipeline (mirrors CustomerDashboard.tsx TRACKER_STEPS) ────────────
 const TRACKER_STEPS = [
-  { id: 'confirmed',   label: 'Appointment Confirmed', sub: 'Waiting for your vehicle', icon: 'calendar-outline'         },
-  { id: 'received',    label: 'Vehicle Arrive',        sub: 'In shop',                  icon: 'car-outline'              },
-  { id: 'in_progress', label: 'Service In Progress',   sub: 'Working on vehicle',       icon: 'construct-outline'        },
-  { id: 'completed',   label: 'Quality Check',         sub: 'Final inspection',         icon: 'shield-checkmark-outline' },
-  { id: 'paid',        label: 'Ready for Pickup',      sub: 'Service complete',         icon: 'checkmark-done-outline'   },
+  {
+    id: 'confirmed',
+    label: 'Appointment Confirmed',
+    sub: 'Booking secured',
+    detail: 'Appointment locked and ready for shop intake.',
+    icon: 'calendar-outline',
+  },
+  {
+    id: 'received',
+    label: 'Vehicle Arrived',
+    sub: 'Shop intake complete',
+    detail: 'Vehicle is checked in and prepared for the service bay.',
+    icon: 'car-outline',
+  },
+  {
+    id: 'in_progress',
+    label: 'Service In Progress',
+    sub: 'Technician working now',
+    detail: 'Certified technicians are working on your vehicle now.',
+    icon: 'construct-outline',
+  },
+  {
+    id: 'completed',
+    label: 'Quality Check',
+    sub: 'Final inspection',
+    detail: 'QC verifies finish quality before pickup readiness.',
+    icon: 'shield-checkmark-outline',
+  },
+  {
+    id: 'paid',
+    label: 'Ready for Pickup',
+    sub: 'Handover ready',
+    detail: 'Final handover is ready for customer pickup.',
+    icon: 'checkmark-done-outline',
+  },
 ] as const;
 
 // ── serviceTrackingStage → 5-step index ──────────────────────────────────────
@@ -115,32 +152,100 @@ const STATUS_TO_STEP: Record<string, number> = {
   received: 1,
   // Step 3 (quality_check and ready_pickup both produce 'in_progress' on backend)
   in_progress: 2, 'in-progress': 2,
-  // Step 4
-  completed: 3,
   // Step 5
-  paid: 4, done: 4,
+  ready_for_payment: 4, 'ready-for-payment': 4, completed: 4, paid: 4, done: 4,
   // released → 4 for static display (live transition is handled by forceStepIdx)
   released: 4,
 };
 
+function trackerKey(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase().replace(/-/g, '_');
+}
+
 function resolveStep(booking: any): number {
-  const s = String(booking?.status || '').toLowerCase();
+  const s = trackerKey(booking?.status);
   if (['cancelled', 'failed'].includes(s)) return -1;
+  if (isReadyForPickupDisplay(booking)) return 4;
 
   // 1. serviceTrackingStage is the ONLY reliable field that separates:
   //    Step 4 (quality_check) from Step 5 (ready_pickup) because the backend
   //    maps both to order.status = 'in_progress'.
-  const ts = String(booking?.serviceTrackingStage || '').toLowerCase();
+  const ts = trackerKey(booking?.serviceTrackingStage);
   if (ts && STAGE_TO_STEP[ts] !== undefined) return STAGE_TO_STEP[ts];
 
   // 2. customerStatus — fine-grained live status during active service
   //    (web: LIVE_STATUS_CUSTOMER_STATES)
-  const cs = String(booking?.customerStatus || '').toLowerCase();
-  if (['washing', 'detailing', 'finishing', 'in-progress'].includes(cs)) return 2;
+  const cs = trackerKey(booking?.customerStatus);
+  if (['washing', 'detailing', 'finishing', 'in_progress'].includes(cs)) return 2;
   if (cs === 'ready') return 4; // "ready" customerStatus = Ready for Pickup (Step 5)
 
   // 3. order.status — last resort; cannot distinguish quality_check from ready_pickup
   return STATUS_TO_STEP[s] ?? 0;
+}
+
+function bookingHasReadyPickupEvidence(booking: BookingRecord | null | undefined): boolean {
+  return getCustomerStageSlotPhotos(booking, 'ready_pickup').length >= CUSTOMER_TRACKER_GATE_MIN_PHOTOS;
+}
+
+function isReadyForPickupDisplay(booking: BookingRecord | null | undefined): boolean {
+  if (!booking) return false;
+  const status = trackerKey(booking.status);
+  const stage = trackerKey(booking.serviceTrackingStage);
+  const customerStatus = trackerKey(booking.customerStatus);
+
+  return (
+    ['ready_pickup', 'completed', 'released'].includes(stage) ||
+    ['ready_for_payment', 'completed', 'paid', 'released', 'done'].includes(status) ||
+    customerStatus === 'ready' ||
+    bookingHasReadyPickupEvidence(booking)
+  );
+}
+
+function isPostPaymentCompleteDisplay(booking: BookingRecord | null | undefined): boolean {
+  if (!booking) return false;
+  const status = trackerKey(booking.status);
+  const stage = trackerKey(booking.serviceTrackingStage);
+  const paymentPaid = String(booking.paymentStatus || '').toLowerCase() === 'paid';
+  return paymentPaid && (status === 'completed' || status === 'released' || stage === 'released');
+}
+
+function looksLikeOpaqueTechnicalId(value: string): boolean {
+  const v = value.trim();
+  return /^[a-f0-9]{24}$/i.test(v) || (v.length >= 24 && /^[a-z0-9_-]+$/i.test(v));
+}
+
+function getBookingReferenceLabel(booking: BookingRecord | null | undefined): string {
+  if (!booking) return 'Confirmed job';
+  const raw = booking.bookingReference || booking.orderNumber || booking._id || booking.id || '';
+  const ref = String(raw).trim();
+  if (!ref || looksLikeOpaqueTechnicalId(ref)) return 'Confirmed job';
+  return ref;
+}
+
+function hasTrackerStageMediaField(booking: unknown): boolean {
+  return Boolean(
+    booking &&
+    typeof booking === 'object' &&
+    Object.prototype.hasOwnProperty.call(booking, 'trackerStageMedia')
+  );
+}
+
+function mergeTrackerMediaPayload(
+  booking: BookingRecord | null,
+  payload: BookingRecord | null | undefined
+): BookingRecord | null {
+  if (!booking || !payload) return booking;
+  return {
+    ...booking,
+    ...(payload.status !== undefined ? { status: payload.status } : {}),
+    ...(payload.paymentStatus !== undefined ? { paymentStatus: payload.paymentStatus } : {}),
+    ...(payload.serviceTrackingStage !== undefined ? { serviceTrackingStage: payload.serviceTrackingStage } : {}),
+    ...(payload.serviceStaffAssignments !== undefined ? { serviceStaffAssignments: payload.serviceStaffAssignments || [] } : {}),
+    ...(hasTrackerStageMediaField(payload)
+      ? { trackerStageMedia: Array.isArray(payload.trackerStageMedia) ? payload.trackerStageMedia : [] }
+      : {}),
+    ...(payload.updatedAt ? { updatedAt: payload.updatedAt } : {}),
+  };
 }
 
 // ─── Time Helpers (mirrors web getStepTimestamps + formatEtaLabel) ─────────────
@@ -234,7 +339,7 @@ function CircularRing({ pct }: { pct: number }) {
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={rg.pct}>{pct}%</Text>
-          <Text style={rg.done}>DONE</Text>
+          <Text style={rg.done}>COMPLETE</Text>
         </View>
       </View>
     </View>
@@ -310,6 +415,7 @@ function TimelineStep({
   isLast,
   booking,
   mediaStage,
+  finalStepComplete,
 }: {
   step: typeof TRACKER_STEPS[number];
   index: number;
@@ -318,6 +424,7 @@ function TimelineStep({
   isLast: boolean;
   booking: any | null;
   mediaStage: TrackerMediaStage | null;
+  finalStepComplete: boolean;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const [galleryStartIndex, setGalleryStartIndex] = useState<number | null>(null);
@@ -325,8 +432,9 @@ function TimelineStep({
   const galleryScrollRef = useRef<ScrollView>(null);
   const insetsModal = useSafeAreaInsets();
 
-  const isDone    = currentIdx > index;
-  const isActive  = currentIdx === index;
+  const isFinalStep = index === TRACKER_STEPS.length - 1;
+  const isDone    = currentIdx > index || (isFinalStep && finalStepComplete);
+  const isActive  = currentIdx === index && !isDone;
   const isPending = currentIdx < index;
 
   const shots = useMemo(() => {
@@ -441,6 +549,12 @@ function TimelineStep({
           <View style={tl.activeRow}>
             <View style={tl.activeDot} />
             <Text style={tl.activeText}>In progress</Text>
+          </View>
+        )}
+        {isDone && isFinalStep && (
+          <View style={tl.completeRow}>
+            <Ionicons name="checkmark-circle" size={13} color={C.green} />
+            <Text style={tl.completeText}>Complete</Text>
           </View>
         )}
 
@@ -617,6 +731,12 @@ const tl = StyleSheet.create({
   },
   activeDot:  { width: 6, height: 6, borderRadius: 3, backgroundColor: C.orange },
   activeText: { fontSize: 11, fontWeight: '600', color: C.orange },
+  completeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 10, paddingTop: 10,
+    borderTopWidth: 1, borderTopColor: 'rgba(34,197,94,0.16)',
+  },
+  completeText: { fontSize: 11, fontWeight: '700', color: C.green },
 
   mediaScroll: { marginTop: 10, maxHeight: 102 },
   mediaScrollContent: { gap: 10, paddingRight: 4 },
@@ -925,7 +1045,7 @@ export default function TrackScreen() {
     queryFn: () => {
       return bookingService.getMyBookings({
         limit: 20,
-        status: 'pending,pending_confirmation,confirmed,approved,assigned,received,in_progress,ready_for_payment,paid',
+        status: 'pending,pending_confirmation,confirmed,approved,assigned,received,in_progress,ready_for_payment,completed,paid',
       });
     },
     enabled: !!profile,
@@ -956,6 +1076,9 @@ export default function TrackScreen() {
   );
 
   const defaultTrackBooking = useMemo(() => {
+    const trackerBooking = pickCustomerLiveTrackerBooking(allBookings);
+    if (trackerBooking) return trackerBooking;
+
     const active = [...allBookings]
       .filter((b: any) => isDefaultTrackBookingRow(b.status))
       .sort(
@@ -970,17 +1093,29 @@ export default function TrackScreen() {
     return defaultTrackBooking;
   }, [routeBookingId, specificBookingData, defaultTrackBooking]);
 
+  const trackerMediaBookingId = bookingFromQuery?.id || bookingFromQuery?._id || '';
+  const {
+    data: trackerMediaData,
+    refetch: refetchTrackerMedia,
+  } = useQuery({
+    queryKey: ['booking', trackerMediaBookingId, 'tracker-media'],
+    queryFn: () => bookingService.getBookingTrackerMedia(trackerMediaBookingId),
+    enabled: !!trackerMediaBookingId && !!profile,
+    refetchInterval: 60_000,
+  });
+
   useEffect(() => {
     setPaymentProofLocal(null);
   }, [bookingFromQuery?.id]);
 
   const booking = useMemo((): BookingRecord | null => {
     if (!bookingFromQuery) return null;
+    const bookingWithTrackerMedia = mergeTrackerMediaPayload(bookingFromQuery, trackerMediaData) || bookingFromQuery;
     if (paymentProofLocal) {
-      return { ...bookingFromQuery, paymentProofUrl: paymentProofLocal };
+      return { ...bookingWithTrackerMedia, paymentProofUrl: paymentProofLocal };
     }
-    return bookingFromQuery;
-  }, [bookingFromQuery, paymentProofLocal]);
+    return bookingWithTrackerMedia;
+  }, [bookingFromQuery, trackerMediaData, paymentProofLocal]);
 
   const isLoading =
     isBookingsQueryLoading || (!!routeBookingId && isSpecificBookingLoading);
@@ -1016,10 +1151,10 @@ export default function TrackScreen() {
   useEffect(() => {
     if (!booking) return;
     const bookingSnapshot = booking;
-    const newStatus = String(bookingSnapshot.status || '').toLowerCase();
+    const newStatus = trackerKey(bookingSnapshot.status);
     // Also detect via serviceTrackingStage for faster response (socket may deliver
     // serviceTrackingStage = 'released' before order.status updates)
-    const newStage = String(bookingSnapshot.serviceTrackingStage || '').toLowerCase();
+    const newStage = trackerKey(bookingSnapshot.serviceTrackingStage);
     const isReleased = newStatus === 'released' || newStage === 'released';
 
     if (
@@ -1064,7 +1199,7 @@ export default function TrackScreen() {
     return () => {
       if (countdownTimer.current) clearInterval(countdownTimer.current);
     };
-  }, [showComplete]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [showComplete]);
 
   // ── Navigation — fires after render once countdown reaches 0 ────────────────
   // Kept separate so router.replace() is never called inside a state updater
@@ -1080,35 +1215,62 @@ export default function TrackScreen() {
   const resolvedStepRaw = booking ? resolveStep(booking) : -1;
   let resolvedStepBumped = resolvedStepRaw;
   if (booking && resolvedStepRaw >= 0) {
-    resolvedStepBumped = bumpCustomerTrackerIndexForReceivedGateComplete(booking, resolvedStepRaw, 'dashboard5');
+    const tsKey = String(booking.serviceTrackingStage ?? '').trim().toLowerCase().replace(/-/g, '_');
+    const qcGatePhotoCount = getCustomerStageSlotPhotos(booking, 'quality_check').length;
+    if (tsKey === 'quality_check' && qcGatePhotoCount >= customerGateMinSlotCount('quality_check')) {
+      resolvedStepBumped = Math.max(resolvedStepBumped, TRACKER_STEPS.length - 1);
+    }
+    if (bookingHasReadyPickupEvidence(booking)) {
+      resolvedStepBumped = Math.max(resolvedStepBumped, TRACKER_STEPS.length - 1);
+    }
+    resolvedStepBumped = bumpCustomerTrackerIndexForReceivedGateComplete(booking, resolvedStepBumped, 'dashboard5');
     resolvedStepBumped = bumpCustomerTrackerIndexForInProgressGateComplete(booking, resolvedStepBumped, 'dashboard5');
   }
   const stepIdx = forceStepIdx !== null ? forceStepIdx : resolvedStepBumped;
+  const readyForPickupComplete = isReadyForPickupDisplay(booking);
+  const postPayComplete = isPostPaymentCompleteDisplay(booking);
   const pct = useMemo(() => {
     if (!booking) return 0;
-    const status = String(booking.status || '').toLowerCase();
-    const tsKey = String(booking.serviceTrackingStage ?? '')
-      .trim()
-      .toLowerCase()
-      .replace(/-/g, '_');
-    const paymentPaid = String(booking.paymentStatus || '').toLowerCase() === 'paid';
-    const postPayComplete =
-      paymentPaid && (status === 'completed' || status === 'released' || tsKey === 'released');
-    if (postPayComplete) return 100;
+    if (postPayComplete || readyForPickupComplete) return 100;
     return getTrackerPipelineProgressPct({
       serviceTrackingStage: booking.serviceTrackingStage,
       status: booking.status,
     });
-  }, [booking]);
-  const hasActive = !!booking && isDefaultTrackBookingRow(booking?.status || '');
+  }, [booking, postPayComplete, readyForPickupComplete]);
+  const hasActive =
+    !!booking &&
+    (bookingShowsCustomerLiveTracker(booking) || isDefaultTrackBookingRow(booking?.status || ''));
 
   const stepTimestamps = booking ? getStepTimestamps(booking) : ['', '', '', '', ''];
   const etaLabel       = booking ? getEtaLabel(booking) : '—';
+  const activeStepIdx = Math.min(Math.max(stepIdx, 0), TRACKER_STEPS.length - 1);
+  const activeStep = TRACKER_STEPS[activeStepIdx] || TRACKER_STEPS[0];
+  const activeMediaStage = MOBILE_TRACKER_STEP_MEDIA_STAGE[activeStep.id] ?? null;
+  const stageTitle = postPayComplete
+    ? 'Service Complete'
+    : readyForPickupComplete
+      ? 'Ready for Pickup'
+      : activeStep.label;
+  const stageDescription = booking
+    ? readyForPickupComplete
+      ? TRACKER_STEPS[TRACKER_STEPS.length - 1].detail
+      : resolveTrackerStageDescription(booking, activeMediaStage) || activeStep.detail
+    : '';
+  const referenceLabel = getBookingReferenceLabel(booking);
 
   // Vehicle info card
   const vehiclePlate = booking?.vehiclePlate || booking?.vehicleModel || 'Vehicle';
   const vehicleColor = booking?.vehicleColor || '';
   const vehicleInfo  = vehicleColor ? `${vehiclePlate} · ${vehicleColor}` : vehiclePlate;
+  const vehicleTitle = [
+    booking?.vehicleYear,
+    booking?.vehicleMake,
+    booking?.vehicleModel,
+  ].filter(Boolean).join(' ') || String(booking?.vehicleInfo || vehicleInfo);
+  const vehicleMeta = [
+    booking?.vehiclePlate ? String(booking.vehiclePlate).toUpperCase() : '',
+    vehicleColor,
+  ].filter(Boolean).join(' / ') || 'Vehicle profile syncing';
 
   // Team badge: prefer serviceStaffAssignments[] then assignedDetailer
   const staffAssignments: any[] = booking?.serviceStaffAssignments || [];
@@ -1124,6 +1286,10 @@ export default function TrackScreen() {
     }
     return '';
   })();
+  const assignedStaffCount = staffAssignments.filter((a: any) => String(a?.name || '').trim()).length;
+  const teamSummaryLabel = assignedStaffCount > 0
+    ? `${assignedStaffCount} specialist${assignedStaffCount === 1 ? '' : 's'} assigned`
+    : teamLabel || 'QC team online';
 
   const pastBookings = allBookings.filter(
     (b) => (!booking || b.id !== booking.id) &&
@@ -1135,6 +1301,7 @@ export default function TrackScreen() {
     await Promise.all([
       refetchBookings(),
       routeBookingId ? refetchSpecificBooking() : Promise.resolve(),
+      trackerMediaBookingId ? refetchTrackerMedia() : Promise.resolve(),
     ]);
   };
 
@@ -1357,13 +1524,50 @@ export default function TrackScreen() {
               <CircularRing pct={pct} />
             </Animated.View>
 
+            {/* ── Current stage summary (web parity, mobile-native treatment) ── */}
+            <Animated.View
+              entering={FadeInDown.delay(120).duration(200)}
+              style={[s.stageCard, readyForPickupComplete && s.stageCardComplete]}
+            >
+              <View style={s.stageTopRow}>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={s.stageEyebrow}>CURRENT STAGE</Text>
+                  <Text style={[s.stageTitle, readyForPickupComplete && s.stageTitleComplete]}>
+                    {stageTitle}
+                  </Text>
+                </View>
+                <View style={[s.stageStepBadge, readyForPickupComplete && s.stageStepBadgeComplete]}>
+                  <Text style={[s.stageStepText, readyForPickupComplete && s.stageStepTextComplete]}>
+                    Step {Math.min(Math.max(stepIdx + 1, 1), 5)} / 5
+                  </Text>
+                </View>
+              </View>
+              {!!stageDescription && (
+                <Text style={s.stageDescription}>{stageDescription}</Text>
+              )}
+              <View style={s.stageMetaRow}>
+                {[
+                  { label: 'Vehicle', value: vehicleTitle },
+                  { label: 'Team', value: teamSummaryLabel },
+                  { label: 'Reference', value: referenceLabel },
+                ].map((item) => (
+                  <View key={item.label} style={s.stageMetaItem}>
+                    <Text style={s.stageMetaLabel}>{item.label}</Text>
+                    <Text style={s.stageMetaValue} numberOfLines={2}>
+                      {item.value}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </Animated.View>
+
             {/* ── Vehicle info card ── */}
-            <Animated.View entering={FadeInDown.delay(140).duration(200)} style={s.vehicleCard}>
+            <Animated.View entering={FadeInDown.delay(150).duration(200)} style={s.vehicleCard}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
                 <View style={s.vehicleIcon}>
                   <Ionicons name="car-sport-outline" size={18} color={C.orange} />
                 </View>
-                <Text style={s.vehicleText} numberOfLines={1}>{vehicleInfo}</Text>
+                <Text style={s.vehicleText} numberOfLines={1}>{vehicleMeta}</Text>
               </View>
               {!!teamLabel && (
                 <View style={s.teamBadge}>
@@ -1387,6 +1591,7 @@ export default function TrackScreen() {
                     isLast={i === TRACKER_STEPS.length - 1}
                     booking={booking}
                     mediaStage={MOBILE_TRACKER_STEP_MEDIA_STAGE[step.id] ?? null}
+                    finalStepComplete={readyForPickupComplete || postPayComplete}
                   />
                 ))}
               </View>
@@ -1511,6 +1716,91 @@ const s = StyleSheet.create({
 
   // Ring
   ringWrap: { alignItems: 'center' },
+
+  // Current stage summary
+  stageCard: {
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 16,
+    gap: 12,
+  },
+  stageCardComplete: {
+    backgroundColor: '#0D1810',
+    borderColor: C.greenBrd,
+  },
+  stageTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  stageEyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: C.textDim,
+    marginBottom: 4,
+  },
+  stageTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: C.text,
+    letterSpacing: -0.3,
+  },
+  stageTitleComplete: { color: C.green },
+  stageStepBadge: {
+    borderRadius: 999,
+    backgroundColor: C.orangeDim,
+    borderWidth: 1,
+    borderColor: C.orangeBrd,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  stageStepBadgeComplete: {
+    backgroundColor: C.greenDim,
+    borderColor: C.greenBrd,
+  },
+  stageStepText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: C.orange,
+  },
+  stageStepTextComplete: { color: C.green },
+  stageDescription: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: C.textSec,
+  },
+  stageMetaRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  stageMetaItem: {
+    flex: 1,
+    minHeight: 62,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  stageMetaLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    color: C.textDim,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  stageMetaValue: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    color: C.textSec,
+  },
 
   // Vehicle card
   vehicleCard: {

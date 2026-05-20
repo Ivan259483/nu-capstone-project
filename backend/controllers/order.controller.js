@@ -223,6 +223,24 @@ const ORDER_LIST_SELECT_FIELDS = [
   'updatedAt',
 ].join(' ');
 
+const ORDER_TRACKER_MEDIA_SELECT_FIELDS = [
+  '_id',
+  'customer',
+  'assignedDetailer',
+  'status',
+  'archived',
+  'paymentStatus',
+  'serviceTrackingStage',
+  'serviceStaffAssignments',
+  'trackerStageMedia.stage',
+  'trackerStageMedia.slot',
+  'trackerStageMedia.photoUrl',
+  'trackerStageMedia.description',
+  'trackerStageMedia.uploadedAt',
+  'trackerStageMedia.uploadedBy',
+  'updatedAt',
+].join(' ');
+
 const parsePositiveInt = (value, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) => {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -764,12 +782,16 @@ function canServiceStaffViewShopFloorOrder(userRole, order) {
 
 /** Shared GET guard: booking/POS admins, customer (own), assigned detailer, or QC on active shop-floor orders. */
 function canViewOrderWithRoleConstraints(reqUser, order) {
-  const customerId = typeof order.customer === 'object'
-    ? order.customer?._id?.toString?.()
-    : order.customer?.toString?.();
-  const assignedDetailerId = typeof order.assignedDetailer === 'object'
-    ? order.assignedDetailer?._id?.toString?.()
-    : order.assignedDetailer?.toString?.();
+  const toIdString = (value) => {
+    if (!value) return '';
+    if (typeof value === 'object') {
+      return value._id?.toString?.() || value.id?.toString?.() || value.toString?.() || '';
+    }
+    return value.toString?.() || String(value);
+  };
+
+  const customerId = toIdString(order.customer);
+  const assignedDetailerId = toIdString(order.assignedDetailer);
 
   return (
     isBookingManagerRole(reqUser.role) ||
@@ -779,6 +801,46 @@ function canViewOrderWithRoleConstraints(reqUser, order) {
     canServiceStaffViewShopFloorOrder(reqUser.role, order)
   );
 }
+
+/**
+ * Lightweight live tracker media payload for customer-facing web/mobile trackers.
+ */
+export const getOrderTrackerMedia = async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.id)
+      .select(ORDER_TRACKER_MEDIA_SELECT_FIELDS)
+      .lean();
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    if (!canViewOrderWithRoleConstraints(req.user, order)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: order._id?.toString?.() || String(order._id),
+        status: order.status,
+        paymentStatus: order.paymentStatus || null,
+        serviceTrackingStage: order.serviceTrackingStage || null,
+        serviceStaffAssignments: order.serviceStaffAssignments || [],
+        trackerStageMedia: Array.isArray(order.trackerStageMedia) ? order.trackerStageMedia : [],
+        updatedAt: order.updatedAt || null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 /**
  * Get order by ID

@@ -86,7 +86,7 @@ export const normalizeBooking = (raw: any): Booking => {
         || raw?.customer?.phone
         || '';
 
-    return {
+    const booking = {
         // Required booking fields for UI components
         id: id || 'unknown',
         customerId: String(customerId || ''),
@@ -158,9 +158,21 @@ export const normalizeBooking = (raw: any): Booking => {
         serviceTrackingStage: raw?.serviceTrackingStage ?? null,
         serviceTrackingUpdatedAt: raw?.serviceTrackingUpdatedAt ?? null,
         serviceStaffAssignments: raw?.serviceStaffAssignments ?? [],
-        trackerStageMedia: Array.isArray(raw?.trackerStageMedia) ? raw.trackerStageMedia : [],
     } as Booking;
+
+    if (Array.isArray(raw?.trackerStageMedia)) {
+        booking.trackerStageMedia = raw.trackerStageMedia;
+    } else if (raw && Object.prototype.hasOwnProperty.call(raw, 'trackerStageMedia')) {
+        booking.trackerStageMedia = [];
+    }
+
+    return booking;
 };
+
+const hasHttpStatus = (error: unknown, status: number): boolean =>
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { response?: { status?: number } }).response?.status === status;
 
 /**
  * Service for managing orders and bookings within the AutoSPF platform.
@@ -222,6 +234,26 @@ export const OrderService = {
             response.data.data = normalizeBooking(response.data.data);
         }
         return response.data;
+    },
+
+    async getTrackerMedia(id: string) {
+        try {
+            const response = await api.get(`/bookings/${encodeURIComponent(id)}/tracker-media`, {
+                meta: {
+                    suppressErrorToast: true,
+                    suppressExpectedErrorLog: true,
+                },
+            } as any);
+            if (response.data.success && response.data.data) {
+                response.data.data = normalizeBooking(response.data.data);
+            }
+            return response.data;
+        } catch (error) {
+            if (hasHttpStatus(error, 404)) {
+                return this.getOrderById(id);
+            }
+            throw error;
+        }
     },
 
     /**

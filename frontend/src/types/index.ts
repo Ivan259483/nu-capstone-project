@@ -196,6 +196,15 @@ export interface Booking {
     before: string[];
     after: string[];
   };
+  serviceTrackingStage?: 'confirmed' | 'received' | 'in_progress' | 'quality_check' | 'ready_pickup' | 'completed' | 'released' | null;
+  serviceTrackingUpdatedAt?: string | null;
+  serviceStaffAssignments?: {
+    slot?: string;
+    name?: string;
+    role?: string;
+    assignedAt?: string;
+    assignedBy?: string;
+  }[];
   /** Live tracker stage photos / notes (QC uploads) — see `customer-tracker-stage-media.ts`. */
   trackerStageMedia?: {
     stage: string;

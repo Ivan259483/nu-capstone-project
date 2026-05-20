@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard, ShoppingCart, Receipt, Users, BarChart3,
-  Settings, ChevronLeft, ChevronRight, LogOut, CheckSquare, CalendarDays,
+  Settings, ChevronLeft, LogOut, CheckSquare, CalendarDays,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 
 type SalesView = 'dashboard' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
@@ -30,7 +31,13 @@ const NAV_MGMT = [
 
 export default function SalesSidebar({ activeView, onNavigate, collapsed, onToggle }: Props) {
   const { logout } = useAuth();
+  const navigate = useNavigate();
   const [pendingCount, setPendingCount] = useState(0);
+
+  const handleLogout = useCallback(async () => {
+    await logout();
+    navigate('/login');
+  }, [logout, navigate]);
 
   useEffect(() => {
     const fetchCount = async () => {
@@ -58,7 +65,7 @@ export default function SalesSidebar({ activeView, onNavigate, collapsed, onTogg
 
   return (
     <aside
-      className={`relative flex flex-col bg-white transition-all duration-300 ease-in-out shrink-0 ${collapsed ? 'w-16' : 'w-60'}`}
+      className={`customer-sidebar flex flex-col bg-white transition-all duration-300 ease-in-out shrink-0 ${collapsed ? 'w-16 is-collapsed' : 'w-60 is-expanded'}`}
       style={{
         minHeight: '100vh',
         borderRight: '1px solid rgba(226,232,240,0.5)',
@@ -119,32 +126,32 @@ export default function SalesSidebar({ activeView, onNavigate, collapsed, onTogg
         })}
       </nav>
 
-      {/* Bottom */}
-      <div className="px-2 py-3 space-y-1" style={{ borderTop: '1px solid #f0f2f7' }}>
-
+      {/* Footer — match Customer / QC: Log Out + Collapse */}
+      <div className="customer-sidebar-footer">
         <button
-          onClick={logout}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50 hover:text-red-600 transition-all duration-150 cursor-pointer ${collapsed ? 'justify-center' : ''}`}
-          title={collapsed ? 'Logout' : undefined}
+          type="button"
+          className={`customer-sidebar-item customer-sidebar-item--danger ${collapsed ? 'justify-center' : ''}`}
+          onClick={handleLogout}
+          aria-label="Log out"
+          title={collapsed ? 'Log out' : undefined}
         >
-          <LogOut size={18} className="shrink-0" />
-          {!collapsed && <span>Sign Out</span>}
+          <LogOut className="h-5 w-5 shrink-0" strokeWidth={2} />
+          {!collapsed && <span className="customer-sidebar-label">Log Out</span>}
+        </button>
+        <button
+          type="button"
+          className="customer-sidebar-collapse-btn"
+          onClick={onToggle}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          <ChevronLeft
+            className={`customer-sidebar-collapse-chevron h-4 w-4 shrink-0 text-slate-500 ${collapsed ? 'rotate-180' : ''}`}
+            strokeWidth={2}
+          />
+          {!collapsed && <span className="customer-sidebar-label font-medium">Collapse</span>}
         </button>
       </div>
-
-      {/* Collapse toggle */}
-      <button
-        onClick={onToggle}
-        type="button"
-        className="absolute -right-3.5 top-4 z-20 flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-md shadow-slate-900/12 ring-1 ring-slate-900/[0.04] transition-colors hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35"
-        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      >
-        {collapsed ? (
-          <ChevronRight size={16} strokeWidth={2.5} className="text-slate-700" aria-hidden />
-        ) : (
-          <ChevronLeft size={16} strokeWidth={2.5} className="text-slate-700" aria-hidden />
-        )}
-      </button>
     </aside>
   );
 }

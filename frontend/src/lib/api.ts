@@ -167,6 +167,8 @@ api.interceptors.response.use(
         const { response, config } = error;
         const suppressErrorToast = Boolean((config as any)?.meta?.suppressErrorToast);
         const suppressCancelLog = Boolean((config as any)?.meta?.suppressCancelLog);
+        const suppressExpectedErrorLog =
+            Boolean((config as any)?.meta?.suppressExpectedErrorLog) && response?.status === 404;
         const isCanceled =
             error?.code === 'ERR_CANCELED' ||
             error?.name === 'CanceledError' ||
@@ -181,13 +183,15 @@ api.interceptors.response.use(
         const message = response?.data?.message || error.message;
         const endpoint = config?.url || 'unknown';
 
-        console.error(`🚨 [API ERROR ${status}]:`, {
-            url: config?.url,
-            method: config?.method,
-            status: status,
-            message: message,
-            data: response?.data
-        });
+        if (!suppressExpectedErrorLog) {
+            console.error(`🚨 [API ERROR ${status}]:`, {
+                url: config?.url,
+                method: config?.method,
+                status: status,
+                message: message,
+                data: response?.data
+            });
+        }
 
         // Global Error Handler with Toast Notifications
         if (response?.status === 401) {
@@ -263,7 +267,9 @@ api.interceptors.response.use(
             }
         } else if (response?.status === 404) {
             // Not Found
-            console.warn('🔍 [API 404]: Resource not found.');
+            if (!suppressExpectedErrorLog) {
+                console.warn('🔍 [API 404]: Resource not found.');
+            }
             if (!suppressErrorToast) {
                 toast.error('Not Found', {
                     id: `api-404:${endpoint}`,
