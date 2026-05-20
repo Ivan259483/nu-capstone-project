@@ -62,7 +62,7 @@ export default function SupplierManagementContent() {
               <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg transition-all duration-150 ${viewMode === 'grid' ? 'gradient-primary text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'}`} aria-label="Grid view"><Grid3X3 size={15} /></button>
               <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-all duration-150 ${viewMode === 'list' ? 'gradient-primary text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'}`} aria-label="List view"><List size={15} /></button>
             </div>
-            <button onClick={() => { setEditingSupplier(null); setAddEditOpen(true); }} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md glow-blue"><Plus size={16} />Add Supplier</button>
+            <button onClick={() => { setEditingSupplier(null); setAddEditOpen(true); }} className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md glow-blue"><Plus size={16} />Add Supplier</button>
           </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap">

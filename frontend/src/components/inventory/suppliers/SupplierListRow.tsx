@@ -5,7 +5,7 @@ import type { Supplier } from '@/components/inventory/InventoryContext';
 interface SupplierListRowProps { supplier: Supplier; linkedItemCount: number; isEven: boolean; onEdit: () => void; onDelete: () => void; }
 
 const statusConfig = { active: { label: 'Active', className: 'status-in-stock' }, inactive: { label: 'Inactive', className: 'status-out-of-stock' }, 'on-hold': { label: 'On Hold', className: 'status-low-stock' } };
-const categoryColors: Record<string, string> = { Chemicals: 'bg-blue-50 text-blue-700', Microfiber: 'bg-purple-50 text-purple-700', Equipment: 'bg-emerald-50 text-emerald-700', Consumables: 'bg-amber-50 text-amber-700', Packaging: 'bg-cyan-50 text-cyan-700' };
+const categoryColors: Record<string, string> = { Chemicals: 'bg-blue-50 text-blue-700', Microfiber: 'bg-emerald-50 text-emerald-700', Equipment: 'bg-orange-50 text-orange-700', Consumables: 'bg-amber-50 text-amber-700', Packaging: 'bg-slate-50 text-slate-700' };
 
 export default function SupplierListRow({ supplier, linkedItemCount, isEven, onEdit, onDelete }: SupplierListRowProps) {
   const status = statusConfig[supplier.status];

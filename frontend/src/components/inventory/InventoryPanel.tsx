@@ -49,7 +49,7 @@ function StockMonitorPage() {
   return (
     <div className="page-enter space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Stock Monitor</h1>
+        <h1 className="text-[28px] font-bold text-[#0F172A]">Stock Monitor</h1>
         <p className="text-sm text-gray-500 mt-1">Track stock levels and alerts in real-time</p>
       </div>
 
@@ -144,7 +144,7 @@ function NotificationsPage() {
     <div className="page-enter space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
+          <h1 className="text-[28px] font-bold text-[#0F172A]">Notifications</h1>
           <p className="text-sm text-gray-500 mt-1">{unread.length} unread notification{unread.length !== 1 ? 's' : ''}</p>
         </div>
       </div>
@@ -267,7 +267,7 @@ function InventoryPanelInner({ embedded = false }: { embedded?: boolean }) {
         <nav style={{ flex: 1, padding: '16px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
           {Object.entries(sections).map(([sectionName, sectionItems]) => (
             <React.Fragment key={sectionName}>
-              {!collapsed && <p style={{ padding: '12px 12px 8px', fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>{sectionName}</p>}
+              {!collapsed && <p style={{ padding: '12px 12px 8px', fontSize: 11, fontWeight: 600, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>{sectionName}</p>}
               {sectionItems.map(item => {
                 const Icon = item.icon;
                 const disabled = Boolean(item.disabled);
@@ -300,7 +300,7 @@ function InventoryPanelInner({ embedded = false }: { embedded?: boolean }) {
           ))}
 
           {/* Notifications nav item with badge */}
-          {!collapsed && <p style={{ padding: '12px 12px 8px', fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Alerts</p>}
+          {!collapsed && <p style={{ padding: '12px 12px 8px', fontSize: 11, fontWeight: 600, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Alerts</p>}
           <button
             className={`inv-nav-item ${activePage === 'notifications' ? 'active' : ''}`}
             onClick={() => {

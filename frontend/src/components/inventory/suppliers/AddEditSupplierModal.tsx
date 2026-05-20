@@ -35,7 +35,7 @@ export default function AddEditSupplierModal({ open, supplier, onClose, onSave }
   const labelClass = 'block text-xs font-semibold text-gray-600 mb-1.5 tracking-wide';
   const errorClass = 'text-xs text-red-500 font-medium mt-1';
   const helperClass = 'text-xs text-gray-400 mt-1';
-  const categoryColors: Record<string, string> = { Chemicals: 'border-blue-200 bg-blue-50 text-blue-700', Microfiber: 'border-purple-200 bg-purple-50 text-purple-700', Equipment: 'border-emerald-200 bg-emerald-50 text-emerald-700', Consumables: 'border-amber-200 bg-amber-50 text-amber-700', Packaging: 'border-cyan-200 bg-cyan-50 text-cyan-700' };
+  const categoryColors: Record<string, string> = { Chemicals: 'border-blue-200 bg-blue-50 text-blue-700', Microfiber: 'border-emerald-200 bg-emerald-50 text-emerald-700', Equipment: 'border-orange-200 bg-orange-50 text-orange-700', Consumables: 'border-amber-200 bg-amber-50 text-amber-700', Packaging: 'border-slate-200 bg-slate-50 text-slate-700' };
 
   return (
     <Modal open={open} onClose={onClose} title={supplier ? 'Edit Supplier' : 'Add New Supplier'} subtitle={supplier ? `Editing ${supplier.name}` : 'Add a procurement partner'} size="xl">
@@ -77,7 +77,7 @@ export default function AddEditSupplierModal({ open, supplier, onClose, onSave }
         </div>
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/40">
           <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 transition-all duration-150 active:scale-95">Cancel</button>
-          <button type="submit" disabled={isSubmitting || (watchedCategories ?? []).length === 0} className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md flex items-center gap-2 min-w-[130px] justify-center disabled:opacity-60 disabled:cursor-not-allowed">{isSubmitting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : supplier ? 'Save Changes' : 'Add Supplier'}</button>
+          <button type="submit" disabled={isSubmitting || (watchedCategories ?? []).length === 0} className="px-6 py-2.5 rounded-lg text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md flex items-center gap-2 min-w-[130px] justify-center disabled:opacity-60 disabled:cursor-not-allowed">{isSubmitting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : supplier ? 'Save Changes' : 'Add Supplier'}</button>
         </div>
       </form>
     </Modal>

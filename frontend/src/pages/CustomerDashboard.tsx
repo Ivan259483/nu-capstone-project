@@ -29,7 +29,16 @@ import {
 import { getTrackerPipelineProgressPct } from '../lib/tracker-pipeline-progress';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '../lib/cloudinary-delivery-url';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
+import CustomerGarageVehicleSilhouette from '../components/customer/CustomerGarageVehicleSilhouette';
 import { CustomerPaymentHistorySection } from '../components/customer/CustomerPaymentHistorySection';
+import {
+  CustomerBookingsSkeleton,
+  CustomerDashboardHomeSkeleton,
+  CustomerDocumentsSkeleton,
+  CustomerPaymentsSkeleton,
+  CustomerRewardsSkeleton,
+  CustomerServicesSkeleton,
+} from '../components/customer/CustomerSkeleton';
 import { compressImageForBookingProof } from '../lib/compress-image-for-upload';
 import VehicleGarageForm from '@/components/shared/VehicleGarageForm';
 import {
@@ -40,7 +49,9 @@ import {
   validateVehicleGarageForm,
 } from '@/components/shared/vehicle-garage-constants';
 
-type DashboardSection = 'dashboard' | 'scan' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker' | 'payments';
+type DashboardSection = 'dashboard' | 'scan' | 'services' | 'settings' | 'bookings' | 'documents' | 'rewards' | 'tracker' | 'payments';
+const CUSTOMER_BOOKINGS_DATA_SECTIONS: readonly DashboardSection[] = ['dashboard', 'services', 'bookings', 'documents', 'rewards', 'tracker', 'payments'];
+const CUSTOMER_SKELETON_SECTIONS: readonly DashboardSection[] = ['dashboard', 'services', 'bookings', 'documents', 'rewards', 'payments'];
 
 type ScanUpload = {
   id: string;
@@ -52,6 +63,45 @@ type ScanUpload = {
 /** When false, AI Inspection History shows a Soon badge, is not clickable, and ?section=scan is redirected away. */
 const AI_INSPECTION_HISTORY_ENABLED = false;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'sidebar_collapsed';
+const CUSTOMER_UI = {
+  primary: '#2563EB',
+  primaryDark: '#1D4ED8',
+  gold: '#F59E0B',
+  success: '#10B981',
+  successDark: '#059669',
+  warning: '#F97316',
+  danger: '#EF4444',
+  heading: '#0F172A',
+  subtext: '#64748B',
+  card: '#FFFFFF',
+  page: '#F8FAFC',
+  border: '#E2E8F0',
+  hover: '#F1F5F9',
+} as const;
+const CUSTOMER_SECTION_LABEL = 'text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500';
+const CUSTOMER_PRIMARY_BUTTON = 'rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700';
+
+function resolveCustomerDashboardSection(pathname: string, searchString: string): DashboardSection {
+  if (pathname === '/customer/services') return 'services';
+
+  const search = new URLSearchParams(searchString);
+  const s = search.get('section');
+  return s === 'settings'
+    ? 'settings'
+    : s === 'bookings'
+      ? 'bookings'
+      : s === 'scan' && AI_INSPECTION_HISTORY_ENABLED
+        ? 'scan'
+        : s === 'documents'
+          ? 'documents'
+          : s === 'payments'
+            ? 'payments'
+            : s === 'rewards'
+              ? 'rewards'
+              : s === 'tracker'
+                ? 'tracker'
+                : 'dashboard';
+}
 
 function getStoredSidebarCollapsed() {
   if (typeof window === 'undefined') return false;
@@ -65,6 +115,60 @@ function getStoredSidebarCollapsed() {
 // ---- STATIC DATA FOR BOOKING ----
 /** Preset names matching Add Vehicle color swatches (custom colors use free-text). */
 const EDIT_VEHICLE_COLOR_PRESETS = ['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Brown'] as const;
+
+type CustomerVehicleColorTheme = {
+  from: string;
+  to: string;
+  glow: string;
+  text: string;
+  border: string;
+  tint: string;
+};
+
+const CUSTOMER_VEHICLE_COLOR_THEMES: Record<string, CustomerVehicleColorTheme> = {
+  white: { from: '#e2e8f0', to: '#94a3b8', glow: 'rgba(148,163,184,0.35)', text: '#334155', border: '#94A3B8', tint: '#F8FAFC' },
+  black: { from: '#1e293b', to: '#0f172a', glow: 'rgba(30,41,59,0.5)', text: '#94a3b8', border: '#0F172A', tint: '#F1F5F9' },
+  silver: { from: '#cbd5e1', to: '#64748b', glow: 'rgba(100,116,139,0.4)', text: '#1e293b', border: '#64748B', tint: '#F8FAFC' },
+  gray: { from: '#94a3b8', to: '#475569', glow: 'rgba(71,85,105,0.4)', text: '#f1f5f9', border: '#64748B', tint: '#F1F5F9' },
+  blue: { from: '#3b82f6', to: '#1d4ed8', glow: 'rgba(59,130,246,0.4)', text: '#eff6ff', border: '#3B82F6', tint: '#EFF6FF' },
+  red: { from: '#ef4444', to: '#b91c1c', glow: 'rgba(239,68,68,0.4)', text: '#fff1f2', border: '#EF4444', tint: '#FEF2F2' },
+  green: { from: '#22c55e', to: '#15803d', glow: 'rgba(34,197,94,0.4)', text: '#f0fdf4', border: '#10B981', tint: '#ECFDF5' },
+  yellow: { from: '#f59e0b', to: '#d97706', glow: 'rgba(245,158,11,0.4)', text: '#1c1917', border: '#F59E0B', tint: '#FFFBEB' },
+  orange: { from: '#f97316', to: '#c2410c', glow: 'rgba(249,115,22,0.4)', text: '#fff7ed', border: '#F97316', tint: '#FFF7ED' },
+  brown: { from: '#92400e', to: '#78350f', glow: 'rgba(146,64,14,0.4)', text: '#fffbeb', border: '#92400E', tint: '#FFFBEB' },
+};
+
+const CUSTOMER_VEHICLE_TYPE_ICONS: Record<string, string> = {
+  hatchback: 'solar:car-2-bold',
+  sedan: 'solar:car-bold',
+  midsized: 'solar:car-bold',
+  suv: 'solar:bus-bold',
+  'pick up': 'solar:bus-bold',
+  pickup: 'solar:bus-bold',
+  'large suv / van': 'solar:bus-bold',
+  highend: 'solar:car-bold',
+  'highend sedan': 'solar:car-bold',
+};
+
+const BOOKING_PACKAGE_ACCENTS: Record<string, { border: string; tint: string; badge: string; text: string }> = {
+  spf80: { border: '#3B82F6', tint: '#EFF6FF', badge: '#DBEAFE', text: '#1D4ED8' },
+  spf89: { border: CUSTOMER_UI.primary, tint: '#EFF6FF', badge: '#DBEAFE', text: '#1D4ED8' },
+  spf99: { border: CUSTOMER_UI.gold, tint: '#FFFBEB', badge: '#FEF3C7', text: '#B45309' },
+  spf101: { border: CUSTOMER_UI.gold, tint: '#FFFBEB', badge: '#FEF3C7', text: '#B45309' },
+};
+
+function getCustomerVehicleColorTheme(color?: string | null): CustomerVehicleColorTheme {
+  const colorKey = color?.trim().toLowerCase() || 'white';
+  return CUSTOMER_VEHICLE_COLOR_THEMES[colorKey] || CUSTOMER_VEHICLE_COLOR_THEMES.white;
+}
+
+function getCustomerVehicleTypeIcon(type?: string | null): string {
+  return CUSTOMER_VEHICLE_TYPE_ICONS[(type || '').toLowerCase()] || 'solar:car-bold';
+}
+
+function getBookingPackageAccent(packageId?: string | null) {
+  return BOOKING_PACKAGE_ACCENTS[packageId || ''] || BOOKING_PACKAGE_ACCENTS.spf80;
+}
 
 const VEHICLE_OPTIONS = [
   { type: "hatchback", label: "Hatchback", icon: "lucide:car-front" },
@@ -381,25 +485,9 @@ export default function CustomerDashboard() {
   const [sidebarTransitionsReady, setSidebarTransitionsReady] = useState(false);
   const sidebarTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const location = useLocation();
-  const [activeSection, setActiveSection] = useState<DashboardSection>(() => {
-    const search = new URLSearchParams(location.search);
-    const s = search.get('section');
-    return s === 'settings'
-      ? 'settings'
-      : s === 'bookings'
-        ? 'bookings'
-        : s === 'scan' && AI_INSPECTION_HISTORY_ENABLED
-          ? 'scan'
-          : s === 'documents'
-            ? 'documents'
-            : s === 'payments'
-              ? 'payments'
-              : s === 'rewards'
-                ? 'rewards'
-                : s === 'tracker'
-                  ? 'tracker'
-                  : 'dashboard';
-  });
+  const [activeSection, setActiveSection] = useState<DashboardSection>(() =>
+    resolveCustomerDashboardSection(location.pathname, location.search)
+  );
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
   const bookingPackages = usePublishedBookingPackages();
@@ -427,6 +515,7 @@ export default function CustomerDashboard() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
+  const [vehiclesLoading, setVehiclesLoading] = useState(false);
   /** Bumps when we mutate garage or need to ignore stale in-flight GET list responses (fixes race with initial fetch). */
   const vehiclesFetchGenRef = useRef(0);
   const [scanVehicleId, setScanVehicleId] = useState('');
@@ -445,6 +534,8 @@ export default function CustomerDashboard() {
   // My Bookings
   const [myBookings, setMyBookings] = useState<any[]>([]);
   const [myBookingsLoading, setMyBookingsLoading] = useState(false);
+  const [customerBookingsLoadedOnce, setCustomerBookingsLoadedOnce] = useState(false);
+  const customerBookingsLoadedOnceRef = useRef(false);
   const [bookingsFilter, setBookingsFilter] = useState<'all' | 'upcoming' | 'active' | 'completed' | 'cancelled'>('all');
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   // Payment History lightbox
@@ -789,10 +880,22 @@ export default function CustomerDashboard() {
   const vehicleOwnerId = user?._id ?? user?.id ?? '';
 
   useEffect(() => {
-    if (!vehicleOwnerId) return;
+    if (!vehicleOwnerId) {
+      setVehiclesLoading(false);
+      return;
+    }
+    let active = true;
     vehiclesFetchGenRef.current += 1;
     const gen = vehiclesFetchGenRef.current;
-    void fetchVehiclesAndApply(gen);
+    setVehiclesLoading(true);
+    void fetchVehiclesAndApply(gen).finally(() => {
+      if (active && gen === vehiclesFetchGenRef.current) {
+        setVehiclesLoading(false);
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [vehicleOwnerId, fetchVehiclesAndApply]);
 
   const openEditVehicle = (v: any, idx: number) => {
@@ -1739,41 +1842,34 @@ export default function CustomerDashboard() {
     }
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const search = new URLSearchParams(location.search);
     const s = search.get('section');
-    if (s === 'scan' && !AI_INSPECTION_HISTORY_ENABLED) {
+    if (location.pathname === '/customer/dashboard' && s === 'scan' && !AI_INSPECTION_HISTORY_ENABLED) {
       setActiveSection('dashboard');
       navigate('/customer/dashboard', { replace: true });
       return;
     }
-    setActiveSection(
-      s === 'settings'
-        ? 'settings'
-        : s === 'bookings'
-          ? 'bookings'
-          : s === 'scan'
-            ? 'scan'
-            : s === 'documents'
-              ? 'documents'
-              : s === 'payments'
-                ? 'payments'
-                : s === 'rewards'
-                  ? 'rewards'
-                  : s === 'tracker'
-                    ? 'tracker'
-                    : 'dashboard'
-    );
-  }, [location.search, navigate]);
+    const nextSection = resolveCustomerDashboardSection(location.pathname, location.search);
+    if (CUSTOMER_BOOKINGS_DATA_SECTIONS.includes(nextSection)) {
+      setMyBookingsLoading(true);
+    }
+    setActiveSection(nextSection);
+  }, [location.pathname, location.search, navigate]);
 
   // Fetch My Bookings whenever section opens — with socket-driven instant updates
   useEffect(() => {
-    if (!['dashboard', 'bookings', 'documents', 'rewards', 'tracker', 'payments'].includes(activeSection) || !user) return;
+    if (!CUSTOMER_BOOKINGS_DATA_SECTIONS.includes(activeSection) || !user) return;
 
     const load = async (opts?: { silent?: boolean }) => {
-      if (bookingsLoadLockRef.current) return;
-      bookingsLoadLockRef.current = true;
       const silent = !!opts?.silent;
+      if (bookingsLoadLockRef.current) {
+        if (!silent && customerBookingsLoadedOnceRef.current) {
+          setMyBookingsLoading(false);
+        }
+        return;
+      }
+      bookingsLoadLockRef.current = true;
       // ── Bust cache before every fetch so polling always gets fresh data ──
       // The cache TTL (5s) matches the poll interval, meaning the cache would
       // always be fresh and the poll would return stale data. Invalidating first
@@ -1825,7 +1921,11 @@ export default function CustomerDashboard() {
         console.warn('[MyBookings]', e);
       } finally {
         bookingsLoadLockRef.current = false;
-        if (!silent) setMyBookingsLoading(false);
+        if (!silent) {
+          customerBookingsLoadedOnceRef.current = true;
+          setCustomerBookingsLoadedOnce(true);
+          setMyBookingsLoading(false);
+        }
       }
     };
 
@@ -1893,11 +1993,15 @@ export default function CustomerDashboard() {
 
   const nav = (section: DashboardSection) => {
     if (section === 'scan' && !AI_INSPECTION_HISTORY_ENABLED) return;
+    if (CUSTOMER_BOOKINGS_DATA_SECTIONS.includes(section)) {
+      setMyBookingsLoading(true);
+    }
     setActiveSection(section);
     setIsSidebarOpen(false);
     const urlMap: Record<DashboardSection, string> = {
       dashboard: '/customer/dashboard',
       scan: '/customer/dashboard?section=scan',
+      services: '/customer/services',
       settings: '/customer/dashboard?section=settings',
       bookings: '/customer/dashboard?section=bookings',
       documents: '/customer/dashboard?section=documents',
@@ -2134,17 +2238,110 @@ export default function CustomerDashboard() {
     ? Math.min(100, Math.max(0, Math.round(((customerStats.loyaltyPoints - currentRewardTier.min) / (nextRewardTier.min - currentRewardTier.min)) * 100)))
     : 100;
   const formattedLoyaltyPoints = new Intl.NumberFormat(undefined).format(customerStats.loyaltyPoints);
+  const rewardBannerNextTier = { name: 'Silver', min: 150 };
+  const rewardBannerProgressPct = Math.min(100, Math.round((customerStats.loyaltyPoints / rewardBannerNextTier.min) * 100));
+  const rewardBannerPointsRemaining = Math.max(0, rewardBannerNextTier.min - customerStats.loyaltyPoints);
+  const recommendationVehicleType = vehicles[0]?.type || 'hatchback';
+  const recommendationPriceKey = getVehiclePriceKey(recommendationVehicleType);
+  const recommendationVehicleLabel = formatTitleCaseDisplay(recommendationVehicleType, 'Hatchback');
+  const recommendedPackage = useMemo(() => {
+    let best: { id: string; name: string; duration: string; price: number } | null = null;
+
+    bookingPackages.forEach((pkg) => {
+      const price = pkg.prices[recommendationPriceKey as keyof typeof pkg.prices];
+      if (typeof price !== 'number' || price <= 0) return;
+      if (!best || price < best.price) {
+        best = { id: pkg.id, name: pkg.name, duration: pkg.duration, price };
+      }
+    });
+
+    return best;
+  }, [bookingPackages, recommendationPriceKey]);
+  const dashboardOverviewCards = [
+    {
+      key: 'status',
+      label: 'Current Status',
+      value: customerStats.currentStatus || 'No active service',
+      helper: 'Live queue and service progress',
+      icon: 'solar:shield-check-linear',
+      tone: 'blue',
+      borderClass: 'border-l-blue-500',
+      iconClass: 'bg-blue-50 text-blue-600 ring-blue-100',
+      glowClass: 'from-blue-500/10',
+      valueClass: customerStats.currentStatus ? 'text-blue-700' : 'text-slate-900',
+      showPulse: !!customerStats.currentStatus,
+    },
+    {
+      key: 'appointment',
+      label: 'Next Appointment',
+      value: customerStats.nextAppointment || 'None scheduled',
+      helper: 'Confirmed bookings appear here',
+      icon: 'solar:calendar-mark-linear',
+      tone: 'green',
+      borderClass: 'border-l-emerald-500',
+      iconClass: 'bg-emerald-50 text-emerald-600 ring-emerald-100',
+      glowClass: 'from-emerald-500/10',
+      valueClass: customerStats.nextAppointment ? 'text-slate-900' : 'text-slate-400',
+      showPulse: false,
+    },
+    {
+      key: 'lastService',
+      label: 'Last Service',
+      value: customerStats.lastService || 'No past services',
+      helper: 'Most recent completed visit',
+      icon: 'solar:history-2-linear',
+      tone: 'orange',
+      borderClass: 'border-l-orange-500',
+      iconClass: 'bg-orange-50 text-orange-600 ring-orange-100',
+      glowClass: 'from-orange-500/10',
+      valueClass: customerStats.lastService ? 'text-slate-900' : 'text-slate-400',
+      showPulse: false,
+    },
+    {
+      key: 'loyalty',
+      label: 'Loyalty Points',
+      value: `${formattedLoyaltyPoints} pts`,
+      helper: nextRewardTier ? `${new Intl.NumberFormat(undefined).format(pointsToNextRewardTier)} pts to ${nextRewardTier.name}` : 'Top rewards tier active',
+      icon: 'solar:star-linear',
+      tone: 'gold',
+      borderClass: 'border-l-amber-500',
+      iconClass: 'bg-amber-50 text-amber-600 ring-amber-100',
+      glowClass: 'from-amber-500/10',
+      valueClass: 'text-slate-900',
+      showPulse: false,
+    },
+  ] as const;
   const rewardCatalog = [
     { id: 'rw-1', title: 'Free Premium Wash', points: 150, code: 'WASH150', desc: 'Use on any maintenance wash booking.' },
     { id: 'rw-2', title: '10% Coating Discount', points: 300, code: 'COAT10', desc: 'Applies to selected coating services.' },
     { id: 'rw-3', title: 'Priority Booking Slot', points: 500, code: 'FASTLANE', desc: 'Get priority queue schedule access.' },
   ];
+  const rewardEarnCards = [
+    { title: 'Book a Service', value: '+50 pts', icon: 'solar:calendar-add-linear', tone: 'text-blue-600 bg-blue-50 ring-blue-100' },
+    { title: 'Refer a Friend', value: '+30 pts', icon: 'solar:users-group-rounded-linear', tone: 'text-emerald-600 bg-emerald-50 ring-emerald-100' },
+    { title: 'Complete Survey', value: '+10 pts', icon: 'solar:chat-square-check-linear', tone: 'text-amber-600 bg-amber-50 ring-amber-100' },
+  ] as const;
+  const rewardCardAccents: Record<string, { border: string; icon: string; label: string }> = {
+    'rw-1': { border: '#10B981', icon: 'solar:dropper-minimalistic-bold', label: 'Easy' },
+    'rw-2': { border: '#2563EB', icon: 'solar:ticket-sale-bold', label: 'Medium' },
+    'rw-3': { border: '#F59E0B', icon: 'solar:medal-star-bold', label: 'Premium' },
+  };
   const sidebarDisplayName = (user?.name || 'Customer').trim() || 'Customer';
   const sidebarUserEmail = (user?.email || '').trim();
+  const customerSectionDataLoading =
+    Boolean(user) &&
+    CUSTOMER_SKELETON_SECTIONS.includes(activeSection) &&
+    (myBookingsLoading || !customerBookingsLoadedOnce);
+  const dashboardSectionLoading = activeSection === 'dashboard' && (customerSectionDataLoading || vehiclesLoading);
+  const bookingsSectionLoading = activeSection === 'bookings' && customerSectionDataLoading;
+  const documentsSectionLoading = activeSection === 'documents' && customerSectionDataLoading;
+  const paymentsSectionLoading = activeSection === 'payments' && customerSectionDataLoading;
+  const rewardsSectionLoading = activeSection === 'rewards' && customerSectionDataLoading;
+  const servicesSectionLoading = activeSection === 'services' && (customerSectionDataLoading || vehiclesLoading);
 
   return (
     <>
-      <div className="h-screen flex overflow-hidden text-sm bg-white" style={{ '--border': '214 32% 91%', color: '#0f172a' } as React.CSSProperties}>
+      <div className="h-screen flex overflow-hidden text-sm bg-white" style={{ '--border': '214 32% 91%', color: CUSTOMER_UI.heading } as React.CSSProperties}>
 
         {/* Mobile Sidebar Overlay */}
         {isSidebarOpen && (
@@ -2213,10 +2410,20 @@ export default function CustomerDashboard() {
               <iconify-icon icon="solar:calendar-linear" width="20" className="shrink-0"></iconify-icon>
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">My Bookings</span>
               {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length > 0 && (
-                <span className="customer-sidebar-extra ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-600">
+                <span className="customer-sidebar-extra ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600">
                   {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length}
                 </span>
               )}
+            </button>
+            <button
+              type="button"
+              onClick={() => nav('services')}
+              className={`customer-sidebar-item ${activeSection === 'services' ? 'is-active' : ''}`}
+              aria-label="Services"
+              title={sidebarCollapsed ? 'Services' : undefined}
+            >
+              <iconify-icon icon="solar:tag-price-linear" width="20" className="shrink-0"></iconify-icon>
+              <span className="customer-sidebar-label flex-1 min-w-0 text-left">Services</span>
             </button>
             {pickCustomerLiveTrackerBooking(myBookings) && (
             <button
@@ -2335,7 +2542,7 @@ export default function CustomerDashboard() {
                 <button
                   type="button"
                   onClick={() => setNotificationsOpen(!notificationsOpen)}
-                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/35"
+                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35"
                   aria-label={unreadNotificationCount > 0 ? `Notifications, ${unreadNotificationCount} unread` : 'Notifications'}
                 >
                   <span
@@ -2363,7 +2570,7 @@ export default function CustomerDashboard() {
                       <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
                         <h3 className="font-bold text-[15px] text-slate-900 tracking-tight">Notifications</h3>
                         {notifications.some(n => !n.isRead) && (
-                          <button onClick={markAllNotificationsAsRead} className="text-xs font-medium text-indigo-600 hover:text-indigo-700 transition-colors">
+                          <button onClick={markAllNotificationsAsRead} className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors">
                             Mark all as read
                           </button>
                         )}
@@ -2389,7 +2596,7 @@ export default function CustomerDashboard() {
                           <div className="divide-y divide-slate-50">
                             {notifications.map(n => (
                               <button key={n.id || n._id} onClick={() => markNotificationAsRead(n.id || n._id || '')} className={`w-full text-left p-4 hover:bg-slate-50 transition-colors flex gap-3 ${!n.isRead ? 'bg-slate-50/50' : ''}`}>
-                                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!n.isRead ? 'bg-indigo-500' : 'bg-transparent'}`}></div>
+                                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!n.isRead ? 'bg-blue-500' : 'bg-transparent'}`}></div>
                                 <div className="flex-1 min-w-0">
                                   <p className={`text-[13px] text-slate-900 truncate ${!n.isRead ? 'font-semibold' : 'font-medium'}`}>{n.title}</p>
                                   <p className="text-[12px] text-slate-500 line-clamp-2 mt-0.5 leading-snug">{n.message}</p>
@@ -2629,6 +2836,9 @@ export default function CustomerDashboard() {
           <main className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50">
 
             {activeSection === 'bookings' ? (
+              bookingsSectionLoading ? (
+                <CustomerBookingsSkeleton />
+              ) : (
               /* ═══════════════════════════════════════════
                  MY BOOKINGS — Ultra-Premium UI
               ═══════════════════════════════════════════ */
@@ -2644,17 +2854,17 @@ export default function CustomerDashboard() {
                         : myBookings.filter(b => cancelledStatuses.includes(b.status));
 
                 const statusCfg: Record<string, { label: string; color: string; bg: string; strip: string; dot?: boolean }> = {
-                  pending: { label: 'Pending', color: '#92400e', bg: '#fffbeb', strip: '#f59e0b' },
-                  confirmed: { label: 'Confirmed', color: '#3730a3', bg: '#eef2ff', strip: '#6366f1' },
-                  assigned: { label: 'Assigned', color: '#3730a3', bg: '#eef2ff', strip: '#6366f1' },
-                  'in-progress': { label: 'In Progress', color: '#1d4ed8', bg: '#eff6ff', strip: '#3b82f6', dot: true },
-                  processing: { label: 'Processing', color: '#1d4ed8', bg: '#eff6ff', strip: '#3b82f6', dot: true },
-                  'checked-in': { label: 'Checked In', color: '#0369a1', bg: '#f0f9ff', strip: '#0ea5e9' },
-                  completed: { label: 'Completed', color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
-                  released: { label: 'Released', color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
-                  done: { label: 'Done', color: '#065f46', bg: '#f0fdf4', strip: '#10b981' },
-                  cancelled: { label: 'Cancelled', color: '#991b1b', bg: '#fef2f2', strip: '#ef4444' },
-                  rejected: { label: 'Rejected', color: '#991b1b', bg: '#fef2f2', strip: '#ef4444' },
+	                  pending: { label: 'Pending', color: '#C2410C', bg: '#FFF7ED', strip: CUSTOMER_UI.warning },
+	                  confirmed: { label: 'Confirmed', color: '#1D4ED8', bg: '#EFF6FF', strip: CUSTOMER_UI.primary },
+	                  assigned: { label: 'Assigned', color: '#1D4ED8', bg: '#EFF6FF', strip: CUSTOMER_UI.primary },
+	                  'in-progress': { label: 'In Progress', color: '#047857', bg: '#ECFDF5', strip: CUSTOMER_UI.success, dot: true },
+	                  processing: { label: 'Processing', color: '#047857', bg: '#ECFDF5', strip: CUSTOMER_UI.success, dot: true },
+	                  'checked-in': { label: 'Checked In', color: '#1D4ED8', bg: '#EFF6FF', strip: CUSTOMER_UI.primary },
+	                  completed: { label: 'Completed', color: '#065F46', bg: '#F0FDF4', strip: CUSTOMER_UI.success },
+	                  released: { label: 'Released', color: '#065F46', bg: '#F0FDF4', strip: CUSTOMER_UI.success },
+	                  done: { label: 'Done', color: '#065F46', bg: '#F0FDF4', strip: CUSTOMER_UI.success },
+	                  cancelled: { label: 'Cancelled', color: '#991B1B', bg: '#FEF2F2', strip: CUSTOMER_UI.danger },
+	                  rejected: { label: 'Rejected', color: '#991B1B', bg: '#FEF2F2', strip: CUSTOMER_UI.danger },
                 };
 
                 const filterCounts = {
@@ -2666,23 +2876,23 @@ export default function CustomerDashboard() {
                 };
 
                 return (
-                  <div className="space-y-6 pb-10">
+                  <div className="customer-content-fade-in space-y-6 pb-10">
 
                     {/* ── Header ── */}
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
-                          <h2 className="text-[24px] font-bold text-slate-900 tracking-tight">My Bookings</h2>
+	                          <h2 className="text-[28px] font-bold text-slate-900 tracking-tight">My Bookings</h2>
                           {myBookings.length > 0 && (
-                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full text-indigo-600" style={{ background: '#eef2ff' }}>{myBookings.length}</span>
+	                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full text-blue-600" style={{ background: '#eff6ff' }}>{myBookings.length}</span>
                           )}
                         </div>
                         <p className="text-[13px] text-slate-400 font-medium">Track and manage all your service appointments</p>
                       </div>
                       <button
                         onClick={() => openBookingModal()}
-                        className="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl text-sm font-semibold transition-all hover:-translate-y-0.5"
-                        style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)', boxShadow: '0 4px 14px rgba(99,102,241,0.4)' }}
+	                        className="flex items-center gap-2 px-5 py-2.5 text-white rounded-lg text-sm font-semibold transition-all hover:-translate-y-0.5"
+	                        style={{ background: CUSTOMER_UI.primary, boxShadow: '0 4px 14px rgba(37,99,235,0.28)' }}
                       >
                         <iconify-icon icon="solar:add-circle-bold" width="16"></iconify-icon>
                         New Booking
@@ -2692,10 +2902,10 @@ export default function CustomerDashboard() {
                     {/* ── Stats Summary ── */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       {[
-                        { label: 'Total', count: filterCounts.all, icon: 'solar:notebook-bookmark-bold', color: '#fff', iconBg: 'linear-gradient(135deg,#6366f1,#818cf8)', cardBg: 'linear-gradient(135deg,#6366f1,#4f46e5)', text: '#fff', sub: '#c7d2fe' },
-                        { label: 'Upcoming', count: filterCounts.upcoming, icon: 'solar:clock-circle-bold', color: '#fff', iconBg: 'linear-gradient(135deg,#f59e0b,#fbbf24)', cardBg: 'linear-gradient(135deg,#f59e0b,#d97706)', text: '#fff', sub: '#fde68a' },
-                        { label: 'Active', count: filterCounts.active, icon: 'solar:play-circle-bold', color: '#fff', iconBg: 'linear-gradient(135deg,#3b82f6,#60a5fa)', cardBg: 'linear-gradient(135deg,#3b82f6,#2563eb)', text: '#fff', sub: '#bfdbfe' },
-                        { label: 'Completed', count: filterCounts.completed, icon: 'solar:check-circle-bold', color: '#fff', iconBg: 'linear-gradient(135deg,#10b981,#34d399)', cardBg: 'linear-gradient(135deg,#10b981,#059669)', text: '#fff', sub: '#a7f3d0' },
+	                        { label: 'Total', count: filterCounts.all, icon: 'solar:notebook-bookmark-bold', cardBg: `linear-gradient(135deg,${CUSTOMER_UI.primary},${CUSTOMER_UI.primaryDark})`, text: '#fff', sub: '#BFDBFE' },
+	                        { label: 'Upcoming', count: filterCounts.upcoming, icon: 'solar:clock-circle-bold', cardBg: `linear-gradient(135deg,${CUSTOMER_UI.warning},#EA580C)`, text: '#fff', sub: '#FED7AA' },
+	                        { label: 'Active', count: filterCounts.active, icon: 'solar:play-circle-bold', cardBg: `linear-gradient(135deg,${CUSTOMER_UI.success},#059669)`, text: '#fff', sub: '#A7F3D0' },
+	                        { label: 'Completed', count: filterCounts.completed, icon: 'solar:check-circle-bold', cardBg: 'linear-gradient(135deg,#059669,#047857)', text: '#fff', sub: '#A7F3D0' },
                       ].map(s => (
                         <div key={s.label} className="rounded-2xl p-4 flex items-center gap-3 relative overflow-hidden" style={{ background: s.cardBg, boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}>
                           <div className="absolute -right-3 -top-3 w-20 h-20 rounded-full opacity-20" style={{ background: 'rgba(255,255,255,0.3)' }} />
@@ -2714,11 +2924,11 @@ export default function CustomerDashboard() {
                     <div className="flex items-center gap-1.5 bg-white border border-slate-100 p-1.5 rounded-2xl w-fit overflow-x-auto" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
                       {(['all', 'upcoming', 'active', 'completed', 'cancelled'] as const).map(f => {
                         const meta: Record<string, { icon: string; activeGrad: string; activeTxt: string }> = {
-                          all:       { icon: 'solar:layers-bold',        activeGrad: 'linear-gradient(135deg,#4f46e5,#6366f1)', activeTxt: '#fff' },
-                          upcoming:  { icon: 'solar:clock-circle-bold',  activeGrad: 'linear-gradient(135deg,#d97706,#f59e0b)', activeTxt: '#fff' },
-                          active:    { icon: 'solar:play-circle-bold',   activeGrad: 'linear-gradient(135deg,#2563eb,#3b82f6)', activeTxt: '#fff' },
-                          completed: { icon: 'solar:check-circle-bold',  activeGrad: 'linear-gradient(135deg,#059669,#10b981)', activeTxt: '#fff' },
-                          cancelled: { icon: 'solar:close-circle-bold',  activeGrad: 'linear-gradient(135deg,#dc2626,#ef4444)', activeTxt: '#fff' },
+	                          all:       { icon: 'solar:layers-bold',        activeGrad: `linear-gradient(135deg,${CUSTOMER_UI.primary},${CUSTOMER_UI.primaryDark})`, activeTxt: '#fff' },
+	                          upcoming:  { icon: 'solar:clock-circle-bold',  activeGrad: `linear-gradient(135deg,${CUSTOMER_UI.warning},#EA580C)`, activeTxt: '#fff' },
+	                          active:    { icon: 'solar:play-circle-bold',   activeGrad: `linear-gradient(135deg,${CUSTOMER_UI.success},#059669)`, activeTxt: '#fff' },
+	                          completed: { icon: 'solar:check-circle-bold',  activeGrad: 'linear-gradient(135deg,#059669,#047857)', activeTxt: '#fff' },
+	                          cancelled: { icon: 'solar:close-circle-bold',  activeGrad: `linear-gradient(135deg,#DC2626,${CUSTOMER_UI.danger})`, activeTxt: '#fff' },
                         };
                         const m = meta[f];
                         const isActive = bookingsFilter === f;
@@ -2776,8 +2986,8 @@ export default function CustomerDashboard() {
                       </div>
                     ) : filteredBookings.length === 0 ? (
                       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-14 text-center flex flex-col items-center">
-                        <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
-                          <iconify-icon icon="solar:calendar-minimalistic-linear" width="32" style={{ color: '#6366f1' }}></iconify-icon>
+	                        <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
+	                          <iconify-icon icon="solar:calendar-minimalistic-linear" width="32" style={{ color: CUSTOMER_UI.primary }}></iconify-icon>
                         </div>
                         <h3 className="font-semibold text-slate-900 text-[16px] mb-1">
                           {bookingsFilter === 'all' ? 'No bookings yet' : `No ${bookingsFilter} bookings`}
@@ -2791,7 +3001,7 @@ export default function CustomerDashboard() {
                         {bookingsFilter === 'all' && (
                           <button
                             onClick={() => openBookingModal()}
-                            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm"
+	                            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-all shadow-sm"
                           >
                             <iconify-icon icon="solar:add-circle-linear" width="16"></iconify-icon>
                             Book Your First Service
@@ -2935,18 +3145,55 @@ export default function CustomerDashboard() {
                             </div>
                           );
                         })}
+                        {bookingsFilter === 'all' && myBookings.length > 0 && myBookings.length <= 3 && (
+                          <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-5 shadow-sm transition-colors hover:bg-blue-50 sm:flex sm:items-center sm:justify-between sm:gap-6">
+                            <div className="flex items-start gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 ring-1 ring-blue-100">
+                                <iconify-icon icon="solar:shield-star-linear" width="20"></iconify-icon>
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">Book another service to keep your vehicle protected.</p>
+                                <p className="mt-1 text-xs leading-relaxed text-slate-500">Schedule your next visit whenever your ride needs a refresh.</p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => openBookingModal()}
+                              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 sm:mt-0 sm:w-auto"
+                            >
+                              <iconify-icon icon="solar:add-circle-linear" width="16"></iconify-icon>
+                              New Booking
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                 );
               })()
+              )
+            ) : activeSection === 'services' ? (
+              servicesSectionLoading ? (
+                <CustomerServicesSkeleton />
+              ) : (
+              <div className="customer-content-fade-in pb-10">
+                <CustomerDashboardServicesShowcase
+                  vehicles={vehicles}
+                  packages={bookingPackages}
+                  getVehiclePriceKey={getVehiclePriceKey}
+                  onOpenBooking={(opts) => {
+                    void openBookingModal(undefined, opts?.presetPackageId ? { presetPackageId: opts.presetPackageId } : undefined);
+                  }}
+                />
+              </div>
+              )
             ) : activeSection === 'scan' ? (
               <div className="space-y-8 pb-10">
                 <section
-                  className={`relative overflow-hidden rounded-[32px] border bg-white shadow-[0_24px_80px_rgba(15,23,42,0.06)] ${highendScanEnabled ? 'border-[#a855f7]/40' : 'border-slate-200'}`}
+                  className={`relative overflow-hidden rounded-[32px] border bg-white shadow-[0_24px_80px_rgba(15,23,42,0.06)] ${highendScanEnabled ? 'border-[#60a5fa]/40' : 'border-slate-200'}`}
                   style={{
                     background: highendScanEnabled
-                      ? 'linear-gradient(145deg, #0c0a1e 0%, #1e1b4b 15%, #2e1f5e 30%, #3b2566 45%, #1a1636 70%, #0f0d1a 100%)'
+                      ? 'linear-gradient(145deg, #0c0a1e 0%, #172554 15%, #1e40af 30%, #1d4ed8 45%, #1a1636 70%, #0f0d1a 100%)'
                       : 'linear-gradient(135deg, #fffdf8 0%, #ffffff 45%, #eef6ff 100%)'
                   }}
                 >
@@ -2956,9 +3203,9 @@ export default function CustomerDashboard() {
                   <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(110deg, transparent 25%, rgba(255,255,255,0.45) 45%, transparent 65%)', transform: 'translateX(-120%)', animation: 'heroSweep 7s ease-in-out infinite' }} />
                   {highendScanEnabled && (
                     <>
-                      <div className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-gradient-to-br from-violet-500/20 via-purple-500/15 to-amber-500/10 blur-3xl" style={{ animation: 'heroFloatA 14s ease-in-out infinite' }} />
+                      <div className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-gradient-to-br from-blue-500/20 via-blue-500/15 to-amber-500/10 blur-3xl" style={{ animation: 'heroFloatA 14s ease-in-out infinite' }} />
                       <div className="pointer-events-none right-10 top-0 h-64 w-64 rounded-full bg-gradient-to-bl from-amber-400/10 via-rose-400/5 to-transparent blur-3xl" style={{ animation: 'heroFloatB 11s ease-in-out infinite reverse' }} />
-                      <div className="pointer-events-none absolute -right-20 bottom-20 h-56 w-56 rounded-full bg-gradient-to-tl from-violet-600/15 to-transparent blur-3xl" style={{ animation: 'heroFloatA 9s ease-in-out infinite' }} />
+                      <div className="pointer-events-none absolute -right-20 bottom-20 h-56 w-56 rounded-full bg-gradient-to-tl from-blue-600/15 to-transparent blur-3xl" style={{ animation: 'heroFloatA 9s ease-in-out infinite' }} />
                       <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(139,92,246,0.12) 0%, transparent 60%)' }} />
                       <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(180deg, transparent 0%, rgba(251,191,36,0.02) 50%, transparent 100%)' }} />
                       <div className="pointer-events-none absolute inset-0 border rounded-[32px]" style={{ borderColor: 'rgba(251,191,36,0.08)' }} />
@@ -2967,13 +3214,13 @@ export default function CustomerDashboard() {
 
                   <div className="relative grid gap-8 p-6 sm:p-8 lg:grid-cols-[1.15fr,0.85fr] lg:p-10">
                     <div className="max-w-3xl">
-                      <div className={`inline-flex items-center gap-3 rounded-full border px-5 py-2 text-[10px] font-semibold uppercase tracking-[0.32em] shadow-sm backdrop-blur ${highendScanEnabled ? 'border-violet-500/40 bg-violet-950/60 text-violet-200' : 'border-slate-200 bg-white/80 text-slate-500'}`}>
+                      <div className={`inline-flex items-center gap-3 rounded-full border px-5 py-2 text-[10px] font-semibold uppercase tracking-[0.32em] shadow-sm backdrop-blur ${highendScanEnabled ? 'border-blue-500/40 bg-blue-950/60 text-blue-200' : 'border-slate-200 bg-white/80 text-slate-500'}`}>
                         <span className={`h-1.5 w-1.5 rounded-full ${highendScanEnabled ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24] animate-pulse' : 'bg-emerald-500'}`} />
                         {highendScanEnabled ? 'Concierge AI Suite • Global Standards • Bespoke Analysis' : 'AI Based Damage Detection • Cost Estimation • AR Visualization'}
                       </div>
                       {highendScanEnabled && (
                         <div className="mt-4 flex flex-wrap items-center gap-3">
-                          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-gradient-to-r from-amber-950/70 to-amber-900/50 px-5 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-300 shadow-[0_0_30px_rgba(251,191,36,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]" style={{ animation: 'glowPulse 2.5s ease-in-out infinite' }}>
+                          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-gradient-to-r from-amber-950/70 to-amber-900/50 px-5 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-300 shadow-[0_0_30px_rgba(251,191,36,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]" style={{ animation: 'glowPulse 2.5s ease-in-out infinite' }}>
                             <iconify-icon icon="solar:crown-bold" width="13" className="text-amber-400" />
                             <span className="text-amber-200">Maison Class</span>
                             <span className="ml-1 text-amber-500/60">|</span>
@@ -2992,7 +3239,7 @@ export default function CustomerDashboard() {
                           : 'Scan your vehicle, map the damage, and preview the repair outcome in one premium flow.'}
                       </h2>
 
-                      <p className={`mt-5 max-w-2xl text-[16px] leading-[1.7] ${highendScanEnabled ? 'text-violet-300/80' : 'text-slate-600'}`}>
+                      <p className={`mt-5 max-w-2xl text-[16px] leading-[1.7] ${highendScanEnabled ? 'text-blue-300/80' : 'text-slate-600'}`}>
                         {highendScanEnabled
                           ? (
                             <>
@@ -3009,13 +3256,13 @@ export default function CustomerDashboard() {
                             { icon: 'solar:clock-square-bold', label: '24/7 Availability', desc: 'Around the clock booking' },
                             { icon: 'solar:certificate-bold', label: 'Lifetime Guarantee', desc: 'Service warranty included' },
                           ].map((item) => (
-                            <div key={item.label} className="flex items-center gap-2.5 rounded-2xl border border-violet-500/25 bg-violet-950/30 px-3.5 py-2.5">
+                            <div key={item.label} className="flex items-center gap-2.5 rounded-2xl border border-blue-500/25 bg-blue-950/30 px-3.5 py-2.5">
                               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-600/10 border border-amber-500/30">
                                 <iconify-icon icon={item.icon} width="16" className="text-amber-400" />
                               </div>
                               <div>
                                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300/90">{item.label}</p>
-                                <p className="text-[9px] text-violet-400/60">{item.desc}</p>
+                                <p className="text-[9px] text-blue-400/60">{item.desc}</p>
                               </div>
                             </div>
                           ))}
@@ -3023,25 +3270,25 @@ export default function CustomerDashboard() {
                       )}
 
                       <div className="mt-6 flex flex-wrap items-center gap-3">
-                        <div className={`flex items-center gap-3 rounded-2xl border px-4 py-3.5 shadow-sm ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/40' : 'border-slate-200 bg-white'}`}>
+                        <div className={`flex items-center gap-3 rounded-2xl border px-4 py-3.5 shadow-sm ${highendScanEnabled ? 'border-blue-500/30 bg-blue-950/40' : 'border-slate-200 bg-white'}`}>
                           <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${highendScanEnabled ? 'bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-white shadow-lg' : 'bg-slate-900 text-white'}`}>
                             <iconify-icon icon="solar:car-linear" width="20"></iconify-icon>
                           </div>
                           <div>
-                            <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>Selected Vehicle</p>
+                            <p className={`text-[10px] font-bold uppercase tracking-[0.08em] ${highendScanEnabled ? 'text-blue-300' : 'text-slate-400'}`}>Selected Vehicle</p>
                             <p className={`text-[15px] font-semibold ${highendScanEnabled ? 'text-white' : 'text-slate-900'}`}>
                               {selectedScanVehicle ? selectedScanVehicle.name : 'No vehicle selected'}
                             </p>
-                            <p className={`text-[11px] ${highendScanEnabled ? 'text-violet-400/60' : 'text-slate-500'}`}>
+                            <p className={`text-[11px] ${highendScanEnabled ? 'text-blue-400/60' : 'text-slate-500'}`}>
                               {selectedScanVehicle ? [selectedScanVehicle.plate, selectedScanVehicle.type].filter(Boolean).join(' • ') : 'Add a vehicle to begin'}
                             </p>
                           </div>
                         </div>
 
                         {SCAN_HIGHLIGHTS.map((highlight) => (
-                          <div key={highlight.label} className={`rounded-2xl border px-4 py-3 shadow-sm backdrop-blur ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/40' : 'border-slate-200 bg-white/85'}`}>
+                          <div key={highlight.label} className={`rounded-2xl border px-4 py-3 shadow-sm backdrop-blur ${highendScanEnabled ? 'border-blue-500/30 bg-blue-950/40' : 'border-slate-200 bg-white/85'}`}>
                             <p className={`text-xl font-semibold tracking-[-0.03em] ${highendScanEnabled ? 'text-amber-400' : 'text-slate-950'}`}>{highlight.value}</p>
-                            <p className={`text-[10px] uppercase tracking-[0.2em] ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-400'}`}>{highlight.label}</p>
+                            <p className={`text-[10px] uppercase tracking-[0.08em] ${highendScanEnabled ? 'text-blue-300/70' : 'text-slate-400'}`}>{highlight.label}</p>
                           </div>
                         ))}
                         <button
@@ -3049,8 +3296,8 @@ export default function CustomerDashboard() {
                           disabled={scanAnalyzing || scanIsHighend}
                           onClick={() => setScanMode((prev) => (prev === 'highend' ? 'auto' : 'highend'))}
                           className={`rounded-2xl border px-4 py-3 text-left transition-all group ${highendScanEnabled
-                            ? 'border-amber-500/40 bg-gradient-to-br from-amber-950/60 via-violet-950/40 to-violet-900/30 text-amber-200 hover:border-amber-400 hover:shadow-[0_0_25px_rgba(251,191,36,0.25)]'
-                            : 'border-slate-200 bg-white text-slate-600 hover:-translate-y-0.5 hover:border-violet-300 hover:text-violet-700'} ${scanAnalyzing || scanIsHighend ? 'cursor-not-allowed opacity-70' : 'hover:-translate-y-0.5'}`}
+                            ? 'border-amber-500/40 bg-gradient-to-br from-amber-950/60 via-blue-950/40 to-blue-900/30 text-amber-200 hover:border-amber-400 hover:shadow-[0_0_25px_rgba(251,191,36,0.25)]'
+                            : 'border-slate-200 bg-white text-slate-600 hover:-translate-y-0.5 hover:border-blue-300 hover:text-blue-700'} ${scanAnalyzing || scanIsHighend ? 'cursor-not-allowed opacity-70' : 'hover:-translate-y-0.5'}`}
                           title={scanIsHighend ? 'Auto enabled for high-end vehicle' : 'Toggle premium scan profile'}
                         >
                           <div className="flex items-center gap-2.5">
@@ -3058,7 +3305,7 @@ export default function CustomerDashboard() {
                               <iconify-icon icon="solar:crown-bold" width="15" className={highendScanEnabled ? 'text-amber-400' : 'text-slate-400'}></iconify-icon>
                             </div>
                             <div>
-                              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-500">Scan Profile</p>
+                              <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-slate-500">Scan Profile</p>
                               <p className="text-sm font-semibold">{highendScanEnabled ? 'Maison Class' : 'Standard'}</p>
                             </div>
                           </div>
@@ -3078,7 +3325,7 @@ export default function CustomerDashboard() {
                         <button
                           onClick={() => openBookingModal(selectedScanVehicle || undefined)}
                           className={`inline-flex items-center gap-2.5 rounded-2xl border px-5 py-3.5 text-sm font-semibold shadow-sm transition-all hover:-translate-y-1 ${highendScanEnabled
-                            ? 'border-amber-500/40 bg-gradient-to-br from-violet-950/50 via-violet-900/40 to-violet-800/30 text-amber-200 hover:border-amber-400 hover:bg-violet-900/50'
+                            ? 'border-amber-500/40 bg-gradient-to-br from-blue-950/50 via-blue-900/40 to-blue-800/30 text-amber-200 hover:border-amber-400 hover:bg-blue-900/50'
                             : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:text-slate-900'}`}
                         >
                           <iconify-icon icon="solar:calendar-add-linear" width="18"></iconify-icon>
@@ -3096,12 +3343,12 @@ export default function CustomerDashboard() {
                     </div>
 
                     <div className="grid gap-4 sm:grid-cols-2">
-                      <div className={`rounded-[28px] border p-5 shadow-[0_20px_60px_rgba(15,23,42,0.05)] backdrop-blur sm:col-span-2 ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/30' : 'border-slate-200 bg-white/90'}`}>
+                      <div className={`rounded-[28px] border p-5 shadow-[0_20px_60px_rgba(15,23,42,0.05)] backdrop-blur sm:col-span-2 ${highendScanEnabled ? 'border-blue-500/30 bg-blue-950/30' : 'border-slate-200 bg-white/90'}`}>
                         <div className="flex items-start justify-between gap-4">
                           <div>
-                            <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>AI Detection Engine</p>
+                            <p className={`text-[10px] font-bold uppercase tracking-[0.08em] ${highendScanEnabled ? 'text-blue-300' : 'text-slate-400'}`}>AI Detection Engine</p>
                             <p className={`mt-2 text-[36px] font-semibold tracking-[-0.06em] ${highendScanEnabled ? 'text-amber-400' : 'text-slate-950'}`}>99.7%</p>
-                            <p className={`mt-1 text-sm leading-6 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Museum-grade precision for luxury and exotic vehicles. Sub-micron scratch detection with OEM-matched paint calibration.' : 'High-confidence visual segmentation for dents, scratches, paint fade, and chip clusters.'}</p>
+                            <p className={`mt-1 text-sm leading-6 ${highendScanEnabled ? 'text-blue-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Museum-grade precision for luxury and exotic vehicles. Sub-micron scratch detection with OEM-matched paint calibration.' : 'High-confidence visual segmentation for dents, scratches, paint fade, and chip clusters.'}</p>
                           </div>
                           <div className={`flex h-14 w-14 items-center justify-center rounded-[22px] shadow-lg ${highendScanEnabled ? 'bg-gradient-to-br from-amber-400 to-amber-600 text-white' : 'bg-slate-950 text-white'}`}>
                             <iconify-icon icon="solar:scanner-linear" width="24"></iconify-icon>
@@ -3123,22 +3370,22 @@ export default function CustomerDashboard() {
                         </div>
                       </div>
 
-                      <div className={`rounded-[28px] border p-5 shadow-sm ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/30' : 'border-slate-200 bg-white/85'}`}>
-                        <p className={`text-[11px] font-bold uppercase tracking-[0.2em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>3D Body Graph</p>
-                        <div className={`relative mt-4 flex h-32 items-center justify-center overflow-hidden rounded-[24px] border ${highendScanEnabled ? 'border-violet-500/30 bg-slate-900' : 'border-slate-100 bg-slate-50'}`}>
-                          <div className={`absolute h-24 w-24 rounded-full border ${highendScanEnabled ? 'border-violet-500/40' : 'border-sky-200'}`} />
-                          <div className={`absolute h-16 w-16 rounded-full border ${highendScanEnabled ? 'border-violet-400/60' : 'border-slate-300'}`} />
+                      <div className={`rounded-[28px] border p-5 shadow-sm ${highendScanEnabled ? 'border-blue-500/30 bg-blue-950/30' : 'border-slate-200 bg-white/85'}`}>
+                        <p className={`text-[11px] font-bold uppercase tracking-[0.08em] ${highendScanEnabled ? 'text-blue-300' : 'text-slate-400'}`}>3D Body Graph</p>
+                        <div className={`relative mt-4 flex h-32 items-center justify-center overflow-hidden rounded-[24px] border ${highendScanEnabled ? 'border-blue-500/30 bg-slate-900' : 'border-slate-100 bg-slate-50'}`}>
+                          <div className={`absolute h-24 w-24 rounded-full border ${highendScanEnabled ? 'border-blue-500/40' : 'border-sky-200'}`} />
+                          <div className={`absolute h-16 w-16 rounded-full border ${highendScanEnabled ? 'border-blue-400/60' : 'border-slate-300'}`} />
                           <div className={`flex h-12 w-12 items-center justify-center rounded-full shadow-md ${highendScanEnabled ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-white' : 'bg-white text-slate-900'}`}>
                             <iconify-icon icon="solar:car-linear" width="22" style={{ color: highendScanEnabled ? '#fff' : '#0f172a' }}></iconify-icon>
                           </div>
                         </div>
                         <p className={`mt-4 text-sm font-semibold ${highendScanEnabled ? 'text-white' : 'text-slate-900'}`}>{highendScanEnabled ? 'Precision 3D body mapping' : '3D vehicle model generation'}</p>
-                        <p className={`mt-1 text-xs leading-5 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Sub-millimeter accuracy with OEM geometry matching for luxury vehicles.' : 'Body geometry clusters detected issues into an easy-to-review digital repair map.'}</p>
+                        <p className={`mt-1 text-xs leading-5 ${highendScanEnabled ? 'text-blue-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Sub-millimeter accuracy with OEM geometry matching for luxury vehicles.' : 'Body geometry clusters detected issues into an easy-to-review digital repair map.'}</p>
                       </div>
 
-                      <div className={`rounded-[28px] border p-5 shadow-sm ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/20' : 'border-slate-200 bg-white/85'}`}>
+                      <div className={`rounded-[28px] border p-5 shadow-sm ${highendScanEnabled ? 'border-blue-500/30 bg-blue-950/20' : 'border-slate-200 bg-white/85'}`}>
                         <div className="flex items-center justify-between">
-                          <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>3D Body Matrix</p>
+                          <p className={`text-[10px] font-bold uppercase tracking-[0.08em] ${highendScanEnabled ? 'text-blue-300' : 'text-slate-400'}`}>3D Body Matrix</p>
                           {highendScanEnabled && (
                             <div className="flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-950/30 px-2 py-0.5">
                               <span className="h-1 w-1 rounded-full bg-amber-400 animate-pulse" />
@@ -3146,12 +3393,12 @@ export default function CustomerDashboard() {
                             </div>
                           )}
                         </div>
-                        <div className={`relative mt-4 flex h-32 items-center justify-center overflow-hidden rounded-[24px] border ${highendScanEnabled ? 'border-violet-500/30 bg-slate-950/50' : 'border-slate-100 bg-slate-50'}`}>
+                        <div className={`relative mt-4 flex h-32 items-center justify-center overflow-hidden rounded-[24px] border ${highendScanEnabled ? 'border-blue-500/30 bg-slate-950/50' : 'border-slate-100 bg-slate-50'}`}>
                           {highendScanEnabled ? (
                             <>
-                              <div className="absolute h-28 w-28 rounded-full border border-violet-500/30 animate-[spin_12s_linear_infinite]" />
+                              <div className="absolute h-28 w-28 rounded-full border border-blue-500/30 animate-[spin_12s_linear_infinite]" />
                               <div className="absolute h-20 w-20 rounded-full border border-amber-500/20 animate-[spin_8s_linear_infinite_reverse]" />
-                              <div className="absolute h-14 w-14 rounded-full border border-violet-400/40" />
+                              <div className="absolute h-14 w-14 rounded-full border border-blue-400/40" />
                             </>
                           ) : (
                             <>
@@ -3164,12 +3411,12 @@ export default function CustomerDashboard() {
                           </div>
                         </div>
                         <p className={`mt-4 text-sm font-semibold ${highendScanEnabled ? 'text-white' : 'text-slate-900'}`}>{highendScanEnabled ? 'Precision 3D Digital Twin' : '3D vehicle model generation'}</p>
-                        <p className={`mt-1 text-xs leading-5 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Sub-millimeter geometry with OEM database matching.' : 'Body geometry clusters detected issues into an easy-to-review digital repair map.'}</p>
+                        <p className={`mt-1 text-xs leading-5 ${highendScanEnabled ? 'text-blue-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Sub-millimeter geometry with OEM database matching.' : 'Body geometry clusters detected issues into an easy-to-review digital repair map.'}</p>
                       </div>
 
-                      <div className={`rounded-[28px] border p-5 shadow-sm ${highendScanEnabled ? 'border-violet-500/30 bg-violet-950/20' : 'border-slate-200 bg-white/85'}`}>
+                      <div className={`rounded-[28px] border p-5 shadow-sm ${highendScanEnabled ? 'border-blue-500/30 bg-blue-950/20' : 'border-slate-200 bg-white/85'}`}>
                         <div className="flex items-center justify-between">
-                          <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>AR Visualization</p>
+                          <p className={`text-[10px] font-bold uppercase tracking-[0.08em] ${highendScanEnabled ? 'text-blue-300' : 'text-slate-400'}`}>AR Visualization</p>
                           {highendScanEnabled && (
                             <span className="text-[8px] font-semibold uppercase tracking-[0.1em] text-emerald-400">Real-time</span>
                           )}
@@ -3177,7 +3424,7 @@ export default function CustomerDashboard() {
                         <div className="mt-4 grid grid-cols-2 gap-2.5">
                           <div className={`rounded-2xl border p-3 ${highendScanEnabled ? 'border-rose-500/30 bg-rose-950/20' : 'border-rose-100 bg-rose-50'}`}>
                             <div className="flex items-center justify-between">
-                              <p className={`text-[9px] font-bold uppercase tracking-[0.18em] ${highendScanEnabled ? 'text-rose-400' : 'text-rose-500'}`}>Before</p>
+                              <p className={`text-[9px] font-bold uppercase tracking-[0.08em] ${highendScanEnabled ? 'text-rose-400' : 'text-rose-500'}`}>Before</p>
                               <span className={`text-[8px] px-1.5 py-0.5 rounded ${highendScanEnabled ? 'bg-rose-950/50 text-rose-500' : 'bg-rose-100 text-rose-600'}`}>Original</span>
                             </div>
                             <div className={`mt-3 flex h-16 items-center justify-center rounded-2xl ${highendScanEnabled ? 'bg-slate-900/60 border border-rose-500/20' : 'bg-white'}`}>
@@ -3186,7 +3433,7 @@ export default function CustomerDashboard() {
                           </div>
                           <div className={`rounded-2xl border p-3 ${highendScanEnabled ? 'border-emerald-500/30 bg-emerald-950/20' : 'border-emerald-100 bg-emerald-50'}`}>
                             <div className="flex items-center justify-between">
-                              <p className={`text-[9px] font-bold uppercase tracking-[0.18em] ${highendScanEnabled ? 'text-emerald-400' : 'text-emerald-500'}`}>After</p>
+                              <p className={`text-[9px] font-bold uppercase tracking-[0.08em] ${highendScanEnabled ? 'text-emerald-400' : 'text-emerald-500'}`}>After</p>
                               <span className={`text-[8px] px-1.5 py-0.5 rounded ${highendScanEnabled ? 'bg-emerald-950/50 text-emerald-500' : 'bg-emerald-100 text-emerald-600'}`}>Restored</span>
                             </div>
                             <div className={`mt-3 flex h-16 items-center justify-center rounded-2xl ${highendScanEnabled ? 'bg-slate-900/60 border border-emerald-500/20' : 'bg-white'}`}>
@@ -3195,19 +3442,19 @@ export default function CustomerDashboard() {
                           </div>
                         </div>
                         <p className={`mt-4 text-sm font-semibold ${highendScanEnabled ? 'text-white' : 'text-slate-900'}`}>{highendScanEnabled ? 'Augmented Reality Simulation' : 'Before and after visualization'}</p>
-                        <p className={`mt-1 text-xs leading-5 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Factory-finish quality preview with color-matched rendering.' : 'AR shows the projected finish quality before you approve the work.'}</p>
+                        <p className={`mt-1 text-xs leading-5 ${highendScanEnabled ? 'text-blue-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Factory-finish quality preview with color-matched rendering.' : 'AR shows the projected finish quality before you approve the work.'}</p>
                       </div>
                     </div>
                   </div>
                 </section>
 
                 <div className="grid gap-6 xl:grid-cols-[1.08fr,0.92fr]">
-                  <section className={`rounded-[30px] border p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] ${highendScanEnabled ? 'border-violet-500/30 bg-slate-950/70' : 'border-slate-200 bg-white'}`}>
+                  <section className={`rounded-[30px] border p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] ${highendScanEnabled ? 'border-blue-500/30 bg-slate-950/70' : 'border-slate-200 bg-white'}`}>
                     <div className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: highendScanEnabled ? 'rgba(139,92,246,0.2)' : '#f1f5f9' }}>
                       <div>
-                        <p className={`text-[10px] font-bold uppercase tracking-[0.24em] ${highendScanEnabled ? 'text-violet-300' : 'text-slate-400'}`}>{highendScanEnabled ? 'Private Image Transfer' : 'AI Inspection (upload)'}</p>
+                        <p className={`text-[10px] font-bold uppercase tracking-[0.08em] ${highendScanEnabled ? 'text-blue-300' : 'text-slate-400'}`}>{highendScanEnabled ? 'Private Image Transfer' : 'AI Inspection (upload)'}</p>
                         <h3 className={`mt-2 text-[28px] font-semibold tracking-[-0.04em] ${highendScanEnabled ? 'text-white' : 'text-slate-950'}`}>{highendScanEnabled ? 'Secure Image Upload' : 'Upload your scan set'}</h3>
-                        <p className={`mt-1 text-sm leading-6 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Encrypted transfer. Your privacy is paramount.' : 'Use clear front, rear, side, and angled shots. Upload up to 6 images for the best AI analysis.'}</p>
+                        <p className={`mt-1 text-sm leading-6 ${highendScanEnabled ? 'text-blue-300/70' : 'text-slate-500'}`}>{highendScanEnabled ? 'Encrypted transfer. Your privacy is paramount.' : 'Use clear front, rear, side, and angled shots. Upload up to 6 images for the best AI analysis.'}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {vehicles.length > 0 ? (
@@ -3223,11 +3470,11 @@ export default function CustomerDashboard() {
                                     ? 'border-amber-500/50 bg-amber-950/40 text-amber-200'
                                     : 'border-slate-900 bg-slate-900 text-white shadow-lg'
                                   : highendScanEnabled
-                                    ? 'border-violet-500/30 bg-violet-950/30 text-violet-300'
+                                    ? 'border-blue-500/30 bg-blue-950/30 text-blue-300'
                                     : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'}`}
                               >
                                 <p className="text-xs font-semibold">{vehicle.plate || 'Vehicle'}</p>
-                                <p className={`text-[11px] ${isActive ? (highendScanEnabled ? 'text-amber-300/80' : 'text-slate-300') : (highendScanEnabled ? 'text-violet-400/60' : 'text-slate-400')}`}>{vehicle.name || vehicle.type || 'Vehicle profile'}</p>
+                                <p className={`text-[11px] ${isActive ? (highendScanEnabled ? 'text-amber-300/80' : 'text-slate-300') : (highendScanEnabled ? 'text-blue-400/60' : 'text-slate-400')}`}>{vehicle.name || vehicle.type || 'Vehicle profile'}</p>
                               </button>
                             );
                           })
@@ -3235,7 +3482,7 @@ export default function CustomerDashboard() {
                           <button
                             onClick={() => setAddVehicleOpen(true)}
                             className={`rounded-2xl border border-dashed px-4 py-2 text-sm font-semibold transition-colors ${highendScanEnabled
-                              ? 'border-violet-500/40 bg-violet-950/20 text-violet-300 hover:border-violet-400 hover:bg-violet-900/30'
+                              ? 'border-blue-500/40 bg-blue-950/20 text-blue-300 hover:border-blue-400 hover:bg-blue-900/30'
                               : 'border-slate-300 bg-slate-50 text-slate-600 hover:border-slate-400 hover:text-slate-900'}`}
                           >
                             Add vehicle profile
@@ -3265,7 +3512,7 @@ export default function CustomerDashboard() {
                           type="button"
                           onClick={openScanFilePicker}
                           className={`flex min-h-[320px] w-full flex-col items-center justify-center rounded-[26px] border px-6 text-center shadow-inner transition-transform hover:-translate-y-1 ${highendScanEnabled
-                            ? 'border-violet-500/30 bg-gradient-to-b from-slate-900/80 to-slate-950/60'
+                            ? 'border-blue-500/30 bg-gradient-to-b from-slate-900/80 to-slate-950/60'
                             : 'border-slate-100 bg-white'}`}
                         >
                           <div className={`flex h-16 w-16 items-center justify-center rounded-[24px] shadow-lg ${highendScanEnabled
@@ -3274,7 +3521,7 @@ export default function CustomerDashboard() {
                             <iconify-icon icon="solar:camera-add-linear" width="28"></iconify-icon>
                           </div>
                           <h4 className={`mt-5 text-xl font-semibold tracking-[-0.03em] ${highendScanEnabled ? 'text-white' : 'text-slate-950'}`}>{highendScanEnabled ? 'Securely transfer your images' : 'Drop your vehicle photos here'}</h4>
-                          <p className={`mt-2 max-w-md text-sm leading-6 ${highendScanEnabled ? 'text-violet-300/70' : 'text-slate-500'}`}>
+                          <p className={`mt-2 max-w-md text-sm leading-6 ${highendScanEnabled ? 'text-blue-300/70' : 'text-slate-500'}`}>
                             {highendScanEnabled
                               ? 'Private, encrypted transfer. Your images are processed with strict confidentiality.'
                               : 'AI detects defects, identifies problem areas, and prepares your 3D and AR preview from the uploaded scan set.'}
@@ -3282,10 +3529,10 @@ export default function CustomerDashboard() {
                           <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
                             {highendScanEnabled ? (
                               <>
-                                <span className="rounded-full border border-violet-500/30 bg-violet-950/30 px-3 py-1 text-[11px] font-semibold text-violet-300">Front</span>
-                                <span className="rounded-full border border-violet-500/30 bg-violet-950/30 px-3 py-1 text-[11px] font-semibold text-violet-300">Rear</span>
-                                <span className="rounded-full border border-violet-500/30 bg-violet-950/30 px-3 py-1 text-[11px] font-semibold text-violet-300">Sides</span>
-                                <span className="rounded-full border border-violet-500/30 bg-violet-950/30 px-3 py-1 text-[11px] font-semibold text-violet-300">Detail</span>
+                                <span className="rounded-full border border-blue-500/30 bg-blue-950/30 px-3 py-1 text-[11px] font-semibold text-blue-300">Front</span>
+                                <span className="rounded-full border border-blue-500/30 bg-blue-950/30 px-3 py-1 text-[11px] font-semibold text-blue-300">Rear</span>
+                                <span className="rounded-full border border-blue-500/30 bg-blue-950/30 px-3 py-1 text-[11px] font-semibold text-blue-300">Sides</span>
+                                <span className="rounded-full border border-blue-500/30 bg-blue-950/30 px-3 py-1 text-[11px] font-semibold text-blue-300">Detail</span>
                               </>
                             ) : (
                               <>
@@ -3297,7 +3544,7 @@ export default function CustomerDashboard() {
                               </>
                             )}
                           </div>
-                          <span className={`mt-6 inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] ${highendScanEnabled
+                          <span className={`mt-6 inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] ${highendScanEnabled
                             ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950'
                             : 'bg-slate-950 text-white'}`}>
                             <iconify-icon icon="solar:scanner-linear" width="16"></iconify-icon>
@@ -3322,7 +3569,7 @@ export default function CustomerDashboard() {
                                     <div className="absolute inset-0 bg-slate-950/30 backdrop-blur-[1px]" />
                                     <div className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent"
                                       style={{ animation: 'scanLine 2s ease-in-out infinite', top: '0%' }} />
-                                    <div className="absolute left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-300 to-transparent opacity-80"
+                                    <div className="absolute left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-blue-300 to-transparent opacity-80"
                                       style={{ animation: 'scanLine 2.7s ease-in-out infinite', top: '0%' }} />
                                     <div className="absolute inset-0 flex items-center justify-center">
                                       <div className="flex items-center gap-2 rounded-full bg-white/90 px-4 py-2 backdrop-blur shadow-lg">
@@ -3342,10 +3589,10 @@ export default function CustomerDashboard() {
                                 )}
 
                                 <div className="absolute left-4 right-4 top-4 flex items-start justify-between gap-3">
-                                  <span className="rounded-full bg-white/85 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-700 backdrop-blur">
+                                  <span className="rounded-full bg-white/85 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-700 backdrop-blur">
                                     {index === 0 ? 'Primary angle' : `Panel ${index + 1}`}
                                   </span>
-                                  <span className="rounded-full bg-slate-950/70 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white backdrop-blur">
+                                  <span className="rounded-full bg-slate-950/70 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-white backdrop-blur">
                                     {formatFileSize(upload.size)}
                                   </span>
                                 </div>
@@ -3396,7 +3643,7 @@ export default function CustomerDashboard() {
                                   <button
                                     onClick={startScanAnalysis}
                                     className="inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-bold text-white shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl"
-                                    style={{ background: highendScanEnabled ? 'linear-gradient(135deg, #7c3aed, #1d4ed8)' : 'linear-gradient(135deg, #0ea5e9, #6366f1)' }}
+                                    style={{ background: highendScanEnabled ? 'linear-gradient(135deg, #1d4ed8, #1d4ed8)' : 'linear-gradient(135deg, #0ea5e9, #2563eb)' }}
                                   >
                                     <iconify-icon icon="solar:scanner-linear" width="16"></iconify-icon>
                                     {highendScanEnabled ? 'Run High-End AI Analysis' : 'Run AI Analysis'}
@@ -3440,11 +3687,11 @@ export default function CustomerDashboard() {
                   <section className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)]">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">System Automatically</p>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">System Automatically</p>
                         <h3 className="mt-2 text-[26px] font-semibold tracking-[-0.04em] text-slate-950">AI analysis pipeline</h3>
                       </div>
                       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-right">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-500">Status</p>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-500">Status</p>
                         <p className="text-sm font-semibold text-emerald-700">
                           {scanAnalyzing
                             ? 'Analyzing in progress'
@@ -3481,7 +3728,7 @@ export default function CustomerDashboard() {
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-3">
                                   <p className={`text-sm font-semibold ${isActive ? 'text-white' : isComplete ? 'text-emerald-900' : 'text-slate-900'}`}>{step.title}</p>
-                                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${isActive ? 'bg-white/15 text-white' : isComplete ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-400'}`}>
+                                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${isActive ? 'bg-white/15 text-white' : isComplete ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-400'}`}>
                                     {isComplete ? 'Done' : isActive ? (scanAnalyzing ? 'Running' : step.tag) : step.tag}
                                   </span>
                                 </div>
@@ -3502,7 +3749,7 @@ export default function CustomerDashboard() {
 
                 <div className="grid gap-6 xl:grid-cols-[0.9fr,0.9fr,0.85fr]">
                   <section className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)]">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">AI Based Damage Detection</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">AI Based Damage Detection</p>
                     <h3 className="mt-2 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">Detected problem areas</h3>
                     <p className="mt-2 text-sm leading-6 text-slate-500">The system automatically identifies affected panels and suggests the recommended repair areas.</p>
 
@@ -3531,7 +3778,7 @@ export default function CustomerDashboard() {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-3">
                               <p className="text-sm font-semibold text-slate-900">{zone.title}</p>
-                              <span className="rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em]" style={{ background: zone.bg, color: zone.tone }}>
+                              <span className="rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ background: zone.bg, color: zone.tone }}>
                                 Recommended
                               </span>
                             </div>
@@ -3543,15 +3790,15 @@ export default function CustomerDashboard() {
                   </section>
 
                   <section className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)]">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">AR Shows Repair Simulation</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">AR Shows Repair Simulation</p>
                     <h3 className="mt-2 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">Before and after visualization</h3>
                     <p className="mt-2 text-sm leading-6 text-slate-500">Review the projected finish quality after repainting, blending, and final correction.</p>
 
                     <div className="mt-6 grid gap-3 sm:grid-cols-2">
                       <div className="rounded-[26px] border border-rose-100 bg-rose-50 p-4">
                         <div className="flex items-center justify-between gap-3">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-rose-500">Before</p>
-                          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-rose-500">Damage visible</span>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-rose-500">Before</p>
+                          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-rose-500">Damage visible</span>
                         </div>
                         <div className="mt-4 flex h-32 items-center justify-center rounded-[22px] border border-white/80 bg-white shadow-sm">
                           <iconify-icon icon="solar:car-linear" width="48" style={{ color: '#ef4444' }}></iconify-icon>
@@ -3565,8 +3812,8 @@ export default function CustomerDashboard() {
 
                       <div className="rounded-[26px] border border-emerald-100 bg-emerald-50 p-4">
                         <div className="flex items-center justify-between gap-3">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-500">After</p>
-                          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-500">Repair simulation</span>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-500">After</p>
+                          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-500">Repair simulation</span>
                         </div>
                         <div className="mt-4 flex h-32 items-center justify-center rounded-[22px] border border-white/80 bg-white shadow-sm">
                           <iconify-icon icon="solar:car-linear" width="48" style={{ color: '#10b981' }}></iconify-icon>
@@ -3593,20 +3840,20 @@ export default function CustomerDashboard() {
                   </section>
 
                   <section className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)]">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">System Calculates Price</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">System Calculates Price</p>
                     <h3 className="mt-2 text-[24px] font-semibold tracking-[-0.04em] text-slate-950">Estimate and confirm</h3>
                     <p className="mt-2 text-sm leading-6 text-slate-500">A guided estimate is prepared from the detected damage severity and recommended service mix.</p>
 
                     <div className="mt-5 rounded-[28px] border border-slate-200 bg-[linear-gradient(145deg,#ffffff_0%,#f8fafc_100%)] p-5">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Estimated range</p>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">Estimated range</p>
                           <p className="mt-2 text-[30px] font-semibold tracking-[-0.05em] text-slate-950">
                             {formatPeso(scanPricing.low)} - {formatPeso(scanPricing.high)}
                           </p>
                         </div>
                         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-right">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-600">Recommended</p>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-amber-600">Recommended</p>
                           <p className="text-sm font-semibold text-amber-700">{formatPeso(scanEstimateTotal)}</p>
                         </div>
                       </div>
@@ -3625,7 +3872,7 @@ export default function CustomerDashboard() {
                     </div>
 
                     <div className="mt-5 rounded-[28px] border border-slate-200 bg-slate-950 p-5 text-white shadow-xl">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Customer Confirms</p>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">Customer Confirms</p>
                       <h4 className="mt-2 text-xl font-semibold tracking-[-0.03em]">Ready to move forward?</h4>
                       <p className="mt-2 text-sm leading-6 text-slate-300">
                         Confirm the AI recommendation to continue to booking with the selected vehicle and estimated cost context.
@@ -3656,58 +3903,127 @@ export default function CustomerDashboard() {
                   </section>
                 </div>
               </div>
-            ) : activeSection === 'documents' ? (
-              <div className="space-y-6 pb-10">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-[22px] font-semibold text-slate-900 tracking-tight">Documents</h2>
-                    <p className="text-sm text-slate-500 mt-0.5">Download service records, intake forms, and generated reports.</p>
-                  </div>
-                  <span className="text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded-full px-3 py-1">
-                    {documents.length} file{documents.length !== 1 ? 's' : ''}
-                  </span>
-                </div>
+	            ) : activeSection === 'documents' ? (
+              documentsSectionLoading ? (
+                <CustomerDocumentsSkeleton />
+              ) : (
+		              (() => {
+	                const signedCount = documents.filter((doc) => String(doc.status || '').toLowerCase().includes('signed')).length;
+	                const pendingCount = documents.length - signedCount;
+	                const summaryCopy = documents.length === 0
+	                  ? 'No documents yet'
+	                  : pendingCount === 0
+	                    ? `${documents.length} document${documents.length !== 1 ? 's' : ''} · All signed`
+	                    : `${signedCount} signed · ${pendingCount} pending`;
+	                return (
+	                  <div className="customer-content-fade-in space-y-6 pb-10">
+	                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+	                      <div>
+	                        <p className={CUSTOMER_SECTION_LABEL}>Documents</p>
+	                        <h2 className="mt-1 text-[28px] font-bold text-slate-900 tracking-tight">Documents</h2>
+	                        <p className="text-sm text-slate-500 mt-0.5">Download service records, intake forms, and generated reports.</p>
+	                      </div>
+	                      <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
+	                        <iconify-icon icon="solar:check-circle-bold" width="17"></iconify-icon>
+	                        {summaryCopy}
+	                      </div>
+	                    </div>
 
-                <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
-                  {documents.length === 0 ? (
-                    <div className="p-10 text-center">
-                      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-50">
-                        <iconify-icon icon="solar:document-text-linear" width="24" className="text-slate-300"></iconify-icon>
-                      </div>
-                      <p className="text-sm font-semibold text-slate-900">No documents available yet</p>
-                      <p className="text-xs text-slate-500 mt-1">Book a service or run a scan to generate your first document.</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-slate-100">
-                      {documents.map((doc) => (
-                        <div key={doc.id} className="flex items-start gap-4 p-4 hover:bg-slate-50 transition-colors">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${doc.type === 'report' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                            <iconify-icon icon={doc.icon || 'solar:file-text-bold'} width="20"></iconify-icon>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-slate-900 truncate">{doc.title}</p>
-                            <p className="text-xs text-slate-500 mt-0.5">{doc.desc}</p>
-                            <p className="text-xs text-slate-400 mt-1">{doc.date}</p>
-                          </div>
-                          <button
-                            onClick={() => downloadDocument(doc)}
-                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:border-slate-300 transition-colors"
-                          >
-                            Download
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+	                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
+	                      {[
+	                        { label: 'All', active: true },
+	                        { label: 'Signed', active: false },
+	                        { label: 'Pending', active: false },
+	                      ].map((tab) => (
+	                        <button
+	                          key={tab.label}
+	                          type="button"
+	                          disabled={!tab.active}
+	                          className={`rounded-lg px-4 py-2 text-xs font-semibold transition-colors ${
+	                            tab.active
+	                              ? 'bg-blue-600 text-white shadow-sm'
+	                              : 'cursor-not-allowed text-slate-500 hover:bg-slate-50'
+	                          }`}
+	                        >
+	                          {tab.label}
+	                        </button>
+	                      ))}
+	                    </div>
+
+	                    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+	                      {documents.length === 0 ? (
+	                        <div className="p-10 text-center">
+	                          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-50 ring-1 ring-slate-100">
+	                            <iconify-icon icon="solar:document-text-linear" width="24" className="text-slate-300"></iconify-icon>
+	                          </div>
+	                          <p className="text-sm font-semibold text-slate-900">No documents available yet</p>
+	                          <p className="text-xs text-slate-500 mt-1">Book a service or run a scan to generate your first document.</p>
+	                        </div>
+	                      ) : (
+	                        <div className="divide-y divide-slate-100">
+	                          {documents.map((doc) => {
+	                            const status = String(doc.status || '').toLowerCase();
+	                            const isSigned = status.includes('signed');
+	                            const isPending = status.includes('pending');
+	                            const tone = isSigned
+	                              ? { border: CUSTOMER_UI.success, icon: 'bg-emerald-50 text-emerald-600 ring-emerald-100', pill: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
+	                              : isPending
+	                                ? { border: CUSTOMER_UI.primary, icon: 'bg-blue-50 text-blue-600 ring-blue-100', pill: 'bg-blue-50 text-blue-700 border-blue-100' }
+	                                : { border: '#94A3B8', icon: 'bg-slate-50 text-slate-500 ring-slate-100', pill: 'bg-slate-50 text-slate-600 border-slate-200' };
+	                            return (
+	                              <div
+	                                key={doc.id}
+	                                className="flex items-start gap-4 border-l-4 p-4 transition-colors hover:bg-slate-50"
+	                                style={{ borderLeftColor: tone.border }}
+	                              >
+	                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ring-1 ring-inset ${tone.icon}`}>
+	                                  <iconify-icon icon={doc.icon || 'solar:file-text-bold'} width="20"></iconify-icon>
+	                                </div>
+	                                <div className="flex-1 min-w-0">
+	                                  <div className="flex flex-wrap items-center gap-2">
+	                                    <p className="text-[18px] font-semibold text-slate-900 truncate">{doc.title}</p>
+	                                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] ${tone.pill}`}>
+	                                      {doc.status || 'Draft'}
+	                                    </span>
+	                                  </div>
+	                                  <p className="text-sm text-slate-500 mt-0.5">{doc.desc}</p>
+	                                  <p className="text-xs text-slate-400 mt-1">{doc.date}</p>
+	                                </div>
+	                                <button
+	                                  onClick={() => downloadDocument(doc)}
+	                                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
+	                                >
+	                                  Download
+	                                </button>
+	                              </div>
+	                            );
+	                          })}
+	                        </div>
+	                      )}
+	                    </div>
+
+	                    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-500">
+	                      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm ring-1 ring-slate-100">
+	                        <iconify-icon icon="solar:folder-with-files-linear" width="21"></iconify-icon>
+	                      </span>
+	                      <span>More documents will appear here as you complete services.</span>
+	                    </div>
+	                  </div>
+	                );
+		              })()
+              )
             ) : activeSection === 'payments' ? (
-              <>
-                <CustomerPaymentHistorySection
-                  bookings={myBookings}
-                  onViewPaymentProof={setPaymentLightboxUrl}
-                  onViewReceipt={(orderId) => void openCustomerOrderReceiptPdf(orderId)}
-                />
+              paymentsSectionLoading ? (
+                <CustomerPaymentsSkeleton />
+	              ) : (
+	              <>
+	                <div className="customer-content-fade-in">
+	                  <CustomerPaymentHistorySection
+	                    bookings={myBookings}
+	                    onViewPaymentProof={setPaymentLightboxUrl}
+	                    onViewReceipt={(orderId) => void openCustomerOrderReceiptPdf(orderId)}
+	                  />
+	                </div>
 
                 {orderReceiptPdfUrl && (
                   <div
@@ -3758,47 +4074,112 @@ export default function CustomerDashboard() {
                   </div>
                 )}
               </>
-            ) : activeSection === 'rewards' ? (
-              <div className="space-y-6 pb-10">
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Loyalty</p>
-                  <h2 className="mt-2 text-[26px] font-semibold tracking-[-0.04em] text-slate-950">Rewards Center</h2>
-                  <p className="mt-1 text-sm text-slate-500">Earn points from completed services and redeem premium perks.</p>
-                  <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
-                      <iconify-icon icon="solar:star-bold" width="16"></iconify-icon>
-                      {formattedLoyaltyPoints} points
-                    </span>
-                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700">
-                      Tier: {rewardTier}
-                    </span>
-                  </div>
-                </div>
+              )
+		            ) : activeSection === 'rewards' ? (
+              rewardsSectionLoading ? (
+                <CustomerRewardsSkeleton />
+              ) : (
+		              <div className="customer-content-fade-in space-y-6 pb-10">
+	                <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+	                  <div className="relative p-6 sm:p-7">
+	                    <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-amber-100/70 blur-3xl" aria-hidden />
+	                    <p className={CUSTOMER_SECTION_LABEL}>Loyalty</p>
+	                    <div className="relative mt-2 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+	                      <div>
+	                        <h2 className="text-[28px] font-bold tracking-tight text-slate-900">Rewards Center</h2>
+	                        <p className="mt-1 text-sm leading-relaxed text-slate-500">Earn points from completed services and redeem premium perks.</p>
+	                      </div>
+	                      <div className="flex flex-wrap items-center gap-3">
+	                        <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
+	                          <iconify-icon icon="solar:star-bold" width="16"></iconify-icon>
+	                          {formattedLoyaltyPoints} points
+	                        </span>
+	                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700">
+	                          Tier: {rewardTier}
+	                        </span>
+	                      </div>
+	                    </div>
+	                    <div className="relative mt-6 rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+	                      <div className="mb-3 flex items-center justify-between gap-4">
+	                        <div>
+	                          <p className="text-sm font-semibold text-slate-900">Silver at {rewardBannerNextTier.min} points</p>
+	                          <p className="text-xs text-slate-500">
+	                            {rewardBannerPointsRemaining > 0
+	                              ? `${rewardBannerPointsRemaining} points until ${rewardBannerNextTier.name}`
+	                              : `${rewardBannerNextTier.name} milestone reached`}
+	                          </p>
+	                        </div>
+	                        <p className="text-2xl font-bold tabular-nums text-amber-600">{formattedLoyaltyPoints}</p>
+	                      </div>
+	                      <div className="h-3 overflow-hidden rounded-full bg-white ring-1 ring-amber-100">
+	                        <div
+	                          className="h-full rounded-full bg-amber-500 transition-all"
+	                          style={{ width: `${rewardBannerProgressPct}%` }}
+	                        />
+	                      </div>
+	                    </div>
+	                  </div>
+	                </section>
 
-                <div className="grid gap-4 md:grid-cols-3">
-                  {rewardCatalog.map((reward) => {
-                    const canRedeem = customerStats.loyaltyPoints >= reward.points;
-                    return (
-                      <div key={reward.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">{reward.points} pts</p>
-                        <h3 className="mt-2 text-base font-semibold text-slate-900">{reward.title}</h3>
-                        <p className="mt-1 text-xs text-slate-500">{reward.desc}</p>
-                        <button
-                          onClick={() => redeemReward(reward)}
-                          className={`mt-4 w-full rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${canRedeem ? 'bg-slate-900 text-white hover:bg-slate-800' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-                        >
-                          {canRedeem ? `Redeem (${reward.code})` : 'Not enough points'}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-                {rewardRedeemMessage && (
-                  <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-700">
-                    {rewardRedeemMessage}
-                  </div>
-                )}
-              </div>
+	                <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+	                  <p className={CUSTOMER_SECTION_LABEL}>How to earn points</p>
+	                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+	                    {rewardEarnCards.map((card) => (
+	                      <div key={card.title} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:bg-slate-50">
+	                        <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl ring-1 ring-inset ${card.tone}`}>
+	                          <iconify-icon icon={card.icon} width="19"></iconify-icon>
+	                        </div>
+	                        <h3 className="text-[18px] font-semibold text-slate-900">{card.title}</h3>
+	                        <p className="mt-1 text-sm font-semibold text-amber-600">{card.value}</p>
+	                      </div>
+	                    ))}
+	                  </div>
+	                </section>
+
+	                <div className="grid gap-4 md:grid-cols-3">
+	                  {rewardCatalog.map((reward) => {
+	                    const canRedeem = customerStats.loyaltyPoints >= reward.points;
+	                    const accent = rewardCardAccents[reward.id] || rewardCardAccents['rw-1'];
+	                    return (
+	                      <div
+	                        key={reward.id}
+	                        className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-colors hover:bg-slate-50"
+	                        style={{ borderTop: `4px solid ${accent.border}` }}
+	                      >
+	                        <div className="mb-4 flex items-center justify-between gap-3">
+	                          <span className="rounded-full bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+	                            {reward.points} pts
+	                          </span>
+	                          <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">
+	                            <iconify-icon icon={accent.icon} width="13" style={{ color: accent.border }}></iconify-icon>
+	                            {accent.label}
+	                          </span>
+	                        </div>
+	                        <h3 className="text-[18px] font-semibold text-slate-900">{reward.title}</h3>
+	                        <p className="mt-1 text-sm leading-relaxed text-slate-500">{reward.desc}</p>
+	                        <button
+	                          onClick={() => redeemReward(reward)}
+	                          disabled={!canRedeem}
+	                          className={`mt-5 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
+	                            canRedeem
+	                              ? 'bg-blue-600 text-white hover:bg-blue-700'
+	                              : 'cursor-not-allowed border border-slate-200 bg-white text-slate-500'
+	                          }`}
+	                        >
+	                          {!canRedeem && <iconify-icon icon="solar:lock-keyhole-linear" width="15"></iconify-icon>}
+	                          {canRedeem ? `Redeem (${reward.code})` : 'Not enough points'}
+	                        </button>
+	                      </div>
+	                    );
+	                  })}
+	                </div>
+	                {rewardRedeemMessage && (
+	                  <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-700">
+	                    {rewardRedeemMessage}
+	                  </div>
+	                )}
+		              </div>
+              )
             ) : activeSection === 'tracker' ? (
               /* ═══ Live Tracker ═══ */
               (() => {
@@ -3871,7 +4252,7 @@ export default function CustomerDashboard() {
                         </div>
                         <h3 className="text-lg font-semibold text-slate-900 mb-1">No Active Service</h3>
                         <p className="text-sm text-slate-500 mb-4">You don't have a vehicle currently being serviced. Book a service to start tracking.</p>
-                        <button onClick={() => nav('bookings')} className="px-5 py-2 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-700 transition-colors">
+                        <button onClick={() => nav('bookings')} className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors">
                           View My Bookings
                         </button>
                       </div>
@@ -3986,7 +4367,7 @@ export default function CustomerDashboard() {
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                             <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-3">Assigned Specialist</p>
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-sm">
+                              <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-sm">
                                 {((activeBooking.assignedDetailer as any).name || 'S').charAt(0).toUpperCase()}
                               </div>
                               <div>
@@ -4010,11 +4391,11 @@ export default function CustomerDashboard() {
                 );
               })()
             ) : activeSection === 'settings' ? (
-              <div className="max-w-2xl mx-auto space-y-8 pb-12">
-                <div>
-                  <h2 className="text-xl font-semibold text-slate-900 mb-1">Account Settings</h2>
-                  <p className="text-sm text-slate-500">Manage your profile, security, and notification preferences.</p>
-                </div>
+	              <div className="max-w-2xl mx-auto space-y-8 pb-12">
+	                <div>
+	                  <h2 className="text-[28px] font-bold text-slate-900 mb-1">Account Settings</h2>
+	                  <p className="text-sm text-slate-500">Manage your profile, security, and notification preferences.</p>
+	                </div>
 
                 {/* Profile */}
                 <div className="bg-white rounded-lg border border-slate-200 shadow-sm">
@@ -4072,7 +4453,7 @@ export default function CustomerDashboard() {
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1.5">Full Name</label>
                       <input value={profile.fullName} onChange={e => { setProfile(p => ({ ...p, fullName: e.target.value })); setProfileErrors(er => ({ ...er, fullName: '' })); }}
-                        className={`w-full px-3 py-2 rounded-md border text-sm bg-white text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors ${profileErrors.fullName ? 'border-red-400 bg-red-50' : 'border-slate-200'}`}
+                        className={`w-full px-3 py-2 rounded-md border text-sm bg-white text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors ${profileErrors.fullName ? 'border-red-400 bg-red-50' : 'border-slate-200'}`}
                         placeholder="Your full name" />
                       {profileErrors.fullName && <p className="mt-1 text-xs text-red-600 flex items-center gap-1"><iconify-icon icon="solar:danger-circle-linear" width="14"></iconify-icon>{profileErrors.fullName}</p>}
                     </div>
@@ -4088,12 +4469,12 @@ export default function CustomerDashboard() {
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1.5">Phone Number</label>
                       <input type="tel" value={profile.phone} onChange={e => { setProfile(p => ({ ...p, phone: e.target.value })); setProfileErrors(er => ({ ...er, phone: '' })); }}
-                        className={`w-full px-3 py-2 rounded-md border text-sm bg-white text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors ${profileErrors.phone ? 'border-red-400 bg-red-50' : 'border-slate-200'}`}
+                        className={`w-full px-3 py-2 rounded-md border text-sm bg-white text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors ${profileErrors.phone ? 'border-red-400 bg-red-50' : 'border-slate-200'}`}
                         placeholder="+63 912 000 0000" />
                       {profileErrors.phone && <p className="mt-1 text-xs text-red-600 flex items-center gap-1"><iconify-icon icon="solar:danger-circle-linear" width="14"></iconify-icon>{profileErrors.phone}</p>}
                     </div>
                     <div className="flex justify-end pt-1">
-                      <button type="submit" className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm">Save Changes</button>
+	                      <button type="submit" className={CUSTOMER_PRIMARY_BUTTON}>Save Changes</button>
                     </div>
                   </form>
                 </div>
@@ -4120,7 +4501,7 @@ export default function CustomerDashboard() {
                           <div className="relative">
                             <input type={showPass[key] ? 'text' : 'password'} value={passwords[key]}
                               onChange={e => { setPasswords(p => ({ ...p, [key]: e.target.value })); setPasswordErrors(er => ({ ...er, [key]: '' })); }}
-                              className={`w-full px-3 py-2 pr-10 rounded-md border text-sm bg-white text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors ${passwordErrors[key] ? 'border-red-400 bg-red-50' : 'border-slate-200'}`}
+                              className={`w-full px-3 py-2 pr-10 rounded-md border text-sm bg-white text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors ${passwordErrors[key] ? 'border-red-400 bg-red-50' : 'border-slate-200'}`}
                               placeholder="••••••••" />
                             <button type="button" onClick={() => setShowPass(p => ({ ...p, [key]: !p[key] }))} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                               <iconify-icon icon={showPass[key] ? 'solar:eye-closed-linear' : 'solar:eye-linear'} width="16"></iconify-icon>
@@ -4135,7 +4516,7 @@ export default function CustomerDashboard() {
                       <button
                         type="submit"
                         disabled={passwordSubmitting}
-                        className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:pointer-events-none text-white text-sm font-medium rounded-md transition-colors shadow-sm"
+	                        className={`${CUSTOMER_PRIMARY_BUTTON} disabled:opacity-60 disabled:pointer-events-none`}
                       >
                         {passwordSubmitting ? 'Updating…' : 'Update Password'}
                       </button>
@@ -4161,7 +4542,7 @@ export default function CustomerDashboard() {
                           <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
                         </div>
                         <button type="button" onClick={() => setNotifs(n => ({ ...n, [key]: !n[key] }))}
-                          className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200 focus:outline-none ${notifs[key] ? 'bg-indigo-600' : 'bg-slate-200'}`}>
+                          className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200 focus:outline-none ${notifs[key] ? 'bg-blue-600' : 'bg-slate-200'}`}>
                           <span className={`inline-block h-4 w-4 mt-0.5 rounded-full bg-white shadow transform transition-transform duration-200 ${notifs[key] ? 'translate-x-4' : 'translate-x-0.5'}`} />
                         </button>
                       </div>
@@ -4169,83 +4550,48 @@ export default function CustomerDashboard() {
                   </div>
                 </div>
               </div>
+            ) : dashboardSectionLoading ? (
+              <CustomerDashboardHomeSkeleton />
             ) : (
-              <div className="space-y-8">
+              <div className="customer-content-fade-in space-y-8">
 
                 {/* Service Overview Strip */}
-                <div className="customer-overview-grid grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <div className="customer-overview-card rounded-2xl border bg-white p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <span className="text-[11px] font-semibold text-slate-500">Current Status</span>
-                        {customerStats.currentStatus ? (
-                          <div className="mt-2 flex min-w-0 items-center gap-2 text-blue-700">
-                            <span className="relative flex h-2.5 w-2.5 shrink-0">
-                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-60"></span>
-                              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"></span>
-                            </span>
-                            <span className="truncate text-base font-bold">{customerStats.currentStatus}</span>
+                <div className="customer-overview-grid grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  {dashboardOverviewCards.map((card) => (
+                    <div
+                      key={card.key}
+                      className={`customer-overview-card relative min-h-[132px] overflow-hidden rounded-2xl border border-l-4 bg-white p-4 ${card.borderClass}`}
+                    >
+                      <div className={`pointer-events-none absolute inset-y-0 left-0 w-28 bg-gradient-to-r ${card.glowClass} to-transparent`} />
+                      <div className="relative flex h-full flex-col">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{card.label}</span>
+                            <div className={`mt-2 flex min-w-0 items-center gap-2 text-base font-black ${card.valueClass}`}>
+                              {card.showPulse && (
+                                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-60"></span>
+                                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"></span>
+                                </span>
+                              )}
+                              <span className="truncate">{card.value}</span>
+                            </div>
                           </div>
-                        ) : (
-                          <span className="mt-2 block truncate text-base font-bold text-slate-900">No active service</span>
+                          <div className={`customer-overview-icon ring-1 ring-inset ${card.iconClass}`}>
+                            <iconify-icon icon={card.icon} width="19"></iconify-icon>
+                          </div>
+                        </div>
+                        {card.key === 'loyalty' && (
+                          <div className="mt-3 rounded-full bg-amber-100/80 p-0.5">
+                            <div className="h-1.5 overflow-hidden rounded-full bg-white/70">
+                              <div className="h-full rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-500" style={{ width: `${rewardTierProgressPct}%` }} />
+                            </div>
+                          </div>
                         )}
-                      </div>
-                      <div className="customer-overview-icon bg-blue-50 text-blue-600">
-                        <iconify-icon icon="solar:shield-check-linear" width="19"></iconify-icon>
+                        <p className="relative mt-auto pt-3 text-xs font-medium text-slate-400">{card.helper}</p>
                       </div>
                     </div>
-                    <p className="mt-3 text-xs text-slate-400">Live queue and service progress</p>
-                  </div>
-
-                  <div className="customer-overview-card rounded-2xl border bg-white p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <span className="text-[11px] font-semibold text-slate-500">Next Appointment</span>
-                        <span className={`mt-2 block truncate text-base font-bold ${customerStats.nextAppointment ? 'text-slate-900' : 'text-slate-400'}`}>
-                          {customerStats.nextAppointment || 'None scheduled'}
-                        </span>
-                      </div>
-                      <div className="customer-overview-icon bg-indigo-50 text-indigo-600">
-                        <iconify-icon icon="solar:calendar-mark-linear" width="19"></iconify-icon>
-                      </div>
-                    </div>
-                    <p className="mt-3 text-xs text-slate-400">Confirmed bookings appear here</p>
-                  </div>
-
-                  <div className="customer-overview-card rounded-2xl border bg-white p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <span className="text-[11px] font-semibold text-slate-500">Last Service</span>
-                        <span className={`mt-2 block truncate text-base font-bold ${customerStats.lastService ? 'text-slate-900' : 'text-slate-400'}`}>
-                          {customerStats.lastService || 'No past services'}
-                        </span>
-                      </div>
-                      <div className="customer-overview-icon bg-slate-100 text-slate-600">
-                        <iconify-icon icon="solar:history-2-linear" width="19"></iconify-icon>
-                      </div>
-                    </div>
-                    <p className="mt-3 text-xs text-slate-400">Most recent completed visit</p>
-                  </div>
-
-                  <div className="customer-overview-card rounded-2xl border bg-white p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <span className="text-[11px] font-semibold text-slate-500">Loyalty Points</span>
-                        <span className="mt-2 block truncate text-base font-bold text-slate-900">
-                          {formattedLoyaltyPoints} pts
-                        </span>
-                      </div>
-                      <div className="customer-overview-icon bg-amber-50 text-amber-600">
-                        <iconify-icon icon="solar:star-linear" width="19"></iconify-icon>
-                      </div>
-                    </div>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-amber-100">
-                      <div className="h-full rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-500" style={{ width: `${rewardTierProgressPct}%` }} />
-                    </div>
-                    <p className="mt-2 text-xs text-slate-400">
-                      {nextRewardTier ? `${new Intl.NumberFormat(undefined).format(pointsToNextRewardTier)} pts to ${nextRewardTier.name}` : 'Top rewards tier active'}
-                    </p>
-                  </div>
+                  ))}
                 </div>
 
                 {/* ── PENDING CONFIRMATION card ── */}
@@ -4266,7 +4612,7 @@ export default function CustomerDashboard() {
                       <div style={{ background: 'linear-gradient(145deg,#0c1220 0%,#121a2e 50%,#0a1018 100%)', borderRadius: 24, overflow: 'hidden', boxShadow: '0 32px 64px -16px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.07)', animation: 'pcSlide .5s ease-out', position: 'relative' }}>
                         {/* Aurora glows */}
                         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
-                          <div style={{ position: 'absolute', top: -80, right: -60, width: 320, height: 320, borderRadius: '50%', background: 'radial-gradient(circle,rgba(99,102,241,.1) 0%,transparent 65%)' }} />
+                          <div style={{ position: 'absolute', top: -80, right: -60, width: 320, height: 320, borderRadius: '50%', background: 'radial-gradient(circle,rgba(37,99,235,.1) 0%,transparent 65%)' }} />
                           <div style={{ position: 'absolute', bottom: -100, left: -40, width: 280, height: 280, borderRadius: '50%', background: 'radial-gradient(circle,rgba(245,158,11,.07) 0%,transparent 65%)' }} />
                         </div>
 
@@ -4349,7 +4695,7 @@ export default function CustomerDashboard() {
                           <p style={{ fontSize: 12, color: 'rgba(255,255,255,.4)', margin: '0 0 12px', fontWeight: 500 }}>
                             {rejectedBooking.rejectionReason || 'Your payment proof could not be verified.'}
                           </p>
-                          <button onClick={() => void openBookingModal()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.3)', borderRadius: 10, padding: '8px 16px', color: '#a5b4fc', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                          <button onClick={() => void openBookingModal()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(37,99,235,.15)', border: '1px solid rgba(37,99,235,.3)', borderRadius: 10, padding: '8px 16px', color: '#93c5fd', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                             <iconify-icon icon="solar:restart-bold" width="13"></iconify-icon>
                             Book Again
                           </button>
@@ -4802,24 +5148,29 @@ export default function CustomerDashboard() {
 
 
                 {/* Your Vehicles */}
-                <section>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-medium tracking-tight text-slate-900">Your Garage</h2>
+                <section className="rounded-[32px] border border-slate-200/80 bg-white/80 p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.35)] sm:p-6">
+                  <div className="mb-5 flex items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Garage hub</p>
+                      <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Your Garage</h2>
+                    </div>
                     <button
                       onClick={() => setAddVehicleOpen(true)}
-                      className="text-sm font-medium text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3.5 py-2 text-sm font-semibold text-blue-700 ring-1 ring-blue-100 transition-colors hover:bg-blue-100"
                     >
                       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>
                       Add Vehicle
                     </button>
                   </div>
 
+                  <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)] xl:items-stretch">
+                    <div className="min-w-0">
                   {vehicles.length === 0 ? (
-                    <div className="rounded-3xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #312e81 100%)', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+                    <div className="rounded-3xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #1e3a8a 100%)', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
                       <div className="relative px-8 py-10 flex flex-col items-center text-center overflow-hidden">
                         {/* Glow orbs */}
-                        <div className="absolute -left-8 -top-8 w-36 h-36 rounded-full blur-3xl opacity-30 pointer-events-none" style={{ background: '#818cf8' }} />
-                        <div className="absolute -right-8 -bottom-8 w-36 h-36 rounded-full blur-3xl opacity-20 pointer-events-none" style={{ background: '#6366f1' }} />
+                        <div className="absolute -left-8 -top-8 w-36 h-36 rounded-full blur-3xl opacity-30 pointer-events-none" style={{ background: '#60a5fa' }} />
+                        <div className="absolute -right-8 -bottom-8 w-36 h-36 rounded-full blur-3xl opacity-20 pointer-events-none" style={{ background: '#2563eb' }} />
                         {/* Brand logo — image only, above empty state */}
                         <div className="relative z-10 flex justify-center mb-5">
                           <img
@@ -4836,9 +5187,9 @@ export default function CustomerDashboard() {
                         <div className="flex items-center gap-2 mb-6">
                           {['Add Vehicle', 'Book Service', 'Track Live'].map((s, i) => (
                             <div key={s} className="flex items-center gap-2">
-                              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl" style={i === 0 ? { background: 'rgba(99,102,241,0.35)', border: '1px solid rgba(99,102,241,0.5)' } : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                                <span className="text-[10px] font-bold" style={{ color: i === 0 ? '#a5b4fc' : '#475569' }}>{i + 1}</span>
-                                <span className="text-[11px] font-semibold" style={{ color: i === 0 ? '#c7d2fe' : '#475569' }}>{s}</span>
+                              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl" style={i === 0 ? { background: 'rgba(37,99,235,0.35)', border: '1px solid rgba(37,99,235,0.5)' } : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                <span className="text-[10px] font-bold" style={{ color: i === 0 ? '#93c5fd' : '#475569' }}>{i + 1}</span>
+                                <span className="text-[11px] font-semibold" style={{ color: i === 0 ? '#bfdbfe' : '#475569' }}>{s}</span>
                               </div>
                               {i < 2 && <iconify-icon icon="solar:arrow-right-bold" width="12" style={{ color: '#334155' }}></iconify-icon>}
                             </div>
@@ -4847,7 +5198,7 @@ export default function CustomerDashboard() {
                         <button
                           onClick={() => setAddVehicleOpen(true)}
                           className="relative flex items-center gap-2 px-6 py-3 rounded-2xl text-white font-bold text-[14px] transition-all hover:-translate-y-0.5"
-                          style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)', boxShadow: '0 6px 20px rgba(99,102,241,0.5)' }}
+                          style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', boxShadow: '0 6px 20px rgba(37,99,235,0.5)' }}
                         >
                           <iconify-icon icon="solar:add-circle-bold" width="18"></iconify-icon>
                           Add Your First Vehicle
@@ -4855,32 +5206,9 @@ export default function CustomerDashboard() {
                       </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(260px,1fr))]">
                       {vehicles.map((v, i) => {
-                        // Map color name to a gradient theme
-                        const colorThemes: Record<string, { from: string; to: string; glow: string; text: string }> = {
-                          white: { from: '#e2e8f0', to: '#94a3b8', glow: 'rgba(148,163,184,0.35)', text: '#334155' },
-                          black: { from: '#1e293b', to: '#0f172a', glow: 'rgba(30,41,59,0.5)', text: '#94a3b8' },
-                          silver: { from: '#cbd5e1', to: '#64748b', glow: 'rgba(100,116,139,0.4)', text: '#1e293b' },
-                          gray: { from: '#94a3b8', to: '#475569', glow: 'rgba(71,85,105,0.4)', text: '#f1f5f9' },
-                          blue: { from: '#3b82f6', to: '#1d4ed8', glow: 'rgba(59,130,246,0.4)', text: '#eff6ff' },
-                          red: { from: '#ef4444', to: '#b91c1c', glow: 'rgba(239,68,68,0.4)', text: '#fff1f2' },
-                          green: { from: '#22c55e', to: '#15803d', glow: 'rgba(34,197,94,0.4)', text: '#f0fdf4' },
-                          yellow: { from: '#fbbf24', to: '#d97706', glow: 'rgba(251,191,36,0.4)', text: '#1c1917' },
-                          orange: { from: '#f97316', to: '#c2410c', glow: 'rgba(249,115,22,0.4)', text: '#fff7ed' },
-                        };
-                        const colorKey = v.color?.toLowerCase() || 'white';
-                        const theme = colorThemes[colorKey] || colorThemes['white'];
-
-                        // Map vehicle type to icon
-                        const typeIcons: Record<string, string> = {
-                          hatchback: 'solar:car-2-bold', sedan: 'solar:car-bold',
-                          midsized: 'solar:car-bold', suv: 'solar:bus-bold',
-                          'pick up': 'solar:bus-bold', pickup: 'solar:bus-bold',
-                          'large suv / van': 'solar:bus-bold', highend: 'solar:car-bold',
-                          'highend sedan': 'solar:car-bold',
-                        };
-                        const vehicleIcon = typeIcons[(v.type || '').toLowerCase()] || 'solar:car-bold';
+                        const theme = getCustomerVehicleColorTheme(v.color);
 
                         return (
                           <div
@@ -4904,10 +5232,10 @@ export default function CustomerDashboard() {
                               {/* Decorative circles */}
                               <div className="absolute -top-6 -right-6 w-32 h-32 rounded-full opacity-20" style={{ background: 'rgba(255,255,255,0.3)' }}></div>
                               <div className="absolute -bottom-8 -left-8 w-28 h-28 rounded-full opacity-10" style={{ background: 'rgba(255,255,255,0.4)' }}></div>
-                              {/* Car silhouette */}
-                              <div className="relative z-10 flex flex-col items-center justify-center">
-                                <iconify-icon icon={vehicleIcon} width="72" style={{ color: theme.text, opacity: 0.85, filter: `drop-shadow(0 4px 16px ${theme.glow})` }}></iconify-icon>
-                              </div>
+	                              {/* Car silhouette — bundled side-profile SVG per body type */}
+	                              <div className="customer-garage-card-banner-icon relative z-[3] flex flex-col items-center justify-center">
+	                                <CustomerGarageVehicleSilhouette type={v.type} color={v.color} />
+	                              </div>
                               {/* Edit pencil — top-left */}
                               <button
                                 onClick={() => openEditVehicle(v, i)}
@@ -4976,17 +5304,17 @@ export default function CustomerDashboard() {
                             <div className="customer-garage-card-body p-4 flex-1 flex flex-col bg-white/58 backdrop-blur-xl">
                               <h3 className="font-bold text-[15px] text-slate-900 leading-tight">{v.name}</h3>
                               <div className="flex items-center gap-1.5 mt-1">
-                                <div className="w-3 h-3 rounded-full border border-slate-200 shadow-sm" style={{ background: colorThemes[colorKey]?.from || '#e2e8f0' }}></div>
+                                <div className="w-3 h-3 rounded-full border border-slate-200 shadow-sm" style={{ background: theme.from }}></div>
                                 <p className="text-xs text-slate-400">{v.color || 'No color'}</p>
                               </div>
 
                               {/* Actions */}
                               <div className="customer-garage-actions mt-4 grid grid-cols-2 gap-1.5 pt-3">
-                                <button
-                                  onClick={() => openBookingModal(v)}
-                                  className="flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 px-1 rounded-2xl transition-all font-medium"
-                                  style={{ background: `linear-gradient(135deg, ${theme.from}1f, ${theme.to}2e)`, color: theme.to, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72), 0 12px 28px -24px rgba(15,23,42,0.24)' }}
-                                >
+	                                <button
+	                                  type="button"
+	                                  onClick={() => openBookingModal(v)}
+	                                  className="flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-2xl bg-blue-600 px-1 py-2 font-medium text-white shadow-[0_12px_28px_-18px_rgba(37,99,235,0.72)] transition-all hover:-translate-y-0.5 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+	                                >
                                   <iconify-icon icon="solar:calendar-add-linear" width="17"></iconify-icon>
                                   <span className="text-[10px] font-semibold text-center leading-tight">Book Service</span>
                                 </button>
@@ -5002,27 +5330,122 @@ export default function CustomerDashboard() {
                           </div>
                         );
                       })}
+                      {vehicles.length < 3 && (
+                        <button
+                          type="button"
+                          onClick={() => setAddVehicleOpen(true)}
+                          className="customer-garage-add-card flex h-full min-h-0 w-full cursor-pointer flex-col overflow-hidden rounded-[28px] border-2 border-dashed border-[#CBD5E1] bg-[#F8FAFC] text-left transition-all hover:border-solid hover:border-slate-400 hover:bg-slate-100/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                        >
+                          <div className="relative flex h-36 items-center justify-center">
+                            <iconify-icon
+                              icon="solar:add-circle-linear"
+                              width="48"
+                              style={{ color: '#94a3b8' }}
+                            ></iconify-icon>
+                          </div>
+                          <div className="flex flex-1 flex-col items-center justify-center px-4 pb-4 pt-2 text-center">
+                            <p className="text-[15px] font-semibold text-slate-700">Add a Vehicle</p>
+                            <p className="mt-1 max-w-[200px] text-xs leading-relaxed text-slate-400">
+                              Register another car to your garage
+                            </p>
+                            <div className="mt-4 min-h-[52px] w-full" aria-hidden="true" />
+                          </div>
+                        </button>
+                      )}
                     </div>
                   )}
+                    </div>
+
+                    <aside className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1 xl:self-stretch">
+                      <div className="relative overflow-hidden rounded-[28px] border border-blue-100 bg-white p-5 shadow-[0_18px_48px_-30px_rgba(37,99,235,0.34)]">
+                        <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-blue-100/80 blur-3xl" />
+                        <div className="relative">
+                          <div className="mb-4 flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Recommended for You</p>
+                              <h3 className="mt-2 text-xl font-black tracking-tight text-slate-950">
+                                {recommendedPackage?.name || 'SPF protection packages'}
+                              </h3>
+                            </div>
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+                              <iconify-icon icon="solar:shield-star-bold" width="22"></iconify-icon>
+                            </div>
+                          </div>
+                          <p className="text-sm leading-relaxed text-slate-600">Ready to protect your ride?</p>
+                          <div className="mt-5 rounded-2xl bg-slate-50/90 p-4 ring-1 ring-slate-100">
+                            <div className="flex items-end justify-between gap-3">
+                              <div>
+                                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                                  From · {recommendationVehicleLabel}
+                                </p>
+	                                <p className="mt-1 text-[28px] font-bold tracking-tight text-blue-600">
+                                  {recommendedPackage ? `₱${recommendedPackage.price.toLocaleString()}` : 'See pricing'}
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-blue-700 shadow-sm ring-1 ring-blue-100">
+                                Best entry
+                              </span>
+                            </div>
+                            {recommendedPackage?.duration && (
+                              <p className="mt-2 text-xs font-medium text-slate-500">{recommendedPackage.duration}</p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => nav('services')}
+	                            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:-translate-y-0.5 hover:bg-blue-700"
+                          >
+                            View Services
+                            <iconify-icon icon="solar:arrow-right-linear" width="17"></iconify-icon>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-[28px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.28)]">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Shortcuts</p>
+                            <h3 className="mt-1 text-base font-black tracking-tight text-slate-900">Quick Actions</h3>
+                          </div>
+                          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-50 text-slate-600 ring-1 ring-slate-100">
+                            <iconify-icon icon="solar:bolt-circle-bold" width="21"></iconify-icon>
+                          </div>
+                        </div>
+                        <div className="grid gap-2">
+                          {[
+                            { label: 'Book a Service', icon: 'solar:calendar-add-linear', onClick: () => void openBookingModal() },
+                            { label: 'View My Bookings', icon: 'solar:calendar-linear', onClick: () => nav('bookings') },
+                            { label: 'Explore Services', icon: 'solar:tag-price-linear', onClick: () => nav('services') },
+                          ].map((action) => (
+                            <button
+                              key={action.label}
+                              type="button"
+                              onClick={action.onClick}
+                              className="group flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-left transition-all hover:border-blue-100 hover:bg-blue-50/70 hover:shadow-sm"
+                            >
+                              <span className="flex min-w-0 items-center gap-3">
+                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm ring-1 ring-slate-100 transition-colors group-hover:ring-blue-100">
+                                  <iconify-icon icon={action.icon} width="18"></iconify-icon>
+                                </span>
+                                <span className="truncate text-sm font-bold text-slate-800 group-hover:text-blue-800">{action.label}</span>
+                              </span>
+                              <iconify-icon icon="solar:alt-arrow-right-linear" width="17" className="text-slate-300 transition-colors group-hover:text-blue-500"></iconify-icon>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </aside>
+                  </div>
                 </section>
 
-                {/* Service catalog — after garage: browse / plan without blocking status or booking alerts */}
-                <CustomerDashboardServicesShowcase
-                  vehicles={vehicles}
-                  packages={bookingPackages}
-                  getVehiclePriceKey={getVehiclePriceKey}
-                  onOpenBooking={(opts) => {
-                    void openBookingModal(undefined, opts?.presetPackageId ? { presetPackageId: opts.presetPackageId } : undefined);
-                  }}
-                />
-
                 {/* Bottom Grid: Documents & Activity */}
-                <div className="grid grid-cols-1 gap-8 pb-8 lg:grid-cols-2">
+                <div className="grid grid-cols-1 gap-5 pb-8 lg:grid-cols-2">
 
                   {/* AI & Documents */}
-                  <section className="min-w-0">
-                    <div className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                  <section className="min-w-0 rounded-[28px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.35)] sm:p-6">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                       <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Service files</p>
                         <h2 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">AI &amp; documents</h2>
                         <p className="mt-0.5 max-w-md text-[13px] leading-relaxed text-slate-500">
                           Service reports and intake summaries from your bookings — written for people, not internal IDs.
@@ -5031,15 +5454,15 @@ export default function CustomerDashboard() {
                       <button
                         type="button"
                         onClick={() => nav('documents')}
-                        className="shrink-0 text-[13px] font-semibold text-indigo-600 transition-colors hover:text-indigo-800"
+                        className="shrink-0 text-[13px] font-semibold text-blue-600 transition-colors hover:text-blue-800"
                       >
                         View all
                       </button>
                     </div>
 
-                    <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_12px_40px_-28px_rgba(15,23,42,0.2)]">
+                    <div className="mt-5 flex min-h-[340px] flex-col overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/60">
                       {documents.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+                        <div className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center">
                           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 ring-1 ring-slate-100">
                             <iconify-icon icon="solar:folder-with-files-linear" width="28" className="text-slate-300"></iconify-icon>
                           </div>
@@ -5049,18 +5472,18 @@ export default function CustomerDashboard() {
                           </p>
                         </div>
                       ) : (
-                        <ul className="divide-y divide-slate-100">
+                        <ul className="flex-1 divide-y divide-slate-100 bg-white/80">
                           {documents.map((doc, i) => (
                             <li key={doc.id ?? i}>
                               <button
                                 type="button"
                                 onClick={() => nav('documents')}
-                                className="group flex w-full items-start gap-4 px-5 py-4 text-left transition-colors hover:bg-slate-50/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/25 sm:gap-5 sm:px-6 sm:py-5"
+                                className="group flex w-full items-start gap-4 px-5 py-4 text-left transition-colors hover:bg-slate-50/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/25 sm:gap-5 sm:px-6 sm:py-5"
                               >
                                 <div
                                   className={`mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${
                                     doc.type === 'report'
-                                      ? 'bg-indigo-50 text-indigo-600 ring-indigo-100/90'
+                                      ? 'bg-blue-50 text-blue-600 ring-blue-100/90'
                                       : doc.type === 'waiver'
                                         ? 'bg-emerald-50 text-emerald-600 ring-emerald-100/90'
                                         : 'bg-slate-50 text-slate-600 ring-slate-100'
@@ -5069,7 +5492,7 @@ export default function CustomerDashboard() {
                                   <iconify-icon icon={doc.icon} width="22" height="22" className="shrink-0"></iconify-icon>
                                 </div>
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-[15px] font-semibold leading-snug tracking-tight text-slate-900 transition-colors group-hover:text-indigo-700">
+                                  <p className="text-[15px] font-semibold leading-snug tracking-tight text-slate-900 transition-colors group-hover:text-blue-700">
                                     {doc.title}
                                   </p>
                                   <p className="mt-1 text-[13px] leading-relaxed text-slate-600">{doc.desc}</p>
@@ -5088,21 +5511,33 @@ export default function CustomerDashboard() {
                               </button>
                             </li>
                           ))}
+                          {documents.length === 1 && (
+                            <li className="flex min-h-[136px] items-center justify-center bg-slate-50/70 px-6 py-8 text-center">
+                              <div>
+                                <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-slate-300 shadow-sm ring-1 ring-slate-100">
+                                  <iconify-icon icon="solar:folder-check-linear" width="22"></iconify-icon>
+                                </div>
+                                <p className="text-sm font-semibold text-slate-700">No other documents yet</p>
+                                <p className="mt-1 text-xs text-slate-500">Future reports and waivers will fill this panel.</p>
+                              </div>
+                            </li>
+                          )}
                         </ul>
                       )}
                     </div>
                   </section>
 
                   {/* Recent Activity */}
-                  <section className="min-w-0">
-                    <div className="mb-5">
+                  <section className="min-w-0 rounded-[28px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.35)] sm:p-6">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Timeline</p>
                       <h2 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">Recent activity</h2>
                       <p className="mt-0.5 max-w-md text-[13px] leading-relaxed text-slate-500">
                         A short timeline of each booking — newest first, with plain-language status labels.
                       </p>
                     </div>
 
-                    <div className="flex min-h-[280px] flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_12px_40px_-28px_rgba(15,23,42,0.2)]">
+                    <div className="mt-5 flex min-h-[340px] flex-col overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/60">
                       {activities.length === 0 ? (
                         <div className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center">
                           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 ring-1 ring-slate-100">
@@ -5114,10 +5549,10 @@ export default function CustomerDashboard() {
                           </p>
                         </div>
                       ) : (
-                        <div className="flex-1 px-2 py-5 sm:px-5 sm:py-6">
+                        <div className="flex-1 bg-white/80 px-2 py-5 sm:px-5 sm:py-6">
                           <ul className="relative">
                             <div
-                              className="pointer-events-none absolute bottom-2 left-[15px] top-3 w-px bg-gradient-to-b from-indigo-200 via-slate-200 to-transparent sm:left-[17px]"
+                              className="pointer-events-none absolute bottom-2 left-[15px] top-3 w-px bg-gradient-to-b from-blue-200 via-slate-200 to-transparent sm:left-[17px]"
                               aria-hidden
                             />
                             {activities.map((activity: any, i) => (
@@ -5125,7 +5560,7 @@ export default function CustomerDashboard() {
                                 <div className="relative z-10 flex w-8 shrink-0 justify-center pt-1 sm:w-9">
                                   <span
                                     className={`mt-0.5 block size-2.5 rounded-full ring-[5px] ring-white sm:size-3 ${
-                                      i === 0 ? 'bg-indigo-500 shadow-[0_0_0_1px_rgba(129,140,248,0.55)]' : 'bg-slate-300'
+                                      i === 0 ? 'bg-blue-500 shadow-[0_0_0_1px_rgba(37,99,235,0.35)]' : 'bg-slate-300'
                                     }`}
                                   />
                                 </div>
@@ -5146,6 +5581,17 @@ export default function CustomerDashboard() {
                                 </div>
                               </li>
                             ))}
+                            {activities.length === 1 && (
+                              <li className="relative flex gap-4 rounded-2xl bg-slate-50/85 px-4 py-6 sm:gap-5">
+                                <div className="relative z-10 flex w-8 shrink-0 justify-center pt-1 sm:w-9">
+                                  <span className="mt-0.5 block size-2.5 rounded-full bg-slate-300 ring-[5px] ring-white sm:size-3" />
+                                </div>
+                                <div className="-mt-0.5 min-w-0 flex-1">
+                                  <p className="text-[15px] font-semibold leading-snug tracking-tight text-slate-900">All caught up!</p>
+                                  <p className="mt-1 text-[13px] leading-relaxed text-slate-600">No other activity yet. New booking updates will appear here automatically.</p>
+                                </div>
+                              </li>
+                            )}
                           </ul>
                         </div>
                       )}
@@ -5165,9 +5611,9 @@ export default function CustomerDashboard() {
           <div className="w-full max-w-md bg-white rounded-3xl overflow-hidden shadow-2xl" style={{ boxShadow: '0 32px 80px rgba(0,0,0,0.35)' }}>
 
             {/* Header banner */}
-            <div className="relative px-8 pt-8 pb-10 text-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #312e81 100%)' }}>
-              <div className="absolute -left-10 -top-10 w-40 h-40 rounded-full opacity-20 blur-3xl" style={{ background: '#818cf8' }} />
-              <div className="absolute -right-10 -bottom-10 w-40 h-40 rounded-full opacity-20 blur-3xl" style={{ background: '#6366f1' }} />
+            <div className="relative px-8 pt-8 pb-10 text-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #1e3a8a 100%)' }}>
+              <div className="absolute -left-10 -top-10 w-40 h-40 rounded-full opacity-20 blur-3xl" style={{ background: '#60a5fa' }} />
+              <div className="absolute -right-10 -bottom-10 w-40 h-40 rounded-full opacity-20 blur-3xl" style={{ background: '#2563eb' }} />
               {/* Brand logo — no glass frame, image only */}
               <div className="relative z-10 mx-auto mb-4 flex justify-center">
                 <img
@@ -5184,18 +5630,18 @@ export default function CustomerDashboard() {
             <div className="px-6 py-6 space-y-3">
 
               {/* Step 1 — Active */}
-              <div className="flex items-start gap-4 p-4 rounded-2xl border-2" style={{ background: 'linear-gradient(135deg, #eef2ff, #f5f3ff)', borderColor: '#6366f1' }}>
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-white text-[14px]" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}>1</div>
+              <div className="flex items-start gap-4 p-4 rounded-2xl border-2" style={{ background: 'linear-gradient(135deg, #eef2ff, #f5f3ff)', borderColor: '#2563eb' }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-white text-[14px]" style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>1</div>
                 <div className="flex-1">
                   <p className="font-bold text-slate-900 text-[14px]">Add Your Vehicle</p>
                   <p className="text-[12px] text-slate-500 mt-0.5">Register your car so we can pre-fill it when you book a service.</p>
                 </div>
-                <iconify-icon icon="solar:arrow-right-bold" width="18" style={{ color: '#6366f1', marginTop: '10px', flexShrink: 0 }}></iconify-icon>
+                <iconify-icon icon="solar:arrow-right-bold" width="18" style={{ color: '#2563eb', marginTop: '10px', flexShrink: 0 }}></iconify-icon>
               </div>
 
               {/* Connector */}
               <div className="flex items-center gap-3 px-2">
-                <div className="w-[1px] h-6 ml-[28px]" style={{ background: 'linear-gradient(to bottom, #6366f1, #e2e8f0)' }} />
+                <div className="w-[1px] h-6 ml-[28px]" style={{ background: 'linear-gradient(to bottom, #2563eb, #e2e8f0)' }} />
               </div>
 
               {/* Step 2 — Locked */}
@@ -5229,7 +5675,7 @@ export default function CustomerDashboard() {
               <button
                 onClick={() => { setShowOnboarding(false); setAddVehicleOpen(true); }}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-white font-bold text-[15px] transition-all hover:-translate-y-0.5"
-                style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)', boxShadow: '0 6px 20px rgba(99,102,241,0.45)' }}
+                style={{ background: 'linear-gradient(135deg, #1d4ed8, #2563eb)', boxShadow: '0 6px 20px rgba(37,99,235,0.45)' }}
               >
                 <iconify-icon icon="solar:add-circle-bold" width="18"></iconify-icon>
                 Add My First Vehicle
@@ -5376,22 +5822,38 @@ export default function CustomerDashboard() {
             {!bookingDone && (
               <div className="shrink-0 border-0 bg-slate-50/70 px-5 py-3 shadow-[inset_0_8px_16px_-16px_rgba(15,23,42,0.06)] sm:px-6">
                 <div className="grid grid-cols-6 gap-1.5" aria-label={`Booking step ${bookingStep} of 6`}>
-                  {Array.from({ length: 6 }, (_, index) => (
-                    <div
-                      key={index}
-                      className={`h-1.5 rounded-full transition-all duration-300 ${index + 1 <= bookingStep ? 'customer-booking-progress-segment-active' : 'bg-slate-200'}`}
+                  {Array.from({ length: 6 }, (_, index) => {
+                    const stepNumber = index + 1;
+                    const isCompleted = stepNumber < bookingStep;
+                    const isActive = stepNumber === bookingStep;
+                    return (
+                      <div
+                        key={index}
+                        className="h-1.5 rounded-full transition-all duration-300"
+                        style={{
+                          background: isCompleted ? CUSTOMER_UI.success : isActive ? CUSTOMER_UI.primary : '#E2E8F0',
+                          boxShadow: isCompleted
+                            ? '0 4px 12px rgba(16,185,129,0.28)'
+                            : isActive
+                              ? '0 4px 12px rgba(37,99,235,0.35)'
+                              : 'none',
+                        }}
                       />
-                    ))}
+                    );
+                  })}
                 </div>
                 <div className="mt-2 hidden grid-cols-6 gap-1.5 sm:grid">
-                  {['Service', 'Details', 'Schedule', 'Review', 'Terms', 'Payment'].map((label, index) => (
-                    <span
-                      key={label}
-                      className={`truncate text-center text-[10px] font-bold ${index + 1 === bookingStep ? 'text-blue-700' : index + 1 < bookingStep ? 'text-slate-500' : 'text-slate-300'}`}
-                      >
-                      {label}
-                    </span>
-                  ))}
+                  {['Service', 'Details', 'Schedule', 'Review', 'Terms', 'Payment'].map((label, index) => {
+                    const stepNumber = index + 1;
+                    return (
+                      <span
+                        key={label}
+                        className={`truncate text-center text-[10px] font-bold ${stepNumber === bookingStep ? 'text-blue-700' : stepNumber < bookingStep ? 'text-emerald-600' : 'text-slate-300'}`}
+                        >
+                        {label}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -5595,33 +6057,65 @@ export default function CustomerDashboard() {
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                        {vehicles.map((v: any, i: number) => {
-                          const vKey = getVehiclePriceKey(v.type);
-                          const isActive = bookingSelectedVehicleIdx === i;
-                          return (
-                            <button
-                              key={i}
-                              type="button"
-                              onClick={() => applyBookingGarageSelection(v, i)}
-                              className={`booking-service-vehicle-card flex min-w-0 items-center gap-3 rounded-2xl border-0 px-3.5 py-3 text-left transition-all ${isActive
-                                ? 'is-active border-0 bg-slate-950 text-white'
-                                : 'border-0 bg-white text-slate-700 hover:bg-white'
-                                }`}
-                            >
-                              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${isActive ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                                <iconify-icon icon="solar:car-bold" width="17"></iconify-icon>
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-bold">{v.name}</p>
-                                <p className={`mt-0.5 text-xs font-medium ${isActive ? 'text-white/60' : 'text-slate-400'}`}>{v.type || 'Vehicle'}</p>
-                              </div>
-                              {isActive ? (
-                                <iconify-icon icon="solar:check-circle-bold" width="18" className="shrink-0 text-blue-200"></iconify-icon>
-                              ) : null}
-                            </button>
-                          );
-                        })}
+	                      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+	                        {vehicles.map((v: any, i: number) => {
+	                          const isActive = bookingSelectedVehicleIdx === i;
+	                          const theme = getCustomerVehicleColorTheme(v.color);
+	                          const typeBadgeLabel = (v.type || 'Vehicle').toUpperCase();
+	                          return (
+	                            <button
+	                              key={i}
+	                              type="button"
+	                              onClick={() => applyBookingGarageSelection(v, i)}
+	                              className={`booking-service-vehicle-card flex min-w-0 items-center gap-3 rounded-2xl border-0 px-3.5 py-3 text-left transition-all ${isActive
+	                                ? 'is-active text-slate-900'
+	                                : 'bg-white text-slate-700 hover:bg-white'
+	                                }`}
+	                                  style={{
+	                                    '--booking-vehicle-accent': theme.border,
+	                                    background: isActive
+	                                      ? `linear-gradient(90deg, ${theme.tint} 0%, #ffffff 58%)`
+	                                      : '#ffffff',
+	                                  } as React.CSSProperties}
+	                            >
+	                              <div
+                                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                                    style={{
+                                      background: theme.tint,
+                                      color: theme.border,
+                                      boxShadow: `inset 0 0 0 1px ${theme.border}26`,
+                                    }}
+                                  >
+	                                <CustomerGarageVehicleSilhouette
+	                                  type={v.type}
+	                                  size="chip"
+	                                  accentColor={theme.border}
+	                                />
+	                              </div>
+	                              <div className="min-w-0 flex-1">
+	                                <p className="truncate text-sm font-bold">{v.name}</p>
+	                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+                                      <span
+                                        className="booking-service-vehicle-type-badge inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em]"
+                                        style={{
+                                          background: theme.tint,
+                                          color: theme.border,
+                                          border: `1px solid ${theme.border}33`,
+                                        }}
+                                      >
+                                        {typeBadgeLabel}
+                                      </span>
+                                      <span className="truncate text-xs font-medium text-slate-400">
+                                        {v.color ? formatTitleCaseDisplay(v.color) : 'No color'}
+                                      </span>
+                                    </div>
+	                              </div>
+	                              {isActive ? (
+	                                <iconify-icon icon="solar:check-circle-bold" width="18" className="shrink-0 text-blue-600"></iconify-icon>
+	                              ) : null}
+	                            </button>
+	                          );
+	                        })}
                       </div>
                       )}
                     </section>
@@ -5648,32 +6142,52 @@ export default function CustomerDashboard() {
                         const currentPrice = svc.prices[bookingVehicleType] ?? null;
                         if (currentPrice === null) return null;
                         const selected = bookingForm.service === svc.id;
-                        const packageBadge =
-                          svc.id === 'spf89' ? 'Most chosen' :
-                          svc.id === 'spf101' ? 'All-in package' :
-                          svc.id === 'spf99' ? 'Best value' :
-                          'Essential care';
-                        const vehicleLabel = VEHICLE_OPTIONS.find(o => o.type === bookingVehicleType)?.label || bookingVehicleType;
-                        return (
-                          <button
+	                        const packageBadge =
+	                          svc.id === 'spf89' ? 'Most chosen' :
+	                          svc.id === 'spf101' ? 'All-in package' :
+	                          svc.id === 'spf99' ? 'Best value' :
+	                          'Essential care';
+	                        const packageAccent = getBookingPackageAccent(svc.id);
+	                        const vehicleLabel = VEHICLE_OPTIONS.find(o => o.type === bookingVehicleType)?.label || bookingVehicleType;
+	                        return (
+	                          <button
                             key={svc.id}
                             ref={(el) => { packageCardRefs.current[index] = el; }}
-                            type="button"
-                            aria-pressed={selected}
-                            onClick={() => setBookingForm(f => ({ ...f, service: svc.id, serviceName: svc.name, servicePrice: currentPrice }))}
-                            className={`booking-service-package-card w-full rounded-[22px] border-0 p-4 text-left transition-all ${selected ? 'is-selected border-0 bg-blue-50/50' : 'border-0 bg-white'}`}
-                          >
+	                            type="button"
+	                            aria-pressed={selected}
+	                            onClick={() => setBookingForm(f => ({ ...f, service: svc.id, serviceName: svc.name, servicePrice: currentPrice }))}
+	                            className={`booking-service-package-card w-full rounded-[22px] border-0 p-4 text-left transition-all ${selected ? 'is-selected border-0' : 'border-0 bg-white'}`}
+	                                style={{
+	                                  '--booking-package-accent': packageAccent.border,
+	                                  '--booking-package-ring': `${packageAccent.border}29`,
+	                                  background: selected
+	                                    ? `linear-gradient(90deg, ${packageAccent.tint} 0%, #ffffff 58%)`
+	                                    : '#ffffff',
+                                } as React.CSSProperties}
+	                          >
                             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                               <div className="min-w-0 flex-1">
                                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${selected ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-500'}`}>
-                                    {packageBadge}
-                                  </span>
-                                    {selected ? (
-                                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm shadow-blue-600/30">
-                                        <iconify-icon icon="solar:check-circle-bold" width="13"></iconify-icon>
-                                        Selected
-                                      </span>
+	                                  <span
+                                      className="rounded-full px-2.5 py-1 text-[11px] font-bold"
+                                      style={{
+                                        background: selected ? packageAccent.badge : '#F1F5F9',
+                                        color: selected ? packageAccent.text : '#64748B',
+                                      }}
+                                    >
+	                                    {packageBadge}
+	                                  </span>
+	                                    {selected ? (
+	                                      <span
+                                        className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold text-white shadow-sm"
+                                        style={{
+                                          background: packageAccent.border,
+                                          boxShadow: `0 2px 10px ${packageAccent.border}3d`,
+                                        }}
+                                      >
+	                                        <iconify-icon icon="solar:check-circle-bold" width="13"></iconify-icon>
+	                                        Selected
+	                                      </span>
                                     ) : null}
                                 </div>
                                 <p className="text-base font-black text-slate-950">{svc.name}</p>
@@ -5686,10 +6200,13 @@ export default function CustomerDashboard() {
                                   <span className="mt-1 block text-xl font-black text-slate-950">₱{currentPrice.toLocaleString()}</span>
                                   <span className="mt-0.5 block truncate text-[10px] font-semibold text-slate-400">For {vehicleLabel}</span>
                                 </div>
-                                <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${selected ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/25' : 'bg-slate-100 text-slate-500'}`}>
-                                  {selected ? 'Chosen' : 'Select'}
-                                  <iconify-icon icon={selected ? 'solar:check-circle-bold' : 'solar:arrow-right-linear'} width="13"></iconify-icon>
-                                </span>
+	                                <span
+                                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${selected ? 'text-white shadow-sm' : 'bg-slate-100 text-slate-500'}`}
+                                    style={selected ? { background: packageAccent.border, boxShadow: `0 2px 10px ${packageAccent.border}33` } : undefined}
+                                  >
+	                                  {selected ? 'Chosen' : 'Select'}
+	                                  <iconify-icon icon={selected ? 'solar:check-circle-bold' : 'solar:arrow-right-linear'} width="13"></iconify-icon>
+	                                </span>
                               </div>
                             </div>
 
@@ -5745,7 +6262,7 @@ export default function CustomerDashboard() {
                         setBookingForm(f => ({ ...f, contactNo: e.target.value }));
                         if (step2Errors.contactNo) setStep2Errors(err => ({ ...err, contactNo: '' }));
                       }}
-                      className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 ${step2Errors.contactNo ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-blue-500/20 focus:border-slate-300 ${step2Errors.contactNo ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                     />
                     {step2Errors.contactNo
                       ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.contactNo}</p>
@@ -5760,19 +6277,20 @@ export default function CustomerDashboard() {
                   {/* Vehicle Fields — read-only from garage, or editable if not pre-selected */}
                   {bookingSelectedVehicleIdx >= 0 && bookingSelectedVehicleIdx < vehicles.length ? (
                     /* ── Read-only vehicle info from garage ── */
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Vehicle Details</p>
-                        <button
-                          type="button"
-                          onClick={() => setBookingOpen(false)}
-                          className="text-[11px] font-semibold text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition-colors"
+	                    <div className="space-y-3">
+	                      <div className="flex items-center justify-between">
+	                        <p className="booking-step2-section-label">Vehicle Details</p>
+	                        <button
+	                          type="button"
+	                          onClick={() => setBookingOpen(false)}
+                          className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
                         >
                           <iconify-icon icon="solar:pen-linear" width="12"></iconify-icon>
-                          Edit Vehicle
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
+	                          Edit Vehicle
+	                        </button>
+	                      </div>
+                        <div className="booking-step2-vehicle-panel space-y-3">
+	                      <div className="grid grid-cols-2 gap-3">
                         {/* Brand */}
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Brand</p>
@@ -5848,12 +6366,17 @@ export default function CustomerDashboard() {
                           </div>
                         </div>
                       </div>
-                      <p className="text-[10px] text-gray-400 pl-1">Auto-filled from your garage · <button type="button" onClick={() => setBookingOpen(false)} className="text-indigo-500 hover:underline">Go to garage to update</button></p>
-                    </div>
-                  ) : (
-                    /* ── Manual entry when not opened from a vehicle card ── */
-                    <>
-                      <div className="grid grid-cols-2 gap-3">
+	                      <p className="text-[10px] text-gray-400 pl-1">Auto-filled from your garage · <button type="button" onClick={() => setBookingOpen(false)} className="text-blue-600 hover:underline">Go to garage to update</button></p>
+                        </div>
+	                    </div>
+	                  ) : (
+	                    /* ── Manual entry when not opened from a vehicle card ── */
+	                    <>
+                        <div className="flex items-center justify-between">
+                          <p className="booking-step2-section-label">Vehicle Details</p>
+                        </div>
+                        <div className="booking-step2-vehicle-panel space-y-3">
+	                      <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Brand <span className="text-red-500">*</span></label>
                           <select
@@ -5862,7 +6385,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehicleMake: e.target.value }));
                               if (step2Errors.vehicleMake) setStep2Errors(err => ({ ...err, vehicleMake: '' }));
                             }}
-                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleMake ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-blue-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleMake ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           >
                             <option value="">Select brand</option>
                             {CAR_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
@@ -5879,13 +6402,13 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehicleModel: e.target.value }));
                               if (step2Errors.vehicleModel) setStep2Errors(err => ({ ...err, vehicleModel: '' }));
                             }}
-                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 ${step2Errors.vehicleModel ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-blue-500/20 focus:border-slate-300 ${step2Errors.vehicleModel ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           />
                           {step2Errors.vehicleModel && <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehicleModel}</p>}
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
+	                      <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Color <span className="text-red-500">*</span></label>
                           <select
@@ -5894,7 +6417,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehicleColor: e.target.value }));
                               if (step2Errors.vehicleColor) setStep2Errors(err => ({ ...err, vehicleColor: '' }));
                             }}
-                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleColor ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-blue-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleColor ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           >
                             <option value="">Select color</option>
                             {['White', 'Black', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Yellow', 'Orange', 'Brown', 'Other'].map(c => <option key={c} value={c}>{c}</option>)}
@@ -5911,7 +6434,7 @@ export default function CustomerDashboard() {
                               setBookingForm(f => ({ ...f, vehiclePlate: e.target.value.toUpperCase() }));
                               if (step2Errors.vehiclePlate) setStep2Errors(err => ({ ...err, vehiclePlate: '' }));
                             }}
-                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 uppercase tracking-widest font-mono ${step2Errors.vehiclePlate ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-blue-500/20 focus:border-slate-300 uppercase tracking-widest font-mono ${step2Errors.vehiclePlate ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           />
                           {step2Errors.vehiclePlate
                             ? <p className="text-[10px] text-red-500 mt-1 pl-1">{step2Errors.vehiclePlate}</p>
@@ -5925,7 +6448,7 @@ export default function CustomerDashboard() {
                           <select
                             value={bookingForm.vehicleYear}
                             onChange={e => { setBookingForm(f => ({ ...f, vehicleYear: e.target.value })); }}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-blue-500/20 focus:border-slate-300 appearance-none"
                           >
                             <option value="">Year</option>
                             {BOOKING_YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>)}
@@ -5947,7 +6470,7 @@ export default function CustomerDashboard() {
                               }));
                               if (step2Errors.vehicleCategory) setStep2Errors(err => ({ ...err, vehicleCategory: '' }));
                             }}
-                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleCategory ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-blue-500/20 focus:border-slate-300 appearance-none ${step2Errors.vehicleCategory ? 'border-red-400 bg-red-50 ring-0' : 'border-slate-200/90 bg-white'}`}
                           >
                             <option value="">Select type</option>
                             {ADD_VEHICLE_TYPE_LABELS.map(t => <option key={t} value={t}>{t}</option>)}
@@ -5962,7 +6485,7 @@ export default function CustomerDashboard() {
                           <select
                             value={bookingForm.vehicleTransmission}
                             onChange={e => setBookingForm(f => ({ ...f, vehicleTransmission: e.target.value }))}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-blue-500/20 focus:border-slate-300 appearance-none"
                           >
                             <option value="">Select...</option>
                             <option value="Automatic">Automatic</option>
@@ -5975,7 +6498,7 @@ export default function CustomerDashboard() {
                           <select
                             value={bookingForm.vehicleFuelType}
                             onChange={e => setBookingForm(f => ({ ...f, vehicleFuelType: e.target.value }))}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 appearance-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200/90 bg-white text-sm text-slate-900 outline-none transition-all duration-200 shadow-[0_1px_4px_rgba(15,23,42,0.04)] focus:ring-2 focus:ring-blue-500/20 focus:border-slate-300 appearance-none"
                           >
                             <option value="">Select...</option>
                             <option value="Gasoline">Gasoline</option>
@@ -5983,26 +6506,27 @@ export default function CustomerDashboard() {
                             <option value="Electric">Electric</option>
                             <option value="Hybrid">Hybrid</option>
                           </select>
+	                        </div>
+	                      </div>
                         </div>
-                      </div>
-                    </>
-                  )}
+	                    </>
+	                  )}
 
-                  {/* Service - with Edit button */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Car Service</p>
-                      <button type="button" onClick={() => setBookingStep(1)} className="text-[11px] font-semibold text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors">
-                        <iconify-icon icon="solar:pen-linear" width="13"></iconify-icon>
-                        Edit Service
-                      </button>
-                    </div>
-                    <div className="booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-slate-50/95 to-white">
-                      <iconify-icon icon="solar:shield-check-bold" width="16" style={{ color: '#9ca3af', flexShrink: 0 }}></iconify-icon>
-                      <span className="text-sm font-semibold text-gray-700 flex-1">{bookingForm.serviceName || '—'}</span>
-                      <span className="text-xs font-bold text-gray-500">₱{bookingForm.servicePrice.toLocaleString()}</span>
-                    </div>
-                  </div>
+	                  {/* Service - with Edit button */}
+	                  <div>
+	                    <div className="flex items-center justify-between mb-2">
+	                      <p className="booking-step2-section-label">Car Service</p>
+	                      <button type="button" onClick={() => setBookingStep(1)} className="text-[11px] font-semibold text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors">
+	                        <iconify-icon icon="solar:pen-linear" width="13"></iconify-icon>
+	                        Edit Service
+	                      </button>
+	                    </div>
+	                    <div className="booking-step2-service-card booking-readonly-surface flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-b from-emerald-50/80 to-white">
+	                      <iconify-icon icon="solar:shield-check-bold" width="16" style={{ color: '#10B981', flexShrink: 0 }}></iconify-icon>
+	                      <span className="text-sm font-semibold text-gray-700 flex-1">{bookingForm.serviceName || '—'}</span>
+	                      <span className="text-xs font-bold text-emerald-700">₱{bookingForm.servicePrice.toLocaleString()}</span>
+	                    </div>
+	                  </div>
                 </div>
 
               ) : bookingStep === 3 ? (
@@ -6025,9 +6549,9 @@ export default function CustomerDashboard() {
                       <span style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.02em' }}>
                         {bookingCalMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                       </span>
-                      {monthAvailLoading && (
-                        <div style={{ width: 14, height: 14, border: '2px solid #e2e8f0', borderTopColor: '#0f172a', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-                      )}
+	                      {monthAvailLoading && (
+	                        <div style={{ width: 14, height: 14, border: '2px solid #e2e8f0', borderTopColor: CUSTOMER_UI.primary, borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+	                      )}
                     </div>
                     <button type="button"
                       disabled={monthAvailLoading}
@@ -6043,9 +6567,9 @@ export default function CustomerDashboard() {
 
                   {/* Day-of-week headers */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 4 }}>
-                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-                      <div key={i} style={{ textAlign: 'center', fontSize: 11, fontWeight: 600, color: '#b0b8c4', paddingBottom: 8 }}>{d}</div>
-                    ))}
+	                    {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((d, i) => (
+	                      <div key={i} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#64748B', letterSpacing: '0.08em', paddingBottom: 8 }}>{d}</div>
+	                    ))}
                   </div>
 
                   {/* Date grid — driven by monthAvailability from real API */}
@@ -6067,7 +6591,7 @@ export default function CustomerDashboard() {
                       // Use API-driven status; fall back to closed for safety while loading.
                       const status: DayAvailabilityStatus = dayInfo?.status || 'closed';
                       const errorCode = dayInfo?.errorCode || null;
-                      const isPast = errorCode === 'PAST_DATE';
+	                      const isPast = errorCode === 'PAST_DATE' || date < todayD;
                       // Distinguish "shop closed" (schedule/closure) from "fully booked"
                       const isShopClosed = !isPast && status === 'closed';
                       const isFullyBooked = status === 'full';
@@ -6097,9 +6621,9 @@ export default function CustomerDashboard() {
                             position: 'relative',
                             gap: 2, width: '100%', aspectRatio: '1', borderRadius: '50%', border: 'none',
                             cursor: disabled ? 'default' : 'pointer',
-                            opacity: monthAvailLoading ? 0.35 : 1,
-                            background: isSelected
-                              ? '#0f172a'
+	                            opacity: monthAvailLoading ? 0.35 : isPast ? 0.3 : 1,
+	                            background: isSelected
+	                              ? CUSTOMER_UI.primary
                               : isShopClosed
                                 ? 'rgba(239,68,68,0.08)'
                                 : isFullyBooked
@@ -6126,8 +6650,8 @@ export default function CustomerDashboard() {
                             lineHeight: 1,
                           }}>{day}</span>
                           {/* Indicator dots / badges */}
-                          {status === 'available' && !isSelected && (
-                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e' }} aria-hidden />
+	                          {status === 'available' && !isSelected && (
+	                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: CUSTOMER_UI.success }} aria-hidden />
                           )}
                           {isShopClosed && !isSelected && (
                             <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#94a3b8' }} aria-hidden />
@@ -6146,8 +6670,10 @@ export default function CustomerDashboard() {
                     style={{
                       marginTop: 14,
                       borderRadius: 12,
-                      background: '#f8fafc',
-                      padding: '10px 12px',
+	                      background: '#f8fafc',
+	                      border: '1px solid #E2E8F0',
+	                      padding: '10px 12px',
+	                      boxShadow: '0 8px 24px -20px rgba(15,23,42,0.28)',
                     }}
                     role="note"
                     aria-label="Calendar date availability"
@@ -6157,7 +6683,7 @@ export default function CustomerDashboard() {
                     </p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px 16px' }}>
                       {[
-                        { dot: '#22c55e', label: 'Available', hint: 'pick this day' },
+	                        { dot: CUSTOMER_UI.success, label: 'Available', hint: 'pick this day' },
                         { dot: '#94a3b8', label: 'Closed', hint: 'shop not open' },
                         { dot: '#f59e0b', label: 'Fully booked', hint: 'no times left' },
                       ].map((item) => (
@@ -6204,7 +6730,7 @@ export default function CustomerDashboard() {
                       {slotStatuses.map(({ time: t, status }) => {
                         const isDisabled = status !== 'AVAILABLE';
                         const isActive = bookingForm.time === t && !isDisabled;
-                        const bgColor = isActive ? '#0f172a'
+	                        const bgColor = isActive ? CUSTOMER_UI.primary
                           : status === 'FULL' ? '#fef2f2'
                             : status === 'CLOSED' ? '#f8fafc'
                               : '#fff';
@@ -6267,7 +6793,7 @@ export default function CustomerDashboard() {
                         fontSize: 13, color: '#1e293b', background: '#fff', resize: 'none',
                         outline: 'none', fontFamily: 'inherit', lineHeight: 1.5, boxSizing: 'border-box',
                       }}
-                      onFocus={e => e.currentTarget.style.borderColor = '#0f172a'}
+	                      onFocus={e => e.currentTarget.style.borderColor = CUSTOMER_UI.primary}
                       onBlur={e => e.currentTarget.style.borderColor = '#e5e7eb'}
                     />
                   </div>
@@ -6297,8 +6823,8 @@ export default function CustomerDashboard() {
                       {[
                         { icon: 'solar:user-bold', label: 'Name', value: user?.name || '—' },
                         { icon: 'solar:phone-bold', label: 'Contact', value: bookingForm.contactNo || '—' },
-                      ].map(({ icon, label, value }) => (
-                        <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f8fafc' }}>
+	                      ].map(({ icon, label, value }, rowIndex) => (
+	                        <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f8fafc', background: rowIndex % 2 === 1 ? '#F8FAFC' : '#FFFFFF' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                             <iconify-icon icon={icon} width="13" style={{ color: '#94a3b8' }}></iconify-icon>
                             <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>{label}</span>
@@ -6311,8 +6837,8 @@ export default function CustomerDashboard() {
 
                   {/* Vehicle Card */}
                   <div style={{ border: '1px solid #f1f5f9', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
-                    <div style={{ background: '#f8fafc', padding: '8px 14px', borderBottom: '1px solid #f1f5f9' }}>
-                      <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Vehicle</p>
+	                    <div style={{ background: '#f8fafc', padding: '8px 14px 8px 11px', borderBottom: '1px solid #f1f5f9', borderLeft: `3px solid ${CUSTOMER_UI.primary}` }}>
+	                      <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Vehicle</p>
                     </div>
                     <div style={{ padding: '4px 0' }}>
                       {[
@@ -6351,8 +6877,8 @@ export default function CustomerDashboard() {
                             ? formatTitleCaseDisplay(bookingForm.vehicleFuelType)
                             : '—',
                         },
-                      ].map(({ icon, label, value }) => (
-                        <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f8fafc' }}>
+	                      ].map(({ icon, label, value }, rowIndex) => (
+	                        <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f8fafc', background: rowIndex % 2 === 1 ? '#F8FAFC' : '#FFFFFF' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                             <iconify-icon icon={icon} width="13" style={{ color: '#94a3b8' }}></iconify-icon>
                             <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>{label}</span>
@@ -6365,16 +6891,16 @@ export default function CustomerDashboard() {
 
                   {/* Service + Schedule Card */}
                   <div style={{ border: '1px solid #f1f5f9', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
-                    <div style={{ background: '#f8fafc', padding: '8px 14px', borderBottom: '1px solid #f1f5f9' }}>
-                      <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Service & Schedule</p>
+	                    <div style={{ background: '#f8fafc', padding: '8px 14px 8px 11px', borderBottom: '1px solid #f1f5f9', borderLeft: `3px solid ${CUSTOMER_UI.primary}` }}>
+	                      <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Service & Schedule</p>
                     </div>
                     <div style={{ padding: '4px 0' }}>
                       {[
                         { icon: 'solar:shield-star-bold', label: 'Service', value: bookingForm.serviceName || '—' },
                         { icon: 'solar:calendar-bold', label: 'Date', value: bookingForm.date ? new Date(bookingForm.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : '—' },
                         { icon: 'solar:clock-circle-bold', label: 'Time', value: bookingForm.time || '—' },
-                      ].map(({ icon, label, value }) => (
-                        <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f8fafc' }}>
+	                      ].map(({ icon, label, value }, rowIndex) => (
+	                        <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f8fafc', background: rowIndex % 2 === 1 ? '#F8FAFC' : '#FFFFFF' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                             <iconify-icon icon={icon} width="13" style={{ color: '#94a3b8' }}></iconify-icon>
                             <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>{label}</span>
@@ -6447,10 +6973,10 @@ export default function CustomerDashboard() {
 
                   <div className="min-h-0 shrink-0">
                     <p className="booking-modal-label mb-2">Key points</p>
-                    <ul className="booking-terms-surface mb-4 list-disc space-y-1.5 bg-slate-50/80 py-3 pl-5 pr-4 text-sm leading-relaxed text-slate-700">
-                      {BOOKING_TERMS_SUMMARY.map((line, idx) => (
-                        <li key={idx} className="pl-0.5 marker:text-slate-400">{line}</li>
-                      ))}
+	                    <ul className="booking-terms-surface booking-terms-summary-card mb-4 list-disc space-y-1.5 bg-blue-50 py-3 pl-5 pr-4 text-sm leading-relaxed text-slate-700">
+	                      {BOOKING_TERMS_SUMMARY.map((line, idx) => (
+	                        <li key={idx} className="pl-0.5 marker:text-slate-400">{line}</li>
+	                      ))}
                     </ul>
 
                     <p className="booking-modal-label mb-2">Full text (scroll to the end)</p>
@@ -6467,12 +6993,12 @@ export default function CustomerDashboard() {
                       className="booking-terms-surface booking-terms-scroll max-h-[min(420px,56vh)] min-h-[min(260px,36vh)] overflow-y-auto overscroll-contain bg-slate-50/90 px-4 py-3.5 text-sm leading-[1.65] text-slate-700 scroll-smooth outline-none"
                       style={{ WebkitOverflowScrolling: 'touch' }}
                     >
-                      {BOOKING_TERMS_SECTIONS.map((sec) => (
-                        <section key={sec.id} className="mb-4 last:mb-1">
-                          <h4 className="mb-1.5 text-sm font-bold tracking-tight text-slate-900">{sec.title}</h4>
-                          <p className="leading-relaxed text-slate-600">{sec.body}</p>
-                        </section>
-                      ))}
+	                      {BOOKING_TERMS_SECTIONS.map((sec) => (
+	                        <section key={sec.id} className="mb-4 last:mb-1">
+	                          <h4 className="mb-1.5 text-sm font-bold tracking-tight text-blue-600">{sec.title}</h4>
+	                          <p className="leading-relaxed text-slate-600">{sec.body}</p>
+	                        </section>
+	                      ))}
                     </div>
                     {!bookingTermsReachedEnd ? (
                       <p className="mt-2 text-center text-xs font-medium text-blue-700" aria-live="polite">
@@ -6517,7 +7043,7 @@ export default function CustomerDashboard() {
                       <div className="pl-7 sm:pl-7">
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1.5 text-left text-xs font-semibold text-indigo-600 underline decoration-indigo-500/35 underline-offset-[3px] transition-colors hover:text-indigo-700 hover:decoration-indigo-600"
+                          className="inline-flex items-center gap-1.5 text-left text-xs font-semibold text-blue-600 underline decoration-blue-500/35 underline-offset-[3px] transition-colors hover:text-blue-700 hover:decoration-blue-600"
                           onClick={() => {
                             setBookingTermsReachedEnd(false);
                             setBookingAgreed(false);
@@ -6838,9 +7364,9 @@ export default function CustomerDashboard() {
                           padding: '12px 16px', borderRadius: 14, border: 'none',
                           fontSize: 13, fontWeight: 700, letterSpacing: '0.01em', transition: 'all 0.25s ease',
                           cursor: isStepInvalid ? 'not-allowed' : 'pointer',
-                          background: isStepInvalid ? '#e2e8f0' : 'linear-gradient(135deg,#1e293b 0%,#0f172a 55%,#1e293b 100%)',
+                          background: isStepInvalid ? '#e2e8f0' : 'linear-gradient(135deg,#2563EB,#1D4ED8)',
                           color: isStepInvalid ? '#94a3b8' : '#fff',
-                          boxShadow: isStepInvalid ? 'none' : '0 10px 32px -10px rgba(15,23,42,0.28)',
+                          boxShadow: isStepInvalid ? 'none' : '0 10px 32px -10px rgba(37,99,235,0.32)',
                           opacity: isStepInvalid ? 0.7 : 1,
                         }}>
                           Continue →
@@ -6852,9 +7378,9 @@ export default function CustomerDashboard() {
                           padding: '12px 16px', borderRadius: 14, border: 'none',
                           fontSize: 13, fontWeight: 700, letterSpacing: '0.01em', transition: 'all 0.25s ease',
                           cursor: step6Valid ? 'pointer' : 'not-allowed',
-                          background: step6Valid ? 'linear-gradient(135deg,#1e293b 0%,#0f172a 55%,#1e293b 100%)' : '#e2e8f0',
+                          background: step6Valid ? 'linear-gradient(135deg,#2563EB,#1D4ED8)' : '#e2e8f0',
                           color: step6Valid ? '#fff' : '#94a3b8',
-                          boxShadow: step6Valid ? '0 10px 32px -10px rgba(15,23,42,0.28)' : 'none',
+                          boxShadow: step6Valid ? '0 10px 32px -10px rgba(37,99,235,0.32)' : 'none',
                           opacity: step6Valid ? 1 : 0.7,
                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                         }}>
@@ -6966,7 +7492,7 @@ export default function CustomerDashboard() {
             {!feedbackSubmitted ? (
               <>
                 {/* Gradient Header */}
-                <div className="relative px-6 pt-6 pb-5" style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%)' }}>
+                <div className="relative px-6 pt-6 pb-5" style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #1d4ed8 50%, #60a5fa 100%)' }}>
                   <button onClick={() => { setFeedbackOpen(false); setFeedbackRating(0); setFeedbackHover(0); setFeedbackText(''); }} className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center transition-colors" style={{ backgroundColor: 'rgba(255,255,255,.15)' }} onMouseOver={e => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,.25)')} onMouseOut={e => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,.15)')}>
                     <iconify-icon icon="solar:close-circle-linear" width="18" style={{ color: '#fff' }}></iconify-icon>
                   </button>
@@ -6974,13 +7500,13 @@ export default function CustomerDashboard() {
                     <div className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest" style={{ backgroundColor: 'rgba(255,255,255,.2)', color: '#fff' }}>Service Complete</div>
                   </div>
                   <h2 className="font-bold text-xl text-white leading-tight">How was your experience?</h2>
-                  <p className="text-indigo-100 text-sm mt-1 opacity-80">Your feedback helps us deliver the best service.</p>
+                  <p className="text-blue-100 text-sm mt-1 opacity-80">Your feedback helps us deliver the best service.</p>
                 </div>
 
                 <div className="px-6 py-5 space-y-5">
                   {/* Vehicle Chip */}
                   <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50" style={{ border: '1px solid #e2e8f0' }}>
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center shrink-0">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-500 flex items-center justify-center shrink-0">
                       <iconify-icon icon="solar:car-bold" width="20" style={{ color: '#fff' }}></iconify-icon>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -7014,7 +7540,7 @@ export default function CustomerDashboard() {
                   <div>
                     <label className="text-[13px] font-semibold text-slate-700 block mb-1.5">Tell us more</label>
                     <div className="relative">
-                      <textarea value={feedbackText} onChange={e => setFeedbackText(e.target.value)} rows={3} maxLength={500} placeholder="Share details about your experience — what went well, what we could improve..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all placeholder:text-slate-400" />
+                      <textarea value={feedbackText} onChange={e => setFeedbackText(e.target.value)} rows={3} maxLength={500} placeholder="Share details about your experience — what went well, what we could improve..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all placeholder:text-slate-400" />
                       <div className="flex items-center justify-between mt-1.5 px-1">
                         <div className="flex gap-1">
                           {['😍', '👍', '🔥', '💯'].map(emoji => (
@@ -7027,12 +7553,12 @@ export default function CustomerDashboard() {
                   </div>
 
                   {/* Submit */}
-                  <button onClick={handleFeedbackSubmit} disabled={feedbackRating === 0 || !feedbackText.trim()} className={`w-full py-3 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${feedbackRating > 0 && feedbackText.trim() ? 'text-white shadow-lg hover:shadow-xl hover:-translate-y-0.5' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`} style={feedbackRating > 0 && feedbackText.trim() ? { background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' } : {}}>
+                  <button onClick={handleFeedbackSubmit} disabled={feedbackRating === 0 || !feedbackText.trim()} className={`w-full py-3 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${feedbackRating > 0 && feedbackText.trim() ? 'text-white shadow-lg hover:shadow-xl hover:-translate-y-0.5' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`} style={feedbackRating > 0 && feedbackText.trim() ? { background: 'linear-gradient(135deg, #1d4ed8, #1d4ed8)' } : {}}>
                     <iconify-icon icon="solar:star-shine-bold" width="18"></iconify-icon>
                     Submit Review
                   </button>
 
-                  <p className="text-[11px] text-slate-400 text-center leading-relaxed">Your review will be featured in our <span className="font-semibold text-indigo-500">Trusted by Car Enthusiasts</span> section.</p>
+                  <p className="text-[11px] text-slate-400 text-center leading-relaxed">Your review will be featured in our <span className="font-semibold text-blue-600">Trusted by Car Enthusiasts</span> section.</p>
                 </div>
               </>
             ) : (
@@ -7191,7 +7717,7 @@ export default function CustomerDashboard() {
               <button
                 type="button"
                 onClick={saveEditVehicle}
-                className="flex-1 py-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-700 rounded-lg transition-colors"
+                className="flex-1 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
               >
                 Save Changes
               </button>
@@ -7243,8 +7769,8 @@ export default function CustomerDashboard() {
                   <p className="text-[14px] font-semibold text-gray-800">No service history yet</p>
                   <p className="text-xs text-gray-400 mt-1 mb-5">This vehicle has no bookings on record.</p>
                   <button
-                    onClick={() => { setVehicleHistoryOpen(false); openBookingModal(vehicleHistoryVehicle); }}
-                    className="px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-gray-700 transition-colors"
+	                    onClick={() => { setVehicleHistoryOpen(false); openBookingModal(vehicleHistoryVehicle); }}
+	                    className={CUSTOMER_PRIMARY_BUTTON}
                   >
                     Book a Service Now
                   </button>
@@ -7261,7 +7787,7 @@ export default function CustomerDashboard() {
                       done: 'bg-green-50 text-green-700',
                       pending: 'bg-amber-50 text-amber-700',
                       confirmed: 'bg-blue-50 text-blue-700',
-                      'in-progress': 'bg-indigo-50 text-indigo-700',
+                      'in-progress': 'bg-emerald-50 text-emerald-700',
                       cancelled: 'bg-red-50 text-red-600',
                     };
                     const statusColor = statusColors[order.status] || 'bg-gray-100 text-gray-600';
@@ -7300,7 +7826,7 @@ export default function CustomerDashboard() {
               <div className="px-5 pt-3 pb-5 shrink-0 bg-gradient-to-t from-white via-white to-slate-50/30">
                 <button
                   onClick={() => { setVehicleHistoryOpen(false); openBookingModal(vehicleHistoryVehicle); }}
-                  className="w-full py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20"
+                  className="w-full py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20"
                 >
                   <iconify-icon icon="solar:calendar-add-linear" width="16"></iconify-icon>
                   Book Again

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Filter, Clock, ArrowUpDown, ChevronLeft, ChevronRight, LogIn, Edit, Key, UserPlus, AlertTriangle, Shield, Package, CalendarCheck, Wrench, Trash2 } from 'lucide-react';
+import { Search, Filter, ChevronLeft, ChevronRight, LogIn, Edit, Key, UserPlus, AlertTriangle, Shield, Package, CalendarCheck, Wrench, Trash2, Activity, CheckCircle2, AlertCircle, XCircle } from 'lucide-react';
 
 interface Props { activityLogs: any[]; loading: boolean; }
 
@@ -14,14 +14,14 @@ const TYPE_ICONS: Record<string, any> = {
 const TYPE_COLORS: Record<string, { bg: string; color: string }> = {
   login: { bg: '#eff6ff', color: '#1d4ed8' },
   user_update: { bg: '#ecfdf5', color: '#059669' },
-  role_change: { bg: '#f5f3ff', color: '#7c3aed' },
+  role_change: { bg: '#eff6ff', color: '#2563EB' },
   password_change: { bg: '#fef3c7', color: '#d97706' },
   registration: { bg: '#dbeafe', color: '#2563eb' },
   deletion: { bg: '#fef2f2', color: '#dc2626' },
   system: { bg: '#fef2f2', color: '#dc2626' },
-  inventory: { bg: '#f0fdf4', color: '#16a34a' },
+  inventory: { bg: '#ecfdf5', color: '#10B981' },
   booking: { bg: '#fffbeb', color: '#ca8a04' },
-  service: { bg: '#fdf4ff', color: '#a855f7' },
+  service: { bg: '#fff7ed', color: '#F97316' },
 };
 
 export default function AdminActivityLogs({ activityLogs, loading }: Props) {
@@ -44,6 +44,12 @@ export default function AdminActivityLogs({ activityLogs, loading }: Props) {
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginated = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+  const statCards = [
+    { label: 'Total', value: activityLogs.length, color: '#2563EB', tint: '#EFF6FF', helper: 'Latest audit events', Icon: Activity },
+    { label: 'Success', value: activityLogs.filter(l => l.status === 'success').length, color: '#10B981', tint: '#ECFDF5', helper: 'Completed actions', Icon: CheckCircle2 },
+    { label: 'Warnings', value: activityLogs.filter(l => l.status === 'warning').length, color: '#F97316', tint: '#FFF7ED', helper: 'Needs review', Icon: AlertCircle },
+    { label: 'Errors', value: activityLogs.filter(l => l.status === 'error').length, color: '#EF4444', tint: '#FEF2F2', helper: 'Failed events', Icon: XCircle },
+  ];
 
   const statusBadge = (s: string) => {
     const map: Record<string, string> = { success: 'ah-badge-success', info: 'ah-badge-verified', warning: 'ah-badge-warning', error: 'ah-badge-failed' };
@@ -53,24 +59,26 @@ export default function AdminActivityLogs({ activityLogs, loading }: Props) {
   return (
     <div className="ah-page-enter" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div>
-        <h1 style={{ fontSize: 24, fontWeight: 600, color: '#0f172a', margin: 0 }}>Activity Logs</h1>
+        <h1 className="ah-page-title">Activity Logs</h1>
         <p style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>System-wide activity and audit trail — {activityLogs.length} total entries</p>
       </div>
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        {[
-          { label: 'Total Logs', value: activityLogs.length, color: '#2563eb' },
-          { label: 'Success', value: activityLogs.filter(l => l.status === 'success').length, color: '#059669' },
-          { label: 'Warnings', value: activityLogs.filter(l => l.status === 'warning').length, color: '#d97706' },
-          { label: 'Errors', value: activityLogs.filter(l => l.status === 'error').length, color: '#dc2626' },
-        ].map(s => (
-          <div key={s.label} className="ah-kpi-card" style={{ padding: 14 }}>
-            <p style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.02em', margin: 0 }}>{s.label}</p>
-            <p className="tabular-nums" style={{ fontSize: 24, fontWeight: 700, color: s.color, margin: '4px 0 0' }}>{s.value}</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14 }}>
+        {statCards.map(s => (
+          <div key={s.label} className="ah-kpi-card" style={{ padding: 22, minHeight: 148, borderLeft: `4px solid ${s.color}`, background: '#fff' }}>
+            <p className="ah-section-label">{s.label}</p>
+            <p className="tabular-nums" style={{ fontSize: 34, fontWeight: 700, color: s.color, margin: '8px 0 0', lineHeight: 1 }}>{s.value}</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, color: s.color }}>
+              <span style={{ width: 26, height: 26, borderRadius: '50%', background: s.tint, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <s.Icon size={14} aria-hidden />
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>{s.helper}</span>
+            </div>
           </div>
         ))}
       </div>
+      <p style={{ fontSize: 12, fontWeight: 600, color: '#64748b', margin: '-10px 0 0' }}>Showing latest 200 entries · Last updated just now</p>
 
       <div className="ah-card-section ah-table-card">
         {/* Filters */}

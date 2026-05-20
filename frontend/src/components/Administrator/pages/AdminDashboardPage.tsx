@@ -63,10 +63,10 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
   }, [users]);
 
   const kpis = [
-    { label: 'Total Users', value: stats.total, change: `${stats.total} registered accounts`, icon: Users, iconBg: '#eff6ff', iconColor: '#2563eb', border: '#3b82f6' },
-    { label: 'Active Users', value: stats.active, change: `${stats.total > 0 ? ((stats.active / stats.total) * 100).toFixed(1) : 0}% of total`, icon: UserCheck, iconBg: '#ecfdf5', iconColor: '#059669', border: '#10b981' },
-    { label: 'Pending Verifications', value: stats.pending, change: 'Requires action', icon: Clock, iconBg: '#fffbeb', iconColor: '#d97706', border: '#f59e0b', alert: stats.pending > 0 },
-    { label: 'Total Roles', value: stats.roles, change: 'Across all departments', icon: ShieldCheck, iconBg: '#f5f3ff', iconColor: '#7c3aed', border: '#8b5cf6' },
+    { label: 'Total Users', value: stats.total, change: `${stats.total} registered accounts`, icon: Users, iconBg: '#DBEAFE', iconColor: '#2563EB', border: '#2563EB', tint: '#EFF6FF' },
+    { label: 'Active Users', value: stats.active, change: `${stats.total > 0 ? ((stats.active / stats.total) * 100).toFixed(1) : 0}% of total`, icon: UserCheck, iconBg: '#D1FAE5', iconColor: '#10B981', border: '#10B981', tint: '#ECFDF5' },
+    { label: 'Pending Verifications', value: stats.pending, change: 'Requires action', icon: Clock, iconBg: '#FEF3C7', iconColor: '#F59E0B', border: '#F59E0B', tint: '#FFFBEB', alert: stats.pending > 0 },
+    { label: 'Total Roles', value: stats.roles, change: 'Across all departments', icon: ShieldCheck, iconBg: '#FFEDD5', iconColor: '#F97316', border: '#F97316', tint: '#FFF7ED' },
   ];
 
   if (loading) {
@@ -89,7 +89,7 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
     <div className="ah-page-enter" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Header */}
       <div>
-        <h1 style={{ fontSize: 24, fontWeight: 600, color: '#0f172a', margin: 0 }}>Dashboard Overview</h1>
+        <h1 className="ah-page-title">Dashboard Overview</h1>
         <p style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>Welcome back — here's what's happening with your users today.</p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
           <button
@@ -127,13 +127,13 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
         {kpis.map((kpi, idx) => {
           const Icon = kpi.icon;
           return (
-            <div key={kpi.label} className="ah-kpi-card ah-slide-up" style={{ borderLeft: `4px solid ${kpi.border}`, animationDelay: `${idx * 0.06}s`, background: kpi.alert ? 'rgba(255,251,235,.4)' : '#fff' }}>
+            <div key={kpi.label} className="ah-kpi-card ah-slide-up" style={{ border: '1px solid rgba(226,232,240,0.75)', borderLeft: `4px solid ${kpi.border}`, animationDelay: `${idx * 0.06}s`, background: kpi.tint }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
                 <div>
-                  <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', letterSpacing: '0.02em', margin: 0 }}>{kpi.label}</p>
-                  {kpi.alert && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 10, fontWeight: 600, color: '#d97706', background: '#fef3c7', padding: '2px 6px', borderRadius: 4 }}>⚠ Action Required</span>}
+                  <p className="ah-section-label">{kpi.label}</p>
+                  {kpi.alert && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6, fontSize: 10, fontWeight: 700, color: '#B45309', background: '#FEF3C7', padding: '2px 6px', borderRadius: 4 }}><AlertTriangle size={11} aria-hidden /> Action Required</span>}
                 </div>
-                <div style={{ width: 36, height: 36, borderRadius: 8, background: kpi.iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: 38, height: 38, borderRadius: '50%', background: kpi.iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Icon size={18} style={{ color: kpi.iconColor }} />
                 </div>
               </div>
@@ -150,7 +150,7 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
       {/* Charts */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 24 }}>
         {/* User Growth */}
-        <div className="ah-card-section ah-chart-card ah-slide-up" style={{ padding: 20, animationDelay: '0.15s' }}>
+        <div className="ah-card-section ah-chart-card ah-slide-up" style={{ padding: 20, animationDelay: '0.15s', background: '#fff', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 14px 36px -22px rgba(15,23,42,0.24)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
             <div><h2 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', margin: 0 }}>User Growth</h2><p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Total vs Active — last 12 weeks</p></div>
           </div>
@@ -170,7 +170,7 @@ export default function AdminDashboardPage({ users, activityLogs, loading, onNav
         </div>
 
         {/* Role Distribution */}
-        <div className="ah-card-section ah-chart-card ah-slide-up" style={{ padding: 20, animationDelay: '0.2s' }}>
+        <div className="ah-card-section ah-chart-card ah-slide-up" style={{ padding: 20, animationDelay: '0.2s', background: '#fff', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 14px 36px -22px rgba(15,23,42,0.24)' }}>
           <div><h2 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', margin: 0 }}>Users by Role</h2><p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Distribution across system roles</p></div>
           <div style={{ marginTop: 16 }}>
             <ResponsiveContainer width="100%" height={220}>

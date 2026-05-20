@@ -94,7 +94,7 @@ export default function AddEditItemModal({ open, item, onClose, onSave }: AddEdi
         </div>
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/40">
           <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 transition-all duration-150 active:scale-95">Cancel</button>
-          <button type="submit" disabled={isSubmitting} className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md flex items-center gap-2 min-w-[120px] justify-center disabled:opacity-70">{isSubmitting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : item ? 'Save Changes' : 'Add to Inventory'}</button>
+          <button type="submit" disabled={isSubmitting} className="px-6 py-2.5 rounded-lg text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md flex items-center gap-2 min-w-[120px] justify-center disabled:opacity-70">{isSubmitting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : item ? 'Save Changes' : 'Add to Inventory'}</button>
         </div>
       </form>
     </Modal>

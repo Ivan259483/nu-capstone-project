@@ -39,8 +39,8 @@ export default function AdminAppointmentsPage({ onNavigate, currentUserRole }: P
     <div className="ah-page-enter flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-2xl">
-          <p className="text-[11px] font-semibold tracking-wide text-blue-600">Operations</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Appointments & scheduling</h1>
+          <p className="ah-section-label">Operations</p>
+          <h1 className="ah-page-title" style={{ marginTop: 4 }}>Appointments & scheduling</h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-600">
             Full shop calendar with live slot counts. Open/closed days follow{' '}
             <strong>Availability Controls</strong> (weekly schedule, date closures, holidays).

@@ -13,7 +13,7 @@ export default function SupplierStatsBar({ suppliers }: SupplierStatsBarProps) {
   const stats = [
     { key: 'stat-active', icon: Truck, iconBg: 'bg-blue-50 border border-blue-100', iconColor: 'text-blue-600', value: activeCount, label: 'Active Suppliers', sub: `of ${suppliers.length} total` },
     { key: 'stat-rating', icon: Star, iconBg: 'bg-amber-50 border border-amber-100', iconColor: 'text-amber-500', value: avgRating, label: 'Avg. Rating', sub: 'across all suppliers' },
-    { key: 'stat-lead', icon: Clock, iconBg: 'bg-purple-50 border border-purple-100', iconColor: 'text-purple-600', value: `${avgLeadTime}d`, label: 'Avg. Lead Time', sub: 'days to delivery' },
+    { key: 'stat-lead', icon: Clock, iconBg: 'bg-orange-50 border border-orange-100', iconColor: 'text-orange-600', value: `${avgLeadTime}d`, label: 'Avg. Lead Time', sub: 'days to delivery' },
     { key: 'stat-items', icon: Package, iconBg: 'bg-emerald-50 border border-emerald-100', iconColor: 'text-emerald-600', value: totalItems, label: 'Items Sourced', sub: 'total SKUs linked' },
   ];
 

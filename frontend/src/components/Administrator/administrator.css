@@ -37,6 +37,25 @@
   font-family: 'IBM Plex Mono', monospace;
 }
 
+.adminhub-root .ah-page-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0F172A;
+  margin: 0;
+  letter-spacing: 0;
+  line-height: 1.15;
+}
+
+.adminhub-root .ah-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748B;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  margin: 0;
+  text-transform: uppercase;
+}
+
 /* ── Sidebar ─────────────────────────────────────────── */
 .adminhub-root .ah-sidebar {
   position: fixed;
@@ -102,6 +121,11 @@
 
 .adminhub-root .ah-chart-card {
   min-height: 320px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 14px 36px -22px rgba(15, 23, 42, 0.24);
 }
 
 .adminhub-root .ah-table-card {
@@ -221,7 +245,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: #dc2626;
+  background: #EF4444;
   color: #fff;
   font-size: 14px;
   font-weight: 500;
@@ -230,14 +254,14 @@
   cursor: pointer;
   transition: all 0.15s;
 }
-.adminhub-root .ah-btn-danger:hover { background: #b91c1c; }
+.adminhub-root .ah-btn-danger:hover { background: #dc2626; }
 
 .adminhub-root .ah-btn-warning {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: #f59e0b;
+  background: #F97316;
   color: #fff;
   font-size: 14px;
   font-weight: 500;
@@ -246,7 +270,7 @@
   cursor: pointer;
   transition: all 0.15s;
 }
-.adminhub-root .ah-btn-warning:hover { background: #d97706; }
+.adminhub-root .ah-btn-warning:hover { background: #ea580c; }
 
 /* ── Inputs ──────────────────────────────────────────── */
 .adminhub-root .ah-input {

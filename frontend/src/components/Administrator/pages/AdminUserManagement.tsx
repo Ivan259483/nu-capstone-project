@@ -321,7 +321,7 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
     <div className="ah-page-enter ah-users-page">
       <div className="ah-users-page-header">
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>User Management</h1>
+          <h1 className="ah-page-title">User Management</h1>
           <p style={{ fontSize: 14, color: '#64748b', marginTop: 6, marginBottom: 0 }}>Manage all registered accounts, roles, and access levels</p>
         </div>
         <button className="ah-btn-primary" onClick={() => setCreateOpen(true)}><Plus size={15} /> Create User</button>
@@ -336,8 +336,8 @@ export default function AdminUserManagement({ users, setUsers, loading, onRefres
           { label: 'Archived accounts', value: archivedAccountsCount, color: '#64748b', helper: 'Access disabled' },
         ].map(stat => (
           <div key={stat.label} className="ah-users-stat-card" style={{ ['--ah-stat-accent' as string]: stat.color }}>
-            <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase', margin: 0 }}>{stat.label}</p>
-            <p className="tabular-nums" style={{ fontSize: 30, fontWeight: 800, color: stat.color, margin: '6px 0 0', letterSpacing: '-0.03em' }}>{stat.value}</p>
+            <p className="ah-section-label">{stat.label}</p>
+            <p className="tabular-nums" style={{ fontSize: 30, fontWeight: 800, color: stat.color, margin: '6px 0 0', letterSpacing: 0 }}>{stat.value}</p>
             <p style={{ fontSize: 11, color: '#94a3b8', margin: '4px 0 0' }}>{stat.helper}</p>
           </div>
         ))}
@@ -631,7 +631,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex shrink-0 items-center justify-between gap-3 px-6 py-4 bg-gradient-to-b from-slate-50/95 to-white">
-          <h2 id="create-user-modal-title" className="text-lg font-semibold tracking-tight text-slate-900">
+          <h2 id="create-user-modal-title" className="text-lg font-semibold text-slate-900">
             Create New User
           </h2>
           <button
@@ -810,7 +810,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
             </button>
             <button
               type="submit"
-              className="ah-btn-primary rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm disabled:opacity-60"
+              className="ah-btn-primary rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm disabled:opacity-60"
               disabled={saving}
             >
               {saving ? 'Creating…' : 'Create User'}

@@ -401,7 +401,7 @@ function AdminHubPanelInner({
         <nav style={{ flex: 1, padding: '16px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
           {Object.entries(sections).map(([sectionName, items]) => (
             <React.Fragment key={sectionName}>
-              {!collapsed && <p style={{ padding: '12px 12px 8px', fontSize: 10, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', margin: 0 }}>{sectionName}</p>}
+              {!collapsed && <p style={{ padding: '12px 12px 8px', fontSize: 11, fontWeight: 600, color: '#64748B', letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>{sectionName}</p>}
               {items.map(item => {
                 const Icon = item.icon;
                 const isActive = activePage === item.id;

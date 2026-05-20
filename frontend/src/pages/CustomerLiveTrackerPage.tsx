@@ -34,7 +34,7 @@ import { getLiveTrackerStepIndex } from '@/lib/customer-live-tracker-step';
 import { getTrackerPipelineProgressPct } from '@/lib/tracker-pipeline-progress';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '@/lib/cloudinary-delivery-url';
 
-const BRAND_ORANGE = '#E8650A';
+const BRAND_ORANGE = '#F97316';
 const LUXURY_EASE = [0.22, 1, 0.36, 1] as const;
 const LIVE_STATUS_CUSTOMER_STATES = new Set(['washing', 'detailing', 'finishing', 'ready', 'in-progress']);
 const LIVE_STATUS_BOOKING_STATES = new Set(['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'in-progress', 'completed', 'paid']);
@@ -361,7 +361,7 @@ function getVehicleColorAccent(color?: string | null) {
     grey: '#64748b',
     blue: '#2563eb',
     red: '#dc2626',
-    green: '#16a34a',
+    green: '#10B981',
     yellow: '#f59e0b',
     orange: '#ea580c',
     brown: '#8b5e3c',
@@ -634,19 +634,19 @@ export default function CustomerLiveTrackerPage() {
     ? {
       label: 'Syncing',
       description: 'Checking your latest service data',
-      dotColor: '#4f46e5',
-      background: '#eef2ff',
-      border: '#c7d2fe',
-      text: '#4338ca',
+      dotColor: '#2563EB',
+	      background: '#EFF6FF',
+	      border: '#BFDBFE',
+	      text: '#1D4ED8',
     }
     : isAwaitingVehicle
       ? {
         label: 'Booking Approved',
         description: `Please bring your vehicle on ${activeBooking?.bookingDate || 'your appointment date'} at ${activeBooking?.bookingTime || 'your scheduled time'}`,
-        dotColor: '#16a34a',
+        dotColor: '#10B981',
         background: '#f0fdf4',
         border: '#86efac',
-        text: '#15803d',
+        text: '#047857',
       }
     : activeBooking
       ? {
@@ -781,7 +781,7 @@ export default function CustomerLiveTrackerPage() {
                 <button
                   type="button"
                   onClick={() => navigate('/customer/dashboard?section=scan')}
-                  className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium transition-colors shadow-sm"
+	                  className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors shadow-sm"
                 >
                   <iconify-icon icon="solar:scanner-linear" width="18"></iconify-icon>
                   AI Inspection History
@@ -806,7 +806,7 @@ export default function CustomerLiveTrackerPage() {
                 <button
                   type="button"
                   onClick={() => setNotificationsOpen((current) => !current)}
-                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/35"
+                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35"
                   aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
                 >
                   <span
@@ -832,7 +832,7 @@ export default function CustomerLiveTrackerPage() {
                       <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
                         <h3 className="font-bold text-[15px] text-slate-900 tracking-tight">Notifications</h3>
                         {notifications.some((notification) => !notification.isRead) && (
-                          <button onClick={markAllNotificationsAsRead} className="text-xs font-medium text-indigo-600 hover:text-indigo-700 transition-colors">
+                          <button onClick={markAllNotificationsAsRead} className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors">
                             Mark all as read
                           </button>
                         )}
@@ -862,7 +862,7 @@ export default function CustomerLiveTrackerPage() {
                                 onClick={() => markNotificationAsRead(notification.id || notification._id || '')}
                                 className={`w-full text-left p-4 hover:bg-slate-50 transition-colors flex gap-3 ${!notification.isRead ? 'bg-slate-50/50' : ''}`}
                               >
-                                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!notification.isRead ? 'bg-indigo-500' : 'bg-transparent'}`}></div>
+                                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!notification.isRead ? 'bg-blue-500' : 'bg-transparent'}`}></div>
                                 <div className="flex-1 min-w-0">
                                   <p className={`text-[13px] text-slate-900 truncate ${!notification.isRead ? 'font-semibold' : 'font-medium'}`}>
                                     {notification.title}
@@ -951,7 +951,7 @@ export default function CustomerLiveTrackerPage() {
           <main className="relative flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50">
             <div className="pointer-events-none absolute inset-0 overflow-hidden">
               <motion.div
-                className="absolute left-[12%] top-0 h-80 w-80 rounded-full bg-indigo-100/70 blur-3xl"
+                className="absolute left-[12%] top-0 h-80 w-80 rounded-full bg-blue-100/70 blur-3xl"
                 animate={{ x: [0, 18, -10, 0], y: [0, 20, 8, 0], scale: [1, 1.12, 0.96, 1] }}
                 transition={{ duration: 16, repeat: Infinity, ease: 'easeInOut' }}
               />
@@ -1181,7 +1181,7 @@ export default function CustomerLiveTrackerPage() {
                             whileHover={{ y: -2, scale: 1.01 }}
                             whileTap={{ scale: 0.99 }}
                             onClick={() => navigate('/customer/book')}
-                            className="mt-6 w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-white transition-colors shadow-lg shadow-indigo-600/20 bg-indigo-600 hover:bg-indigo-700"
+	                            className="mt-6 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-white transition-colors shadow-lg shadow-blue-600/20 bg-blue-600 hover:bg-blue-700"
                           >
                             <CalendarPlus size={16} />
                             Book a Service
@@ -1205,7 +1205,7 @@ export default function CustomerLiveTrackerPage() {
                     >
                       <div className="absolute inset-0 bg-[linear-gradient(135deg,#ffffff_0%,#ffffff_44%,#f8fafc_76%,#fff7ed_100%)]"></div>
                       <motion.div
-                        className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-indigo-100/80 blur-3xl"
+                        className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-blue-100/80 blur-3xl"
                         animate={{ x: [0, -14, 0], y: [0, 18, 0], scale: [1, 1.08, 1] }}
                         transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
                       />
@@ -1624,7 +1624,7 @@ export default function CustomerLiveTrackerPage() {
                         variants={revealUp}
                         className="relative overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.08)] p-6 sm:p-7"
                       >
-                        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-200 to-transparent"></div>
+                        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200 to-transparent"></div>
                         <div className="relative flex items-start justify-between gap-4 mb-7">
                           <div>
                             <div className="flex items-center gap-2">
@@ -1633,7 +1633,7 @@ export default function CustomerLiveTrackerPage() {
                             </div>
                             <p className="text-sm text-slate-500 mt-2">Booked services, bay placement, and customer-facing service notes.</p>
                           </div>
-                          <span className="rounded-full bg-indigo-50 border border-indigo-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-700">
+	                          <span className="rounded-full bg-blue-50 border border-blue-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-700">
                             Active booking
                           </span>
                         </div>

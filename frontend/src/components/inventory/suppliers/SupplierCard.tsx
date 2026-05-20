@@ -9,7 +9,7 @@ const statusConfig = {
   inactive: { label: 'Inactive', className: 'bg-gray-100 text-gray-500 border border-gray-200' },
   'on-hold': { label: 'On Hold', className: 'bg-amber-50 text-amber-700 border border-amber-200' },
 };
-const categoryColors: Record<string, string> = { Chemicals: 'bg-blue-50 text-blue-700 border border-blue-100', Microfiber: 'bg-purple-50 text-purple-700 border border-purple-100', Equipment: 'bg-emerald-50 text-emerald-700 border border-emerald-100', Consumables: 'bg-amber-50 text-amber-700 border border-amber-100', Packaging: 'bg-cyan-50 text-cyan-700 border border-cyan-100' };
+const categoryColors: Record<string, string> = { Chemicals: 'bg-blue-50 text-blue-700 border border-blue-100', Microfiber: 'bg-emerald-50 text-emerald-700 border border-emerald-100', Equipment: 'bg-orange-50 text-orange-700 border border-orange-100', Consumables: 'bg-amber-50 text-amber-700 border border-amber-100', Packaging: 'bg-slate-50 text-slate-700 border border-slate-100' };
 
 function StarRating({ rating }: { rating: number }) {
   return (<div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s => <Star key={s} size={13} className={s <= rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200 fill-gray-200'} />)}<span className="text-xs font-bold text-gray-700 ml-1 font-tabular">{rating}.0</span></div>);

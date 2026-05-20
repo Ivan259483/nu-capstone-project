@@ -103,7 +103,7 @@ function StatusPill({ paid, pendingLabel = 'Due at shop' }: { paid: boolean; pen
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">
+    <span className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2.5 py-0.5 text-[11px] font-semibold text-orange-800">
       <Clock className="h-3 w-3 shrink-0" />
       {pendingLabel}
     </span>
@@ -206,7 +206,7 @@ export function CustomerPaymentHistorySection({
     <div className="space-y-6 pb-10">
       {/* Header */}
       <div>
-        <h2 className="text-[22px] font-semibold tracking-tight text-slate-900">Payment History</h2>
+        <h2 className="text-[28px] font-bold tracking-tight text-slate-900">Payment History</h2>
         <p className="mt-1 text-sm text-slate-500">
           Every booking has two payments: a small reservation online, then the balance at the shop.
         </p>
@@ -214,14 +214,14 @@ export function CustomerPaymentHistorySection({
 
       {/* How it works */}
       <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/90 via-white to-slate-50/80 p-4 shadow-sm sm:p-5">
-        <p className="text-xs font-bold uppercase tracking-wide text-blue-800">How payments work</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">How payments work</p>
         <ol className="mt-3 grid gap-3 sm:grid-cols-3">
           {[
             {
               step: '1',
               title: 'Reservation fee',
               desc: `${formatCurrency(RESERVATION_FEE)} online (GCash) to confirm your slot.`,
-              icon: <Lock className="h-4 w-4 text-indigo-600" />,
+              icon: <Lock className="h-4 w-4 text-blue-600" />,
             },
             {
               step: '2',
@@ -259,34 +259,38 @@ export function CustomerPaymentHistorySection({
             label: 'Bookings',
             value: String(stats.bookingCount),
             sub: 'with payment activity',
-            className: 'text-slate-900',
-            icon: <CircleDollarSign className="h-4 w-4 text-slate-500" />,
+            className: 'text-blue-700',
+            border: '#2563EB',
+            icon: <CircleDollarSign className="h-4 w-4 text-blue-600" />,
           },
           {
             label: 'Paid so far',
             value: formatCurrency(stats.totalPaid),
             sub: 'reservation + balance',
             className: 'text-emerald-700',
+            border: '#10B981',
             icon: <Banknote className="h-4 w-4 text-emerald-600" />,
           },
           {
             label: 'Reservation fees',
             value: formatCurrency(stats.reservationPaidCount * RESERVATION_FEE),
             sub: `${stats.reservationPaidCount} paid online`,
-            className: 'text-indigo-700',
-            icon: <Lock className="h-4 w-4 text-indigo-600" />,
+            className: 'text-blue-700',
+            border: '#2563EB',
+            icon: <Lock className="h-4 w-4 text-blue-600" />,
           },
           {
             label: 'Still to pay',
             value: formatCurrency(stats.stillDueTotal),
             sub: stats.stillDueTotal > 0 ? 'balance at shop' : 'all caught up',
-            className: stats.stillDueTotal > 0 ? 'text-amber-700' : 'text-emerald-700',
-            icon: <Clock className="h-4 w-4 text-amber-600" />,
+            className: stats.stillDueTotal > 0 ? 'text-orange-700' : 'text-emerald-700',
+            border: stats.stillDueTotal > 0 ? '#F97316' : '#10B981',
+            icon: <Clock className="h-4 w-4 text-orange-600" />,
           },
         ].map((card) => (
-          <div key={card.label} className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+          <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:bg-slate-50" style={{ borderLeft: `4px solid ${card.border}` }}>
             <div className="mb-2 flex items-center gap-2 text-slate-500">{card.icon}</div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{card.label}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{card.label}</p>
             <p className={`mt-1 text-xl font-bold tabular-nums ${card.className}`}>{card.value}</p>
             <p className="mt-0.5 text-[11px] text-slate-500">{card.sub}</p>
           </div>
@@ -303,7 +307,7 @@ export function CustomerPaymentHistorySection({
               onClick={() => setFilter(opt.id)}
               className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition ${
                 filter === opt.id
-                  ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                  ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
                   : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
               }`}
             >
@@ -355,7 +359,7 @@ export function CustomerPaymentHistorySection({
                 <header className="border-b border-slate-100 bg-slate-50/70 px-4 py-4 sm:px-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                         {booking.orderLabel}
                       </p>
                       <h3 className="mt-0.5 text-base font-semibold text-slate-900">{booking.serviceName}</h3>
@@ -367,7 +371,7 @@ export function CustomerPaymentHistorySection({
                       className={`inline-flex shrink-0 items-center rounded-full px-3 py-1 text-xs font-bold ${
                         booking.fullyPaid
                           ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-amber-100 text-amber-800'
+                          : 'bg-orange-100 text-orange-800'
                       }`}
                     >
                       {booking.fullyPaid ? 'Fully paid' : 'Balance due'}
@@ -396,8 +400,8 @@ export function CustomerPaymentHistorySection({
 
                 <div className="divide-y divide-slate-100">
                   <PaymentStepRow
-                    icon={<Lock className="h-4 w-4 text-indigo-600" />}
-                    iconClass="bg-indigo-50"
+                    icon={<Lock className="h-4 w-4 text-blue-600" />}
+                    iconClass="bg-blue-50"
                     title="Step 1 · Reservation fee"
                     subtitle="Paid online via GCash when you booked"
                     amount={RESERVATION_FEE}
@@ -408,7 +412,7 @@ export function CustomerPaymentHistorySection({
                         <button
                           type="button"
                           onClick={() => onViewPaymentProof(booking.proofUrl!)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-100"
+                          className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-800 hover:bg-blue-100"
                         >
                           <ImageIcon className="h-3.5 w-3.5" />
                           View GCash proof

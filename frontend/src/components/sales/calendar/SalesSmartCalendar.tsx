@@ -439,48 +439,49 @@ export default function SalesSmartCalendar() {
             label: "Today's active",
             sub: 'Bookings scheduled today',
             value: kpis.todayActive,
-            accent: '#2563eb',
-            iconBg: '#dbeafe',
+            accent: '#2563EB',
+            iconBg: '#EFF6FF',
             Icon: Activity,
           },
           {
             label: 'Pending review',
             sub: 'Awaiting approval',
             value: kpis.pending,
-            accent: '#d97706',
-            iconBg: '#ffedd5',
+            accent: '#F97316',
+            iconBg: '#FFF7ED',
             Icon: ClipboardClock,
           },
           {
             label: 'Month bookings',
             sub: 'Slots booked this month',
             value: kpis.monthTotal,
-            accent: '#7c3aed',
-            iconBg: '#ede9fe',
+            accent: '#2563EB',
+            iconBg: '#EFF6FF',
             Icon: Layers,
           },
           {
             label: 'Full days',
             sub: 'No availability left',
             value: kpis.fullDays,
-            accent: '#dc2626',
-            iconBg: '#ffe4e6',
+            accent: '#EF4444',
+            iconBg: '#FEF2F2',
             Icon: CalendarX,
           },
         ] as const).map((k) => (
           <div
             key={k.label}
             className="relative overflow-hidden rounded-2xl bg-white p-4 shadow-[0_10px_40px_-12px_rgba(15,23,42,0.12),0_4px_14px_-4px_rgba(15,23,42,0.06)] transition-shadow hover:shadow-[0_18px_48px_-14px_rgba(15,23,42,0.14)]"
+            style={{ borderLeft: `4px solid ${k.accent}` }}
           >
             <div className="flex items-start justify-between gap-3">
               <div
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
                 style={{ background: k.iconBg, color: k.accent }}
               >
                 <k.Icon size={22} strokeWidth={2} aria-hidden />
               </div>
               <div className="min-w-0 flex-1 text-right">
-                <p className="text-3xl font-black tabular-nums tracking-tight" style={{ color: k.accent }}>
+                <p className="tabular-nums" style={{ color: k.accent, fontSize: 36, fontWeight: 700, lineHeight: 1 }}>
                   {k.value}
                 </p>
               </div>

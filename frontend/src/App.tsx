@@ -27,6 +27,7 @@ import { useActivityHeartbeat } from "@/hooks/useActivityHeartbeat";
 const Gallery = lazy(() => import("./pages/Gallery"));
 const Services = lazy(() => import("./pages/Services"));
 const CustomerDashboard = lazy(() => import("./pages/CustomerDashboard"));
+const CustomerServices = lazy(() => import("./pages/customer/Services"));
 const CustomerLiveTrackerPage = lazy(() => import("./pages/CustomerLiveTrackerPage"));
 const DetailerDashboard = lazy(() => import("./pages/DetailerDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
@@ -185,6 +186,14 @@ function AppRoutes() {
                         element={
                             <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
                                 <CustomerDashboard />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/customer/services"
+                        element={
+                            <ProtectedRoute allowedRoles={[CUSTOMER_ROLE]}>
+                                <CustomerServices />
                             </ProtectedRoute>
                         }
                     />

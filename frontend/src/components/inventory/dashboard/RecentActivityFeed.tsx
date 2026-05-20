@@ -6,7 +6,7 @@ const typeConfig: Record<string, { icon: React.ElementType; iconBg: string; icon
   deduct: { icon: PackageMinus, iconBg: 'bg-red-50 border border-red-100', iconColor: 'text-red-500', label: 'Deducted', labelColor: 'text-red-600' },
   restock: { icon: PackagePlus, iconBg: 'bg-emerald-50 border border-emerald-100', iconColor: 'text-emerald-600', label: 'Restocked', labelColor: 'text-emerald-600' },
   adjust: { icon: RefreshCw, iconBg: 'bg-blue-50 border border-blue-100', iconColor: 'text-blue-500', label: 'Adjusted', labelColor: 'text-blue-600' },
-  'voice-log': { icon: Mic, iconBg: 'bg-purple-50 border border-purple-100', iconColor: 'text-purple-500', label: 'Voice Log', labelColor: 'text-purple-600' },
+  'voice-log': { icon: Mic, iconBg: 'bg-orange-50 border border-orange-100', iconColor: 'text-orange-500', label: 'Voice Log', labelColor: 'text-orange-600' },
 };
 
 function formatRelativeTime(timestamp: string) {

@@ -3,12 +3,12 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useInventory, type ItemCategory } from '../InventoryContext';
 
 const CATEGORY_COLORS: Record<string, string> = {
-  'Cleaning Chemicals': '#2563EB',   // Blue
-  'Waxes & Polishes': '#7C3AED',     // Purple
-  'Tools & Equipment': '#10b981',    // Emerald
-  'Consumables': '#f59e0b',          // Amber
-  'Accessories': '#06b6d4',          // Cyan
-  'Pads & Sponges': '#ec4899',       // Pink
+  'Cleaning Chemicals': '#2563EB',
+  'Waxes & Polishes': '#F59E0B',
+  'Tools & Equipment': '#10B981',
+  'Consumables': '#F97316',
+  'Accessories': '#64748B',
+  'Pads & Sponges': '#EF4444',
 };
 
 function CustomTooltip({ active, payload, label }: any) {

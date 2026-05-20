@@ -122,6 +122,20 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
     return counts;
   }, [items]);
 
+  const totalInventoryValue = useMemo(() => items.reduce((sum, item) => sum + (item.quantity * item.costPerUnit), 0), [items]);
+  const formattedInventoryValue = useMemo(
+    () => `₱${totalInventoryValue.toLocaleString('en-PH', { maximumFractionDigits: 0 })}`,
+    [totalInventoryValue],
+  );
+  const latestRestockedLabel = useMemo(() => {
+    const latest = items.reduce<number | null>((latestTime, item) => {
+      const time = new Date(item.lastRestocked).getTime();
+      if (Number.isNaN(time)) return latestTime;
+      return latestTime == null || time > latestTime ? time : latestTime;
+    }, null);
+    return latest == null ? 'No restocks yet' : new Date(latest).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }, [items]);
+
 
   const pageStart = filtered.length === 0 ? 0 : (page - 1) * perPage + 1;
   const pageEnd = Math.min(page * perPage, filtered.length);
@@ -146,16 +160,28 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <button onClick={handleExportCSV} className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150 active:scale-95 shadow-sm"><Download size={15} /><span className="hidden sm:inline">Export CSV</span></button>
-            <button onClick={() => { setEditingItem(null); setAddEditOpen(true); }} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md glow-blue"><Plus size={16} />Add Item</button>
+            <button onClick={() => { setEditingItem(null); setAddEditOpen(true); }} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md glow-blue"><Plus size={16} />Add Item</button>
           </div>
         </div>
 
         <div className="flex items-center gap-1 overflow-x-auto pb-1">
-          {CATEGORIES.map((cat) => (
-            <button key={`cat-tab-${cat}`} onClick={() => { setActiveCategory(cat); setPage(1); }} className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all duration-200 flex-shrink-0 ${activeCategory === cat ? 'gradient-primary text-white shadow-md' : 'text-gray-500 bg-white border border-gray-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200'}`}>
-              {cat}<span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${activeCategory === cat ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>{categoryCounts[cat]}</span>
-            </button>
-          ))}
+          {CATEGORIES.map((cat) => {
+            const count = categoryCounts[cat] || 0;
+            return (
+              <button key={`cat-tab-${cat}`} onClick={() => { setActiveCategory(cat); setPage(1); }} className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all duration-200 flex-shrink-0 ${activeCategory === cat ? 'gradient-primary text-white shadow-md' : 'text-gray-500 bg-white border border-gray-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200'}`}>
+                {cat}
+                {count > 0 && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${activeCategory === cat ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>{count}</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
+          <span className="tabular-nums text-slate-900">{items.length} item{items.length !== 1 ? 's' : ''}</span>
+          <span className="text-slate-300">·</span>
+          <span className="tabular-nums">{formattedInventoryValue} total value</span>
+          <span className="text-slate-300">·</span>
+          <span>Last restocked: {latestRestockedLabel}</span>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">

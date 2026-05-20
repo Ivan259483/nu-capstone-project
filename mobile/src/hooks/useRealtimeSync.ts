@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { authStorage } from '@/services/storage/authStorage';
 import { API_BASE_URL } from '@/config/env';
@@ -8,25 +8,29 @@ import { invalidateCache } from '@/services/api/client';
 import { isAdminDashboardRole, isServiceStaffRole } from '@/services/api/roles';
 
 // ── Collection → query key matching ──────────────────────────────────
-// Maps MongoDB collection changes to React Query query keys
 const COLLECTION_QUERY_MAP: Record<string, string[]> = {
   orders: ['bookings', 'booking', 'orders', 'dashboard'],
   products: ['products'],
   services: ['services'],
 };
 
+/** Debounce bursts from db_change + orderUpdated + booking:status on the same edit. */
+const ORDERS_REFRESH_DEBOUNCE_MS = 700;
+
 let sharedSocket: Socket | null = null;
+let socketListenersAttached = false;
 let subscribers: ((payload: any) => void)[] = [];
+let globalQueryClient: QueryClient | null = null;
+let ordersRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const getSharedSocket = async (): Promise<Socket> => {
   if (!sharedSocket || !sharedSocket.connected) {
     if (sharedSocket) {
       sharedSocket.disconnect();
+      socketListenersAttached = false;
     }
-    
-    // We attach the user token during handshake for strict security
+
     const token = await authStorage.getToken();
-    
     const serverUrl = API_BASE_URL.replace('/api', '');
 
     sharedSocket = io(serverUrl, {
@@ -35,13 +39,72 @@ export const getSharedSocket = async (): Promise<Socket> => {
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       reconnectionAttempts: 10,
-      auth: {
-        token
-      }
+      auth: { token },
     });
   }
   return sharedSocket;
 };
+
+function invalidateCollectionQueries(collection: string, source: string): void {
+  const queryKeysToInvalidate = COLLECTION_QUERY_MAP[collection];
+  if (!queryKeysToInvalidate?.length || !globalQueryClient) return;
+
+  queryKeysToInvalidate.forEach((queryKey) => {
+    globalQueryClient!.invalidateQueries({ queryKey: [queryKey] });
+  });
+
+  if (__DEV__) {
+    console.log(`[SOCKET] Refreshed caches (${source}) → ${queryKeysToInvalidate.join(', ')}`);
+  }
+}
+
+function scheduleOrdersRefresh(source: string, subscriberPayload?: Record<string, unknown>): void {
+  if (ordersRefreshTimer) clearTimeout(ordersRefreshTimer);
+
+  ordersRefreshTimer = setTimeout(() => {
+    ordersRefreshTimer = null;
+    invalidateCache('/bookings');
+    invalidateCollectionQueries('orders', source);
+    if (subscriberPayload) {
+      subscribers.forEach((sub) => sub(subscriberPayload));
+    }
+  }, ORDERS_REFRESH_DEBOUNCE_MS);
+}
+
+function attachGlobalSocketListeners(socket: Socket): void {
+  if (socketListenersAttached) return;
+  socketListenersAttached = true;
+
+  socket.on('db_change', (payload: any) => {
+    if (payload.collection === 'orders') {
+      scheduleOrdersRefresh(`${payload.collection} db_change`, payload);
+      return;
+    }
+
+    invalidateCollectionQueries(payload.collection, `${payload.collection} db_change`);
+    subscribers.forEach((sub) => sub(payload));
+  });
+
+  const onOrderEvent = (source: string, orderId?: string) => {
+    scheduleOrdersRefresh(source, {
+      collection: 'orders',
+      operationType: 'update',
+      documentKey: { _id: orderId },
+    });
+  };
+
+  socket.on('orderUpdated', (payload: any) => {
+    onOrderEvent('orderUpdated', payload?.orderId);
+  });
+
+  socket.on('booking:status_updated', (payload: any) => {
+    onOrderEvent('booking:status_updated', payload?.bookingId || payload?.orderId);
+  });
+
+  socket.on('booking:status', (payload: any) => {
+    onOrderEvent('booking:status', payload?.bookingId || payload?.orderId);
+  });
+}
 
 export function useRealtimeSync(
   collectionsToWatch: string[] = ['orders', 'services', 'products'],
@@ -49,88 +112,51 @@ export function useRealtimeSync(
 ) {
   const { profile } = useAuth();
   const queryClient = useQueryClient();
-  const hasInitialized = useRef(false);
+  const collectionsRef = useRef(collectionsToWatch);
+  const callbackRef = useRef(callback);
+
+  collectionsRef.current = collectionsToWatch;
+  callbackRef.current = callback;
+
+  useEffect(() => {
+    globalQueryClient = queryClient;
+  }, [queryClient]);
 
   useEffect(() => {
     if (!profile) {
       if (sharedSocket) {
         sharedSocket.disconnect();
         sharedSocket = null;
+        socketListenersAttached = false;
+      }
+      if (ordersRefreshTimer) {
+        clearTimeout(ordersRefreshTimer);
+        ordersRefreshTimer = null;
       }
       return;
     }
 
-    const initSocket = async () => {
-      const socket = await getSharedSocket();
+    let cancelled = false;
 
-      // Only mount the global listener once per socket instance lifecycle
-      if (!hasInitialized.current) {
-        hasInitialized.current = true;
-        
-        socket.on('db_change', (payload: any) => {
-          // 1. Bust the in-memory HTTP cache for the affected collection
-          if (payload.collection === 'orders') {
-            invalidateCache('/bookings');
-          }
-
-          // 2. Invalidate React Query matching patterns securely
-          const queryKeysToInvalidate = COLLECTION_QUERY_MAP[payload.collection];
-          if (queryKeysToInvalidate) {
-            queryKeysToInvalidate.forEach((queryKey) => {
-              queryClient.invalidateQueries({ queryKey: [queryKey] });
-            });
-            console.log(`[SOCKET] Invalidated local caches due to ${payload.collection} db_change`);
-          }
-
-          // 3. Alert raw subscribers directly reading from hook (if provided)
-          subscribers.forEach((sub) => sub(payload));
-        });
-
-        // Fallback explicit event listener for Order Updates
-        // Ensures realtime tracking works even if MongoDB Change Streams (Replica Sets) are disabled
-        socket.on('orderUpdated', (payload: any) => {
-          invalidateCache('/bookings');
-          const keys = COLLECTION_QUERY_MAP['orders'];
-          if (keys) {
-            keys.forEach(queryKey => queryClient.invalidateQueries({ queryKey: [queryKey] }));
-            console.log(`[SOCKET] Invalidated local caches due to explicit orderUpdated emit`);
-          }
-          // Notify subscribers simulating a db_change payload
-          subscribers.forEach((sub) => sub({ collection: 'orders', operationType: 'update', documentKey: { _id: payload.orderId }}));
-        });
-
-        // Specific listener for customer tracking status updates as requested by web app mirror
-        socket.on('booking:status_updated', (payload: any) => {
-          invalidateCache('/bookings');
-          const keys = COLLECTION_QUERY_MAP['orders'];
-          if (keys) {
-            keys.forEach(queryKey => queryClient.invalidateQueries({ queryKey: [queryKey] }));
-            console.log(`[SOCKET] Invalidated local caches due to booking:status_updated emit`);
-          }
-          subscribers.forEach((sub) => sub({ collection: 'orders', operationType: 'update', documentKey: { _id: payload.bookingId || payload.orderId }}));
-        });
-        
-        // Also listen to existing booking:status just in case
-        socket.on('booking:status', (payload: any) => {
-          invalidateCache('/bookings');
-          const keys = COLLECTION_QUERY_MAP['orders'];
-          if (keys) {
-            keys.forEach(queryKey => queryClient.invalidateQueries({ queryKey: [queryKey] }));
-            console.log(`[SOCKET] Invalidated local caches due to booking:status emit`);
-          }
-          subscribers.forEach((sub) => sub({ collection: 'orders', operationType: 'update', documentKey: { _id: payload.bookingId || payload.orderId }}));
-        });
+    const handler = (payload: any) => {
+      if (collectionsRef.current.includes(payload.collection) && callbackRef.current) {
+        callbackRef.current(
+          payload.collection,
+          payload.operationType,
+          payload.documentKey,
+          payload.fullDocument
+        );
       }
+    };
 
-      const handler = (payload: any) => {
-        if (collectionsToWatch.includes(payload.collection) && callback) {
-          callback(payload.collection, payload.operationType, payload.documentKey, payload.fullDocument);
-        }
-      };
+    subscribers.push(handler);
 
-      subscribers.push(handler);
+    void (async () => {
+      const socket = await getSharedSocket();
+      if (cancelled) return;
 
-      // Join dynamic rooms based exactly like the frontend
+      attachGlobalSocketListeners(socket);
+
       if (isAdminDashboardRole(profile.role)) {
         socket.emit('join_room', 'admin:chat');
       } else if (isServiceStaffRole(profile.role)) {
@@ -138,13 +164,11 @@ export function useRealtimeSync(
       } else {
         socket.emit('join_room', `user:${profile.id}`);
       }
-    };
-
-    initSocket();
+    })();
 
     return () => {
-      // Memory cleanup for local function closures
-      subscribers = [];
+      cancelled = true;
+      subscribers = subscribers.filter((sub) => sub !== handler);
     };
-  }, [profile, queryClient]); // Removed object arrays from dep checks to avoid infinite loops
+  }, [profile?.id, profile?.role]);
 }

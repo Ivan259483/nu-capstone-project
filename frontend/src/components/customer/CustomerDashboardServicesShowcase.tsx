@@ -12,7 +12,7 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ChevronRight } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
     HOMEPAGE_SERVICE_MENU,
@@ -47,125 +47,181 @@ export function CustomerDashboardServicesShowcase({
         setPriceTier(defaultTier);
     }, [defaultTier]);
 
+    const getPackageDisplay = (name: string) => {
+        const [codeRaw, labelRaw] = name.split("—").map((part) => part.trim());
+        return {
+            code: codeRaw || name,
+            label: labelRaw || "Protection",
+        };
+    };
+
     return (
         <div className="space-y-8">
             <section
                 className={cn(
-                    "overflow-hidden rounded-2xl border-0 bg-white",
+                    "rounded-xl border border-slate-200/80 bg-white px-5 py-6 sm:px-8 sm:py-8",
                     "shadow-[0_4px_16px_rgba(15,23,42,0.06),0_16px_40px_-16px_rgba(15,23,42,0.1)]"
                 )}
             >
-                <header className="border-0 px-5 py-6 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.08)] sm:px-8 sm:py-7">
-                    <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-                        <div className="min-w-0 max-w-2xl">
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">
-                                Service catalog
-                            </p>
-                            <div className="mt-2 h-0.5 w-10 rounded-full bg-blue-600" aria-hidden />
-                            <h2 className="mt-4 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-                                Ceramic &amp; protection lineup
-                            </h2>
-                            <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                                Indicative pricing by vehicle class. Final totals are confirmed after you submit a booking and our
-                                team reviews your vehicle.
-                            </p>
-                        </div>
-                        <div className="flex w-full flex-col gap-1.5 sm:max-w-xs lg:w-56 lg:shrink-0">
-                            <label htmlFor="customer-price-tier" className="text-xs font-medium text-slate-600">
-                                Vehicle class
-                            </label>
-                            <select
-                                id="customer-price-tier"
-                                value={priceTier}
-                                onChange={(e) => setPriceTier(e.target.value as VehiclePriceKey)}
-                                className={cn(
-                                    "w-full cursor-pointer rounded-xl border-0 bg-white px-3 py-2.5",
-                                    "text-sm font-medium text-slate-900 shadow-[0_2px_8px_rgba(15,23,42,0.06)] outline-none transition-all",
-                                    "hover:shadow-[0_4px_14px_-4px_rgba(37,99,235,0.12)] focus:ring-2 focus:ring-blue-500/25"
-                                )}
-                            >
-                                {CUSTOMER_BOOKING_PRICE_TIERS.map((t) => (
-                                    <option key={t.key} value={t.key}>
-                                        {t.label}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                <header className="flex flex-col gap-6 border-b border-slate-100 pb-6 lg:flex-row lg:items-end lg:justify-between">
+                    <div className="min-w-0 max-w-2xl">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                            Service catalog
+                        </p>
+                        <div className="mt-2 h-0.5 w-10 rounded-full bg-blue-600" aria-hidden />
+                        <h2 className="mt-4 text-[28px] font-bold tracking-tight text-slate-950">
+                            Ceramic &amp; Protection Lineup
+                        </h2>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-600 sm:text-[15px]">
+                            Indicative pricing by vehicle class. Final totals are confirmed after your booking is reviewed.
+                        </p>
+                    </div>
+                    <div className="flex w-full flex-col gap-1.5 sm:max-w-xs lg:w-64 lg:shrink-0">
+                        <label htmlFor="customer-price-tier" className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
+                            Vehicle class
+                        </label>
+                        <select
+                            id="customer-price-tier"
+                            value={priceTier}
+                            onChange={(e) => setPriceTier(e.target.value as VehiclePriceKey)}
+                            className={cn(
+                                "w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-3",
+                                "text-sm font-semibold text-slate-900 shadow-[0_2px_8px_rgba(15,23,42,0.06)] outline-none transition-all",
+                                "hover:border-blue-200 hover:shadow-[0_4px_14px_-4px_rgba(37,99,235,0.12)] focus:border-blue-300 focus:ring-2 focus:ring-blue-500/25"
+                            )}
+                        >
+                            {CUSTOMER_BOOKING_PRICE_TIERS.map((t) => (
+                                <option key={t.key} value={t.key}>
+                                    {t.label}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                 </header>
 
-                <div className="flex flex-col gap-3 px-5 pb-5 pt-1 sm:px-8 sm:pb-6">
-                    {packages.map((pkg) => {
-                        const price = pkg.prices[priceTier] ?? null;
-                        const isUnavailable = price === null;
-                        const isFlagship = pkg.id === "spf101";
-                        return (
-                            <div
-                                key={pkg.id}
-                                className={cn(
-                                    "rounded-2xl px-5 py-6 shadow-[0_2px_10px_rgba(15,23,42,0.04)] sm:px-8 sm:py-7",
-                                    isFlagship && "bg-blue-50/45 shadow-[0_4px_18px_-6px_rgba(37,99,235,0.12)]"
+	                <div className="grid w-full grid-cols-1 gap-5 pt-6 lg:grid-cols-3">
+	                    {packages.map((pkg) => {
+	                        const price = pkg.prices[priceTier] ?? null;
+	                        const isUnavailable = price === null;
+	                        const isPopular = pkg.id === "spf89";
+	                        const isFlagship = pkg.id === "spf101" || /spf\s*101/i.test(pkg.name) || /flagship\s*all[-\s]*in/i.test(pkg.name);
+	                        const display = getPackageDisplay(pkg.name);
+	                        const packageIntro = (
+	                            <div className={cn(isFlagship ? "pr-0 lg:max-w-xl" : "pr-24")}>
+	                                <span
+	                                    className={cn(
+	                                        "inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.08em]",
+	                                        isPopular || isFlagship ? "bg-blue-50 text-blue-600 ring-1 ring-blue-100" : "bg-slate-100 text-slate-600"
+	                                    )}
+	                                >
+	                                    {display.label}
+	                                </span>
+	                                <h3 className={cn(
+	                                    "mt-5 font-black tracking-tight text-slate-950",
+	                                    isFlagship ? "text-4xl sm:text-5xl" : "text-4xl"
+	                                )}>
+	                                    {display.code}
+	                                </h3>
+	                                <p className={cn(
+	                                    "mt-2 text-sm font-medium leading-relaxed text-slate-500",
+	                                    isFlagship ? "max-w-xl" : "min-h-[44px]"
+	                                )}>{pkg.duration}</p>
+	                            </div>
+	                        );
+	                        const priceBlock = (
+	                            <div className="mt-6">
+		                            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Indicative price</p>
+		                            <p className={cn(
+		                                "mt-1 font-bold tracking-tight text-blue-600",
+		                                isFlagship ? "text-4xl sm:text-[42px]" : "text-3xl"
+		                            )}>
+		                                {isUnavailable ? "N/A" : `FROM ₱${price.toLocaleString()}`}
+	                                </p>
+	                                <p className="mt-1 text-xs font-medium text-slate-500">Selected vehicle class</p>
+	                            </div>
+	                        );
+	                        const featuresList = (
+	                            <ul className={cn(
+	                                "flex-1",
+	                                isFlagship ? "grid gap-3 sm:grid-cols-2 lg:gap-x-5" : "space-y-3"
+	                            )}>
+	                                {pkg.features.map((feature) => (
+	                                    <li key={feature} className="flex gap-3 text-sm leading-relaxed text-slate-700">
+	                                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+	                                            <Check className="h-3.5 w-3.5" strokeWidth={3} />
+	                                        </span>
+	                                        <span>{feature}</span>
+	                                    </li>
+	                                ))}
+	                            </ul>
+	                        );
+	                        const bookingButton = (
+	                            <button
+	                                type="button"
+	                                onClick={() => onOpenBooking({ presetPackageId: pkg.id })}
+	                                disabled={isUnavailable}
+	                                className={cn(
+	                                    "inline-flex w-full items-center justify-center rounded-lg px-4 py-3",
+	                                    "text-sm font-black transition-all",
+	                                    isFlagship ? "mt-6 lg:mt-8" : "mt-8",
+	                                    isUnavailable
+	                                        ? "cursor-not-allowed bg-slate-200 text-slate-500"
+	                                        : "bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:-translate-y-0.5 hover:bg-blue-700",
+	                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-2"
+	                                )}
+	                            >
+	                                {isUnavailable ? "Unavailable" : "Book This Package"}
+	                            </button>
+	                        );
+	                        return (
+	                            <article
+	                                key={pkg.id}
+	                                className={cn(
+		                                    "relative rounded-xl border bg-white transition-all",
+		                                    "shadow-[0_10px_30px_-24px_rgba(15,23,42,0.35)] hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-[0_20px_42px_-28px_rgba(15,23,42,0.38)]",
+	                                    isFlagship
+	                                        ? "flex min-h-[520px] flex-col p-6 lg:col-span-3 lg:grid lg:min-h-[360px] lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-8 lg:p-8"
+	                                        : "flex min-h-[520px] flex-col p-6",
+	                                    isPopular
+	                                        ? "border-blue-500 shadow-[0_22px_60px_-30px_rgba(37,99,235,0.45)] ring-2 ring-blue-100/90"
+	                                        : "border-slate-200/90"
                                 )}
                             >
-                                <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-8 lg:items-start">
-                                    <div className="lg:col-span-5">
-                                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                                            {isFlagship && (
-                                                <span className="rounded-md border-0 bg-blue-100/90 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-blue-800 shadow-sm shadow-blue-600/10">
-                                                    Flagship
-                                                </span>
-                                            )}
-                                            <h3 className="text-base font-semibold leading-snug tracking-tight text-slate-900 sm:text-[17px]">
-                                                {pkg.name}
-                                            </h3>
-                                        </div>
-                                        <p className="mt-1.5 text-sm font-normal leading-relaxed text-slate-500">{pkg.duration}</p>
-                                        <p className="mt-3 text-sm leading-relaxed text-slate-600">{pkg.description}</p>
-                                    </div>
+                                {isPopular && (
+                                    <span className="absolute right-5 top-5 rounded-full bg-blue-600 px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white shadow-lg shadow-blue-600/20">
+	                                        Most Popular
+	                                    </span>
+	                                )}
 
-                                    <ul className="space-y-2 lg:col-span-4">
-                                        {pkg.features.map((f) => (
-                                            <li key={f} className="flex gap-3 text-sm leading-snug text-slate-600">
-                                                <span
-                                                    className="mt-2 h-1 w-1 shrink-0 rounded-full bg-blue-500 shadow-[0_0_0_3px_rgba(59,130,246,0.15)]"
-                                                    aria-hidden
-                                                />
-                                                <span>{f}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-
-                                    <div className="flex flex-col gap-3 border-0 pt-4 lg:col-span-3 lg:pl-8 lg:pt-0 lg:shadow-[inset_12px_0_24px_-20px_rgba(15,23,42,0.05)]">
-                                        <div>
-                                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                                                From
-                                            </p>
-                                            <p className="mt-0.5 text-2xl font-semibold tabular-nums tracking-tight text-slate-900">
-                                                {isUnavailable ? "N/A" : `₱${price.toLocaleString()}`}
-                                            </p>
-                                            <p className="mt-1 text-[11px] leading-snug text-slate-500">Selected vehicle class</p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => onOpenBooking({ presetPackageId: pkg.id })}
-                                            disabled={isUnavailable}
-                                            className={cn(
-                                                "inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-2.5",
-                                                "text-sm font-semibold text-white transition-colors",
-                                                isUnavailable ? "cursor-not-allowed bg-slate-300 text-slate-500" : "bg-blue-600 hover:bg-blue-700",
-                                                !isUnavailable && "shadow-md shadow-blue-600/25",
-                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-2"
-                                            )}
-                                        >
-                                            {isUnavailable ? "Unavailable" : "Book"}
-                                            <ChevronRight className="h-4 w-4 opacity-90" strokeWidth={2} />
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+	                                {isFlagship ? (
+	                                    <>
+	                                        <div className="flex flex-col justify-between">
+	                                            <div>
+	                                                {packageIntro}
+	                                                {priceBlock}
+	                                            </div>
+	                                            <p className="mt-6 rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm font-semibold leading-relaxed text-blue-700">
+	                                                Premium all-in coverage for owners who want the highest protection tier in one booking.
+	                                            </p>
+	                                        </div>
+	                                        <div className="mt-6 flex flex-col border-t border-slate-200/80 pt-6 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+	                                            {featuresList}
+	                                            {bookingButton}
+	                                        </div>
+	                                    </>
+	                                ) : (
+	                                    <>
+	                                        {packageIntro}
+	                                        {priceBlock}
+	                                        <div className="my-6 h-px w-full bg-slate-200/80" />
+	                                        {featuresList}
+	                                        {bookingButton}
+	                                    </>
+	                                )}
+	                            </article>
+	                        );
+	                    })}
+	                </div>
 
                 <footer className="flex flex-col gap-3 border-0 bg-blue-50/50 px-5 py-4 shadow-[inset_0_8px_20px_-16px_rgba(37,99,235,0.08)] sm:flex-row sm:items-center sm:justify-between sm:px-8">
                     <p className="text-xs leading-relaxed text-slate-600">
@@ -175,8 +231,8 @@ export function CustomerDashboardServicesShowcase({
                         type="button"
                         onClick={() => onOpenBooking()}
                         className={cn(
-                            "inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border-0 bg-white",
-                            "px-4 py-2 text-sm font-semibold text-blue-700 shadow-md shadow-blue-600/15 transition-all",
+	                            "inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white",
+                            "px-4 py-2 text-sm font-semibold text-blue-600 shadow-md shadow-blue-600/15 transition-all",
                             "hover:bg-blue-50/90 hover:shadow-lg"
                         )}
                     >
@@ -188,13 +244,13 @@ export function CustomerDashboardServicesShowcase({
 
             <section
                 className={cn(
-                    "rounded-2xl border-0 bg-white px-5 py-6 sm:px-8 sm:py-7",
+                    "rounded-xl border border-slate-200 bg-white px-5 py-6 sm:px-8 sm:py-7",
                     "shadow-[0_4px_16px_rgba(15,23,42,0.06),0_12px_36px_-14px_rgba(15,23,42,0.09)]"
                 )}
             >
                 <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">Detailing menu</p>
+	                        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Detailing menu</p>
                         <div className="mt-2 h-0.5 w-10 rounded-full bg-blue-600" aria-hidden />
                         <h2 className="mt-4 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
                             Signature services
@@ -206,8 +262,8 @@ export function CustomerDashboardServicesShowcase({
                     <Link
                         to="/services"
                         className={cn(
-                            "inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl border-0",
-                            "bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 shadow-md shadow-blue-600/15 transition-all",
+	                            "inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-lg border border-slate-200",
+                            "bg-white px-4 py-2.5 text-sm font-semibold text-blue-600 shadow-md shadow-blue-600/15 transition-all",
                             "hover:bg-blue-50/90 hover:shadow-lg sm:self-auto"
                         )}
                     >
@@ -220,8 +276,8 @@ export function CustomerDashboardServicesShowcase({
                         <div
                             key={s.name}
                             className={cn(
-                                "flex flex-col rounded-xl border-0 bg-white p-4",
-                                "shadow-[0_2px_10px_rgba(15,23,42,0.05)] transition-all hover:shadow-[0_6px_20px_-6px_rgba(37,99,235,0.12)]"
+	                                "flex flex-col rounded-xl border border-slate-200 bg-white p-4",
+	                                "shadow-[0_2px_10px_rgba(15,23,42,0.05)] transition-all hover:bg-slate-50 hover:shadow-[0_6px_20px_-6px_rgba(37,99,235,0.12)]"
                             )}
                         >
                             <div className="mb-2 flex items-center justify-between gap-2">
@@ -235,7 +291,7 @@ export function CustomerDashboardServicesShowcase({
                             </div>
                             <h3 className="text-sm font-semibold text-slate-900">{s.name}</h3>
                             <p className="mt-1.5 flex-1 text-sm leading-relaxed text-slate-600">{s.desc}</p>
-                            <p className="mt-3 text-sm font-semibold tabular-nums text-blue-700">{s.price}</p>
+                            <p className="mt-3 text-sm font-semibold tabular-nums text-blue-600">{s.price}</p>
                         </div>
                     ))}
                 </div>
