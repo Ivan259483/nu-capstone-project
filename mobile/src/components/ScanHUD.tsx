@@ -187,8 +187,10 @@ export default function ScanHUD({ progress }: ScanHUDProps) {
         <Animated.View
           key={i}
           entering={FadeIn.delay(i * 200)}
-          style={[styles.cornerNode, pos, pulseStyle]}
-        />
+          style={[styles.cornerNode, pos]}
+        >
+          <Animated.View style={[styles.cornerNodeDot, pulseStyle]} />
+        </Animated.View>
       ))}
 
       {/* Steps */}
@@ -329,6 +331,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 8,
     height: 8,
+  },
+  cornerNodeDot: {
+    ...StyleSheet.absoluteFillObject,
     borderRadius: 4,
     backgroundColor: Palette.accent,
   },

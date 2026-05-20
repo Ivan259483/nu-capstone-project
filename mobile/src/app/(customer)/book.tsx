@@ -1420,92 +1420,93 @@ export default function BookScreen() {
                         <Animated.View
                           key={pkg.key}
                           entering={FadeInDown.delay(idx * 40).duration(200)}
-                          style={PKG_CARD_ANIMS[pkg.key] as any}
                         >
-                          <TouchableOpacity
-                            activeOpacity={1}
-                            onPress={() => selectPkg(pkg.key, price)}
-                            style={[
-                              pkgCard.base,
-                              isHero     && pkgCard.hero,
-                              isSelected && pkgCard.selected,
-                              isSelected && isHero && pkgCard.heroSelected,
-                            ]}
-                          >
-                            {/* Hero gradient overlay */}
-                            {isHero && (
-                              <LinearGradient
-                                colors={['#1A1208', '#0F0F0F']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 1 }}
-                                style={StyleSheet.absoluteFill}
-                              />
-                            )}
-
-                            <View style={{ gap: 6 }}>
-                              {/* Tier label */}
-                              <Text style={pkgCard.tier}>{pkg.tier.toUpperCase()}</Text>
-
-                              {/* Name + price row */}
-                              <View style={pkgCard.nameRow}>
-                                <Text style={pkgCard.name}>{pkg.label} — {pkg.tier}</Text>
-                                {/* Animated checkmark */}
-                                <Animated.View style={[pkgCard.checkCircle, isSelected && pkgCard.checkCircleActive, PKG_CHK_ANIMS[pkg.key] as any]}>
-                                  <Ionicons name="checkmark" size={13} color={isSelected ? '#0A0A0A' : 'transparent'} />
-                                </Animated.View>
-                              </View>
-
-                              {/* Price */}
-                              <Text style={[pkgCard.price, isHero && { color: '#F97316' }]}>
-                                ₱{price.toLocaleString()}
-                              </Text>
-
-                              {/* Tagline */}
-                              <Text style={pkgCard.tagline}>{PKG_DURATIONS[pkg.key]}</Text>
-
-                              <Text style={pkgCard.description}>{pkg.description}</Text>
-
-                              {/* Social proof — SPF 89 only */}
+                          <Animated.View style={PKG_CARD_ANIMS[pkg.key] as any}>
+                            <TouchableOpacity
+                              activeOpacity={1}
+                              onPress={() => selectPkg(pkg.key, price)}
+                              style={[
+                                pkgCard.base,
+                                isHero     && pkgCard.hero,
+                                isSelected && pkgCard.selected,
+                                isSelected && isHero && pkgCard.heroSelected,
+                              ]}
+                            >
+                              {/* Hero gradient overlay */}
                               {isHero && (
-                                <Text style={pkgCard.socialProof}>
-                                  78% of AutoSPF+ customers choose this package
+                                <LinearGradient
+                                  colors={['#1A1208', '#0F0F0F']}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 1 }}
+                                  style={StyleSheet.absoluteFill}
+                                />
+                              )}
+
+                              <View style={{ gap: 6 }}>
+                                {/* Tier label */}
+                                <Text style={pkgCard.tier}>{pkg.tier.toUpperCase()}</Text>
+
+                                {/* Name + price row */}
+                                <View style={pkgCard.nameRow}>
+                                  <Text style={pkgCard.name}>{pkg.label} — {pkg.tier}</Text>
+                                  {/* Animated checkmark */}
+                                  <Animated.View style={[pkgCard.checkCircle, isSelected && pkgCard.checkCircleActive, PKG_CHK_ANIMS[pkg.key] as any]}>
+                                    <Ionicons name="checkmark" size={13} color={isSelected ? '#0A0A0A' : 'transparent'} />
+                                  </Animated.View>
+                                </View>
+
+                                {/* Price */}
+                                <Text style={[pkgCard.price, isHero && { color: '#F97316' }]}>
+                                  ₱{price.toLocaleString()}
                                 </Text>
-                              )}
 
-                              {/* Divider */}
-                              <View style={pkgCard.divider} />
+                                {/* Tagline */}
+                                <Text style={pkgCard.tagline}>{PKG_DURATIONS[pkg.key]}</Text>
 
-                              {/* Features */}
-                              <View style={{ gap: 0 }}>
-                                {pkg.features.map((feat, fi) => {
-                                  // Color savings in green
-                                  const saveMatch = feat.match(/(.*?)\s*\(save (₱[\d,]+)\)(.*)/);
-                                  return (
-                                    <Text key={fi} style={pkgCard.feature}>
-                                      {saveMatch ? (
-                                        <>
-                                          {saveMatch[1].trim()}
-                                          <Text style={{ color: '#4ADE80' }}> · saves {saveMatch[2]}</Text>
-                                        </>
-                                      ) : feat}
-                                    </Text>
-                                  );
-                                })}
+                                <Text style={pkgCard.description}>{pkg.description}</Text>
+
+                                {/* Social proof — SPF 89 only */}
+                                {isHero && (
+                                  <Text style={pkgCard.socialProof}>
+                                    78% of AutoSPF+ customers choose this package
+                                  </Text>
+                                )}
+
+                                {/* Divider */}
+                                <View style={pkgCard.divider} />
+
+                                {/* Features */}
+                                <View style={{ gap: 0 }}>
+                                  {pkg.features.map((feat, fi) => {
+                                    // Color savings in green
+                                    const saveMatch = feat.match(/(.*?)\s*\(save (₱[\d,]+)\)(.*)/);
+                                    return (
+                                      <Text key={fi} style={pkgCard.feature}>
+                                        {saveMatch ? (
+                                          <>
+                                            {saveMatch[1].trim()}
+                                            <Text style={{ color: '#4ADE80' }}> · saves {saveMatch[2]}</Text>
+                                          </>
+                                        ) : feat}
+                                      </Text>
+                                    );
+                                  })}
+                                </View>
+
+                                {/* "Why customers love this" — SPF 89 only */}
+                                {isHero && (
+                                  <TouchableOpacity
+                                    activeOpacity={0.7}
+                                    onPress={() => setWhyOpen(true)}
+                                    style={pkgCard.whyBtn}
+                                  >
+                                    <Text style={pkgCard.whyBtnText}>Why customers love this</Text>
+                                    <Ionicons name="arrow-forward" size={12} color="#F97316" />
+                                  </TouchableOpacity>
+                                )}
                               </View>
-
-                              {/* "Why customers love this" — SPF 89 only */}
-                              {isHero && (
-                                <TouchableOpacity
-                                  activeOpacity={0.7}
-                                  onPress={() => setWhyOpen(true)}
-                                  style={pkgCard.whyBtn}
-                                >
-                                  <Text style={pkgCard.whyBtnText}>Why customers love this</Text>
-                                  <Ionicons name="arrow-forward" size={12} color="#F97316" />
-                                </TouchableOpacity>
-                              )}
-                            </View>
-                          </TouchableOpacity>
+                            </TouchableOpacity>
+                          </Animated.View>
                         </Animated.View>
                       );
                     })}
