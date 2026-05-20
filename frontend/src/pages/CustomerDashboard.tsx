@@ -5151,7 +5151,7 @@ export default function CustomerDashboard() {
                 <section className="rounded-[32px] border border-slate-200/80 bg-white/80 p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.35)] sm:p-6">
                   <div className="mb-5 flex items-center justify-between gap-4 border-b border-slate-100 pb-4">
                     <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Garage hub</p>
+                      <p className="text-[11px] font-bold tracking-[0.08em] text-slate-500">Garage</p>
                       <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Your Garage</h2>
                     </div>
                     <button
