@@ -9,31 +9,32 @@ import {
   ScrollView,
   ActivityIndicator,
   TextInput,
+  Dimensions,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import * as WebBrowser from 'expo-web-browser';
-import * as Linking from 'expo-linking';
-import * as Crypto from 'expo-crypto';
-import Svg, { Path, G, ClipPath, Rect, Defs } from 'react-native-svg';
 import { useAuth } from '@/context/AuthContext';
-import { GOOGLE_WEB_CLIENT_ID } from '@/config/env';
 import { Toast } from '@/components/ui/PremiumToast';
 import { Validation } from '@/utils/validation';
 
-WebBrowser.maybeCompleteAuthSession();
+const SCREEN_H = Dimensions.get('window').height;
 
 export default function LoginScreen() {
-  const { signIn, signInWithGoogle } = useAuth();
+  const { signIn } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [keepSignedIn, setKeepSignedIn] = useState(false);
+  const [keepSignedIn, setKeepSignedIn] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
+  const [authError, setAuthError] = useState('');
 
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
@@ -59,7 +60,7 @@ export default function LoginScreen() {
 
   async function handleLogin() {
     if (isLocked) { Toast.show(`Locked. Try again in ${lockCountdown}.`, 'error'); return; }
-    setEmailError(''); setPasswordError('');
+    setEmailError(''); setPasswordError(''); setAuthError('');
     let hasError = false;
     if (!email) { setEmailError('Email is required'); hasError = true; }
     else if (!Validation.isValidEmail(email)) { setEmailError('Please enter a valid email'); hasError = true; }
@@ -87,77 +88,40 @@ export default function LoginScreen() {
       } else if (result.data?.remainingAttempts !== undefined) {
         setLoginAttempts(result.data.loginAttempts ?? loginAttempts + 1);
         setRemainingAttempts(result.data.remainingAttempts);
+        setAuthError('Invalid email or password.');
         Toast.show(result.message || 'Invalid credentials.', 'error');
       } else {
+        setAuthError('Invalid email or password.');
         Toast.show(result.message || 'Invalid credentials. Please try again.', 'error');
       }
     }
     setLoading(false);
   }
 
-  async function promptGoogleSignIn() {
-    setGoogleLoading(true);
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    try {
-      const randomBytes = await Crypto.getRandomBytesAsync(32);
-      const codeVerifier = btoa(String.fromCharCode(...randomBytes))
-        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-      const digest = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256, codeVerifier,
-        { encoding: Crypto.CryptoEncoding.BASE64 }
-      );
-      const codeChallenge = digest.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-      const redirectUri = Linking.createURL('');
-      const state = Math.random().toString(36).substring(2, 15);
-      const authUrl =
-        `https://accounts.google.com/o/oauth2/v2/auth?` +
-        `client_id=${encodeURIComponent(GOOGLE_WEB_CLIENT_ID)}` +
-        `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-        `&response_type=code` +
-        `&scope=${encodeURIComponent('openid profile email')}` +
-        `&code_challenge=${codeChallenge}&code_challenge_method=S256` +
-        `&state=${state}&access_type=offline&prompt=select_account`;
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
-      if (result.type === 'success' && result.url) {
-        const urlObj = new URL(result.url);
-        const code = urlObj.searchParams.get('code');
-        if (!code) { Toast.show('Google sign-in failed: no code returned.', 'error'); setGoogleLoading(false); return; }
-        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ code, client_id: GOOGLE_WEB_CLIENT_ID, redirect_uri: redirectUri, grant_type: 'authorization_code', code_verifier: codeVerifier }).toString(),
-        });
-        const tokenData = await tokenResponse.json();
-        const idToken = tokenData?.id_token;
-        if (!idToken) { Toast.show('Google sign-in failed: could not get ID token.', 'error'); setGoogleLoading(false); return; }
-        const signInResult = await signInWithGoogle(idToken);
-        if (signInResult.success) {
-          if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          router.replace('/');
-        } else {
-          Toast.show(signInResult.message || 'Google sign-in failed.', 'error');
-        }
-      }
-    } catch (error: any) {
-      Toast.show(error.message || 'Google sign-in failed.', 'error');
-    }
-    setGoogleLoading(false);
-  }
-
   return (
     <View style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { minHeight: SCREEN_H - insets.top - insets.bottom },
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          bounces={false}
         >
+          <View style={styles.centeredContent}>
           {/* Card */}
           <Animated.View entering={FadeIn.duration(400)} style={styles.card}>
 
             {/* Logo + Header */}
             <Animated.View entering={FadeInDown.delay(80).duration(350)} style={styles.headerBlock}>
-              <Text style={styles.logoText}>AutoSPF<Text style={styles.logoPlus}>+</Text></Text>
+              <Image
+                source={require('../../../assets/images/autospf-logo.png')}
+                style={styles.logo}
+                contentFit="contain"
+                accessibilityLabel="AutoSPF+ Logo"
+              />
               <Text style={styles.heading}>Welcome back</Text>
               <Text style={styles.subheading}>Sign in to continue to your account</Text>
             </Animated.View>
@@ -180,13 +144,20 @@ export default function LoginScreen() {
             <Animated.View entering={FadeInDown.delay(160).duration(350)}>
 
               {/* Email — label text only as placeholder inside field */}
-              <View style={[styles.inputWrap, styles.inputWrapFirst, emailError ? styles.inputWrapError : null]}>
+              <View style={[
+                styles.inputWrap,
+                styles.inputWrapFirst,
+                emailFocused && !emailError ? styles.inputWrapFocused : null,
+                emailError ? styles.inputWrapError : null,
+              ]}>
                 <TextInput
                   style={styles.input}
                   placeholder="Email address"
                   placeholderTextColor="rgba(255,255,255,0.28)"
                   value={email}
-                  onChangeText={t => { setEmail(t); setEmailError(''); }}
+                  onChangeText={t => { setEmail(t); setEmailError(''); setAuthError(''); }}
+                  onFocus={() => setEmailFocused(true)}
+                  onBlur={() => setEmailFocused(false)}
                   autoCapitalize="none"
                   keyboardType="email-address"
                   autoCorrect={false}
@@ -194,25 +165,37 @@ export default function LoginScreen() {
               </View>
               {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
 
-              {/* Password — forgot link only; placeholder inside field */}
-              <View style={styles.forgotOnlyRow}>
-                <TouchableOpacity onPress={() => router.push('/(auth)/forgot-password')}>
-                  <Text style={styles.forgotLink}>Forgot password?</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={[styles.inputWrap, passwordError ? styles.inputWrapError : null]}>
+              {/* Password */}
+              <View style={[
+                styles.inputWrap,
+                styles.inputWrapSpaced,
+                passwordFocused && !passwordError ? styles.inputWrapFocused : null,
+                passwordError ? styles.inputWrapError : null,
+              ]}>
                 <TextInput
                   style={[styles.input, { flex: 1 }]}
                   placeholder="Password"
                   placeholderTextColor="rgba(255,255,255,0.28)"
                   value={password}
-                  onChangeText={t => { setPassword(t); setPasswordError(''); }}
+                  onChangeText={t => { setPassword(t); setPasswordError(''); setAuthError(''); }}
+                  onFocus={() => setPasswordFocused(true)}
+                  onBlur={() => setPasswordFocused(false)}
                   secureTextEntry={!showPassword}
                 />
-                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeBtn}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
                   <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={18} color="rgba(255,255,255,0.40)" />
                 </TouchableOpacity>
               </View>
+              <View style={styles.forgotOnlyRow}>
+                <TouchableOpacity onPress={() => router.push('/(auth)/forgot-password')}>
+                  <Text style={styles.forgotLink}>Forgot password?</Text>
+                </TouchableOpacity>
+              </View>
+              {authError ? <Text style={styles.authErrorText}>{authError}</Text> : null}
               {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
 
               {/* Keep signed in */}
@@ -234,55 +217,14 @@ export default function LoginScreen() {
                 disabled={loading || isLocked}
                 activeOpacity={0.87}
               >
-                {loading
-                  ? <ActivityIndicator size="small" color="#FFF" />
-                  : <Text style={styles.signInBtnText}>{isLocked ? `Locked — ${lockCountdown}` : 'Sign in  →'}</Text>
-                }
-              </TouchableOpacity>
-
-              {/* Divider */}
-              <View style={styles.divRow}>
-                <View style={styles.divLine} />
-                <Text style={styles.divText}>OR</Text>
-                <View style={styles.divLine} />
-              </View>
-
-              {/* Google */}
-              <TouchableOpacity
-                style={styles.socialBtn}
-                onPress={promptGoogleSignIn}
-                disabled={googleLoading || loading}
-                activeOpacity={0.87}
-              >
-                {googleLoading ? <ActivityIndicator size="small" color="#555" /> : (
-                  <>
-                    <View style={styles.googleIconWrap}>
-                      <Svg width={18} height={18} viewBox="0 0 48 48">
-                        <Defs>
-                          <ClipPath id="gc"><Rect width={48} height={48} rx={24} /></ClipPath>
-                        </Defs>
-                        <G clipPath="url(#gc)">
-                          <Path d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21c10.5 0 20-7.6 20-21 0-1.3-.2-2.7-.5-4z" fill="#FBC02D" />
-                          <Path d="M6.3 14.7l7 5.1C15 16.1 19.2 13 24 13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 5.1 29.6 3 24 3 16.3 3 9.7 7.9 6.3 14.7z" fill="#E53935" />
-                          <Path d="M24 45c5.5 0 10.4-1.9 14.2-5.1l-6.6-5.5C29.5 36 26.9 37 24 37c-6.1 0-10.7-3.1-11.8-8.5l-7 5.4C8.6 41 15.8 45 24 45z" fill="#4CAF50" />
-                          <Path d="M44.5 20H24v8.5h11.8c-.6 2.9-2.5 5.4-5 7l6.6 5.5C41.7 37.3 44.5 31 44.5 24c0-1.3-.2-2.7-.5-4z" fill="#1565C0" />
-                        </G>
-                      </Svg>
-                    </View>
-                    <Text style={styles.socialBtnText}>Continue with Google</Text>
-                  </>
+                {loading ? (
+                  <View style={styles.signInLoadingRow}>
+                    <ActivityIndicator size="small" color="#FFF" />
+                    <Text style={styles.signInBtnText}>Signing in...</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.signInBtnText}>{isLocked ? `Locked — ${lockCountdown}` : 'Sign in  →'}</Text>
                 )}
-              </TouchableOpacity>
-
-              {/* Apple */}
-              <TouchableOpacity
-                style={styles.socialBtn}
-                disabled={loading}
-                activeOpacity={0.87}
-                onPress={() => Toast.show('Apple Sign-In coming soon.', 'info')}
-              >
-                <Ionicons name="logo-apple" size={18} color="#FFFFFF" style={{ marginRight: 10 }} />
-                <Text style={styles.socialBtnText}>Continue with Apple</Text>
               </TouchableOpacity>
 
             </Animated.View>
@@ -296,6 +238,7 @@ export default function LoginScreen() {
             </Animated.View>
 
           </Animated.View>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -309,9 +252,13 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
     paddingHorizontal: 28,
-    paddingVertical: 40,
+  },
+  centeredContent: {
+    flex: 1,
+    justifyContent: 'center',
+    width: '100%',
+    paddingVertical: 24,
   },
   card: {
     width: '100%',
@@ -321,20 +268,17 @@ const styles = StyleSheet.create({
   headerBlock: {
     marginBottom: 28,
   },
-  logoText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -0.2,
+  logo: {
+    width: 140,
+    aspectRatio: 604 / 413,
+    alignSelf: 'center',
     marginBottom: 20,
-  },
-  logoPlus: {
-    color: '#F97316',
   },
   heading: {
     fontSize: 32,
     fontWeight: '800',
     color: '#FFFFFF',
+    textAlign: 'center',
     letterSpacing: -0.5,
     marginBottom: 6,
   },
@@ -343,6 +287,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.50)',
     fontWeight: '400',
     lineHeight: 20,
+    textAlign: 'center',
   },
 
   // Alert banners — dark variants
@@ -371,12 +316,15 @@ const styles = StyleSheet.create({
   inputWrapFirst: {
     marginTop: 4,
   },
+  inputWrapSpaced: {
+    marginTop: 18,
+  },
   forgotOnlyRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    marginTop: 18,
-    marginBottom: 8,
+    marginTop: 8,
+    marginBottom: 4,
   },
   forgotLink: {
     fontSize: 13,
@@ -387,11 +335,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: '#2a2a2a',
     borderRadius: 12,
     paddingHorizontal: 14,
     height: 50,
     backgroundColor: '#111111',
+  },
+  inputWrapFocused: {
+    borderColor: '#FF6B00',
   },
   inputWrapError: {
     borderColor: 'rgba(239,68,68,0.70)',
@@ -403,12 +354,30 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '400',
   },
-  eyeBtn: { padding: 4 },
+  eyeBtn: {
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: -8,
+  },
   errorText: {
     fontSize: 12,
     color: '#EF4444',
     marginTop: 4,
     fontWeight: '500',
+  },
+  authErrorText: {
+    fontSize: 12,
+    color: '#EF4444',
+    marginTop: 4,
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  signInLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
 
   // Checkbox
@@ -461,40 +430,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.2,
-  },
-
-  // Divider
-  divRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 20,
-  },
-  divLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.10)' },
-  divText: {
-    color: 'rgba(255,255,255,0.30)',
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 1.5,
-    marginHorizontal: 12,
-  },
-
-  // Social Buttons — dark cards
-  socialBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 50,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    backgroundColor: '#111111',
-    marginBottom: 12,
-  },
-  googleIconWrap: { marginRight: 10 },
-  socialBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
   },
 
   // Footer

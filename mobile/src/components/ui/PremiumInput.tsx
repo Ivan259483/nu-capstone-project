@@ -61,7 +61,7 @@ export default function PremiumInput({
     const borderColor = interpolateColor(
       glowBorder.value,
       [0, 1, 2],
-      ['rgba(255,255,255,0.08)', 'rgba(249,115,22,0.55)', 'rgba(239,68,68,0.7)']
+      ['#2a2a2a', '#FF6B00', 'rgba(239,68,68,0.7)']
     );
 
     const backgroundColor = interpolateColor(

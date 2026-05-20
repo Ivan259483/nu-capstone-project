@@ -156,6 +156,12 @@ export default function VerifyScreen() {
                 {email.trim().toLowerCase()}
               </Text>
             </Text>
+            <View style={styles.mailNotice}>
+              <Ionicons name="mail-unread-outline" size={16} color={Palette.accent} />
+              <Text style={styles.mailNoticeText}>
+                If the code is not in Gmail All inboxes, please check Spam.
+              </Text>
+            </View>
           </View>
 
           <GlassCard style={{ padding: 24, marginTop: 20 }} animated={false}>
@@ -236,6 +242,27 @@ const styles = StyleSheet.create({
   headerContainer: { marginBottom: 20, marginTop: 40 },
   welcomeText: { fontSize: 28, fontWeight: '800', textAlign: 'center' },
   welcomeSubtext: { fontSize: 15, marginTop: 8, lineHeight: 22, textAlign: 'center' },
+  mailNotice: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(249,115,22,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(249,115,22,0.25)',
+  },
+  mailNoticeText: {
+    flexShrink: 1,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 1, color: '#9CA3AF', marginBottom: 8 },
   otpRow: {
     flexDirection: 'row',

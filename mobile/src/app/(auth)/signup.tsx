@@ -412,7 +412,7 @@ export default function SignUpScreen() {
                 }}
                 onBlur={() => handleBlur('password')}
                 isPassword
-                containerStyle={{ marginBottom: password.length > 0 ? 6 : undefined }}
+                containerStyle={password.length > 0 ? s.passwordInputWithChecklist : undefined}
               />
               {password.length > 0 && (
                 <View style={s.pwChecklist}>
@@ -425,7 +425,7 @@ export default function SignUpScreen() {
               )}
             </Animated.View>
 
-            <Animated.View entering={FadeInUp.delay(320).duration(200)}>
+            <Animated.View entering={FadeInUp.delay(320).duration(200)} style={s.confirmPasswordGroup}>
               <PremiumInput
                 label="CONFIRM PASSWORD *"
                 iconName="lock-closed-outline"
@@ -538,7 +538,7 @@ export default function SignUpScreen() {
             activeOpacity={1}
             onPress={() => setPpfTermsModalOpen(false)}
           />
-          <View style={[s.ppfModalSheet, { maxHeight: SCREEN_H * 0.9 }]}>
+          <View style={[s.ppfModalSheet, { maxHeight: SCREEN_H * 0.94 }]}>
             <View style={s.ppfModalHeader}>
               <Ionicons name="shield-checkmark" size={22} color="#F97316" />
               <View style={{ flex: 1, marginLeft: 10 }}>
@@ -546,19 +546,23 @@ export default function SignUpScreen() {
                 <Text style={s.ppfModalBrand}>AUTOSPF+ SUN PROTECTION FILM</Text>
                 <Text style={s.ppfModalBiz}>{PPF_TERMS_BUSINESS.name}</Text>
               </View>
-              <TouchableOpacity onPress={() => setPpfTermsModalOpen(false)} hitSlop={12}>
+              <TouchableOpacity
+                style={s.ppfModalClose}
+                onPress={() => setPpfTermsModalOpen(false)}
+                hitSlop={12}
+              >
                 <Ionicons name="close" size={26} color="rgba(255,255,255,0.85)" />
               </TouchableOpacity>
             </View>
             <ScrollView
               key={ppfTermsModalBodyKey}
-              style={[s.ppfModalScroll, { maxHeight: SCREEN_H * 0.48 }]}
+              style={[s.ppfModalScroll, { maxHeight: SCREEN_H * 0.58 }]}
               contentContainerStyle={s.ppfModalScrollContent}
               showsVerticalScrollIndicator
               onScroll={handlePpfTermsScroll}
               scrollEventThrottle={16}
               onContentSizeChange={(_, ch) => {
-                const maxH = SCREEN_H * 0.48;
+                const maxH = SCREEN_H * 0.58;
                 if (ch > 0 && ch <= maxH + 32) setPpfTermsModalScrolledToEnd(true);
               }}
             >
@@ -576,7 +580,12 @@ export default function SignUpScreen() {
               ))}
             </ScrollView>
             {!ppfTermsModalScrolledToEnd ? (
-              <Text style={s.ppfModalScrollHint}>Scroll to the bottom to enable &quot;I Accept&quot;.</Text>
+              <View style={s.ppfModalScrollHint}>
+                <Ionicons name="arrow-down-circle-outline" size={15} color="#FDBA74" />
+                <Text style={s.ppfModalScrollHintText}>
+                  Scroll to the bottom to enable &quot;I accept&quot;.
+                </Text>
+              </View>
             ) : null}
             <View style={s.ppfModalFooter}>
               <TouchableOpacity
@@ -597,8 +606,19 @@ export default function SignUpScreen() {
                 }}
                 activeOpacity={0.9}
               >
-                <Ionicons name="checkmark-circle" size={18} color="#171717" />
-                <Text style={s.ppfModalAcceptText}>I accept the PPF terms</Text>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={18}
+                  color={ppfTermsModalScrolledToEnd ? '#171717' : 'rgba(255,255,255,0.55)'}
+                />
+                <Text
+                  style={[
+                    s.ppfModalAcceptText,
+                    !ppfTermsModalScrolledToEnd && s.ppfModalAcceptTextDisabled,
+                  ]}
+                >
+                  I accept the PPF terms
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -642,7 +662,14 @@ const s = StyleSheet.create({
     lineHeight: 22,
   },
   form: { width: '100%' },
-  pwChecklist: { paddingHorizontal: 4, paddingBottom: 14 },
+  passwordInputWithChecklist: { marginBottom: 10 },
+  pwChecklist: {
+    paddingHorizontal: 4,
+    paddingTop: 4,
+    paddingBottom: 8,
+    marginBottom: 12,
+  },
+  confirmPasswordGroup: { marginTop: 16 },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -663,11 +690,20 @@ const s = StyleSheet.create({
     marginTop: 12,
     letterSpacing: 0.3,
   },
-  agreeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  agreeRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.055)',
+    borderWidth: 1,
+    borderColor: 'rgba(249,115,22,0.22)',
+  },
   agreeBox: {
-    width: 20,
-    height: 20,
-    borderRadius: 5,
+    width: 22,
+    height: 22,
+    borderRadius: 6,
     borderWidth: 1.5,
     borderColor: 'rgba(251, 191, 36, 0.65)',
     marginTop: 2,
@@ -691,102 +727,133 @@ const s = StyleSheet.create({
   },
   agreeTextWrap: { flex: 1 },
   agreeText: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: 'rgba(255,255,255,0.55)',
-    fontWeight: '400',
+    fontSize: 13,
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.78)',
+    fontWeight: '500',
   },
   agreeLink: { color: '#F97316', fontWeight: '700' },
   ppfModalRoot: { flex: 1, justifyContent: 'flex-end' },
-  ppfModalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.65)' },
+  ppfModalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.76)' },
   ppfModalSheet: {
-    backgroundColor: '#0f0f12',
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    backgroundColor: '#0B0B0D',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     overflow: 'hidden',
     borderTopWidth: 1,
-    borderColor: 'rgba(249,115,22,0.25)',
+    borderColor: 'rgba(249,115,22,0.35)',
   },
   ppfModalHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(249,115,22,0.2)',
-    backgroundColor: '#0a0a0c',
+    borderBottomColor: 'rgba(249,115,22,0.24)',
+    backgroundColor: '#0A0A0C',
   },
-  ppfModalTitle: { fontSize: 15, fontWeight: '700', color: '#FFFFFF', lineHeight: 20 },
+  ppfModalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  ppfModalTitle: { fontSize: 17, fontWeight: '800', color: '#FFFFFF', lineHeight: 23 },
   ppfModalBrand: {
-    marginTop: 4,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    color: 'rgba(249,115,22,0.9)',
-  },
-  ppfModalBiz: { marginTop: 2, fontSize: 11, color: 'rgba(255,255,255,0.45)' },
-  ppfModalScroll: { backgroundColor: '#FFFFFF' },
-  ppfModalScrollContent: { paddingHorizontal: 16, paddingVertical: 14, paddingBottom: 20 },
-  ppfModalMeta: {
-    fontSize: 11,
-    color: 'rgba(0,0,0,0.55)',
-    marginBottom: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.08)',
-  },
-  ppfModalIntro: { fontSize: 12, color: 'rgba(0,0,0,0.78)', lineHeight: 18, marginBottom: 14 },
-  ppfModalSecTitle: {
+    marginTop: 6,
     fontSize: 11,
     fontWeight: '800',
-    color: 'rgba(120,53,15,0.95)',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    letterSpacing: 1.4,
+    color: '#FB923C',
   },
-  ppfModalSecBody: { fontSize: 12, color: 'rgba(0,0,0,0.72)', lineHeight: 18 },
+  ppfModalBiz: { marginTop: 3, fontSize: 12, color: 'rgba(255,255,255,0.58)', lineHeight: 17 },
+  ppfModalScroll: { backgroundColor: '#121214' },
+  ppfModalScrollContent: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 28 },
+  ppfModalMeta: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.58)',
+    lineHeight: 18,
+    marginBottom: 16,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  ppfModalIntro: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.86)',
+    lineHeight: 22,
+    marginBottom: 18,
+  },
+  ppfModalSecTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FDBA74',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  ppfModalSecBody: { fontSize: 14, color: 'rgba(255,255,255,0.78)', lineHeight: 22 },
   ppfModalScrollHint: {
-    fontSize: 11,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(251,191,36,0.15)',
-    color: 'rgba(120,53,15,0.95)',
-    fontWeight: '600',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(251,146,60,0.16)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(251,146,60,0.22)',
+  },
+  ppfModalScrollHintText: {
+    flex: 1,
+    color: '#FDBA74',
+    fontSize: 12,
+    fontWeight: '700',
   },
   ppfModalFooter: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingTop: 12,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
     paddingBottom: Platform.OS === 'ios' ? 28 : 16,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#0B0B0D',
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    borderTopColor: 'rgba(255,255,255,0.10)',
   },
   ppfModalCancel: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: '#171717',
+    minHeight: 52,
+    borderRadius: 14,
+    backgroundColor: '#111113',
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.14)',
   },
-  ppfModalCancelText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  ppfModalCancelText: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },
   ppfModalAccept: {
     flex: 2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 10,
+    gap: 8,
+    minHeight: 52,
+    borderRadius: 14,
     backgroundColor: '#F97316',
+    borderWidth: 1,
+    borderColor: '#F97316',
   },
-  ppfModalAcceptDisabled: { opacity: 0.45 },
-  ppfModalAcceptText: { fontSize: 13, fontWeight: '800', color: '#171717' },
+  ppfModalAcceptDisabled: {
+    backgroundColor: 'rgba(249,115,22,0.16)',
+    borderColor: 'rgba(249,115,22,0.28)',
+  },
+  ppfModalAcceptText: { fontSize: 14, fontWeight: '900', color: '#171717' },
+  ppfModalAcceptTextDisabled: { color: 'rgba(255,255,255,0.55)' },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 28, paddingBottom: 12 },
   footerText: { color: 'rgba(255,255,255,0.40)', fontSize: 13, fontWeight: '500' },
   footerLink: { color: '#F97316', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },

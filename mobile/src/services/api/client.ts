@@ -105,6 +105,10 @@ apiClient.interceptors.response.use(
     if (__DEV__) {
       const url = `${config?.baseURL || ''}${config?.url || ''}`;
       const method = config?.method?.toLowerCase();
+      const expectedOtpValidationFailure =
+        method === 'post' &&
+        path.includes('/auth/verify-otp') &&
+        (status === 400 || status === 401 || status === 429);
 
       const isLogoutFailure =
         status === 401 &&
@@ -125,7 +129,13 @@ apiClient.interceptors.response.use(
           (method === 'get' && /\/ai\/scan\//i.test(path)) ||
           (method === 'post' && /\/ai\/generate-3d-from-scan\b/i.test(path)));
 
-      if (invalidatesAuthSession || isLogoutFailure || isSocialLoginMiss || suppressExpectedErrorLog) {
+      if (
+        invalidatesAuthSession ||
+        isLogoutFailure ||
+        isSocialLoginMiss ||
+        suppressExpectedErrorLog ||
+        expectedOtpValidationFailure
+      ) {
         // Expected edge cases: keep rejecting, but do not flood the console.
       } else if (!error.response) {
         console.warn(`[API] WARN NETWORK ${config?.method?.toUpperCase()} ${url} \u2014 ${message}`);

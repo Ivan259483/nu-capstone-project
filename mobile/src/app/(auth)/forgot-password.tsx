@@ -181,7 +181,7 @@ export default function ForgotPasswordScreen() {
           {/* Back button */}
           <Animated.View entering={FadeInDown.delay(50).duration(200)} style={styles.backBtn}>
             <TouchableOpacity style={styles.backBtnInner} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }} onPress={() => router.back()}>
-              <Ionicons name="chevron-back" size={24} color="#111" />
+              <Ionicons name="chevron-back" size={24} color="rgba(255,255,255,0.80)" />
             </TouchableOpacity>
           </Animated.View>
 
@@ -230,7 +230,7 @@ export default function ForgotPasswordScreen() {
                 <Text style={styles.title}>Enter Code</Text>
                 <Text style={styles.subtitle}>
                   We sent a 6-digit code to{'\n'}
-                  <Text style={{ color: '#111', fontWeight: '700' }}>{email}</Text>
+                  <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>{email}</Text>
                 </Text>
               </Animated.View>
 
@@ -265,7 +265,7 @@ export default function ForgotPasswordScreen() {
 
               <View style={{ alignItems: 'center', marginTop: 20 }}>
                 {countdown > 0 ? (
-                  <Text style={{ color: '#555', fontSize: 13 }}>
+                  <Text style={{ color: 'rgba(255,255,255,0.50)', fontSize: 13 }}>
                     Resend in <Text style={{ color: Palette.accent, fontWeight: '700' }}>{countdown}s</Text>
                   </Text>
                 ) : (
@@ -333,7 +333,7 @@ export default function ForgotPasswordScreen() {
               <Text style={styles.successSub}>
                 Your password has been updated successfully.{'\n\n'}
                 <Text style={{ color: '#F97316', fontWeight: '700' }}>Action Required: </Text>
-                We also sent a <Text style={{ color: '#111', fontWeight: '600' }}>Firebase reset link</Text> to your email. Click it to finish syncing your login, then sign in with your new password.
+                We also sent a <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>Firebase reset link</Text> to your email. Click it to finish syncing your login, then sign in with your new password.
               </Text>
               <View style={{ marginTop: 32, width: '100%' }}>
                 <PremiumButton
@@ -352,43 +352,51 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
-  scroll: { paddingHorizontal: 28, paddingTop: 100, paddingBottom: 60, flexGrow: 1 },
-  backBtn: { position: 'absolute', top: 56, left: 20, zIndex: 10 },
+  container: { flex: 1, backgroundColor: '#0A0A0A' },
+  scroll: {
+    paddingHorizontal: 28,
+    paddingTop: Platform.OS === 'ios' ? 100 : 80,
+    paddingBottom: 60,
+    flexGrow: 1,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  backBtn: { position: 'absolute', top: Platform.OS === 'ios' ? 60 : 40, left: 20, zIndex: 10 },
   backBtnInner: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: '#F5F5F5',
-    borderWidth: 1, borderColor: '#E5E7EB',
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)',
     justifyContent: 'center', alignItems: 'center',
   },
   header: { alignItems: 'center', marginBottom: 36 },
   iconBox: {
     width: 68, height: 68, borderRadius: 20,
-    backgroundColor: 'rgba(249,115,22,0.08)',
-    borderWidth: 1, borderColor: 'rgba(249,115,22,0.2)',
+    backgroundColor: 'rgba(249,115,22,0.10)',
+    borderWidth: 1, borderColor: 'rgba(249,115,22,0.25)',
     justifyContent: 'center', alignItems: 'center', marginBottom: 20,
   },
-  title: { fontSize: 30, fontWeight: '800', color: '#111111', letterSpacing: -0.5, marginBottom: 10 },
-  subtitle: { fontSize: 14, color: '#9CA3AF', textAlign: 'center', lineHeight: 22 },
+  title: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.5, marginBottom: 10 },
+  subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.50)', textAlign: 'center', lineHeight: 22 },
 
   otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 8 },
   otpBox: {
     width: 48, height: 58, borderRadius: 12,
-    backgroundColor: '#FAFAFA', borderWidth: 1.5, borderColor: '#E9EAEC',
-    color: '#111111', fontSize: 24, fontWeight: '700', textAlign: 'center',
+    backgroundColor: '#111111', borderWidth: 1, borderColor: '#2a2a2a',
+    color: '#FFFFFF', fontSize: 24, fontWeight: '700', textAlign: 'center',
   },
-  otpBoxFilled: { borderColor: Palette.accent, backgroundColor: 'rgba(249,115,22,0.05)' },
+  otpBoxFilled: { borderColor: '#FF6B00', backgroundColor: 'rgba(249,115,22,0.06)' },
 
   successCard: {
     alignItems: 'center', padding: 28,
-    backgroundColor: '#FAFAFA',
-    borderRadius: 24, borderWidth: 1, borderColor: '#F0F0F0',
+    backgroundColor: '#111111',
+    borderRadius: 24, borderWidth: 1, borderColor: '#2a2a2a',
   },
   successIcon: {
     width: 88, height: 88, borderRadius: 44,
-    backgroundColor: 'rgba(249,115,22,0.08)',
+    backgroundColor: 'rgba(249,115,22,0.10)',
+    borderWidth: 1, borderColor: 'rgba(249,115,22,0.25)',
     justifyContent: 'center', alignItems: 'center', marginBottom: 20,
   },
-  successTitle: { fontSize: 24, fontWeight: '800', color: '#111111', marginBottom: 10 },
-  successSub: { fontSize: 14, color: '#9CA3AF', textAlign: 'center', lineHeight: 22 },
+  successTitle: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', marginBottom: 10 },
+  successSub: { fontSize: 14, color: 'rgba(255,255,255,0.50)', textAlign: 'center', lineHeight: 22 },
 });
