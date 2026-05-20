@@ -36,14 +36,19 @@ export default function SalesSidebar({ activeView, onNavigate, collapsed, onTogg
     const fetchCount = async () => {
       try {
         const { OrderService } = await import('@/lib/order-service');
-        const res = await OrderService.getAllOrders({ suppressErrorToast: true });
-        if (res.success && Array.isArray(res.data)) {
-          setPendingCount(res.data.filter((o: any) => o.status === 'pending_confirmation').length);
+        const res = await OrderService.getAllOrders({
+          suppressErrorToast: true,
+          status: 'pending_confirmation',
+          limit: 1,
+          includeTotal: true,
+        });
+        if (res.success) {
+          setPendingCount(Number(res.pagination?.total ?? (Array.isArray(res.data) ? res.data.length : 0)));
         }
       } catch { /* silent */ }
     };
     fetchCount();
-    const interval = setInterval(fetchCount, 30000); // refresh every 30s
+    const interval = setInterval(fetchCount, 60_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -80,11 +85,6 @@ export default function SalesSidebar({ activeView, onNavigate, collapsed, onTogg
             >
               <Icon size={18} className="shrink-0" />
               {!collapsed && <span className="flex-1 truncate text-left">{item.label}</span>}
-              {!collapsed && item.badge && (
-                <span className="text-[10px] font-bold bg-blue-700 text-white px-1.5 py-0.5 rounded-full">
-                  {item.badge}
-                </span>
-              )}
               {!collapsed && (item as any).badgeKey === 'approvals' && pendingCount > 0 && (
                 <span className="text-[10px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded-full">
                   {pendingCount}

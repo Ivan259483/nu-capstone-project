@@ -54,7 +54,11 @@ export function useLiveJobs(
                     return;
                 }
             } else {
-                const res = await OrderService.getAllOrders();
+                const res = await OrderService.getAllOrders({
+                    limit: 100,
+                    sortBy: 'createdAt',
+                    sortOrder: 'desc',
+                });
                 if (res.success && Array.isArray(res.data)) {
                     setJobs(res.data);
                     return;

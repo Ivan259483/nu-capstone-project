@@ -688,7 +688,11 @@ export default function AdminDashboard() {
             return;
         }
         try {
-            const res = await OrderService.getAllOrders();
+            const res = await OrderService.getAllOrders({
+                limit: 100,
+                sortBy: 'createdAt',
+                sortOrder: 'desc',
+            });
             if (res.success && Array.isArray(res.data)) {
                 setBookings(res.data);
             }
@@ -746,7 +750,12 @@ export default function AdminDashboard() {
 
                 // STEP 1: Try to fetch from API
                 try {
-                    const allOrdersResponse = await OrderService.getAllOrders({ suppressErrorToast: true });
+                    const allOrdersResponse = await OrderService.getAllOrders({
+                        suppressErrorToast: true,
+                        limit: 100,
+                        sortBy: 'createdAt',
+                        sortOrder: 'desc',
+                    });
                     if (allOrdersResponse.success && Array.isArray(allOrdersResponse.data)) {
                         allOrders = allOrdersResponse.data;
                         dataSource = 'API';

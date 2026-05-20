@@ -448,7 +448,13 @@ export default function CustomerLiveTrackerPage() {
 
     const fetchActiveBooking = async () => {
       try {
-        const response = await OrderService.getAllOrders({ suppressErrorToast: true });
+        const response = await OrderService.getAllOrders({
+          suppressErrorToast: true,
+          limit: 20,
+          status: 'pending,pending_confirmation,confirmed,approved,assigned,received,in_progress,ready_for_payment,paid',
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
         const nextBooking = response.success && Array.isArray(response.data)
           ? selectActiveBooking(response.data, user)
           : null;
@@ -460,8 +466,8 @@ export default function CustomerLiveTrackerPage() {
     };
 
     fetchActiveBooking();
-    // Reduced to 10s for demo reliability (was 30s)
-    const refreshInterval = window.setInterval(fetchActiveBooking, 10_000);
+    // Socket events drive live updates; keep a slow safety poll for missed events.
+    const refreshInterval = window.setInterval(fetchActiveBooking, 60_000);
 
     let socketBumpTimer: ReturnType<typeof setTimeout> | null = null;
     const bumpFromSocket = () => {
@@ -478,6 +484,9 @@ export default function CustomerLiveTrackerPage() {
       serviceTrackingStage?: string | null;
       serviceStaffAssignments?: any[];
       trackerStageMedia?: any[];
+      status?: string;
+      paymentStatus?: string;
+      invoiceId?: string | null;
       updatedAt?: string;
     }) => {
       const targetId = String(event.bookingId || event.orderId || '').trim();
@@ -498,6 +507,9 @@ export default function CustomerLiveTrackerPage() {
           ...(event.trackerStageMedia !== undefined
             ? { trackerStageMedia: event.trackerStageMedia }
             : {}),
+          ...(event.status !== undefined ? { status: event.status } : {}),
+          ...(event.paymentStatus !== undefined ? { paymentStatus: event.paymentStatus } : {}),
+          ...(event.invoiceId !== undefined ? { invoiceId: event.invoiceId } : {}),
           ...(event.updatedAt ? { updatedAt: event.updatedAt } : {}),
         };
       });
@@ -508,10 +520,13 @@ export default function CustomerLiveTrackerPage() {
     // Shared socket: same events as dashboard — silent HTTP refetch (no reload)
     const socket = getSharedSocket();
     const handleDbChange = (payload: any) => {
-      if (payload.collection === 'orders') {
-        console.log('[LiveTracker] db_change orders → refetch');
-        bumpFromSocket();
-      }
+      if (payload.collection !== 'orders') return;
+      const changedId = String(payload.fullDocument?._id || payload.documentKey?._id || '').trim();
+      if (activeBookingIdRef.current && changedId && changedId !== activeBookingIdRef.current) return;
+      const patched = payload.fullDocument
+        ? patchActiveBookingFromSocket({ ...payload.fullDocument, orderId: changedId })
+        : false;
+      if (!patched) bumpFromSocket();
     };
     socket.on('db_change', handleDbChange);
     const handleBookingStatus = (event: any) => {

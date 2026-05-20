@@ -55,7 +55,13 @@ export function useOpsData(): OpsData {
 
       const loadOrders = async (): Promise<Booking[]> => {
         try {
-          const ordersRes = await OrderService.getAllOrders({ suppressErrorToast: true });
+          const ordersRes = await OrderService.getAllOrders({
+            suppressErrorToast: true,
+            limit: 100,
+            status: 'approved,confirmed,assigned,received,in_progress,ready_for_payment,completed',
+            sortBy: 'createdAt',
+            sortOrder: 'desc',
+          });
           if (ordersRes?.success && Array.isArray(ordersRes.data)) {
             return ordersRes.data;
           }
@@ -144,7 +150,7 @@ export function useOpsData(): OpsData {
   useEffect(() => {
     isMounted.current = true;
     fetchData();
-    const interval = setInterval(() => fetchData({ silent: true }), 30000);
+    const interval = setInterval(() => fetchData({ silent: true }), 60_000);
     return () => {
       isMounted.current = false;
       clearInterval(interval);

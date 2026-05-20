@@ -169,19 +169,97 @@ const generateBookingReference = () => {
   return `ASPF-${yy}${mm}${dd}-${hex}`;
 };
 
-/**
- * Bulk dashboard lists (sales / ops / admin POS views) fetch hundreds of orders.
- * Full documents often include multi‑MB inline tracker photos (`data:image/...`)
- * and heavy workflow payloads — killing JSON parse time and bandwidth.
- * Customers use the same lite shape but **include** `trackerStageMedia` so the live tracker can render QC photos
- * (see `ORDER_LIST_LITE_CUSTOMER_PROJECTION`). Other lite roles still omit tracker rows for bandwidth.
- */
-const ORDER_LIST_LITE_PROJECTION =
-  '-damageAnnotations -damagePhotos -photos -ingressChecklist -customerWaiver -serviceProper -qcChecklist -egressData -operationsChecklist -warrantyAndReceipt -workflow -jobOrder -staffNotes -rating -inventoryReservation -serviceSteps -trackerStageMedia -legalCompliance -paymentProofUrl -downpaymentProof';
+const BOOKING_LIST_DEFAULT_LIMIT = 50;
+const BOOKING_LIST_MAX_LIMIT = 100;
 
-/** Like lite list but keeps `trackerStageMedia` so customer dashboard / live tracker can show QC stage photos. */
-const ORDER_LIST_LITE_CUSTOMER_PROJECTION =
-  '-damageAnnotations -damagePhotos -photos -ingressChecklist -customerWaiver -serviceProper -qcChecklist -egressData -operationsChecklist -warrantyAndReceipt -workflow -jobOrder -staffNotes -rating -inventoryReservation -serviceSteps -legalCompliance -paymentProofUrl -downpaymentProof';
+/**
+ * Positive list projection: keep list payloads tiny and predictable.
+ * Heavy fields (payment proof blobs, photos, workflow/checklist docs, waivers,
+ * signatures, ratings, reservations) stay on detail endpoints.
+ */
+const ORDER_LIST_SELECT_FIELDS = [
+  '_id',
+  'orderNumber',
+  'bookingReference',
+  'customer',
+  'customerName',
+  'customerPhone',
+  'serviceId',
+  'serviceType',
+  'items.quantity',
+  'items.price',
+  'totalAmount',
+  'totalPrice',
+  'downPaymentAmount',
+  'finalPaymentAmount',
+  'invoiceId',
+  'paymentStatus',
+  'paymentMethod',
+  'paymentProvider',
+  'paidAt',
+  'approvedAt',
+  'rejectedAt',
+  'rejectionReason',
+  'status',
+  'customerStatus',
+  'customerStatusUpdatedAt',
+  'archived',
+  'archivedAt',
+  'archivedReason',
+  'vehicleYear',
+  'vehicleMake',
+  'vehicleModel',
+  'vehicleColor',
+  'vehiclePlate',
+  'bookingDate',
+  'bookingTime',
+  'notes',
+  'assignedDetailer',
+  'serviceTrackingStage',
+  'serviceTrackingUpdatedAt',
+  'serviceTrackingUpdatedBy',
+  'serviceStaffAssignments',
+  'createdAt',
+  'updatedAt',
+].join(' ');
+
+const parsePositiveInt = (value, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+};
+
+const parseBoolQuery = (value) => value === true || String(value).toLowerCase() === 'true';
+
+const parseCsvValues = (value) => {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => parseCsvValues(entry));
+  }
+  return String(value || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+};
+
+const applyCsvFilter = (query, field, value) => {
+  const values = parseCsvValues(value);
+  if (values.length === 1) query[field] = values[0];
+  if (values.length > 1) query[field] = { $in: values };
+};
+
+const getBookingListSort = ({ sortBy, sortOrder }) => {
+  const allowed = new Set(['createdAt', 'updatedAt', 'bookingDate', 'bookingTime', 'status', 'paymentStatus']);
+  const field = allowed.has(String(sortBy || '')) ? String(sortBy) : 'createdAt';
+  const direction = String(sortOrder || '').toLowerCase() === 'asc' ? 1 : -1;
+
+  if (field === 'bookingDate') {
+    return { bookingDate: direction, bookingTime: direction, createdAt: -1 };
+  }
+  if (field === 'bookingTime') {
+    return { bookingTime: direction, createdAt: -1 };
+  }
+  return { [field]: direction, _id: direction };
+};
 
 /** Sales GCash review: same exclusions as lite lists but KEEP inline proof fields (still omits multi‑MB blobs). */
 const ORDER_APPROVAL_PREVIEW_PROJECTION =
@@ -281,8 +359,67 @@ const formatBookingDto = (orderDoc) => {
   };
 };
 
-const toApprovalQueueBookingDto = (orderDoc) => {
+const formatBookingListDto = (orderDoc) => {
   const booking = formatBookingDto(orderDoc);
+  if (!booking) return null;
+
+  return {
+    _id: booking._id,
+    id: booking.id,
+    orderNumber: booking.orderNumber,
+    bookingReference: booking.bookingReference,
+    customer: booking.customer,
+    customerId: booking.customerId,
+    customerName: booking.customerName,
+    customerPhone: booking.customerPhone,
+    customerAvatar: booking.customerAvatar,
+    serviceId: booking.serviceId?.toString?.() || booking.serviceId || '',
+    serviceType: booking.serviceType,
+    serviceName: booking.serviceName,
+    items: booking.items,
+    totalAmount: booking.totalAmount,
+    totalPrice: booking.totalPrice,
+    downPaymentAmount: booking.downPaymentAmount,
+    finalPaymentAmount: booking.finalPaymentAmount,
+    invoiceId: booking.invoiceId,
+    paymentStatus: booking.paymentStatus,
+    paymentMethod: booking.paymentMethod,
+    paymentProvider: booking.paymentProvider,
+    paidAt: booking.paidAt,
+    approvedAt: booking.approvedAt,
+    rejectedAt: booking.rejectedAt,
+    rejectionReason: booking.rejectionReason,
+    status: booking.status,
+    customerStatus: booking.customerStatus,
+    customerStatusUpdatedAt: booking.customerStatusUpdatedAt,
+    hasPaymentProof: booking.hasPaymentProof,
+    archived: booking.archived,
+    archivedAt: booking.archivedAt,
+    archivedReason: booking.archivedReason,
+    vehicleYear: booking.vehicleYear,
+    vehicleMake: booking.vehicleMake,
+    vehicleModel: booking.vehicleModel,
+    vehicleColor: booking.vehicleColor,
+    vehiclePlate: booking.vehiclePlate,
+    vehiclePlateDecryptFailed: booking.vehiclePlateDecryptFailed,
+    vehicleInfo: booking.vehicleInfo,
+    bookingDate: booking.bookingDate,
+    bookingTime: booking.bookingTime,
+    date: booking.date,
+    time: booking.time,
+    notes: booking.notes,
+    assignedDetailer: booking.assignedDetailer,
+    serviceTrackingStage: booking.serviceTrackingStage,
+    serviceTrackingUpdatedAt: booking.serviceTrackingUpdatedAt,
+    serviceTrackingUpdatedBy: booking.serviceTrackingUpdatedBy,
+    serviceStaffAssignments: booking.serviceStaffAssignments,
+    createdAt: booking.createdAt,
+    updatedAt: booking.updatedAt,
+  };
+};
+
+const toApprovalQueueBookingDto = (orderDoc) => {
+  const booking = formatBookingListDto(orderDoc);
   if (!booking) return null;
 
   return {
@@ -360,14 +497,47 @@ export const getAllOrders = async (req, res, next) => {
         });
     }
 
-    const { status, skip = 0, limit = 10, includeArchived } = req.query;
+    const {
+      status,
+      paymentStatus,
+      customerId,
+      serviceId,
+      bookingDate,
+      skip,
+      page,
+      limit,
+      includeArchived,
+      includeTotal,
+      sortBy,
+      sortOrder,
+    } = req.query;
 
     const query = {};
-    if (status) query.status = status;
-    if (includeArchived !== 'true') {
-      // `$ne: true` often prevents index use on `archived`. Match non-active rows explicitly:
-      // false (schema default), null, or missing field — all treated as not archived.
-      query.$or = [{ archived: false }, { archived: null }];
+    const andFilters = [];
+
+    applyCsvFilter(query, 'status', status);
+    applyCsvFilter(query, 'paymentStatus', paymentStatus);
+    if (bookingDate) query.bookingDate = { $regex: `^${escapeRegex(String(bookingDate))}` };
+
+    if (includeArchived === 'only') {
+      query.archived = true;
+    } else if (includeArchived !== 'true') {
+      // Match the indexed schema default plus legacy rows that predate the field.
+      andFilters.push({ $or: [{ archived: false }, { archived: null }] });
+    }
+
+    if (customerId) {
+      if (!mongoose.Types.ObjectId.isValid(customerId)) {
+        return res.status(400).json({ success: false, message: 'Invalid customerId' });
+      }
+      query.customer = customerId;
+    }
+
+    if (serviceId) {
+      if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+        return res.status(400).json({ success: false, message: 'Invalid serviceId' });
+      }
+      query.serviceId = serviceId;
     }
 
     const canonicalRole = normalizeToCanonical(req.user.role);
@@ -386,52 +556,52 @@ export const getAllOrders = async (req, res, next) => {
       });
     }
 
-    const parsedSkip = parseInt(skip);
-    const parsedLimit = parseInt(limit);
+    if (andFilters.length) query.$and = andFilters;
 
-    const useLiteListPayload =
-      isPosManagerRole(req.user.role) ||
-      isBookingManagerRole(req.user.role) ||
-      canonicalRole === 'staff_quality_checker' ||
-      isCustomerRole(req.user.role);
+    const parsedLimit = parsePositiveInt(limit, BOOKING_LIST_DEFAULT_LIMIT, {
+      min: 1,
+      max: BOOKING_LIST_MAX_LIMIT,
+    });
+    const parsedPage = parsePositiveInt(page, 1, { min: 1 });
+    const parsedSkip = skip !== undefined
+      ? parsePositiveInt(skip, 0, { min: 0 })
+      : (parsedPage - 1) * parsedLimit;
+    const resolvedPage = Math.floor(parsedSkip / parsedLimit) + 1;
+    const sort = getBookingListSort({ sortBy, sortOrder });
+    const shouldIncludeTotal = parseBoolQuery(includeTotal);
 
-    let orderQuery = Order.find(query);
-
-    if (useLiteListPayload) {
-      const listProjection = isCustomerRole(req.user.role)
-        ? ORDER_LIST_LITE_CUSTOMER_PROJECTION
-        : ORDER_LIST_LITE_PROJECTION;
-      orderQuery = orderQuery.select(listProjection);
-    }
-
-    orderQuery = orderQuery
-      .populate('customer', 'name email phone avatar')
-      .populate('assignedDetailer', 'name email')
-      .sort({ createdAt: -1 })
+    const ordersPromise = Order.find(query)
+      .select(ORDER_LIST_SELECT_FIELDS)
+      .sort(sort)
       .skip(parsedSkip)
-      .limit(parsedLimit);
+      .limit(parsedLimit + 1)
+      .lean();
 
-    if (!useLiteListPayload) {
-      orderQuery = orderQuery.populate('items.product');
+    const [fetchedOrders, total] = await Promise.all([
+      ordersPromise,
+      shouldIncludeTotal ? Order.countDocuments(query) : Promise.resolve(undefined),
+    ]);
+
+    const hasNextPage = fetchedOrders.length > parsedLimit;
+    const orders = hasNextPage ? fetchedOrders.slice(0, parsedLimit) : fetchedOrders;
+
+    const pagination = {
+      page: resolvedPage,
+      skip: parsedSkip,
+      limit: parsedLimit,
+      hasNextPage,
+      hasPrevPage: parsedSkip > 0,
+      ...(shouldIncludeTotal ? { total } : {}),
+    };
+
+    if (shouldIncludeTotal) {
+      pagination.totalPages = Math.ceil((total || 0) / parsedLimit);
     }
-
-    const orders = await orderQuery.lean();
-
-    // Skip the expensive countDocuments round-trip when the client
-    // requests a large batch (dashboard loads). Only count when
-    // the client uses real pagination (small limit).
-    const total = parsedLimit >= 500
-      ? parsedSkip + orders.length
-      : await Order.countDocuments(query);
 
     res.json({
       success: true,
-      data: orders.map((o) => formatBookingDto(o)),
-      pagination: {
-        total,
-        skip: parsedSkip,
-        limit: parsedLimit,
-      },
+      data: orders.map((o) => formatBookingListDto(o)),
+      pagination,
     });
   } catch (error) {
     next(error);
@@ -795,6 +965,7 @@ export const createOrder = async (req, res, next) => {
     let finalTotalAmount = 0;
     let finalTotalPrice = Number.isFinite(normalizedTotalPriceInput) ? normalizedTotalPriceInput : undefined;
     let finalServiceType = fallbackServiceType;
+    let resolvedServiceId = mongoose.Types.ObjectId.isValid(serviceId) ? serviceId : undefined;
     let finalVehicleData = {
         vehicleYear,
         vehicleMake,
@@ -814,6 +985,7 @@ export const createOrder = async (req, res, next) => {
         if (!service) {
             return res.status(400).json({ success: false, message: 'Invalid or missing service selected' });
         }
+        resolvedServiceId = service._id;
 
         // 2. Fetch Vehicle details (best-effort)
         let vehicle = null;
@@ -946,6 +1118,7 @@ export const createOrder = async (req, res, next) => {
       customer: resolvedCustomerId,
       customerName: fallbackCustomerName,
       customerPhone: resolvedCustomerPhone,
+      serviceId: resolvedServiceId,
       serviceType: finalServiceType,
       items: finalItems,
       totalAmount: finalTotalAmount,

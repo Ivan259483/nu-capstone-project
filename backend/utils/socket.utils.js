@@ -25,11 +25,63 @@ function safeDecryptOrderField(val) {
 
 function prepareOrderDocumentForSocket(doc) {
   if (!doc || typeof doc !== 'object') return doc;
+  const vehicleInfo = [doc.vehicleYear, doc.vehicleMake, doc.vehicleModel].filter(Boolean).join(' ').trim();
+  const serviceName = doc.serviceName || doc.serviceType || 'Service';
+  const id = doc._id?.toString?.() || doc.id;
+  const customerId = doc.customer?._id?.toString?.() || doc.customer?.toString?.() || doc.customer || '';
+
   return {
-    ...doc,
+    _id: doc._id,
+    id,
+    orderNumber: doc.orderNumber,
+    bookingReference: doc.bookingReference || doc.orderNumber,
+    customer: doc.customer,
+    customerId,
+    customerName: doc.customerName || '',
+    customerPhone: doc.customerPhone || '',
+    serviceId: doc.serviceId,
+    serviceType: doc.serviceType,
+    serviceName,
+    items: Array.isArray(doc.items)
+      ? doc.items.map((item) => ({ quantity: item.quantity, price: item.price }))
+      : [],
+    totalAmount: doc.totalAmount,
+    totalPrice: doc.totalPrice,
+    downPaymentAmount: doc.downPaymentAmount,
+    finalPaymentAmount: doc.finalPaymentAmount,
+    invoiceId: doc.invoiceId,
+    paymentStatus: doc.paymentStatus,
+    paymentMethod: doc.paymentMethod,
+    paymentProvider: doc.paymentProvider,
+    paidAt: doc.paidAt,
+    approvedAt: doc.approvedAt,
+    rejectedAt: doc.rejectedAt,
+    rejectionReason: doc.rejectionReason,
+    status: doc.status,
+    customerStatus: doc.customerStatus,
+    customerStatusUpdatedAt: doc.customerStatusUpdatedAt,
+    archived: doc.archived,
+    archivedAt: doc.archivedAt,
+    archivedReason: doc.archivedReason,
+    vehicleYear: doc.vehicleYear,
+    vehicleMake: doc.vehicleMake,
+    vehicleModel: doc.vehicleModel,
+    vehicleColor: doc.vehicleColor,
     vehiclePlate: safeDecryptOrderField(doc.vehiclePlate),
     notes: safeDecryptOrderField(doc.notes),
-    shippingAddress: safeDecryptOrderField(doc.shippingAddress),
+    vehicleInfo,
+    bookingDate: doc.bookingDate,
+    bookingTime: doc.bookingTime,
+    date: doc.bookingDate || '',
+    time: doc.bookingTime || '',
+    assignedDetailer: doc.assignedDetailer,
+    serviceTrackingStage: doc.serviceTrackingStage || null,
+    serviceTrackingUpdatedAt: doc.serviceTrackingUpdatedAt || null,
+    serviceTrackingUpdatedBy: doc.serviceTrackingUpdatedBy || null,
+    serviceStaffAssignments: Array.isArray(doc.serviceStaffAssignments) ? doc.serviceStaffAssignments : [],
+    hasPaymentProof: Boolean(doc.paymentProofUrl || doc.downpaymentProof || doc.status === 'pending_confirmation'),
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
   };
 }
 

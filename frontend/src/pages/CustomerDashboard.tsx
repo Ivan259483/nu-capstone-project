@@ -649,8 +649,7 @@ export default function CustomerDashboard() {
       })
     );
     invalidate('/bookings');
-    scheduleSilentBookingsRefetch();
-  }, [scheduleSilentBookingsRefetch]);
+  }, []);
 
   // useLiveJobs manages the singleton socket, room joining, and the booking:status listener.
   // orderUpdated → same debounced silent bookings refetch (no reload).
@@ -1469,7 +1468,7 @@ export default function CustomerDashboard() {
     setVehicleHistoryOrders([]);
     try {
       const { OrderService } = await import('../lib/order-service');
-      const res = await OrderService.getAllOrders({ suppressErrorToast: true });
+      const res = await OrderService.getAllOrders({ suppressErrorToast: true, limit: 100 });
       if (res.success && Array.isArray(res.data)) {
         const myOrders = res.data.filter((o: any) => {
           const custId = o.customerId || o.customer?._id || o.customer;
@@ -1879,7 +1878,12 @@ export default function CustomerDashboard() {
       if (!silent) setMyBookingsLoading(true);
       try {
         const { OrderService } = await import('../lib/order-service');
-        const res = await OrderService.getAllOrders({ suppressErrorToast: true });
+        const res = await OrderService.getAllOrders({
+          suppressErrorToast: true,
+          limit: 50,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
         if (res.success && Array.isArray(res.data)) {
           const mine = res.data
             .filter((o: any) => {
@@ -1933,9 +1937,8 @@ export default function CustomerDashboard() {
     loadBookingsRef.current = load;
 
     load();
-    // Poll every 5s — always silent so the list never flashes a full-page loading state.
-    // Real-time updates: booking:status patches + scheduleSilentBookingsRefetch; this is the HTTP fallback.
-    const interval = setInterval(() => load({ silent: true }), 5000);
+    // Slow backup poll only; socket events are the primary live update path.
+    const interval = setInterval(() => load({ silent: true }), 60_000);
 
     return () => {
       clearInterval(interval);

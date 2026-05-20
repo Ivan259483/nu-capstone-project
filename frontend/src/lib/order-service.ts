@@ -33,6 +33,23 @@ export interface AvailableSlotsResponse {
     totalCapacity?: number | null;
 }
 
+export interface OrderListOptions {
+    suppressErrorToast?: boolean;
+    fresh?: boolean;
+    page?: number;
+    skip?: number;
+    limit?: number;
+    status?: string;
+    paymentStatus?: string;
+    customerId?: string;
+    serviceId?: string;
+    bookingDate?: string;
+    includeArchived?: boolean | 'only';
+    includeTotal?: boolean;
+    sortBy?: 'createdAt' | 'updatedAt' | 'bookingDate' | 'bookingTime' | 'status' | 'paymentStatus';
+    sortOrder?: 'asc' | 'desc';
+}
+
 export const normalizeBooking = (raw: any): Booking => {
     const id = raw?.id || raw?._id || '';
     const customerId =
@@ -155,31 +172,43 @@ export const OrderService = {
      * Maps MongoDB _id to frontend id for consistency.
      * @returns {Promise<{success: boolean, data: Booking[]}>}
      */
-    async getAllOrders(options?: { suppressErrorToast?: boolean; fresh?: boolean }) {
+    async getAllOrders(options?: OrderListOptions) {
         if (options?.fresh) {
             invalidate('/bookings');
         }
+        const {
+            suppressErrorToast,
+            fresh: _fresh,
+            ...params
+        } = options || {};
+
         const requestConfig: any = {
-            params: {
-                limit: 1000,
-                skip: 0,
-            },
+            params,
             meta: {
-                suppressErrorToast: Boolean(options?.suppressErrorToast),
+                suppressErrorToast: Boolean(suppressErrorToast),
             },
         };
         const data = await cachedGet('/bookings', requestConfig, TTL.SHORT);
         if (data.success && Array.isArray(data.data)) {
-            data.data = data.data.map((o: any) => normalizeBooking(o));
+            return {
+                ...data,
+                data: data.data.map((o: any) => normalizeBooking(o)),
+            };
         }
         return data;
     },
 
     /**
-     * Fetches the detailer staff queue (currently maps to all orders, backend filters by role).
+     * Fetches the detailer staff queue from the targeted queue endpoint.
      */
     async getStaffQueue() {
-        return this.getAllOrders();
+        const response = await api.get('/bookings/queue/staff', {
+            meta: { suppressErrorToast: true },
+        } as any);
+        if (response.data.success && Array.isArray(response.data.data)) {
+            response.data.data = response.data.data.map((o: any) => normalizeBooking(o));
+        }
+        return response.data;
     },
 
     /**

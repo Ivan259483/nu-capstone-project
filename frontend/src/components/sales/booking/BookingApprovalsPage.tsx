@@ -737,7 +737,14 @@ export default function BookingApprovalsPage() {
   const fetchAll = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!silent) setLoading(true);
     try {
-      const res = await OrderService.getAllOrders({ suppressErrorToast: true, fresh: true });
+      const res = await OrderService.getAllOrders({
+        suppressErrorToast: true,
+        fresh: true,
+        limit: 100,
+        status: 'pending_confirmation,approved,rejected',
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+      });
       if (res.success && Array.isArray(res.data)) {
         setAllBookings(applyApprovalScope(res.data));
       }

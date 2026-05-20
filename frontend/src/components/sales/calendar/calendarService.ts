@@ -94,10 +94,14 @@ export async function fetchSlotsByDate(date: string): Promise<DateSlotDetail | n
 }
 
 // ── Fetch bookings for a specific date ─────────────────────────────────────────
-// Still uses bulk fetch + client-side filter (backend has no ?date= on /orders).
-// Performance is acceptable: 500-record cap, result cached per-date in the hook.
 export async function fetchBookingsByDate(date: string): Promise<CalendarBooking[]> {
-  const res = await fetch(`/api/orders?limit=500`, { headers: authHeaders() });
+  const params = new URLSearchParams({
+    bookingDate: date,
+    limit: '100',
+    sortBy: 'bookingTime',
+    sortOrder: 'asc',
+  });
+  const res = await fetch(`/api/orders?${params.toString()}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`Orders fetch failed: ${res.status}`);
   const json = await res.json();
   if (!json.success || !Array.isArray(json.data)) return [];

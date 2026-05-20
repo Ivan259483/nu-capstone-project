@@ -36,7 +36,7 @@ export default function AppointmentsSection({ onViewCalendar, onReschedule }: Ap
   } = useQuery({
     queryKey: ['bookings'],
     queryFn: async () => {
-      const data = await bookingService.getMyBookings();
+      const data = await bookingService.getMyBookings({ limit: 4 });
       return data.slice(0, 4); // Show last 4
     },
     enabled: !!profile?.id,

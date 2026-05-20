@@ -45,12 +45,29 @@ const isActiveBookingStatus = (status: string): boolean => {
   return isBookingCountedAsActiveOnHome(status);
 };
 
+type BookingListParams = {
+  page?: number;
+  skip?: number;
+  limit?: number;
+  status?: string;
+  paymentStatus?: string;
+  customerId?: string;
+  serviceId?: string;
+  bookingDate?: string;
+  includeArchived?: boolean | 'only';
+  includeTotal?: boolean;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+};
+
 export const bookingService = {
-  async getMyBookings(): Promise<BookingRecord[]> {
+  async getMyBookings(params: BookingListParams = {}): Promise<BookingRecord[]> {
     const data = await cachedGet<ApiEnvelope<any[]>>('/bookings', {
       params: {
-        limit: 1000,
-        skip: 0,
+        limit: 50,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+        ...params,
       },
     }, TTL.SHORT);
 
@@ -59,7 +76,10 @@ export const bookingService = {
   },
 
   async getLatestActiveBooking(): Promise<BookingRecord | null> {
-    const bookings = await this.getMyBookings();
+    const bookings = await this.getMyBookings({
+      limit: 20,
+      status: 'pending,pending_confirmation,confirmed,approved,assigned,received,in_progress,ready_for_payment,paid',
+    });
     const active = bookings
       .filter((booking) => isActiveBookingStatus(booking.status))
       .sort((a, b) => {

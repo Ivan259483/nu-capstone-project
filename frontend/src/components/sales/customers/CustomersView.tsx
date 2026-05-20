@@ -229,7 +229,13 @@ export default function CustomersView() {
   useEffect(() => {
     const fetchCustomers = async () => {
       try {
-        const { data } = await api.get('/orders?limit=1000');
+        const { data } = await api.get('/orders', {
+          params: {
+            limit: 100,
+            sortBy: 'createdAt',
+            sortOrder: 'desc',
+          },
+        });
         if (data.success && Array.isArray(data.data)) {
           const customerMap = new Map<string, CustomerRecord>();
 

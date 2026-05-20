@@ -8,8 +8,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { io, type Socket } from 'socket.io-client';
-import { getBackendSocketUrl } from '@/lib/api';
+import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { fetchRecurringHoursSchedule, fetchSlotRange, type RangeSlotSummary } from './calendarService';
 import type { RecurringScheduleRow } from '@/lib/shopSlotBands';
 import { getBandCountForYmd, getPerSlotCapacityForYmd } from '@/lib/shopSlotBands';
@@ -132,7 +131,6 @@ export function useCalendarSlots(year: number, month: number): UseCalendarSlotsR
   );
   const [loading, setLoading] = useState(!monthCache.has(cacheKey));
   const mountedRef = useRef(true);
-  const socketRef = useRef<Socket | null>(null);
 
   const load = useCallback(async (bust = false) => {
     if (!bust && monthCache.has(cacheKey)) {
@@ -172,34 +170,31 @@ export function useCalendarSlots(year: number, month: number): UseCalendarSlotsR
 
   // Socket.io — bust cache on any order mutation
   useEffect(() => {
-    const sock = io(getBackendSocketUrl(), {
-      transports: ['polling', 'websocket'],
-      reconnection: true,
-      reconnectionDelay: 2000,
-    });
-    socketRef.current = sock;
+    const sock = getSharedSocket();
 
     const invalidate = () => {
       monthCache.delete(cacheKey);
       load(true);
     };
 
-    sock.on('db_change', (payload: { collection: string }) => {
+    const onDbChange = (payload: { collection: string }) => {
       if (payload?.collection === 'orders') invalidate();
-    });
+    };
 
     // Targeted event emitted by approveBooking / rejectBooking
-    sock.on('booking_updated', (payload: { date?: string }) => {
+    const onBookingUpdated = (payload: { date?: string }) => {
       // Only bust if the changed date is within this month's range
       if (!payload?.date) { invalidate(); return; }
       const { start, end } = getMonthRange(year, month);
       if (payload.date >= start && payload.date <= end) invalidate();
-    });
+    };
+
+    sock.on('db_change', onDbChange);
+    sock.on('booking_updated', onBookingUpdated);
 
     return () => {
-      sock.removeAllListeners();
-      sock.disconnect();
-      socketRef.current = null;
+      sock.off('db_change', onDbChange);
+      sock.off('booking_updated', onBookingUpdated);
     };
   }, [cacheKey, year, month, load]);
 

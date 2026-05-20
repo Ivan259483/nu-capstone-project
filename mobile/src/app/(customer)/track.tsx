@@ -44,7 +44,7 @@ import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { bookingService } from '@/services/api/bookingService';
-import { getApiErrorMessage, invalidateCache } from '@/services/api/client';
+import { getApiErrorMessage } from '@/services/api/client';
 import AnimatedHeader from '@/components/ui/AnimatedHeader';
 import type { BookingRecord } from '@/services/api/types';
 import { useQuery } from '@tanstack/react-query';
@@ -923,11 +923,13 @@ export default function TrackScreen() {
   } = useQuery({
     queryKey: ['bookings'],
     queryFn: () => {
-      invalidateCache('/bookings');
-      return bookingService.getMyBookings();
+      return bookingService.getMyBookings({
+        limit: 20,
+        status: 'pending,pending_confirmation,confirmed,approved,assigned,received,in_progress,ready_for_payment,paid',
+      });
     },
     enabled: !!profile,
-    refetchInterval: 8_000,
+    refetchInterval: 60_000,
   });
 
   const {
@@ -939,11 +941,10 @@ export default function TrackScreen() {
   } = useQuery({
     queryKey: ['booking', routeBookingId],
     queryFn: () => {
-      invalidateCache('/bookings');
       return bookingService.getBookingById(routeBookingId!);
     },
     enabled: !!routeBookingId && !!profile,
-    refetchInterval: 8_000,
+    refetchInterval: 60_000,
   });
 
   // ── Real-time socket invalidation (mirrors useLiveJobs.ts) ──

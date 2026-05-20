@@ -120,7 +120,14 @@ export function useSalesAnalytics() {
     if (fetchInFlight.current) return;
     fetchInFlight.current = true;
     try {
-      const { data } = await api.get('/orders?limit=500', { meta: { suppressErrorToast: true } });
+      const { data } = await api.get('/orders', {
+        params: {
+          limit: 100,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        },
+        meta: { suppressErrorToast: true },
+      } as any);
       if (data.success && Array.isArray(data.data)) {
         const mapped: Transaction[] = data.data.map((o: any) => {
           const rawStatus = typeof o.status === 'string' ? o.status : '';
@@ -173,7 +180,7 @@ export function useSalesAnalytics() {
     void fetchOrders();
 
     // Backup poll — avoid stacking requests if an /orders fetch is slow (socket still drives live updates)
-    const interval = setInterval(() => void fetchOrders(), 30_000);
+    const interval = setInterval(() => void fetchOrders(), 60_000);
 
     const socket = getSharedSocket();
     const handleDbChange = (payload: any) => {

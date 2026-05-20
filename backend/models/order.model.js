@@ -15,6 +15,11 @@ const orderSchema = new mongoose.Schema(
     },
     customerName: String,
     customerPhone: String,
+    serviceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Service',
+      default: null,
+    },
     serviceType: String,
     items: [
       {
@@ -412,9 +417,13 @@ orderSchema.post('init', function (doc) {
 // These compound indexes cover the most common query patterns and
 // eliminate full collection scans on the orders collection.
 orderSchema.index({ customer: 1, archived: 1, createdAt: -1 });       // Customer bookings (getAllOrders for customers)
+orderSchema.index({ customer: 1, createdAt: -1 });                    // Customer booking history
 orderSchema.index({ assignedDetailer: 1, status: 1 });                // Detailer queue & active jobs
 orderSchema.index({ status: 1 });                                     // QC/admin status filters
 orderSchema.index({ createdAt: -1 });                                 // Recent-first queues
+orderSchema.index({ paymentStatus: 1, createdAt: -1 });               // POS unpaid/paid queues
+orderSchema.index({ serviceId: 1 });                                  // Service-specific booking filters
+orderSchema.index({ serviceId: 1, createdAt: -1 });                   // Service-specific booking history
 orderSchema.index({ qcCompletedAt: -1 });                             // QC review/report lookups
 orderSchema.index({ status: 1, createdAt: -1 });                      // QC jobs by status + recency
 orderSchema.index({ qcCompletedAt: 1, assignedDetailer: 1 });          // QC status + assigned technician lookups

@@ -108,7 +108,14 @@ function CheckInQueuePanel({
     setLoading(true);
     try {
       const { OrderService } = await import('@/lib/order-service');
-      const res = await OrderService.getAllOrders({ suppressErrorToast: true });
+      const res = await OrderService.getAllOrders({
+        suppressErrorToast: true,
+        limit: 100,
+        paymentStatus: 'unpaid',
+        status: 'ready_for_payment,completed',
+        sortBy: 'bookingDate',
+        sortOrder: 'asc',
+      });
       if (res.success && Array.isArray(res.data)) {
         const queue = res.data
           .filter(isSalesBalanceCheckoutQueueOrder)
@@ -315,7 +322,13 @@ export default function POSWorkspace() {
     setUnpaidOrdersLoading(true);
     try {
       const { OrderService } = await import('@/lib/order-service');
-      const res = await OrderService.getAllOrders({ suppressErrorToast: true });
+      const res = await OrderService.getAllOrders({
+        suppressErrorToast: true,
+        limit: 100,
+        paymentStatus: 'unpaid',
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+      });
       if (res.success && Array.isArray(res.data)) {
         setUnpaidOrders(res.data.filter((o: any) => o.paymentStatus !== 'paid'));
       }
