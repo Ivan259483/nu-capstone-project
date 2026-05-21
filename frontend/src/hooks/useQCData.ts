@@ -557,6 +557,12 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
       orderId: string,
       payload: { stage: string; slot?: string; description?: string; file?: File | null }
     ): Promise<boolean> => {
+      console.log('[BASE UPLOAD] Starting...', {
+        orderId,
+        stage: payload.stage,
+        slot: payload.slot,
+        hasFile: Boolean(payload.file),
+      });
       let loadingId: string | number | undefined;
       try {
         if (payload.file) {

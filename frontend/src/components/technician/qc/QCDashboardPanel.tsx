@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { ImageIcon, MessageSquare, Zap, CheckCircle2, AlertTriangle, Loader2, TrendingUp, DollarSign, Eye, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import { BOOKING_NOTE_UNAVAILABLE, formatBookingNoteForDisplay } from '@/lib/pii-display';
 import QCSidebar from './QCSidebar';
 import QCTopbar from './QCTopbar';
 import QCDashboardView from './QCDashboardView';
@@ -21,40 +22,94 @@ import { useQCData } from '@/hooks/useQCData';
 type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'before-after' | 'ai-detection' | 'customer-notes' | 'reports' | 'live-tracker';
 
 // ─── Customer Notes View ──────────────────────────────────────────────────────
-function CustomerNotesView({ jobs }: { jobs: { id: string; customer: string; jobId: string; vehicle: string; customerNotes: string; submittedAt: string }[] }) {
-  const withNotes = jobs.filter((j) => j.customerNotes?.trim());
+function CustomerNotesView({
+  jobs,
+}: {
+  jobs: { id: string; customer: string; jobId: string; vehicle: string; customerNotes?: string; notes?: string; submittedAt: string }[];
+}) {
+  useEffect(() => {
+    console.log('QC jobs with notes:', jobs.filter((j) => j.customerNotes || j.notes));
+  }, [jobs]);
+
+  const notesByJob = jobs.map((job) => {
+    const rawNote = job.customerNotes || job.notes || '';
+    const displayNote = formatBookingNoteForDisplay(rawNote);
+    return {
+      ...job,
+      rawNote,
+      displayNote,
+      noteUnavailable: Boolean(rawNote.trim()) && !displayNote,
+    };
+  });
+  const withNotes = notesByJob.filter((j) => j.displayNote || j.noteUnavailable);
+
   return (
-    <div className="space-y-6">
-      <div>
+    <div className="flex min-h-[calc(100vh-10.5rem)] flex-col">
+      <div className="shrink-0">
         <h1 className="text-xl font-semibold text-slate-900 tracking-tight">Customer Notes</h1>
-        <p className="text-sm text-slate-400 mt-0.5">{withNotes.length} note{withNotes.length !== 1 ? 's' : ''} from active jobs</p>
+        <p className="mt-0.5 text-sm text-slate-400">
+          {withNotes.length} note{withNotes.length !== 1 ? 's' : ''} from active jobs
+        </p>
       </div>
+
       {withNotes.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {withNotes.map((j) => (
-            <div key={j.id} className="bg-white rounded-2xl p-5 shadow-sm shadow-slate-200/50 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800 tracking-tight">{j.customer}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{j.jobId} · {j.vehicle}</p>
+        <div className="mt-6 flex flex-1 flex-col gap-5">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+            {withNotes.map((j) => (
+              <div
+                key={j.id}
+                className="qc-dash-surface rounded-2xl bg-white p-5 shadow-sm shadow-slate-200/50 transition-shadow hover:shadow-md"
+              >
+                <div className="mb-3 flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-semibold tracking-tight text-slate-800">{j.customer}</p>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      {j.jobId} · {j.vehicle}
+                    </p>
+                  </div>
+                  <span className="ml-2 shrink-0 text-xs tabular-nums text-slate-400">
+                    {j.submittedAt ? new Date(j.submittedAt).toLocaleDateString() : '—'}
+                  </span>
                 </div>
-                <span className="text-xs text-slate-400 tabular-nums flex-shrink-0 ml-2">
-                  {j.submittedAt ? new Date(j.submittedAt).toLocaleDateString() : '—'}
-                </span>
+                <div
+                  className={`rounded-xl border p-4 ${
+                    j.noteUnavailable
+                      ? 'border-amber-100/80 bg-amber-50/60'
+                      : 'border-blue-100/80 bg-blue-50/70'
+                  }`}
+                >
+                  <p
+                    className={`text-sm leading-relaxed ${
+                      j.noteUnavailable ? 'italic text-amber-800' : 'text-slate-700'
+                    }`}
+                  >
+                    {j.noteUnavailable ? BOOKING_NOTE_UNAVAILABLE : j.displayNote}
+                  </p>
+                </div>
               </div>
-              <div className="bg-blue-50/70 border border-blue-100/80 rounded-xl p-4">
-                <p className="text-sm text-slate-700 leading-relaxed">{j.customerNotes}</p>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
+
+          <div className="flex flex-1 flex-col items-center justify-center rounded-2xl bg-slate-50/40 px-6 py-14 text-center shadow-[inset_0_0_0_1px_rgba(148,163,184,0.12)]">
+            <MessageSquare size={22} className="mb-3 text-slate-300" />
+            <p className="text-sm font-medium text-slate-500">More notes appear here as new jobs are assigned.</p>
+          </div>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-center py-20 text-center" style={{ background: 'linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)' }}>
-          <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center mb-3 ring-4 ring-green-50">
+        <div
+          className="qc-dash-surface mt-6 flex flex-1 flex-col items-center justify-center rounded-2xl bg-white px-6 py-20 text-center"
+          style={{ background: 'linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)' }}
+        >
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-green-100 ring-4 ring-green-50">
             <MessageSquare size={20} className="text-green-500" />
           </div>
           <p className="text-sm font-semibold text-slate-600">No customer notes yet</p>
-          <p className="text-xs text-slate-400 mt-1">Customer notes will appear here from active jobs</p>
+          <p className="mt-1 max-w-sm text-xs text-slate-400">
+            Customer booking notes will appear here when jobs include special instructions.
+          </p>
+          <p className="mt-8 text-sm font-medium text-slate-500">
+            More notes appear here as new jobs are assigned.
+          </p>
         </div>
       )}
     </div>
@@ -584,28 +639,29 @@ export default function QCDashboardPanel() {
       case 'jobs':
         return (
           <div className="space-y-5">
-            <div className="qc-review-header flex flex-col gap-4 rounded-[22px] border bg-white px-5 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="qc-review-header qc-dash-surface flex flex-col gap-4 rounded-2xl bg-white px-5 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
-                <span className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.16)]">
                   Quality Control
                 </span>
-                <h1 className="mt-3 text-2xl font-bold text-slate-950">Jobs for Review</h1>
+                <h1 className="mt-3 text-2xl font-bold text-slate-950">QC Review Desk</h1>
                 <p className="mt-1 max-w-2xl text-sm text-slate-500">
-                  Triage queue — open active jobs in <span className="font-semibold text-slate-700">Live Tracker</span> for
-                  photos, checklist, and gates. Use <span className="font-semibold text-slate-700">Sign off</span> when the
-                  vehicle is ready for final approve or return ({pendingCount} pending).
+                  Final QC decision desk for prioritizing evidence, AI risks, and approval work. Use{' '}
+                  <span className="font-semibold text-slate-700">Live Tracker</span> to move customer-facing stages and upload
+                  gate photos, then <span className="font-semibold text-slate-700">Sign off</span> here when the vehicle is
+                  ready for approve or return ({pendingCount} pending).
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2.5">
-                <span className="inline-flex h-10 items-center gap-2 rounded-xl border border-orange-100 bg-orange-50 px-3 text-sm font-semibold text-orange-700">
+                <span className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-50 px-3 text-sm font-semibold text-orange-700 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.2)]">
                   <span className={`h-2 w-2 rounded-full ${pendingCount > 0 ? 'bg-orange-400' : 'bg-slate-300'}`} />
                   <span className="tabular-nums">{pendingCount}</span> Pending Review
                 </span>
-                <span className="inline-flex h-10 items-center gap-2 rounded-xl border border-rose-100 bg-rose-50 px-3 text-sm font-semibold text-rose-700">
+                <span className="inline-flex h-10 items-center gap-2 rounded-xl bg-rose-50 px-3 text-sm font-semibold text-rose-700 shadow-[inset_0_0_0_1px_rgba(244,63,94,0.2)]">
                   <AlertTriangle size={14} />
                   <span className="tabular-nums">{aiPendingCount}</span> AI Flagged
                 </span>
-                <span className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-600">
+                <span className="inline-flex h-10 items-center rounded-xl bg-slate-50 px-3 text-sm font-semibold text-slate-600 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.16)]">
                   <span className="tabular-nums">{jobs.length}</span>&nbsp;Total Jobs
                 </span>
               </div>

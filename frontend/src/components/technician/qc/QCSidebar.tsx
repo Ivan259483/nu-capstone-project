@@ -16,7 +16,7 @@ const navGroups: { groupLabel: string; items: NavItem[] }[] = [
   {
     groupLabel: 'QUALITY CONTROL',
     items: [
-      { id: 'jobs', label: 'Jobs for Review', icon: ClipboardList, badgeKey: 'pending' },
+      { id: 'jobs', label: 'Review Desk', icon: ClipboardList, badgeKey: 'pending' },
       { id: 'before-after', label: 'Before & After', icon: ImageIcon },
       { id: 'ai-detection', label: 'AI Detection Review', icon: ScanSearch, badgeKey: 'ai' },
     ],
@@ -38,27 +38,26 @@ export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate,
   const { logout } = useAuth();
   return (
     <aside
-      className={`flex flex-shrink-0 flex-col bg-white shadow-[10px_0_36px_-14px_rgba(15,23,42,0.11)] transition-all duration-300 ease-in-out ${collapsed ? 'w-[68px]' : 'w-[232px]'}`}
+      className={`qc-dash-sidebar flex flex-shrink-0 flex-col bg-white transition-all duration-300 ease-in-out ${collapsed ? 'w-[68px]' : 'w-[236px]'}`}
     >
-      {/* Logo — flush white into nav; no shadow line above OVERVIEW */}
-      <div className={`flex h-16 items-center bg-white px-4 ${collapsed ? 'justify-center' : 'gap-3'}`}>
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 shadow-md">
-          <ShieldCheck size={15} className="text-white" />
+      <div className={`qc-dash-divider flex h-[72px] items-center bg-gradient-to-b from-white to-slate-50/70 px-4 ${collapsed ? 'justify-center' : 'gap-3'}`}>
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 via-blue-600 to-indigo-700 shadow-[0_10px_24px_-14px_rgba(37,99,235,0.9)]">
+          <ShieldCheck size={17} className="text-white" />
         </div>
         {!collapsed && (
-          <div>
-            <p className="text-[14px] font-semibold leading-none tracking-tight text-slate-900">QualityCheck</p>
-            <p className="mt-0.5 text-[10px] tracking-wide text-slate-500">Inspection Portal</p>
+          <div className="min-w-0">
+            <p className="truncate text-[15px] font-black leading-none tracking-tight text-slate-950">QualityCheck</p>
+            <p className="mt-1 truncate text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Inspection Command</p>
           </div>
         )}
       </div>
 
       {/* Nav Groups */}
-      <nav className="flex-1 space-y-6 overflow-y-auto px-2 py-4">
+      <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 py-5">
         {navGroups.map((group) => (
           <div key={group.groupLabel}>
             {!collapsed && (
-              <p className="mb-2 px-3 text-[10px] font-medium uppercase tracking-widest text-slate-400">{group.groupLabel}</p>
+              <p className="mb-2 px-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{group.groupLabel}</p>
             )}
             <div className="space-y-0.5">
               {group.items.map((item) => {
@@ -72,15 +71,15 @@ export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate,
                     onClick={() => onNavigate(item.id)}
                     title={collapsed ? item.label : undefined}
                     className={`
-                      group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium
+                      group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13px] font-bold
                       transition-all duration-150
                       ${isActive
-                        ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/25'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}
+                        ? 'bg-blue-600 text-white shadow-[0_10px_24px_-16px_rgba(37,99,235,0.85)]'
+                        : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-950'}
                       ${collapsed ? 'justify-center' : ''}
                     `}
                   >
-                    <Icon size={17} className="flex-shrink-0" />
+                    <Icon size={17} className={`flex-shrink-0 ${isActive ? 'text-white' : 'text-slate-500 group-hover:text-slate-800'}`} />
                     {!collapsed && (
                       <span className="flex-1 truncate text-left leading-none">{item.label}</span>
                     )}
@@ -101,7 +100,7 @@ export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate,
                     {!collapsed && !item.live && badgeCount > 0 && (
                       <span
                         className={`min-w-[18px] rounded-full px-1.5 py-0.5 text-center text-[10px] font-semibold tabular-nums ${
-                          isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                          isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200/70'
                         }`}
                       >
                         {badgeCount}
@@ -119,10 +118,10 @@ export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate,
       </nav>
 
       {/* Bottom */}
-      <div className="space-y-0.5 bg-slate-50/45 px-2 py-3 shadow-[0_-10px_28px_-14px_rgba(15,23,42,0.06)]">
+      <div className="qc-dash-divider space-y-0.5 bg-slate-50/75 px-2.5 py-3">
         <button
           type="button"
-          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-500 transition-all duration-150 hover:bg-slate-100 hover:text-slate-800 ${collapsed ? 'justify-center' : ''}`}
+          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-bold text-slate-500 transition-all duration-150 hover:bg-white hover:text-slate-800 hover:shadow-sm ${collapsed ? 'justify-center' : ''}`}
         >
           <Settings size={17} className="flex-shrink-0" />
           {!collapsed && <span className="text-sm">Settings</span>}
@@ -130,7 +129,7 @@ export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate,
         <button
           type="button"
           onClick={logout}
-          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-500 transition-all duration-150 hover:bg-rose-50 hover:text-rose-600 ${collapsed ? 'justify-center' : ''}`}
+          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-bold text-slate-500 transition-all duration-150 hover:bg-rose-50 hover:text-rose-600 ${collapsed ? 'justify-center' : ''}`}
         >
           <LogOut size={17} className="flex-shrink-0" />
           {!collapsed && <span className="text-sm">Sign Out</span>}
@@ -138,7 +137,7 @@ export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate,
         <button
           type="button"
           onClick={onToggle}
-          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-slate-500 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 ${collapsed ? 'justify-center' : 'justify-end'}`}
+          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-bold text-slate-400 transition-all duration-150 hover:bg-white hover:text-slate-700 ${collapsed ? 'justify-center' : 'justify-end'}`}
         >
           {collapsed ? <ChevronRight size={15} /> : (
             <>

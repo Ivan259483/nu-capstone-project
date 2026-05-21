@@ -171,6 +171,7 @@ const generateBookingReference = () => {
 
 const BOOKING_LIST_DEFAULT_LIMIT = 50;
 const BOOKING_LIST_MAX_LIMIT = 100;
+const ENCRYPTED_FIELD_PATTERN = /^[0-9a-f]{32}:[0-9a-f]+$/i;
 
 /**
  * Positive list projection: keep list payloads tiny and predictable.
@@ -287,6 +288,23 @@ const ORDER_APPROVAL_PREVIEW_PROJECTION =
 const ORDER_APPROVAL_CONTEXT_PROJECTION =
   `${ORDER_APPROVAL_PREVIEW_PROJECTION} -downpaymentProof -paymentProofUrl -notes`;
 
+const safeDecryptOrderValue = (val) => {
+  if (!val || typeof val !== 'string') return val;
+  if (!ENCRYPTED_FIELD_PATTERN.test(val)) return val;
+  try {
+    return decrypt(val);
+  } catch {
+    return val;
+  }
+};
+
+const getOrderIdentity = (order) => ({
+  id: order._id?.toString?.() || order.id,
+  customerId: typeof order.customer === 'object'
+    ? (order.customer?._id?.toString?.() || order.customer?.id)
+    : (order.customer?.toString?.() || order.customer),
+});
+
 const formatBookingDto = (orderDoc) => {
   if (!orderDoc) return null;
   const order = typeof orderDoc.toObject === 'function'
@@ -304,7 +322,7 @@ const formatBookingDto = (orderDoc) => {
   const safeDecrypt = (val) => {
     if (!val || typeof val !== 'string') return val;
     // Encrypted format is "hex:hex" — 32+ chars of hex with a colon separator
-    if (/^[0-9a-f]{32}:[0-9a-f]+$/i.test(val)) {
+    if (ENCRYPTED_FIELD_PATTERN.test(val)) {
       try { return decrypt(val); } catch { return val; }
     }
     return val;
@@ -313,10 +331,9 @@ const formatBookingDto = (orderDoc) => {
   const decryptedNotes = safeDecrypt(order.notes);
   const decryptedPlate = safeDecrypt(order.vehiclePlate);
 
-  const encBlobPattern = /^[0-9a-f]{32}:[0-9a-f]+$/i;
   // decrypt() returns ciphertext unchanged when keys cannot decode (legacy DB rows).
   // Never expose that blob as a human-readable plate in API responses.
-  const couldNotDecryptPlate = encBlobPattern.test(String(decryptedPlate || ''));
+  const couldNotDecryptPlate = ENCRYPTED_FIELD_PATTERN.test(String(decryptedPlate || ''));
   const vehiclePlateOut = couldNotDecryptPlate
     ? ''
     : (decryptedPlate || '');
@@ -378,61 +395,86 @@ const formatBookingDto = (orderDoc) => {
 };
 
 const formatBookingListDto = (orderDoc) => {
-  const booking = formatBookingDto(orderDoc);
-  if (!booking) return null;
+  if (!orderDoc) return null;
+  const order = typeof orderDoc.toObject === 'function'
+    ? orderDoc.toObject({ virtuals: true })
+    : orderDoc;
+
+  const { id, customerId } = getOrderIdentity(order);
+  const decryptedNotes = safeDecryptOrderValue(order.notes);
+  const decryptedPlate = safeDecryptOrderValue(order.vehiclePlate);
+  const couldNotDecryptPlate = ENCRYPTED_FIELD_PATTERN.test(String(decryptedPlate || ''));
+  const vehiclePlate = couldNotDecryptPlate ? '' : (decryptedPlate || '');
+  const vehicleInfo =
+    order.vehicleInfo
+    || [order.vehicleYear, order.vehicleMake, order.vehicleModel].filter(Boolean).join(' ').trim();
+  const serviceName =
+    order.serviceName
+    || order.serviceType
+    || order.items?.[0]?.product?.name
+    || 'Service';
+  const customerName =
+    order.customerName
+    || (typeof order.customer === 'object' ? order.customer?.name : '')
+    || '';
+  const customerPhone =
+    order.customerPhone
+    || (typeof order.customer === 'object' ? order.customer?.phone : '')
+    || '';
+  const customerAvatar = typeof order.customer === 'object' ? order.customer?.avatar : null;
 
   return {
-    _id: booking._id,
-    id: booking.id,
-    orderNumber: booking.orderNumber,
-    bookingReference: booking.bookingReference,
-    customer: booking.customer,
-    customerId: booking.customerId,
-    customerName: booking.customerName,
-    customerPhone: booking.customerPhone,
-    customerAvatar: booking.customerAvatar,
-    serviceId: booking.serviceId?.toString?.() || booking.serviceId || '',
-    serviceType: booking.serviceType,
-    serviceName: booking.serviceName,
-    items: booking.items,
-    totalAmount: booking.totalAmount,
-    totalPrice: booking.totalPrice,
-    downPaymentAmount: booking.downPaymentAmount,
-    finalPaymentAmount: booking.finalPaymentAmount,
-    invoiceId: booking.invoiceId,
-    paymentStatus: booking.paymentStatus,
-    paymentMethod: booking.paymentMethod,
-    paymentProvider: booking.paymentProvider,
-    paidAt: booking.paidAt,
-    approvedAt: booking.approvedAt,
-    rejectedAt: booking.rejectedAt,
-    rejectionReason: booking.rejectionReason,
-    status: booking.status,
-    customerStatus: booking.customerStatus,
-    customerStatusUpdatedAt: booking.customerStatusUpdatedAt,
-    hasPaymentProof: booking.hasPaymentProof,
-    archived: booking.archived,
-    archivedAt: booking.archivedAt,
-    archivedReason: booking.archivedReason,
-    vehicleYear: booking.vehicleYear,
-    vehicleMake: booking.vehicleMake,
-    vehicleModel: booking.vehicleModel,
-    vehicleColor: booking.vehicleColor,
-    vehiclePlate: booking.vehiclePlate,
-    vehiclePlateDecryptFailed: booking.vehiclePlateDecryptFailed,
-    vehicleInfo: booking.vehicleInfo,
-    bookingDate: booking.bookingDate,
-    bookingTime: booking.bookingTime,
-    date: booking.date,
-    time: booking.time,
-    notes: booking.notes,
-    assignedDetailer: booking.assignedDetailer,
-    serviceTrackingStage: booking.serviceTrackingStage,
-    serviceTrackingUpdatedAt: booking.serviceTrackingUpdatedAt,
-    serviceTrackingUpdatedBy: booking.serviceTrackingUpdatedBy,
-    serviceStaffAssignments: booking.serviceStaffAssignments,
-    createdAt: booking.createdAt,
-    updatedAt: booking.updatedAt,
+    _id: order._id,
+    id,
+    orderNumber: order.orderNumber,
+    bookingReference: order.bookingReference || order.orderNumber,
+    customer: order.customer,
+    customerId,
+    customerName,
+    customerPhone,
+    customerAvatar,
+    serviceId: order.serviceId?.toString?.() || order.serviceId || '',
+    serviceType: order.serviceType,
+    serviceName,
+    items: order.items,
+    totalAmount: order.totalAmount,
+    totalPrice: order.totalPrice,
+    downPaymentAmount: order.downPaymentAmount,
+    finalPaymentAmount: order.finalPaymentAmount,
+    invoiceId: order.invoiceId,
+    paymentStatus: order.paymentStatus,
+    paymentMethod: order.paymentMethod,
+    paymentProvider: order.paymentProvider,
+    paidAt: order.paidAt,
+    approvedAt: order.approvedAt,
+    rejectedAt: order.rejectedAt,
+    rejectionReason: order.rejectionReason,
+    status: order.status,
+    customerStatus: order.customerStatus,
+    customerStatusUpdatedAt: order.customerStatusUpdatedAt,
+    hasPaymentProof: Boolean(order.paymentProofUrl || order.downpaymentProof || order.status === 'pending_confirmation'),
+    archived: order.archived,
+    archivedAt: order.archivedAt,
+    archivedReason: order.archivedReason,
+    vehicleYear: order.vehicleYear,
+    vehicleMake: order.vehicleMake,
+    vehicleModel: order.vehicleModel,
+    vehicleColor: order.vehicleColor,
+    vehiclePlate,
+    vehiclePlateDecryptFailed: couldNotDecryptPlate,
+    vehicleInfo: vehicleInfo || '',
+    bookingDate: order.bookingDate,
+    bookingTime: order.bookingTime,
+    date: order.date || order.bookingDate || '',
+    time: order.time || order.bookingTime || '',
+    notes: decryptedNotes || '',
+    assignedDetailer: order.assignedDetailer,
+    serviceTrackingStage: order.serviceTrackingStage || null,
+    serviceTrackingUpdatedAt: order.serviceTrackingUpdatedAt || null,
+    serviceTrackingUpdatedBy: order.serviceTrackingUpdatedBy || null,
+    serviceStaffAssignments: order.serviceStaffAssignments || [],
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
   };
 };
 

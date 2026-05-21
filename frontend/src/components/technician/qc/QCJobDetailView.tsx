@@ -5,6 +5,7 @@ import QCImageComparisonSlider from './QCImageComparisonSlider';
 import QCAIDetectionCard from './QCAIDetectionCard';
 import QCReturnModal from './QCReturnModal';
 import type { QCJob } from '@/hooks/useQCData';
+import { BOOKING_NOTE_UNAVAILABLE, formatBookingNoteForDisplay } from '@/lib/pii-display';
 
 interface Props {
   jobId: string | null;
@@ -21,6 +22,9 @@ export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onRetu
 
   // Find the job from the live jobs list
   const job = useMemo(() => jobs.find((j) => j.id === jobId), [jobs, jobId]);
+  const rawCustomerNote = job?.customerNotes || job?.notes || '';
+  const customerNoteText = formatBookingNoteForDisplay(rawCustomerNote);
+  const customerNoteUnavailable = Boolean(rawCustomerNote.trim()) && !customerNoteText;
 
   // Fallback: job not found
   if (!job) {
@@ -215,9 +219,23 @@ export default function QCJobDetailView({ jobId, jobs, onBack, onApprove, onRetu
             <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
               <User size={14} className="text-slate-400" /> Customer Notes
             </h3>
-            <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
-              <p className="text-sm text-slate-700 leading-relaxed">
-                {job.customerNotes?.trim() || <span className="text-slate-400 italic">No special instructions from the customer.</span>}
+            <div
+              className={`rounded-lg border p-4 ${
+                customerNoteUnavailable ? 'border-amber-100 bg-amber-50' : 'border-blue-100 bg-blue-50'
+              }`}
+            >
+              <p
+                className={`text-sm leading-relaxed ${
+                  customerNoteUnavailable ? 'italic text-amber-800' : 'text-slate-700'
+                }`}
+              >
+                {customerNoteUnavailable ? (
+                  BOOKING_NOTE_UNAVAILABLE
+                ) : customerNoteText ? (
+                  customerNoteText
+                ) : (
+                  <span className="text-slate-400 italic">No special instructions from the customer.</span>
+                )}
               </p>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-3">

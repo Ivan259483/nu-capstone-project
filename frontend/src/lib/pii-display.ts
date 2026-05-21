@@ -18,6 +18,18 @@ export function isLikelyEncryptedCipherText(value: string | undefined | null): b
   );
 }
 
+/** Empty string if value looks like ciphertext; otherwise trimmed plain booking note. */
+export function formatBookingNoteForDisplay(note: string | undefined | null): string {
+  if (!note || typeof note !== 'string') return '';
+  const trimmed = note.trim();
+  if (!trimmed) return '';
+  if (isLikelyEncryptedCipherText(trimmed)) return '';
+  return trimmed;
+}
+
+export const BOOKING_NOTE_UNAVAILABLE =
+  'Note available but unreadable. Ask your administrator to verify encryption keys.';
+
 /** Empty string if value looks like ciphertext; otherwise trimmed plain value. */
 export function sanitizePhoneForDisplay(phone: string | undefined | null): string {
   if (!phone || typeof phone !== 'string') return '';

@@ -1,4 +1,5 @@
 import Order from '../models/order.model.js';
+import { safeDecryptOrderField } from '../utils/orderFieldDecrypt.utils.js';
 import { resolvePlainVehiclePlate } from '../utils/vehiclePlate.utils.js';
 import { getIO } from '../utils/socket.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
@@ -171,6 +172,7 @@ export const getQCJobs = async (req, res, next) => {
         .join(' ') || 'Unknown Vehicle';
 
       const platePlain = resolvePlainVehiclePlate(o.vehiclePlate);
+      const plainNotes = safeDecryptOrderField(o.notes, 'notes');
       const existingFwsAndShade = String(o.warrantyAndReceipt?.existingFwsAndShade || '').trim();
 
       return {
@@ -209,7 +211,7 @@ export const getQCJobs = async (req, res, next) => {
         staffNotes: o.staffNotes || [],
         qcChecklist: o.qcChecklist || [],
         damageAnnotations: [],
-        notes: o.notes || '',
+        notes: plainNotes,
         vehicleYear: o.vehicleYear || '',
         vehicleMake: o.vehicleMake || '',
         vehicleModel: o.vehicleModel || '',
@@ -218,7 +220,7 @@ export const getQCJobs = async (req, res, next) => {
         assignedTechnician: technicianName,
         customerPhone: '',
         customerEmail: '',
-        customerNotes: o.notes || '',
+        customerNotes: plainNotes,
         bookingDate: o.bookingDate || '',
         bookingTime: o.bookingTime || '',
         qcHandoffSheet: o.qcHandoffSheet && typeof o.qcHandoffSheet === 'object'

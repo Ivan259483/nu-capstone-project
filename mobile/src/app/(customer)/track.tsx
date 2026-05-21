@@ -26,6 +26,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle } from 'react-native-svg';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -209,6 +210,19 @@ function isPostPaymentCompleteDisplay(booking: BookingRecord | null | undefined)
   return paymentPaid && (status === 'completed' || status === 'released' || stage === 'released');
 }
 
+function isAppointmentSecuredDisplay(booking: BookingRecord | null | undefined): boolean {
+  if (!booking) return false;
+  const status = trackerKey(booking.status);
+  const stage = trackerKey(booking.serviceTrackingStage);
+  if (['pending', 'pending_confirmation', 'rejected', 'cancelled', 'failed'].includes(status)) {
+    return false;
+  }
+  return (
+    ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'paid', 'released', 'done'].includes(status) ||
+    ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup', 'completed', 'released'].includes(stage)
+  );
+}
+
 function looksLikeOpaqueTechnicalId(value: string): boolean {
   const v = value.trim();
   return /^[a-f0-9]{24}$/i.test(v) || (v.length >= 24 && /^[a-z0-9_-]+$/i.test(v));
@@ -294,23 +308,84 @@ const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
-function CircularRing({ pct }: { pct: number }) {
+function CircularRing({ pct, accent = C.orange }: { pct: number; accent?: string }) {
   const progress = useSharedValue(0);
+  const pulse = useSharedValue(0);
+  const orbit = useSharedValue(0);
+  const sweep = useSharedValue(0);
+
+  const isGreenAccent = accent === C.green;
+  const accentSoft = isGreenAccent ? 'rgba(34,197,94,0.18)' : 'rgba(249,115,22,0.18)';
+  const accentAura = isGreenAccent ? 'rgba(34,197,94,0.08)' : 'rgba(249,115,22,0.08)';
+  const sweepColors: [string, string, string] = isGreenAccent
+    ? ['rgba(34,197,94,0)', 'rgba(187,247,208,0.22)', 'rgba(34,197,94,0)']
+    : ['rgba(249,115,22,0)', 'rgba(253,186,116,0.24)', 'rgba(249,115,22,0)'];
 
   useEffect(() => {
     progress.value = withTiming(pct / 100, { duration: 1400, easing: Easing.out(Easing.cubic) });
   }, [pct]);
 
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1300, easing: Easing.inOut(Easing.cubic) }),
+        withTiming(0, { duration: 1300, easing: Easing.inOut(Easing.cubic) }),
+      ),
+      -1,
+      false,
+    );
+    orbit.value = withRepeat(
+      withTiming(1, { duration: 5800, easing: Easing.linear }),
+      -1,
+      false,
+    );
+    sweep.value = withRepeat(
+      withTiming(1, { duration: 2600, easing: Easing.inOut(Easing.cubic) }),
+      -1,
+      false,
+    );
+  }, []);
+
   const animatedProps = useAnimatedProps(() => ({
     strokeDashoffset: CIRCUMFERENCE * (1 - progress.value),
   }));
+  const haloStyle = useAnimatedStyle(() => ({
+    opacity: 0.48 + pulse.value * 0.22,
+    transform: [
+      { rotate: `${orbit.value * 360}deg` },
+      { scale: 1 + pulse.value * 0.018 },
+    ],
+  }));
+  const auraStyle = useAnimatedStyle(() => ({
+    opacity: 0.68 + pulse.value * 0.28,
+    transform: [{ scale: 1 + pulse.value * 0.035 }],
+  }));
+  const shimmerStyle = useAnimatedStyle(() => ({
+    opacity: 0.12 + pulse.value * 0.18,
+    transform: [
+      { translateX: -RING_SIZE * 0.72 + sweep.value * RING_SIZE * 1.44 },
+      { rotate: '-18deg' },
+    ],
+  }));
 
   return (
-    <View style={{ width: RING_SIZE, height: RING_SIZE }}>
+    <View style={rg.shell}>
+      <Animated.View style={[rg.outerHalo, { borderColor: accentSoft }, haloStyle]} />
+      <Animated.View style={[rg.aura, { backgroundColor: accentAura }, auraStyle]} />
+      <View style={rg.innerBackdrop}>
+        <Animated.View style={[rg.shimmer, shimmerStyle]}>
+          <LinearGradient
+            colors={sweepColors}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        </Animated.View>
+      </View>
       <Svg
         width={RING_SIZE}
         height={RING_SIZE}
-        style={{ transform: [{ rotate: '-90deg' }] }}
+        style={[rg.svg, { transform: [{ rotate: '-90deg' }] }]}
       >
         {/* Track */}
         <Circle
@@ -321,12 +396,22 @@ function CircularRing({ pct }: { pct: number }) {
           strokeWidth={RING_STROKE}
           fill="none"
         />
+        <Circle
+          cx={RING_SIZE / 2}
+          cy={RING_SIZE / 2}
+          r={RING_RADIUS}
+          stroke={accentSoft}
+          strokeWidth={RING_STROKE + 8}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={`${CIRCUMFERENCE * 0.18} ${CIRCUMFERENCE * 0.82}`}
+        />
         {/* Progress arc */}
         <AnimatedCircle
           cx={RING_SIZE / 2}
           cy={RING_SIZE / 2}
           r={RING_RADIUS}
-          stroke={C.orange}
+          stroke={accent}
           strokeWidth={RING_STROKE}
           fill="none"
           strokeDasharray={CIRCUMFERENCE}
@@ -338,7 +423,7 @@ function CircularRing({ pct }: { pct: number }) {
       {/* Center text */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={rg.pct}>{pct}%</Text>
+          <Text style={[rg.pct, { color: accent }]}>{pct}%</Text>
           <Text style={rg.done}>COMPLETE</Text>
         </View>
       </View>
@@ -347,37 +432,153 @@ function CircularRing({ pct }: { pct: number }) {
 }
 
 const rg = StyleSheet.create({
+  shell: {
+    width: RING_SIZE,
+    height: RING_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outerHalo: {
+    position: 'absolute',
+    width: RING_SIZE + 26,
+    height: RING_SIZE + 26,
+    borderRadius: (RING_SIZE + 26) / 2,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+  },
+  aura: {
+    position: 'absolute',
+    width: RING_SIZE + 6,
+    height: RING_SIZE + 6,
+    borderRadius: (RING_SIZE + 6) / 2,
+  },
+  innerBackdrop: {
+    position: 'absolute',
+    width: RING_SIZE - 20,
+    height: RING_SIZE - 20,
+    borderRadius: (RING_SIZE - 20) / 2,
+    backgroundColor: 'rgba(255,255,255,0.018)',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
+  },
+  shimmer: {
+    position: 'absolute',
+    top: -24,
+    bottom: -24,
+    width: 58,
+  },
+  svg: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+  },
   pct:  { fontSize: 34, fontWeight: '800', color: C.orange, letterSpacing: -1.5 },
   done: { fontSize: 11, fontWeight: '700', color: C.textMut, letterSpacing: 2.5, marginTop: 2 },
 });
 
 // ─── Live Badge ───────────────────────────────────────────────────────────────
 function LiveBadge() {
-  const op = useSharedValue(1);
+  const pulse = useSharedValue(0);
+  const sweep = useSharedValue(0);
   useEffect(() => {
-    op.value = withRepeat(
+    pulse.value = withRepeat(
       withSequence(
-        withTiming(0.25, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-        withTiming(1,    { duration: 800, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 900, easing: Easing.inOut(Easing.cubic) }),
+        withTiming(0, { duration: 900, easing: Easing.inOut(Easing.cubic) }),
       ),
       -1,
       false,
     );
+    sweep.value = withRepeat(
+      withTiming(1, { duration: 2400, easing: Easing.inOut(Easing.cubic) }),
+      -1,
+      false,
+    );
   }, []);
-  const dotStyle = useAnimatedStyle(() => ({ opacity: op.value }));
+  const haloStyle = useAnimatedStyle(() => ({
+    opacity: 0.2 + pulse.value * 0.45,
+    transform: [{ scale: 1 + pulse.value * 0.75 }],
+  }));
+  const dotStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 0.92 + pulse.value * 0.18 }],
+  }));
+  const sweepStyle = useAnimatedStyle(() => ({
+    opacity: 0.18 + pulse.value * 0.1,
+    transform: [
+      { translateX: -72 + sweep.value * 144 },
+      { rotate: '-18deg' },
+    ],
+  }));
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-      <Animated.View style={[
-        { width: 8, height: 8, borderRadius: 4, backgroundColor: C.green },
-        dotStyle,
-      ]} />
-      <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, letterSpacing: 1.2 }}>
+    <View style={lb.badge}>
+      <Animated.View pointerEvents="none" style={[lb.sweep, sweepStyle]}>
+        <LinearGradient
+          colors={['rgba(34,197,94,0)', 'rgba(187,247,208,0.34)', 'rgba(34,197,94,0)']}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+      </Animated.View>
+      <View style={lb.signal}>
+        <Animated.View style={[lb.signalHalo, haloStyle]} />
+        <Animated.View style={[lb.signalDot, dotStyle]} />
+      </View>
+      <Text style={lb.text}>
         LIVE TRACKING
       </Text>
+      <Ionicons name="radio-outline" size={13} color={C.green} />
     </View>
   );
 }
+
+const lb = StyleSheet.create({
+  badge: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    overflow: 'hidden',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.22)',
+    backgroundColor: 'rgba(34,197,94,0.075)',
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  sweep: {
+    position: 'absolute',
+    top: -16,
+    bottom: -16,
+    width: 46,
+  },
+  signal: {
+    width: 12,
+    height: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  signalHalo: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: 'rgba(34,197,94,0.28)',
+  },
+  signalDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: C.green,
+  },
+  text: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: C.green,
+    letterSpacing: 1.1,
+  },
+});
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 function PageSkeleton() {
@@ -416,6 +617,7 @@ function TimelineStep({
   booking,
   mediaStage,
   finalStepComplete,
+  appointmentSecuredComplete,
 }: {
   step: typeof TRACKER_STEPS[number];
   index: number;
@@ -425,6 +627,7 @@ function TimelineStep({
   booking: any | null;
   mediaStage: TrackerMediaStage | null;
   finalStepComplete: boolean;
+  appointmentSecuredComplete: boolean;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const [galleryStartIndex, setGalleryStartIndex] = useState<number | null>(null);
@@ -433,7 +636,8 @@ function TimelineStep({
   const insetsModal = useSafeAreaInsets();
 
   const isFinalStep = index === TRACKER_STEPS.length - 1;
-  const isDone    = currentIdx > index || (isFinalStep && finalStepComplete);
+  const isSecuredSlotStep = index === 0 && appointmentSecuredComplete;
+  const isDone    = currentIdx > index || (isFinalStep && finalStepComplete) || isSecuredSlotStep;
   const isActive  = currentIdx === index && !isDone;
   const isPending = currentIdx < index;
 
@@ -464,7 +668,14 @@ function TimelineStep({
     setGalleryStartIndex(null);
   };
 
+  const hasPremiumMotion = isActive || isSecuredSlotStep;
+  const premiumSweepColors: [string, string, string] = isSecuredSlotStep
+    ? ['rgba(34,197,94,0)', 'rgba(187,247,208,0.18)', 'rgba(34,197,94,0)']
+    : ['rgba(249,115,22,0)', 'rgba(253,186,116,0.16)', 'rgba(249,115,22,0)'];
+  const cardPulse = useSharedValue(0);
+  const cardSweep = useSharedValue(0);
   const glowOp = useSharedValue(0);
+
   useEffect(() => {
     if (isActive) {
       glowOp.value = withRepeat(
@@ -481,18 +692,60 @@ function TimelineStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Reanimated shared value ref
   }, [isActive]);
 
+  useEffect(() => {
+    if (hasPremiumMotion) {
+      cardPulse.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 1450, easing: Easing.inOut(Easing.cubic) }),
+          withTiming(0, { duration: 1450, easing: Easing.inOut(Easing.cubic) }),
+        ),
+        -1,
+        false,
+      );
+      cardSweep.value = withRepeat(
+        withTiming(1, { duration: 3100, easing: Easing.inOut(Easing.cubic) }),
+        -1,
+        false,
+      );
+    } else {
+      cardPulse.value = withTiming(0, { duration: 240 });
+      cardSweep.value = 0;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Reanimated shared value refs
+  }, [hasPremiumMotion]);
+
   const glowStyle = useAnimatedStyle(() => ({ opacity: glowOp.value }));
+  const cardMotionStyle = useAnimatedStyle(() => ({
+    transform: hasPremiumMotion
+      ? [
+        { translateY: -1 - cardPulse.value * 1.2 },
+        { scale: 1 + cardPulse.value * 0.004 },
+      ]
+      : [{ translateY: 0 }, { scale: 1 }],
+  }));
+  const cardSweepStyle = useAnimatedStyle(() => ({
+    opacity: hasPremiumMotion ? 0.12 + cardPulse.value * 0.1 : 0,
+    transform: [
+      { translateX: -96 + cardSweep.value * Math.max(windowWidth - 54, 180) },
+      { rotate: '-16deg' },
+    ],
+  }));
+  const iconMotionStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: hasPremiumMotion ? 1 + cardPulse.value * 0.08 : 1 }],
+  }));
 
   return (
     <View style={[tl.row, isLast && { paddingBottom: 0 }]}>
 
       {/* Left column: icon + connector */}
       <View style={tl.leftCol}>
-        <View style={[
+        <Animated.View style={[
           tl.iconWrap,
           isDone    && tl.iconDone,
           isActive  && tl.iconActive,
           isPending && tl.iconPending,
+          isSecuredSlotStep && tl.iconSecured,
+          iconMotionStyle,
         ]}>
           {isDone ? (
             <Ionicons name="checkmark" size={16} color="#FFF" />
@@ -506,20 +759,32 @@ function TimelineStep({
           {isActive && (
             <Animated.View style={[tl.glow, glowStyle]} />
           )}
-        </View>
+        </Animated.View>
         {!isLast && (
           <View style={[tl.connector, isDone && tl.connectorDone]} />
         )}
       </View>
 
       {/* Right: card */}
-      <View style={[
+      <Animated.View style={[
         tl.card,
         isDone    && tl.cardDone,
         isActive  && tl.cardActive,
         isPending && tl.cardPending,
+        isSecuredSlotStep && tl.cardSecured,
         isLast    && { marginBottom: 0 },
+        cardMotionStyle,
       ]}>
+        {hasPremiumMotion ? (
+          <Animated.View pointerEvents="none" style={[tl.cardSweep, cardSweepStyle]}>
+            <LinearGradient
+              colors={premiumSweepColors}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={StyleSheet.absoluteFillObject}
+            />
+          </Animated.View>
+        ) : null}
         <View style={tl.cardTop}>
           <View style={{ flex: 1 }}>
             <Text style={[
@@ -551,10 +816,12 @@ function TimelineStep({
             <Text style={tl.activeText}>In progress</Text>
           </View>
         )}
-        {isDone && isFinalStep && (
+        {isDone && (isSecuredSlotStep || isFinalStep) && (
           <View style={tl.completeRow}>
             <Ionicons name="checkmark-circle" size={13} color={C.green} />
-            <Text style={tl.completeText}>Complete</Text>
+            <Text style={tl.completeText}>
+              {isSecuredSlotStep ? 'Complete - slot secured' : 'Complete'}
+            </Text>
           </View>
         )}
 
@@ -668,7 +935,7 @@ function TimelineStep({
             </Modal>
           </>
         ) : null}
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -686,6 +953,14 @@ const tl = StyleSheet.create({
   iconDone:    { backgroundColor: C.green,                 borderColor: C.green },
   iconActive:  { backgroundColor: 'rgba(249,115,22,0.10)', borderColor: C.orange },
   iconPending: { backgroundColor: '#111',                  borderColor: '#1E1E1E' },
+  iconSecured: {
+    backgroundColor: '#16A34A',
+    borderColor: 'rgba(187,247,208,0.86)',
+    ...Platform.select({
+      ios: { shadowColor: C.green, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.28, shadowRadius: 12 },
+      android: { elevation: 5 },
+    }),
+  },
 
   glow: {
     position: 'absolute', width: 38, height: 38, borderRadius: 19,
@@ -699,10 +974,15 @@ const tl = StyleSheet.create({
     flex: 1, borderRadius: 14, borderWidth: 1,
     backgroundColor: '#131313', borderColor: '#1E1E1E',
     padding: 14, marginBottom: 8,
+    overflow: 'hidden',
   },
   cardDone: {
     backgroundColor: '#0D1810',
     borderColor: 'rgba(34,197,94,0.18)',
+  },
+  cardSecured: {
+    backgroundColor: '#0B1A10',
+    borderColor: 'rgba(134,239,172,0.34)',
   },
   cardActive: {
     backgroundColor: 'rgba(249,115,22,0.06)',
@@ -713,6 +993,12 @@ const tl = StyleSheet.create({
     }),
   },
   cardPending: { opacity: 0.55 },
+  cardSweep: {
+    position: 'absolute',
+    top: -34,
+    bottom: -34,
+    width: 82,
+  },
 
   cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
 
@@ -1018,6 +1304,7 @@ export default function TrackScreen() {
   const { profile } = useAuth();
   const router      = useRouter();
   const insets      = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
   const { id: routeBookingId } = useLocalSearchParams<{ id?: string }>();
 
   const [uploading,      setUploading]      = useState(false);
@@ -1032,6 +1319,48 @@ export default function TrackScreen() {
   const prevStatusRef  = useRef<string | null>(null); // tracks previous status to detect transition
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const step5Timer     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const premiumPulse = useSharedValue(0);
+  const premiumSweep = useSharedValue(0);
+
+  useEffect(() => {
+    premiumPulse.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.cubic) }),
+        withTiming(0, { duration: 1600, easing: Easing.inOut(Easing.cubic) }),
+      ),
+      -1,
+      false,
+    );
+    premiumSweep.value = withRepeat(
+      withTiming(1, { duration: 3400, easing: Easing.inOut(Easing.cubic) }),
+      -1,
+      false,
+    );
+  }, []);
+
+  const stageMotionStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: -premiumPulse.value * 1.5 },
+      { scale: 1 + premiumPulse.value * 0.0025 },
+    ],
+  }));
+  const stageSweepStyle = useAnimatedStyle(() => ({
+    opacity: 0.09 + premiumPulse.value * 0.06,
+    transform: [
+      { translateX: -screenWidth * 0.55 + premiumSweep.value * screenWidth * 1.25 },
+      { rotate: '-16deg' },
+    ],
+  }));
+  const bottomMotionStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -premiumPulse.value * 0.8 }],
+  }));
+  const bottomPillSweepStyle = useAnimatedStyle(() => ({
+    opacity: 0.16 + premiumPulse.value * 0.08,
+    transform: [
+      { translateX: -42 + premiumSweep.value * 132 },
+      { rotate: '-16deg' },
+    ],
+  }));
 
   // ── Data fetching ──
   const {
@@ -1229,14 +1558,21 @@ export default function TrackScreen() {
   const stepIdx = forceStepIdx !== null ? forceStepIdx : resolvedStepBumped;
   const readyForPickupComplete = isReadyForPickupDisplay(booking);
   const postPayComplete = isPostPaymentCompleteDisplay(booking);
+  const appointmentSecuredComplete = isAppointmentSecuredDisplay(booking);
+  const atSecuredSlotStage =
+    appointmentSecuredComplete &&
+    stepIdx <= 0 &&
+    !readyForPickupComplete &&
+    !postPayComplete;
   const pct = useMemo(() => {
     if (!booking) return 0;
     if (postPayComplete || readyForPickupComplete) return 100;
-    return getTrackerPipelineProgressPct({
+    const pipelinePct = getTrackerPipelineProgressPct({
       serviceTrackingStage: booking.serviceTrackingStage,
       status: booking.status,
     });
-  }, [booking, postPayComplete, readyForPickupComplete]);
+    return appointmentSecuredComplete ? Math.max(pipelinePct, 20) : pipelinePct;
+  }, [booking, postPayComplete, readyForPickupComplete, appointmentSecuredComplete]);
   const hasActive =
     !!booking &&
     (bookingShowsCustomerLiveTracker(booking) || isDefaultTrackBookingRow(booking?.status || ''));
@@ -1246,14 +1582,24 @@ export default function TrackScreen() {
   const activeStepIdx = Math.min(Math.max(stepIdx, 0), TRACKER_STEPS.length - 1);
   const activeStep = TRACKER_STEPS[activeStepIdx] || TRACKER_STEPS[0];
   const activeMediaStage = MOBILE_TRACKER_STEP_MEDIA_STAGE[activeStep.id] ?? null;
+  const trackerAccent = atSecuredSlotStage || readyForPickupComplete || postPayComplete
+    ? C.green
+    : C.orange;
+  const stageSweepColors: [string, string, string] = trackerAccent === C.green
+    ? ['rgba(34,197,94,0)', 'rgba(187,247,208,0.16)', 'rgba(34,197,94,0)']
+    : ['rgba(249,115,22,0)', 'rgba(253,186,116,0.15)', 'rgba(249,115,22,0)'];
   const stageTitle = postPayComplete
     ? 'Service Complete'
     : readyForPickupComplete
       ? 'Ready for Pickup'
+      : atSecuredSlotStage
+        ? 'Slot Secured'
       : activeStep.label;
   const stageDescription = booking
     ? readyForPickupComplete
       ? TRACKER_STEPS[TRACKER_STEPS.length - 1].detail
+      : atSecuredSlotStage
+        ? 'Sales approved the downpayment. Your appointment slot is secured and live tracking is ready for shop intake.'
       : resolveTrackerStageDescription(booking, activeMediaStage) || activeStep.detail
     : '';
   const referenceLabel = getBookingReferenceLabel(booking);
@@ -1521,23 +1867,50 @@ export default function TrackScreen() {
 
             {/* ── Circular progress ring ── */}
             <Animated.View entering={FadeInDown.delay(100).duration(200)} style={s.ringWrap}>
-              <CircularRing pct={pct} />
+              <CircularRing pct={pct} accent={trackerAccent} />
             </Animated.View>
 
             {/* ── Current stage summary (web parity, mobile-native treatment) ── */}
             <Animated.View
               entering={FadeInDown.delay(120).duration(200)}
-              style={[s.stageCard, readyForPickupComplete && s.stageCardComplete]}
+              style={[
+                s.stageCard,
+                (readyForPickupComplete || atSecuredSlotStage) && s.stageCardComplete,
+                stageMotionStyle,
+              ]}
             >
+              <Animated.View pointerEvents="none" style={[s.stageCardSweep, stageSweepStyle]}>
+                <LinearGradient
+                  colors={stageSweepColors}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+              </Animated.View>
               <View style={s.stageTopRow}>
                 <View style={{ flex: 1, paddingRight: 12 }}>
                   <Text style={s.stageEyebrow}>CURRENT STAGE</Text>
-                  <Text style={[s.stageTitle, readyForPickupComplete && s.stageTitleComplete]}>
+                  <Text
+                    style={[
+                      s.stageTitle,
+                      (readyForPickupComplete || atSecuredSlotStage) && s.stageTitleComplete,
+                    ]}
+                  >
                     {stageTitle}
                   </Text>
                 </View>
-                <View style={[s.stageStepBadge, readyForPickupComplete && s.stageStepBadgeComplete]}>
-                  <Text style={[s.stageStepText, readyForPickupComplete && s.stageStepTextComplete]}>
+                <View
+                  style={[
+                    s.stageStepBadge,
+                    (readyForPickupComplete || atSecuredSlotStage) && s.stageStepBadgeComplete,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      s.stageStepText,
+                      (readyForPickupComplete || atSecuredSlotStage) && s.stageStepTextComplete,
+                    ]}
+                  >
                     Step {Math.min(Math.max(stepIdx + 1, 1), 5)} / 5
                   </Text>
                 </View>
@@ -1592,6 +1965,7 @@ export default function TrackScreen() {
                     booking={booking}
                     mediaStage={MOBILE_TRACKER_STEP_MEDIA_STAGE[step.id] ?? null}
                     finalStepComplete={readyForPickupComplete || postPayComplete}
+                    appointmentSecuredComplete={appointmentSecuredComplete}
                   />
                 ))}
               </View>
@@ -1628,15 +2002,25 @@ export default function TrackScreen() {
 
       {/* ── Fixed Bottom Completion Bar ── */}
       {showBottomBar && (
-        <View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+        <Animated.View style={[s.bottomBar, { paddingBottom: Math.max(insets.bottom, 10) }, bottomMotionStyle]}>
           <View>
             <Text style={s.bottomTitle}>AutoSPF+</Text>
             <Text style={s.bottomSub}>Premium Service</Text>
           </View>
-          <View style={s.bottomPill}>
-            <Text style={s.bottomPillText}>{pct}% COMPLETE</Text>
+          <View style={[s.bottomPill, atSecuredSlotStage && s.bottomPillSecured]}>
+            <Animated.View pointerEvents="none" style={[s.bottomPillSweep, bottomPillSweepStyle]}>
+              <LinearGradient
+                colors={stageSweepColors}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+            </Animated.View>
+            <Text style={[s.bottomPillText, atSecuredSlotStage && s.bottomPillTextSecured]}>
+              {pct}% COMPLETE
+            </Text>
           </View>
-        </View>
+        </Animated.View>
       )}
       {/* closes showComplete false branch */}
       </>
@@ -1719,16 +2103,24 @@ const s = StyleSheet.create({
 
   // Current stage summary
   stageCard: {
+    position: 'relative',
     backgroundColor: C.surface,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: C.border,
     padding: 16,
     gap: 12,
+    overflow: 'hidden',
   },
   stageCardComplete: {
     backgroundColor: '#0D1810',
     borderColor: C.greenBrd,
+  },
+  stageCardSweep: {
+    position: 'absolute',
+    top: -42,
+    bottom: -42,
+    width: 96,
   },
   stageTopRow: {
     flexDirection: 'row',
@@ -1850,8 +2242,21 @@ const s = StyleSheet.create({
   bottomTitle: { fontSize: 13, fontWeight: '800', color: C.text },
   bottomSub:   { fontSize: 11, color: C.textMut, marginTop: 1 },
   bottomPill: {
+    position: 'relative',
+    overflow: 'hidden',
     backgroundColor: C.orangeDim, borderWidth: 1, borderColor: C.orangeBrd,
     borderRadius: 20, paddingHorizontal: 13, paddingVertical: 6,
   },
+  bottomPillSweep: {
+    position: 'absolute',
+    top: -16,
+    bottom: -16,
+    width: 38,
+  },
+  bottomPillSecured: {
+    backgroundColor: C.greenDim,
+    borderColor: C.greenBrd,
+  },
   bottomPillText: { fontSize: 12, fontWeight: '700', color: C.orange },
+  bottomPillTextSecured: { color: C.green },
 });

@@ -434,6 +434,8 @@ orderSchema.index({ bookingDate: 1, bookingTime: 1, status: 1 });     // Availab
 // Slot service filters { status: $in, bookingDate: $in } — prefix { bookingDate: 1 } is used; kept explicit for Atlas/SRV planners
 orderSchema.index({ bookingDate: 1, status: 1 });
 orderSchema.index({ archived: 1, createdAt: -1 });                    // Archived orders listing
+orderSchema.index({ archived: 1, createdAt: -1, _id: -1 });            // Active order list by recency + stable pagination
+orderSchema.index({ archived: 1, updatedAt: -1, _id: -1 });            // Active order list by latest update + stable pagination
 orderSchema.index({ bookingReference: 1 }, { unique: true, sparse: true }); // Booking ref lookup
 
 export default mongoose.model('Order', orderSchema);
