@@ -110,6 +110,12 @@ apiClient.interceptors.response.use(
         path.includes('/auth/verify-otp') &&
         (status === 400 || status === 401 || status === 429);
 
+      const expectedAlreadyVerifiedResendOtp =
+        method === 'post' &&
+        path.includes('/auth/resend-otp') &&
+        status === 400 &&
+        message.toLowerCase().includes('already verified');
+
       const isLogoutFailure =
         status === 401 &&
         method === 'post' &&
@@ -134,7 +140,8 @@ apiClient.interceptors.response.use(
         isLogoutFailure ||
         isSocialLoginMiss ||
         suppressExpectedErrorLog ||
-        expectedOtpValidationFailure
+        expectedOtpValidationFailure ||
+        expectedAlreadyVerifiedResendOtp
       ) {
         // Expected edge cases: keep rejecting, but do not flood the console.
       } else if (!error.response) {

@@ -80,7 +80,7 @@ export const config = {
   // Email Configuration
   emailProvider: determineEmailProvider(),
   emailFromName: process.env.EMAIL_FROM_NAME || 'AutoSPF+',
-  emailFromAddress: process.env.EMAIL_FROM_ADDRESS || 'onboarding@resend.dev',
+  emailFromAddress: process.env.EMAIL_FROM_ADDRESS || 'verify@autospf.shop',
 
   // Resend Configuration
   resendApiKey: process.env.RESEND_API_KEY || '',

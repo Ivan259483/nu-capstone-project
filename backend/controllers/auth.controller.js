@@ -162,7 +162,10 @@ export const sendOtp = async (req, res, next) => {
 
     // Send OTP email via Resend
     console.log(`\n📧 Sending OTP email via Resend...`);
-    const emailResult = await sendOtpEmail(email, otp);
+    const emailResult = await sendOtpEmail(email, otp, {
+      purpose: 'verification',
+      otpRecordId: (createdOtpRecord || existingOtp)?._id,
+    });
 
     if (!emailResult.success) {
       // Only delete the OTP record if WE just created it (not a reused one)
@@ -267,7 +270,7 @@ export const forgotPassword = async (req, res, next) => {
     });
 
     // Send email
-    const emailResult = await sendPasswordResetEmail(email, otp);
+    const emailResult = await sendPasswordResetEmail(email, otp, { otpRecordId: otpRecord._id });
 
     if (!emailResult.success) {
       await OTP.deleteOne({ _id: otpRecord._id });
@@ -602,7 +605,10 @@ export const register = async (req, res, next) => {
             saved: otpRecordLogMeta(otpRecord),
           });
         }
-        await sendOtpEmail(email, otp).catch(err => console.warn('OTP email failed:', err.message));
+        await sendOtpEmail(email, otp, {
+          purpose: 'verification',
+          otpRecordId: otpRecord?._id,
+        }).catch(err => console.warn('OTP email failed:', err.message));
         return res.status(200).json({
           success: true,
           message: 'A new verification code has been sent to your email.',
@@ -712,7 +718,10 @@ export const register = async (req, res, next) => {
         saved: otpRecordLogMeta(otpRecord),
       });
 
-      const emailResult = await sendOtpEmail(email, otp);
+      const emailResult = await sendOtpEmail(email, otp, {
+        purpose: 'verification',
+        otpRecordId: otpRecord._id,
+      });
       if (!emailResult.success) {
         console.error('❌ OTP email failed:', emailResult.error);
       }
@@ -829,7 +838,10 @@ export const login = async (req, res, next) => {
           saved: otpRecordLogMeta(otpRecord),
         });
       }
-      await sendOtpEmail(emailNormalized, otp).catch(err => console.warn('OTP email failed:', err.message));
+      await sendOtpEmail(emailNormalized, otp, {
+        purpose: 'verification',
+        otpRecordId: otpRecord?._id,
+      }).catch(err => console.warn('OTP email failed:', err.message));
       return res.status(200).json({
         success: true,
         message: 'Please verify your email. A verification code has been sent.',
@@ -1005,7 +1017,10 @@ export const login = async (req, res, next) => {
       await otpRecord.save();
 
       // Send OTP email (fire-and-forget — failure is non-fatal here, client can resend)
-      const emailResult = await sendOtpEmail(user.email, otp);
+      const emailResult = await sendOtpEmail(user.email, otp, {
+        purpose: 'login',
+        otpRecordId: otpRecord._id,
+      });
       if (!emailResult.success) {
         console.error('❌ [Login 2FA] Failed to send OTP email:', emailResult.error);
         await OTP.deleteOne({ _id: otpRecord._id });
@@ -1614,7 +1629,10 @@ export const resendLoginOtp = async (req, res) => {
     });
     await otpRecord.save();
 
-    const emailResult = await sendOtpEmail(user.email, otp);
+    const emailResult = await sendOtpEmail(user.email, otp, {
+      purpose: 'login',
+      otpRecordId: otpRecord._id,
+    });
     if (!emailResult.success) {
       await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(500).json({ success: false, message: 'Failed to send code. Please try again.' });
@@ -1865,7 +1883,10 @@ export const resendOtp = async (req, res) => {
       generatedOtp: formatOtpForLog(otp),
       saved: otpRecordLogMeta(otpRecord),
     });
-    const emailResult = await sendOtpEmail(email, otp);
+    const emailResult = await sendOtpEmail(email, otp, {
+      purpose: 'verification',
+      otpRecordId: otpRecord._id,
+    });
     if (!emailResult.success) {
       await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(500).json({ success: false, message: 'Failed to resend OTP. Please try again.' });

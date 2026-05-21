@@ -13,12 +13,38 @@ import {
     onAuthStateChanged
 } from 'firebase/auth';
 import { getBaseApiUrl } from '@/lib/api';
-
-/** Resolved per call so Vite env / port changes apply after restart without stale module constant. */
-const apiUrl = () => getBaseApiUrl();
 import { invalidate, invalidateAll } from '@/lib/queryCache';
 import { getSharedSocket, refreshSocketAuth, destroySharedSocket } from '@/hooks/useRealtimeSync';
 import { formatContactNoInputFromProfile, normalizePhilippineMobileInput } from '@/lib/phone';
+
+/** Resolved per call so Vite env / port changes apply after restart without stale module constant. */
+const apiUrl = () => getBaseApiUrl();
+const apiHealthUrl = () => `${apiUrl().replace(/\/$/, '')}/health`;
+
+async function isBackendReachable(): Promise<boolean> {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+    let timeoutId: number | undefined;
+
+    try {
+        const healthCheck = fetch(apiHealthUrl(), {
+            method: 'GET',
+            signal: controller?.signal,
+        })
+            .then((resp) => resp.ok)
+            .catch(() => false);
+
+        const timeout = new Promise<boolean>((resolve) => {
+            timeoutId = window.setTimeout(() => {
+                controller?.abort();
+                resolve(false);
+            }, 5000);
+        });
+
+        return await Promise.race([healthCheck, timeout]);
+    } finally {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    }
+}
 
 // NOTE: Firestore is intentionally NOT used for role lookup.
 // Role is sourced from the MongoDB backend API (GET /api/users?email=...)
@@ -797,6 +823,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log('🚀 [DEBUG-login] Starting login for:', email);
             console.log('🚀 [DEBUG-login] apiUrl() is:', apiUrl());
 
+            const backendReachable = await isBackendReachable();
+            if (!backendReachable) {
+                loginInProgressRef.current = false;
+                loginResolvedRef.current = false;
+                return {
+                    success: false,
+                    message: `Backend is not reachable. Start the backend and try again. API base: ${apiUrl()}`,
+                };
+            }
+
             // ── Backend first: password is verified server-side (Mongo + bcrypt). ──
             // Finishing here when possible avoids requiring a matching Firebase Auth user
             // (common when accounts exist in Mongo but were never synced to Firebase).
@@ -995,7 +1031,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     '';
                 const detail =
                     fromJson ||
-                    `Server error (${backendStatus}). The API returned no JSON body — start the backend (cd backend && npm run dev, default port 3000) or check the backend terminal for stack traces.`;
+                    `Server error (${backendStatus}). The API returned no JSON body. Check the backend terminal for stack traces. API base: ${apiUrl()}`;
                 return { success: false, message: detail };
             }
 
@@ -1015,13 +1051,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                 if (!backendPayload) {
                     // Fetch failed (connection refused, timeout, DNS, etc.) — do not blame Firebase/password.
-                    const baseHint =
-                        apiUrl().startsWith('http')
-                            ? `Start the Express backend (cd backend && npm run dev). Check that PORT in backend/.env matches VITE_BACKEND_URL in frontend/.env.development (often 8080).`
-                            : `Start the Express backend and set VITE_BACKEND_URL in frontend/.env.development (e.g. http://localhost:8080).`;
                     return {
                         success: false,
-                        message: `Cannot reach the API (base: ${apiUrl()}). ${baseHint}`,
+                        message: `Backend is not reachable. Start the backend and try again. API base: ${apiUrl()}`,
                     };
                 }
 

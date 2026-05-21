@@ -13,7 +13,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useTheme } from '@/hooks/useThemeContext';
-import { apiClient, getApiErrorMessage } from '@/services/api/client';
+import { apiClient, getApiErrorMessage, getApiStatusCode } from '@/services/api/client';
 import { Palette } from '@/constants/theme';
 import GlassCard from '@/components/ui/GlassCard';
 import PremiumButton from '@/components/ui/PremiumButton';
@@ -21,6 +21,8 @@ import PremiumButton from '@/components/ui/PremiumButton';
 const OTP_LENGTH = 6;
 const normalizeOtp = (value: string) => value.replace(/[^0-9]/g, '').slice(0, OTP_LENGTH);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
+const isAlreadyVerifiedResendError = (error: unknown): boolean =>
+  getApiStatusCode(error) === 400 && /already verified/i.test(getApiErrorMessage(error, ''));
 
 export default function VerifyScreen() {
   const { colors } = useTheme();
@@ -131,6 +133,12 @@ export default function VerifyScreen() {
       startCountdown();
       setOtp(['', '', '', '', '', '']);
     } catch (error) {
+      if (isAlreadyVerifiedResendError(error)) {
+        Alert.alert('Email Already Verified', 'Your account is already verified. Please sign in.', [
+          { text: 'OK', onPress: () => router.replace('/(auth)/login') },
+        ]);
+        return;
+      }
       Alert.alert('Error', getApiErrorMessage(error));
     } finally {
       setLoading(false);

@@ -5,8 +5,9 @@
 import { Resend } from 'resend';
 
 const FROM_NAME = process.env.EMAIL_FROM_NAME || 'AutoSPF+';
-const FROM_EMAIL = process.env.EMAIL_FROM_ADDRESS || 'noreply@autospf.shop'; // verified domain — do NOT use onboarding@resend.dev
+const FROM_EMAIL = process.env.EMAIL_FROM_ADDRESS || 'verify@autospf.shop'; // verified domain — do NOT use onboarding@resend.dev
 const FROM = `"${FROM_NAME}" <${FROM_EMAIL}>`;
+const DEFAULT_REPLY_TO = process.env.EMAIL_REPLY_TO || process.env.SUPPORT_EMAIL || 'support@autospf.shop';
 
 let resend = null;
 
@@ -30,7 +31,7 @@ function getEmailLogoUrl() {
 }
 
 function getSupportEmail() {
-  return (process.env.SUPPORT_EMAIL || 'support@autospf.com').trim();
+  return (process.env.SUPPORT_EMAIL || 'support@autospf.shop').trim();
 }
 
 /** Email-safe accent strip at top of card (no CSS gradients on outer clients). */
@@ -61,12 +62,30 @@ function getClient() {
   return resend;
 }
 
-async function sendEmail({ to, subject, html, text }) {
+function normalizeTagValue(value) {
+  return String(value || 'transactional')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 256) || 'transactional';
+}
+
+function buildIdempotencyKey(kind, id) {
+  if (!id) return undefined;
+  const safeKind = normalizeTagValue(kind);
+  return `autospf_${safeKind}_${String(id).slice(0, 160)}`.slice(0, 256);
+}
+
+async function sendEmail({ to, subject, html, text, replyTo = DEFAULT_REPLY_TO, tags = [], idempotencyKey }) {
   try {
     const client = getClient();
-    const payload = { from: FROM, to, subject, html };
+    const payload = { from: FROM, to, subject, html, replyTo };
     if (text) payload.text = text;
-    const { data, error } = await client.emails.send(payload);
+    if (tags.length) payload.tags = tags;
+
+    const sendOptions = idempotencyKey ? { idempotencyKey } : undefined;
+    const { data, error } = await client.emails.send(payload, sendOptions);
 
     if (error) {
       console.error('❌ [Resend] Send error:', error);
@@ -124,9 +143,6 @@ function baseWrapper(
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><![endif]-->
   <title>AutoSPF+</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
 </head>
 <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:'Instrument Sans',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color:#0f172a">
   ${pre ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f3f4f6;opacity:0">${pre}</div>` : ''}
@@ -156,7 +172,7 @@ function baseWrapper(
           <tr>
             <td align="center" style="padding-top:32px;padding-left:16px;padding-right:16px">
               <p style="margin:0 0 6px;font-size:12px;line-height:1.6;color:#64748b;font-weight:500;letter-spacing:0.02em">&copy; ${new Date().getFullYear()} AutoSPF+</p>
-              <p style="margin:0;font-size:11px;line-height:1.65;color:#94a3b8">Premium automotive care - Transactional notice - Replies are not monitored</p>
+              <p style="margin:0;font-size:11px;line-height:1.65;color:#94a3b8">AutoSPF+ account security notice</p>
               ${footerLinks}
               ${ribbon}
             </td>
@@ -171,8 +187,13 @@ function baseWrapper(
 
 // ─── OTP Template ─────────────────────────────────────────────────────────────
 
-function otpTemplate(otp) {
+function otpTemplate(otp, { purpose = 'verification' } = {}) {
   const digits = String(otp).split('');
+  const isLogin = purpose === 'login';
+  const heading = isLogin ? 'Your sign-in code' : 'Your verification code';
+  const intro = isLogin
+    ? 'Enter this single-use code to finish signing in. It was issued only for your account.'
+    : 'Enter this single-use code to confirm your email and continue. It was issued only for your account.';
   const digitBoxes = digits
     .map(
       (d) => `
@@ -190,9 +211,9 @@ function otpTemplate(otp) {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr>
         <td style="padding:48px 40px 32px;text-align:center">
-          <p style="margin:0 0 12px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.22em;color:#94a3b8">Identity verification</p>
-          <h1 style="margin:0;font-size:28px;font-weight:600;letter-spacing:-0.035em;color:#0a0f1a;line-height:1.2">Your verification code</h1>
-          <p style="margin:18px auto 0;font-size:16px;line-height:1.65;color:#64748b;max-width:400px;font-weight:400">Enter this single-use code to confirm your email and continue. It was issued only for your account.</p>
+          <p style="margin:0 0 12px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.22em;color:#94a3b8">Account security</p>
+          <h1 style="margin:0;font-size:28px;font-weight:600;letter-spacing:-0.035em;color:#0a0f1a;line-height:1.2">${heading}</h1>
+          <p style="margin:18px auto 0;font-size:16px;line-height:1.65;color:#64748b;max-width:400px;font-weight:400">${intro}</p>
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:28px auto 0">
             <tr>
               <td style="width:40px;height:2px;line-height:2px;font-size:0;background:#f59e0b;border-radius:2px">&nbsp;</td>
@@ -227,8 +248,9 @@ function otpTemplate(otp) {
   });
 }
 
-function otpPlainText(otp) {
-  return `AutoSPF+ — verification code\n\n${otp}\n\nThis code is valid for 10 minutes. If you did not request it, ignore this email.\n\n${getAppPublicUrl()}`;
+function otpPlainText(otp, { purpose = 'verification' } = {}) {
+  const label = purpose === 'login' ? 'sign-in code' : 'verification code';
+  return `AutoSPF+ ${label}\n\n${otp}\n\nThis code is valid for 10 minutes. If you did not request it, ignore this email.\n\n${getAppPublicUrl()}`;
 }
 
 // ─── Welcome Template ─────────────────────────────────────────────────────────
@@ -373,16 +395,22 @@ function passwordResetPlainText(otp) {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export const sendOtpEmail = async (email, otp) => {
+export const sendOtpEmail = async (email, otp, { purpose = 'verification', otpRecordId } = {}) => {
   console.log(`📨 [Resend] Sending OTP to ${email}...`);
   if (process.env.NODE_ENV === 'development') {
     console.log(`   🔑 OTP Code: ${otp}`);
   }
+  const safePurpose = purpose === 'login' ? 'login' : 'verification';
   return sendEmail({
     to: email,
-    subject: 'AutoSPF+ — Your verification code',
-    html: otpTemplate(otp),
-    text: otpPlainText(otp),
+    subject: safePurpose === 'login' ? 'Your AutoSPF+ sign-in code' : 'Your AutoSPF+ verification code',
+    html: otpTemplate(otp, { purpose: safePurpose }),
+    text: otpPlainText(otp, { purpose: safePurpose }),
+    tags: [
+      { name: 'type', value: 'otp' },
+      { name: 'purpose', value: safePurpose },
+    ],
+    idempotencyKey: buildIdempotencyKey(`otp_${safePurpose}`, otpRecordId),
   });
 };
 
@@ -392,10 +420,11 @@ export const sendWelcomeEmail = async (email, name) => {
     to: email,
     subject: 'Welcome to AutoSPF+',
     html: welcomeTemplate(name),
+    tags: [{ name: 'type', value: 'welcome' }],
   });
 };
 
-export const sendPasswordResetEmail = async (email, otp) => {
+export const sendPasswordResetEmail = async (email, otp, { otpRecordId } = {}) => {
   console.log(`📨 [Resend] Sending password reset OTP to ${email}...`);
   if (process.env.NODE_ENV === 'development') {
     console.log(`   🔑 OTP Code: ${otp}`);
@@ -405,6 +434,11 @@ export const sendPasswordResetEmail = async (email, otp) => {
     subject: 'Your AutoSPF+ password reset code',
     html: passwordResetTemplate(otp),
     text: passwordResetPlainText(otp),
+    tags: [
+      { name: 'type', value: 'otp' },
+      { name: 'purpose', value: 'password_reset' },
+    ],
+    idempotencyKey: buildIdempotencyKey('otp_password_reset', otpRecordId),
   });
 };
 

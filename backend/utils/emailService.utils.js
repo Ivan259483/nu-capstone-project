@@ -116,15 +116,17 @@ export const sendOtpEmail = async (userEmail, otp) => {
     const mailOptions = {
       from: `"${senderName}" <${senderEmail}>`,
       to: userEmail,
-      subject: 'Your OTP Code for AutoSPF+',
+      subject: 'Your AutoSPF+ verification code',
       html: generateOtpTemplate(otp),
-      text: `Your OTP is: ${otp}. This code will expire in 10 minutes.`,
+      text: `AutoSPF+ verification code\n\n${otp}\n\nThis code will expire in 10 minutes. If you did not request it, ignore this email.`,
     };
 
     console.log('📤 Sending OTP email...');
     console.log('   From:', mailOptions.from);
     console.log('   To:', userEmail);
-    console.log('   OTP:', otp);
+    if (process.env.NODE_ENV === 'development' || process.env.LOG_OTP_CODES === 'true') {
+      console.log('   OTP:', otp);
+    }
 
     const result = await transporter.sendMail(mailOptions);
 
@@ -635,7 +637,7 @@ const generateReceiptTemplate = (data) => {
         </div>
         ` : ''}
 
-        <p style="font-size: 13px; color: #888; text-align: center; margin-top: 24px;">Questions? Contact us at <a href="mailto:admin@autospf.com" style="color: #FF6B35;">admin@autospf.com</a></p>
+        <p style="font-size: 13px; color: #888; text-align: center; margin-top: 24px;">Questions? Contact us at <a href="mailto:${process.env.SUPPORT_EMAIL || 'support@autospf.shop'}" style="color: #FF6B35;">${process.env.SUPPORT_EMAIL || 'support@autospf.shop'}</a></p>
       </div>
 
       <!-- Footer -->

@@ -5,20 +5,19 @@
  */
 
 // ============================================
-// 🏆 RECOMMENDED: BREVO (SENDINBLUE)
+// 🏆 RECOMMENDED: RESEND
 // ============================================
-// Best for startups: 300 free emails/day, custom domain, professional
+// Best for transactional app email with custom-domain SPF/DKIM/DMARC
 // Setup time: 5 minutes
-// Credentials location: https://app.brevo.com → Settings → SMTP & API
+// Credentials location: https://resend.com/api-keys
 
-export const BREVO_CONFIG = {
-  EMAIL_PROVIDER: 'brevo',
+export const RESEND_CONFIG = {
+  EMAIL_PROVIDER: 'resend',
   EMAIL_FROM_NAME: 'AutoSPF+',
-  EMAIL_FROM_ADDRESS: 'noreply@autospf.com',
-  BREVO_SMTP_USER: 'contact@autospf.com', // Your Brevo email/username
-  BREVO_SMTP_PASSWORD: 'your_brevo_smtp_password', // Generate in dashboard
-  BREVO_API_KEY: 'optional_for_advanced_features',
-  // SMTP Details: smtp-relay.brevo.com:587 (TLS)
+  EMAIL_FROM_ADDRESS: 'verify@autospf.shop',
+  EMAIL_REPLY_TO: 'support@autospf.shop',
+  SUPPORT_EMAIL: 'support@autospf.shop',
+  RESEND_API_KEY: 're_xxxxxxxxx',
 };
 
 // ============================================
@@ -31,7 +30,7 @@ export const BREVO_CONFIG = {
 export const GMAIL_CONFIG = {
   EMAIL_PROVIDER: 'gmail',
   EMAIL_FROM_NAME: 'AutoSPF+',
-  EMAIL_FROM_ADDRESS: 'noreply@autospf.com', // Overridden by Gmail
+  EMAIL_FROM_ADDRESS: 'verify@autospf.shop', // Overridden by Gmail
   EMAIL_USER: 'your_email@gmail.com',
   EMAIL_PASSWORD: 'xxxx xxxx xxxx xxxx', // 16-char app password from https://myaccount.google.com/apppasswords
   // Steps: Enable 2FA → Generate App Password → Use that password
@@ -47,7 +46,7 @@ export const GMAIL_CONFIG = {
 export const SMTP_CONFIG = {
   EMAIL_PROVIDER: 'smtp',
   EMAIL_FROM_NAME: 'AutoSPF+',
-  EMAIL_FROM_ADDRESS: 'noreply@autospf.com',
+  EMAIL_FROM_ADDRESS: 'verify@autospf.shop',
   EMAIL_USER: 'your_smtp_username',
   EMAIL_PASSWORD: 'your_smtp_password',
   SMTP_HOST: 'smtp.example.com',
@@ -64,7 +63,7 @@ export const SMTP_CONFIG = {
 export const CONSOLE_CONFIG = {
   EMAIL_PROVIDER: 'console',
   EMAIL_FROM_NAME: 'AutoSPF+',
-  EMAIL_FROM_ADDRESS: 'noreply@autospf.com',
+  EMAIL_FROM_ADDRESS: 'verify@autospf.shop',
   // Emails will be logged to console
   // No external service needed
 };
@@ -78,9 +77,9 @@ export const OTP_CONFIG = {
 };
 
 // ============================================
-// EXAMPLE: Complete .env for Brevo
+// EXAMPLE: Complete .env for Resend
 // ============================================
-export const EXAMPLE_ENV_BREVO = `
+export const EXAMPLE_ENV_RESEND = `
 PORT=3000
 NODE_ENV=development
 MONGODB_URI=mongodb://localhost:27017/autospf
@@ -88,14 +87,14 @@ JWT_SECRET=your_jwt_secret_key_change_in_production
 CORS_ORIGIN=http://localhost:5173
 
 # Email Configuration
-EMAIL_PROVIDER=brevo
+EMAIL_PROVIDER=resend
 EMAIL_FROM_NAME=AutoSPF+
-EMAIL_FROM_ADDRESS=noreply@autospf.com
+EMAIL_FROM_ADDRESS=verify@autospf.shop
+EMAIL_REPLY_TO=support@autospf.shop
+SUPPORT_EMAIL=support@autospf.shop
 
-# Brevo Credentials
-BREVO_SMTP_USER=contact@autospf.com
-BREVO_SMTP_PASSWORD=your_brevo_smtp_password_here
-BREVO_API_KEY=optional_api_key
+# Resend Credentials
+RESEND_API_KEY=re_xxxxxxxxx
 
 # OTP Configuration
 OTP_EXPIRY=600
@@ -110,27 +109,22 @@ EMAIL_PASSWORD=xxxx xxxx xxxx xxxx
 // COMPARISON TABLE
 // ============================================
 export const PROVIDER_COMPARISON = {
-  brevo: {
-    name: 'Brevo (Sendinblue)',
-    freeTier: '300 emails/day',
-    cost: 'Free → €20/month',
+  resend: {
+    name: 'Resend',
+    freeTier: 'Plan-dependent',
+    cost: 'Free tier available, then usage-based',
     customDomain: true,
     setupTime: '5 minutes',
     deliverability: 'Excellent',
     recommended: true,
-    smtpHost: 'smtp-relay.brevo.com',
-    smtpPort: 587,
-    tlsRequired: true,
     pros: [
-      '300 free emails/day (plenty for MVP)',
-      'Custom domain support (professional)',
-      'Excellent deliverability reputation',
-      'Easy SMTP setup',
-      'Great dashboard with detailed logs',
+      'Custom domain support with SPF, DKIM, and DMARC alignment',
+      'Transactional email API with tags and idempotency keys',
+      'Dashboard logs and domain verification status',
     ],
     cons: [
-      'Requires account creation',
-      'Limited to free tier after 300/day',
+      'Requires DNS setup and domain warm-up',
+      'New domains still need reputation building',
     ],
   },
   gmail: {
@@ -179,16 +173,15 @@ export const PROVIDER_COMPARISON = {
 // QUICK SETUP STEPS
 // ============================================
 export const SETUP_STEPS = {
-  brevo: [
-    '1. Go to https://www.brevo.com',
-    '2. Click "Sign up for free"',
-    '3. Verify email and complete setup',
-    '4. Go to Settings → SMTP & API',
-    '5. Copy SMTP Login and Password',
-    '6. Update .env with credentials',
-    '7. Run: npm install nodemailer',
-    '8. Start: npm run dev',
-    '9. Test: curl -X POST http://localhost:3000/api/auth/send-otp',
+  resend: [
+    '1. Go to https://resend.com/domains',
+    '2. Add autospf.shop as a sending domain',
+    '3. Add the Resend SPF, DKIM, and return-path MX records in DNS',
+    '4. Add _dmarc.autospf.shop with a monitoring policy',
+    '5. Click Verify DNS Records in Resend',
+    '6. Set RESEND_API_KEY and EMAIL_FROM_ADDRESS=verify@autospf.shop',
+    '7. Run: npm run check:email-dns',
+    '8. Test: curl -X POST http://localhost:8080/api/auth/send-otp',
   ],
   gmail: [
     '1. Go to https://myaccount.google.com/security',
@@ -244,12 +237,12 @@ export const TROUBLESHOOTING = {
 };
 
 export default {
-  BREVO_CONFIG,
+  RESEND_CONFIG,
   GMAIL_CONFIG,
   SMTP_CONFIG,
   CONSOLE_CONFIG,
   OTP_CONFIG,
-  EXAMPLE_ENV_BREVO,
+  EXAMPLE_ENV_RESEND,
   PROVIDER_COMPARISON,
   SETUP_STEPS,
   TROUBLESHOOTING,

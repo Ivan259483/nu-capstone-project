@@ -71,7 +71,7 @@ export function WelcomeEmail({ name }) {
 
               <Section className="text-center mt-6">
                 <Button
-                  href="http://localhost:5173/login"
+                  href="https://autospf.shop/login"
                   style={{
                     background: 'linear-gradient(135deg, #f59e0b, #d97706)',
                     color: '#000', fontWeight: '700', fontSize: '15px',
@@ -85,7 +85,7 @@ export function WelcomeEmail({ name }) {
 
               <Hr className="border-[#1f1f1f] my-6" />
               <Text className="text-[#6b7280] text-xs text-center m-0">
-                Need help? Contact us at support@autospf.com
+                Need help? Contact us at support@autospf.shop
               </Text>
             </Section>
 
