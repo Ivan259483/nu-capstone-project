@@ -12,6 +12,16 @@ import { admin } from '../config/firebaseAdmin.js';
 import { parseRegisterPhone } from '../utils/phone.utils.js';
 import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
 import { attachPhoneForClient } from '../utils/phone-client.utils.js';
+import {
+  EMAIL_OTP_PURPOSE,
+  LOGIN_OTP_PURPOSE,
+  formatOtpForLog,
+  maskEmail,
+  normalizeEmailForOtp,
+  normalizeOtpInput,
+  otpRecordLogMeta,
+  timingSafeOtpEqual,
+} from '../utils/otp.utils.js';
 
 // Roles that require Email OTP 2FA after password verification.
 // 'customer' is intentionally excluded — direct JWT login.
@@ -24,10 +34,37 @@ const NON_CUSTOMER_ROLES = [
  * Generate OTP
  */
 const generateOTP = (length = 6) => {
-  // Use cryptographically secure random integer (replaces Math.random)
-  const min = Math.pow(10, length - 1);
+  // Use cryptographically secure random integer and preserve leading zeroes.
   const max = Math.pow(10, length); // crypto.randomInt upper bound is exclusive
-  return crypto.randomInt(min, max).toString();
+  return crypto.randomInt(0, max).toString().padStart(length, '0');
+};
+
+const buildOtpHash = (otp) => bcrypt.hash(normalizeOtpInput(otp), 10);
+
+const findLatestEmailOtp = (email, extraQuery = {}) =>
+  OTP.findOne({
+    email: normalizeEmailForOtp(email),
+    purpose: EMAIL_OTP_PURPOSE,
+    ...extraQuery,
+  }).sort({ createdAt: -1, _id: -1 });
+
+const logOtpDebug = (event, meta = {}) => {
+  console.log(`[OTP:${event}]`, meta);
+};
+
+const compareOtpRecord = async (otpRecord, candidateOtp) => {
+  const normalizedOtp = normalizeOtpInput(candidateOtp);
+  if (!otpRecord || !normalizedOtp) return false;
+
+  if (otpRecord.otpHash) {
+    try {
+      if (await bcrypt.compare(normalizedOtp, otpRecord.otpHash)) return true;
+    } catch (err) {
+      console.warn('[OTP:compare] hash comparison failed:', err?.message || err);
+    }
+  }
+
+  return timingSafeOtpEqual(otpRecord.otp, normalizedOtp);
 };
 
 /** Updates lastSeenAt on successful auth (admin User Management “presence”). */
@@ -47,7 +84,7 @@ async function saveLastSeen(userDoc) {
  */
 export const sendOtp = async (req, res, next) => {
   try {
-    const { email } = req.body;
+    const email = normalizeEmailForOtp(req.body.email);
 
     if (!email) {
       return res.status(400).json({
@@ -72,41 +109,55 @@ export const sendOtp = async (req, res, next) => {
       });
     }
 
-    console.log(`\n📨 [OTP REQUEST] Email: ${email}`);
+    logOtpDebug('send.request', { email: maskEmail(email), bodyFields: Object.keys(req.body || {}) });
 
     // ── Idempotency: Reuse an unexpired OTP if one already exists ──────────────
     // This prevents the mobile OfflineQueue from invalidating the OTP by
     // replaying the same send-otp request multiple times before the user enters it.
-    const existingOtp = await OTP.findOne({
-      email,
+    const existingOtp = await findLatestEmailOtp(email, {
       verified: false,
       expiresAt: { $gt: new Date() },
     });
 
     let otp;
-    if (existingOtp) {
+    let createdOtpRecord = null;
+    if (
+      existingOtp &&
+      existingOtp.attempts < existingOtp.maxAttempts &&
+      normalizeOtpInput(existingOtp.otp).length === config.otpLength
+    ) {
       // Reuse existing valid OTP — just resend the same code
       otp = existingOtp.otp;
-      console.log(`   ♻️ Reusing existing OTP (still valid for ${Math.round((existingOtp.expiresAt - Date.now()) / 1000)}s)`);
+      existingOtp.lastSentAt = new Date();
+      await existingOtp.save();
+      logOtpDebug('send.reuse', {
+        email: maskEmail(email),
+        otp: formatOtpForLog(otp),
+        record: otpRecordLogMeta(existingOtp),
+      });
     } else {
       // Generate a fresh OTP and save it
       otp = generateOTP(config.otpLength);
-      await OTP.deleteMany({ email }); // clean up any expired/used records
+      await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE }); // clean up expired/used email OTP records
 
       const otpRecord = new OTP({
         email,
         otp,
+        otpHash: await buildOtpHash(otp),
         expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
         attempts: 0,
         maxAttempts: 5,
         verified: false,
+        purpose: EMAIL_OTP_PURPOSE,
+        lastSentAt: new Date(),
       });
       await otpRecord.save();
-      console.log(`   ✅ New OTP generated & saved (expires in ${config.otpExpiry}s)`);
-    }
-
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`   🔑 OTP Code: ${otp}`);
+      createdOtpRecord = otpRecord;
+      logOtpDebug('send.generated_saved', {
+        email: maskEmail(email),
+        generatedOtp: formatOtpForLog(otp),
+        saved: otpRecordLogMeta(otpRecord),
+      });
     }
 
     // Send OTP email via Resend
@@ -115,10 +166,10 @@ export const sendOtp = async (req, res, next) => {
 
     if (!emailResult.success) {
       // Only delete the OTP record if WE just created it (not a reused one)
-      if (!existingOtp) await OTP.deleteOne({ email });
+      if (createdOtpRecord?._id) await OTP.deleteOne({ _id: createdOtpRecord._id });
 
       console.error(`\n❌ OTP Email Failed:`);
-      console.error(`   Email: ${email}`);
+      console.error(`   Email: ${maskEmail(email)}`);
       console.error(`   Error: ${emailResult.error}`);
 
       return res.status(500).json({
@@ -159,7 +210,7 @@ export const sendOtp = async (req, res, next) => {
  */
 export const forgotPassword = async (req, res, next) => {
   try {
-    const { email } = req.body;
+    const email = normalizeEmailForOtp(req.body.email);
 
     if (!email) {
       return res.status(400).json({
@@ -193,26 +244,33 @@ export const forgotPassword = async (req, res, next) => {
     const otp = generateOTP(config.otpLength);
 
     // Delete previous OTP
-    await OTP.deleteMany({ email });
+    await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE });
 
     // Create OTP record
     const otpRecord = new OTP({
       email,
       otp,
+      otpHash: await buildOtpHash(otp),
       expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
       attempts: 0,
       maxAttempts: 5,
       verified: false,
+      purpose: EMAIL_OTP_PURPOSE,
+      lastSentAt: new Date(),
     });
 
     await otpRecord.save();
-    console.log(`✅ Password Reset OTP saved for ${email}`);
+    logOtpDebug('forgot.generated_saved', {
+      email: maskEmail(email),
+      generatedOtp: formatOtpForLog(otp),
+      saved: otpRecordLogMeta(otpRecord),
+    });
 
     // Send email
-    const emailResult = await sendOtpEmail(email, otp);
+    const emailResult = await sendPasswordResetEmail(email, otp);
 
     if (!emailResult.success) {
-      await OTP.deleteOne({ email });
+      await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(500).json({
         success: false,
         message: 'Failed to send OTP',
@@ -242,7 +300,9 @@ export const forgotPassword = async (req, res, next) => {
  */
 export const resetPassword = async (req, res, next) => {
   try {
-    const { email, otp, newPassword } = req.body;
+    const email = normalizeEmailForOtp(req.body.email);
+    const otp = normalizeOtpInput(req.body.otp);
+    const { newPassword } = req.body;
 
     if (!email || !otp || !newPassword) {
       return res.status(400).json({
@@ -254,7 +314,7 @@ export const resetPassword = async (req, res, next) => {
     // ⚠️ Bug #2 fix: Strictly require a VERIFIED OTP record.
     // The client MUST call POST /verify-otp first, which marks verified=true.
     // Removed the insecure pendingOtp fallback that allowed bypassing verification.
-    const otpRecord = await OTP.findOne({ email, verified: true });
+    const otpRecord = await findLatestEmailOtp(email, { verified: true });
 
     if (!otpRecord) {
       return res.status(400).json({
@@ -265,10 +325,24 @@ export const resetPassword = async (req, res, next) => {
 
     // Ensure the verified OTP has not expired
     if (otpRecord.expiresAt < new Date()) {
-      await OTP.deleteOne({ email });
+      await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(400).json({
         success: false,
         message: 'OTP has expired. Please request a new OTP and verify again.',
+      });
+    }
+
+    const resetOtpMatches = await compareOtpRecord(otpRecord, otp);
+    logOtpDebug('reset.compare', {
+      email: maskEmail(email),
+      receivedOtp: formatOtpForLog(otp),
+      record: otpRecordLogMeta(otpRecord),
+      match: resetOtpMatches,
+    });
+    if (!resetOtpMatches) {
+      return res.status(400).json({
+        success: false,
+        message: 'OTP does not match the verified code. Please verify again.',
       });
     }
 
@@ -282,7 +356,7 @@ export const resetPassword = async (req, res, next) => {
     await user.save();
 
     // Clean up OTP
-    await OTP.deleteMany({ email });
+    await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE });
 
     logActivity({
       userId: user._id, userName: user.name || email, userRole: user.role,
@@ -311,7 +385,8 @@ export const resetPassword = async (req, res, next) => {
  */
 export const verifyOtp = async (req, res, next) => {
   try {
-    const { email, otp } = req.body;
+    const email = normalizeEmailForOtp(req.body.email);
+    const otp = normalizeOtpInput(req.body.otp);
 
     if (!email || !otp) {
       return res.status(400).json({
@@ -320,19 +395,29 @@ export const verifyOtp = async (req, res, next) => {
       });
     }
 
+    logOtpDebug('verify.received', {
+      email: maskEmail(email),
+      receivedOtp: formatOtpForLog(otp),
+      bodyFields: Object.keys(req.body || {}),
+    });
+
     // Find OTP record from MongoDB
-    const otpRecord = await OTP.findOne({ email });
+    const otpRecord = await findLatestEmailOtp(email);
 
     if (!otpRecord) {
+      logOtpDebug('verify.not_found', { email: maskEmail(email), purpose: EMAIL_OTP_PURPOSE });
       return res.status(400).json({
         success: false,
         message: 'OTP not found. Please request a new OTP.',
       });
     }
 
+    logOtpDebug('verify.loaded', { record: otpRecordLogMeta(otpRecord) });
+
     // Check if OTP is expired
     if (otpRecord.expiresAt < new Date()) {
-      await OTP.deleteOne({ email });
+      await OTP.deleteOne({ _id: otpRecord._id });
+      logOtpDebug('verify.expired', { record: otpRecordLogMeta(otpRecord) });
       return res.status(400).json({
         success: false,
         message: 'OTP has expired. Please request a new OTP.',
@@ -341,7 +426,8 @@ export const verifyOtp = async (req, res, next) => {
 
     // Check attempts
     if (otpRecord.attempts >= otpRecord.maxAttempts) {
-      await OTP.deleteOne({ email });
+      await OTP.deleteOne({ _id: otpRecord._id });
+      logOtpDebug('verify.max_attempts', { record: otpRecordLogMeta(otpRecord) });
       return res.status(400).json({
         success: false,
         message: 'Maximum OTP attempts exceeded. Please request a new OTP.',
@@ -349,7 +435,18 @@ export const verifyOtp = async (req, res, next) => {
     }
 
     // Verify OTP
-    if (otpRecord.otp !== otp) {
+    const otpMatches = await compareOtpRecord(otpRecord, otp);
+    logOtpDebug('verify.compare', {
+      email: maskEmail(email),
+      receivedOtp: formatOtpForLog(otp),
+      storedOtp: formatOtpForLog(otpRecord.otp),
+      hasHash: Boolean(otpRecord.otpHash),
+      match: otpMatches,
+      expiresAt: otpRecord.expiresAt.toISOString(),
+      now: new Date().toISOString(),
+    });
+
+    if (!otpMatches) {
       otpRecord.attempts += 1;
       await otpRecord.save();
 
@@ -369,12 +466,12 @@ export const verifyOtp = async (req, res, next) => {
       user.isVerified = true;
       user.status = 'active';
       await user.save();
-      console.log(`✅ [verifyOtp] Activated account for ${email}`);
+      console.log(`✅ [verifyOtp] Activated account for ${maskEmail(email)}`);
       // Send welcome email non-blocking
       sendWelcomeEmail(email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
     }
 
-    console.log(`✅ OTP verified successfully for ${email}`);
+    console.log(`✅ OTP verified successfully for ${maskEmail(email)}`);
 
     res.json({
       success: true,
@@ -402,7 +499,8 @@ export const verifyOtp = async (req, res, next) => {
  */
 export const register = async (req, res, next) => {
   try {
-    const { name, email, password, referralCode, phone: rawPhone } = req.body;
+    const { name, password, referralCode, phone: rawPhone } = req.body;
+    const email = normalizeEmailForOtp(req.body.email);
 
     // Validate required fields
     if (!name || !email || !password) {
@@ -464,18 +562,46 @@ export const register = async (req, res, next) => {
         });
       }
       if (!existingUser.isVerified) {
-        // Account exists but unverified — resend OTP
-        const otp = generateOTP(config.otpLength);
-        await OTP.deleteMany({ email });
-        await OTP.create({
-          email,
-          otp,
-          expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
-          attempts: 0,
-          maxAttempts: 5,
+        // Account exists but unverified — reuse an unexpired code so repeated
+        // submit/login attempts do not silently invalidate the email in hand.
+        let otpRecord = await findLatestEmailOtp(email, {
           verified: false,
+          expiresAt: { $gt: new Date() },
         });
-        if (process.env.NODE_ENV === 'development') console.log(`🔑 [Register] OTP for ${email}: ${otp}`);
+        let otp;
+        if (
+          otpRecord &&
+          otpRecord.attempts < otpRecord.maxAttempts &&
+          normalizeOtpInput(otpRecord.otp).length === config.otpLength
+        ) {
+          otp = otpRecord.otp;
+          otpRecord.lastSentAt = new Date();
+          await otpRecord.save();
+          logOtpDebug('register.existing_unverified.reuse', {
+            email: maskEmail(email),
+            otp: formatOtpForLog(otp),
+            record: otpRecordLogMeta(otpRecord),
+          });
+        } else {
+          otp = generateOTP(config.otpLength);
+          await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE });
+          otpRecord = await OTP.create({
+            email,
+            otp,
+            otpHash: await buildOtpHash(otp),
+            expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
+            attempts: 0,
+            maxAttempts: 5,
+            verified: false,
+            purpose: EMAIL_OTP_PURPOSE,
+            lastSentAt: new Date(),
+          });
+          logOtpDebug('register.existing_unverified.generated_saved', {
+            email: maskEmail(email),
+            generatedOtp: formatOtpForLog(otp),
+            saved: otpRecordLogMeta(otpRecord),
+          });
+        }
         await sendOtpEmail(email, otp).catch(err => console.warn('OTP email failed:', err.message));
         return res.status(200).json({
           success: true,
@@ -526,9 +652,10 @@ export const register = async (req, res, next) => {
     // call succeeds without requiring a second OTP round-trip.
     const preVerifiedOtp = await OTP.findOne({
       email,
+      purpose: EMAIL_OTP_PURPOSE,
       verified: true,
       expiresAt: { $gt: new Date() },
-    });
+    }).sort({ createdAt: -1, _id: -1 });
     const isPreVerified = !!preVerifiedOtp;
 
     // Create new customer account (verified if OTP was pre-validated, pending otherwise)
@@ -560,23 +687,30 @@ export const register = async (req, res, next) => {
     if (isPreVerified) {
       // OTP was already verified before /register was called (mobile flow).
       // Clean up the used OTP record and skip sending another email.
-      await OTP.deleteMany({ email });
+      await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE });
       console.log(`✅ [Register] Account for ${email} created as pre-verified (mobile OTP flow)`);
       sendWelcomeEmail(email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
     } else {
       // Traditional web flow: user registers first, then verifies email.
       const otp = generateOTP(config.otpLength);
-      await OTP.deleteMany({ email });
-      await OTP.create({
+      await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE });
+      const otpRecord = await OTP.create({
         email,
         otp,
+        otpHash: await buildOtpHash(otp),
         expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
         attempts: 0,
         maxAttempts: 5,
         verified: false,
+        purpose: EMAIL_OTP_PURPOSE,
+        lastSentAt: new Date(),
       });
 
-      if (process.env.NODE_ENV === 'development') console.log(`🔑 [Register] OTP for ${email}: ${otp}`);
+      logOtpDebug('register.generated_saved', {
+        email: maskEmail(email),
+        generatedOtp: formatOtpForLog(otp),
+        saved: otpRecordLogMeta(otpRecord),
+      });
 
       const emailResult = await sendOtpEmail(email, otp);
       if (!emailResult.success) {
@@ -655,20 +789,46 @@ export const login = async (req, res, next) => {
 
     // Check if user is verified
     if (!user.isVerified) {
-      // Unverified — generate & resend OTP then prompt verification
-      const otp = generateOTP(config.otpLength);
-      const otpHash = await bcrypt.hash(otp, 10);
-      await OTP.deleteMany({ email: emailNormalized });
-      await OTP.create({
-        email: emailNormalized,
-        otp,
-        otpHash,
-        expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
-        attempts: 0,
-        maxAttempts: 5,
+      // Unverified — resend without invalidating an unexpired code already sent.
+      let otpRecord = await findLatestEmailOtp(emailNormalized, {
         verified: false,
+        expiresAt: { $gt: new Date() },
       });
-      if (process.env.NODE_ENV === 'development') console.log(`🔑 [Login] OTP for unverified ${emailNormalized}: ${otp}`);
+      let otp;
+      if (
+        otpRecord &&
+        otpRecord.attempts < otpRecord.maxAttempts &&
+        normalizeOtpInput(otpRecord.otp).length === config.otpLength
+      ) {
+        otp = otpRecord.otp;
+        otpRecord.lastSentAt = new Date();
+        await otpRecord.save();
+        logOtpDebug('login.unverified.reuse', {
+          email: maskEmail(emailNormalized),
+          otp: formatOtpForLog(otp),
+          record: otpRecordLogMeta(otpRecord),
+        });
+      } else {
+        otp = generateOTP(config.otpLength);
+        const otpHash = await buildOtpHash(otp);
+        await OTP.deleteMany({ email: emailNormalized, purpose: EMAIL_OTP_PURPOSE });
+        otpRecord = await OTP.create({
+          email: emailNormalized,
+          otp,
+          otpHash,
+          expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
+          attempts: 0,
+          maxAttempts: 5,
+          verified: false,
+          purpose: EMAIL_OTP_PURPOSE,
+          lastSentAt: new Date(),
+        });
+        logOtpDebug('login.unverified.generated_saved', {
+          email: maskEmail(emailNormalized),
+          generatedOtp: formatOtpForLog(otp),
+          saved: otpRecordLogMeta(otpRecord),
+        });
+      }
       await sendOtpEmail(emailNormalized, otp).catch(err => console.warn('OTP email failed:', err.message));
       return res.status(200).json({
         success: true,
@@ -824,7 +984,7 @@ export const login = async (req, res, next) => {
       const otpHash = await bcrypt.hash(otp, 10);
 
       // Remove any previous login OTP for this user, then save fresh one
-      await OTP.deleteMany({ userId: user._id, purpose: 'login' });
+      await OTP.deleteMany({ userId: user._id, purpose: LOGIN_OTP_PURPOSE });
 
       const maskedEmail = emailNormalized.replace(/^(.)(.*)(@.*)$/, (_, first, middle, domain) =>
         `${first}${'*'.repeat(Math.min(middle.length, 5))}${domain}`
@@ -838,7 +998,7 @@ export const login = async (req, res, next) => {
         attempts: 0,
         maxAttempts: 3,
         verified: false,
-        purpose: 'login',
+        purpose: LOGIN_OTP_PURPOSE,
         userId: user._id,
         lastSentAt: new Date(),
       });
@@ -855,9 +1015,11 @@ export const login = async (req, res, next) => {
         });
       }
 
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`🔑 [Login 2FA] OTP for ${emailNormalized}: ${otp}`);
-      }
+      logOtpDebug('login_2fa.generated_saved', {
+        email: maskEmail(emailNormalized),
+        generatedOtp: formatOtpForLog(otp),
+        saved: otpRecordLogMeta(otpRecord),
+      });
 
       logActivity({
         userId: user._id, userName: user.name || emailNormalized, userRole: user.role,
@@ -1288,16 +1450,22 @@ export const deleteAccount = async (req, res) => {
 export const verifyLoginOtp = async (req, res) => {
   const OTP_LOCK_MS = 15 * 60 * 1000;
   try {
-    const { userId, otp } = req.body;
+    const { userId } = req.body;
+    const otp = normalizeOtpInput(req.body.otp);
 
     if (!userId || !otp) {
       return res.status(400).json({ success: false, message: 'userId and otp are required.' });
     }
 
-    const otpRecord = await OTP.findOne({ userId, purpose: 'login' });
+    const otpRecord = await OTP.findOne({ userId, purpose: LOGIN_OTP_PURPOSE }).sort({ createdAt: -1, _id: -1 });
     if (!otpRecord) {
       return res.status(400).json({ success: false, message: 'OTP not found. Please request a new code.' });
     }
+    logOtpDebug('login_verify.loaded', {
+      userId,
+      receivedOtp: formatOtpForLog(otp),
+      record: otpRecordLogMeta(otpRecord),
+    });
 
     // Check lockout (stored on OTP record via expiresAt override)
     if (otpRecord.attempts >= otpRecord.maxAttempts) {
@@ -1323,7 +1491,16 @@ export const verifyLoginOtp = async (req, res) => {
     }
 
     // Compare bcrypt hash
-    const isValid = await bcrypt.compare(otp, otpRecord.otpHash);
+    const isValid = await compareOtpRecord(otpRecord, otp);
+    logOtpDebug('login_verify.compare', {
+      userId,
+      receivedOtp: formatOtpForLog(otp),
+      storedOtp: formatOtpForLog(otpRecord.otp),
+      hasHash: Boolean(otpRecord.otpHash),
+      match: isValid,
+      expiresAt: otpRecord.expiresAt.toISOString(),
+      now: new Date().toISOString(),
+    });
     if (!isValid) {
       otpRecord.attempts += 1;
       await otpRecord.save();
@@ -1404,7 +1581,7 @@ export const resendLoginOtp = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Account not accessible.' });
     }
 
-    const existing = await OTP.findOne({ userId, purpose: 'login' });
+    const existing = await OTP.findOne({ userId, purpose: LOGIN_OTP_PURPOSE }).sort({ createdAt: -1, _id: -1 });
     if (existing && existing.lastSentAt) {
       const elapsed = Date.now() - existing.lastSentAt.getTime();
       if (elapsed < RESEND_COOLDOWN_MS) {
@@ -1422,7 +1599,7 @@ export const resendLoginOtp = async (req, res) => {
     const otpHash = await bcrypt.hash(otp, 10);
 
     // Upsert — replace the old record to reset expiry and attempts
-    await OTP.deleteMany({ userId, purpose: 'login' });
+    await OTP.deleteMany({ userId, purpose: LOGIN_OTP_PURPOSE });
     const otpRecord = new OTP({
       email: user.email,
       otp,
@@ -1431,7 +1608,7 @@ export const resendLoginOtp = async (req, res) => {
       attempts: 0,
       maxAttempts: 3,
       verified: false,
-      purpose: 'login',
+      purpose: LOGIN_OTP_PURPOSE,
       userId: user._id,
       lastSentAt: new Date(),
     });
@@ -1443,9 +1620,11 @@ export const resendLoginOtp = async (req, res) => {
       return res.status(500).json({ success: false, message: 'Failed to send code. Please try again.' });
     }
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`🔑 [Resend Login OTP] OTP for ${user.email}: ${otp}`);
-    }
+    logOtpDebug('login_resend.generated_saved', {
+      email: maskEmail(user.email),
+      generatedOtp: formatOtpForLog(otp),
+      saved: otpRecordLogMeta(otpRecord),
+    });
 
     return res.json({
       success: true,
@@ -1660,7 +1839,7 @@ export const changePassword = async (req, res) => {
  */
 export const resendOtp = async (req, res) => {
   try {
-    const { email } = req.body;
+    const email = normalizeEmailForOtp(req.body.email);
     if (!email) return res.status(400).json({ success: false, message: 'Email is required.' });
 
     const user = await User.findOne({ email });
@@ -1668,18 +1847,29 @@ export const resendOtp = async (req, res) => {
     if (user.isVerified) return res.status(400).json({ success: false, message: 'Account is already verified.' });
 
     const otp = generateOTP(config.otpLength);
-    await OTP.deleteMany({ email });
-    await OTP.create({
+    await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE });
+    const otpRecord = await OTP.create({
       email,
       otp,
+      otpHash: await buildOtpHash(otp),
       expiresAt: new Date(Date.now() + config.otpExpiry * 1000),
       attempts: 0,
       maxAttempts: 5,
       verified: false,
+      purpose: EMAIL_OTP_PURPOSE,
+      lastSentAt: new Date(),
     });
 
-    if (process.env.NODE_ENV === 'development') console.log(`🔑 [resendOtp] OTP for ${email}: ${otp}`);
-    await sendOtpEmail(email, otp).catch(err => console.warn('OTP email failed:', err.message));
+    logOtpDebug('resend.generated_saved', {
+      email: maskEmail(email),
+      generatedOtp: formatOtpForLog(otp),
+      saved: otpRecordLogMeta(otpRecord),
+    });
+    const emailResult = await sendOtpEmail(email, otp);
+    if (!emailResult.success) {
+      await OTP.deleteOne({ _id: otpRecord._id });
+      return res.status(500).json({ success: false, message: 'Failed to resend OTP. Please try again.' });
+    }
 
     res.json({ success: true, message: 'A new verification code has been sent.', data: { expiresIn: config.otpExpiry } });
   } catch (error) {

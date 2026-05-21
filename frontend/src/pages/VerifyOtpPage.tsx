@@ -6,11 +6,13 @@ import { ShieldCheck, RefreshCw, ArrowLeft, Loader2 } from "lucide-react";
 
 const OTP_LENGTH = 6;
 const OTP_SECONDS = 600; // 10 minutes
+const normalizeOtp = (value: string) => value.replace(/\D/g, "").slice(0, OTP_LENGTH);
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 export default function VerifyOtpPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const email = searchParams.get("email") || "";
+    const email = normalizeEmail(searchParams.get("email") || "");
 
     const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(""));
     const [seconds, setSeconds] = useState(OTP_SECONDS);
@@ -31,8 +33,18 @@ export default function VerifyOtpPage() {
 
     /* ── input handlers ── */
     const handleChange = (i: number, val: string) => {
-        const ch = val.replace(/\D/, "").slice(-1);
+        const normalized = normalizeOtp(val);
         const next = [...digits];
+        if (normalized.length > 1) {
+            normalized.split("").forEach((ch, offset) => {
+                const target = i + offset;
+                if (target < OTP_LENGTH) next[target] = ch;
+            });
+            setDigits(next);
+            inputRefs.current[Math.min(i + normalized.length, OTP_LENGTH - 1)]?.focus();
+            return;
+        }
+        const ch = normalized.slice(-1);
         next[i] = ch;
         setDigits(next);
         if (ch && i < OTP_LENGTH - 1) inputRefs.current[i + 1]?.focus();
@@ -46,7 +58,7 @@ export default function VerifyOtpPage() {
 
     const handlePaste = (e: React.ClipboardEvent) => {
         e.preventDefault();
-        const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, OTP_LENGTH);
+        const pasted = normalizeOtp(e.clipboardData.getData("text"));
         if (!pasted) return;
         const next = Array(OTP_LENGTH).fill("");
         pasted.split("").forEach((ch, idx) => { next[idx] = ch; });
@@ -56,7 +68,13 @@ export default function VerifyOtpPage() {
 
     /* ── submit ── */
     const handleSubmit = useCallback(async () => {
-        const otp = digits.join("");
+        if (isVerifying) return;
+        const otp = normalizeOtp(digits.join(""));
+        const normalizedEmail = normalizeEmail(email);
+        if (!normalizedEmail) {
+            toast.error("Email address is missing. Please go back and try again.");
+            return;
+        }
         if (otp.length < OTP_LENGTH) {
             toast.error("Please enter all 6 digits.");
             return;
@@ -66,7 +84,7 @@ export default function VerifyOtpPage() {
             const res = await fetch(`${getBaseApiUrl()}/auth/verify-otp`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, otp }),
+                body: JSON.stringify({ email: normalizedEmail, otp }),
             });
             const data = await res.json();
             if (!res.ok || !data.success) {
@@ -90,7 +108,7 @@ export default function VerifyOtpPage() {
         } finally {
             setIsVerifying(false);
         }
-    }, [digits, email, navigate]);
+    }, [digits, email, isVerifying, navigate]);
 
     /* ── auto-submit when all digits filled ── */
     useEffect(() => {
@@ -100,13 +118,18 @@ export default function VerifyOtpPage() {
 
     /* ── resend ── */
     const handleResend = async () => {
+        const normalizedEmail = normalizeEmail(email);
         if (isResending || seconds > 0) return;
+        if (!normalizedEmail) {
+            toast.error("Email address is missing. Please go back and try again.");
+            return;
+        }
         setIsResending(true);
         try {
             const res = await fetch(`${getBaseApiUrl()}/auth/resend-otp`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email }),
+                body: JSON.stringify({ email: normalizedEmail }),
             });
             const data = await res.json();
             if (!res.ok || !data.success) {

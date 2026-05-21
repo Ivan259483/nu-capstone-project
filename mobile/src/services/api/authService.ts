@@ -57,6 +57,9 @@ const safeNameFromEmail = (email: string): string => {
   return email.split('@')[0] || 'Customer';
 };
 
+const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+const normalizeOtp = (otp: string): string => otp.replace(/\D/g, '').slice(0, 6);
+
 const normalizeBackendUser = (raw: any, firebaseUid?: string): BackendUser => {
   const mongoId = raw?._id || raw?.id || '';
 
@@ -208,7 +211,8 @@ const loginEmailDirect = async (
   email: string,
   password: string
 ): Promise<{ token: string; user: BackendUser }> => {
-  const response = await apiClient.post('/auth/login', { email, password });
+  const normalizedEmail = normalizeEmail(email);
+  const response = await apiClient.post('/auth/login', { email: normalizedEmail, password });
   const d = response?.data;
 
   if (d?.success && d?.data?.requiresOtp) {
@@ -216,7 +220,7 @@ const loginEmailDirect = async (
       d?.message || 'Please verify your email. Use the code we sent you, then sign in again.'
     ) as Error & { code: string; verifyEmail?: string };
     err.code = 'REQUIRES_EMAIL_OTP';
-    err.verifyEmail = d?.data?.email || email;
+    err.verifyEmail = d?.data?.email || normalizedEmail;
     throw err;
   }
 
@@ -250,12 +254,15 @@ const loginEmailDirect = async (
 
 export const authService = {
   async sendOtp(email: string): Promise<{ success: boolean; message: string }> {
-    const response = await apiClient.post('/auth/send-otp', { email });
+    const response = await apiClient.post('/auth/send-otp', { email: normalizeEmail(email) });
     return response.data;
   },
 
   async verifyOtp(email: string, otp: string): Promise<{ success: boolean; message: string }> {
-    const response = await apiClient.post('/auth/verify-otp', { email, otp });
+    const response = await apiClient.post('/auth/verify-otp', {
+      email: normalizeEmail(email),
+      otp: normalizeOtp(otp),
+    });
     return response.data;
   },
 
@@ -269,7 +276,7 @@ export const authService = {
     password: string;
     phone: string;
   }): Promise<{ success: true } | { success: false; message: string; status?: number }> {
-    const email = params.email.trim().toLowerCase();
+    const email = normalizeEmail(params.email);
     try {
       const response = await apiClient.post('/auth/register', {
         name: params.name.trim(),

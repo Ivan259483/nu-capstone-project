@@ -5,30 +5,34 @@ export const BACKEND_API_URL = getBaseApiUrl();
 
 export const EmailService = {
   /**
-   * Generate a 6-digit OTP
+   * Generate a 6-digit OTP.
+   * Kept only for backwards compatibility; the backend is the source of truth.
    */
   generateOtp: (): string => {
     return Math.floor(100000 + Math.random() * 900000).toString();
   },
 
   /**
-   * Send OTP via backend API (uses Brevo SMTP)
+   * Send OTP via backend API.
+   * The backend generates, stores, and emails the OTP. Do not send a client
+   * generated code here, otherwise the UI can show/expect a different code
+   * than the one saved in MongoDB.
    * 
    * @param userEmail - Email address to send OTP to
-   * @param otp - The OTP code to send
+   * @param otp - Deprecated and ignored
    * @returns Response with success status and error message if failed
    */
-  sendOtp: async (userEmail: string, otp: string): Promise<{ success: boolean; error?: string }> => {
+  sendOtp: async (userEmail: string, otp?: string): Promise<{ success: boolean; error?: string }> => {
     try {
+      const normalizedEmail = userEmail.trim().toLowerCase();
       console.log('📧 [EMAIL SERVICE] Sending OTP via Backend API:', {
         backendUrl: BACKEND_API_URL,
-        email: userEmail,
-        otpLength: otp.length,
+        email: normalizedEmail,
+        clientOtpIgnored: Boolean(otp),
       });
 
       const requestBody = {
-        email: userEmail,
-        otp, // Backend will use this if provided, otherwise generate its own
+        email: normalizedEmail,
       };
 
       console.log('📧 [EMAIL SERVICE] Request body:', requestBody);
@@ -53,7 +57,7 @@ export const EmailService = {
 
       if (response.ok && data?.success) {
         console.log('✅ [EMAIL SERVICE] OTP sent successfully via backend:', {
-          email: userEmail,
+          email: normalizedEmail,
           expiresIn: data.data?.expiresIn,
         });
         return { success: true };

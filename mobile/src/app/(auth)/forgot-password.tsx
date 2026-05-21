@@ -24,6 +24,9 @@ import { authService } from '@/services/api/authService';
 import { apiClient, getApiErrorMessage } from '@/services/api/client';
 
 type Step = 'email' | 'otp' | 'newPassword' | 'success';
+const OTP_LENGTH = 6;
+const normalizeOtp = (value: string) => value.replace(/[^0-9]/g, '').slice(0, OTP_LENGTH);
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
@@ -63,14 +66,16 @@ export default function ForgotPasswordScreen() {
   // ── Step 1: Send OTP ─────────────────────────────────────────────────────────
   async function handleSendOtp() {
     setEmailError('');
-    if (!email) { setEmailError('Email is required'); return; }
-    if (!Validation.isValidEmail(email)) { setEmailError('Please enter a valid email address'); return; }
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) { setEmailError('Email is required'); return; }
+    if (!Validation.isValidEmail(normalizedEmail)) { setEmailError('Please enter a valid email address'); return; }
 
     setLoading(true);
     haptic();
     try {
-      const res = await apiClient.post('/auth/forgot-password', { email: email.trim() });
+      const res = await apiClient.post('/auth/forgot-password', { email: normalizedEmail });
       if (res.data?.success) {
+        setEmail(normalizedEmail);
         haptic('success');
         setStep('otp');
         startCountdown();
@@ -87,13 +92,13 @@ export default function ForgotPasswordScreen() {
 
   // ── Step 2: Verify OTP ────────────────────────────────────────────────────────
   async function handleVerifyOtp() {
-    const code = otp.join('');
-    if (code.length < 6) { Alert.alert('Invalid', 'Please enter the full 6-digit code.'); return; }
+    const code = normalizeOtp(otp.join(''));
+    if (code.length < OTP_LENGTH) { Alert.alert('Invalid', 'Please enter the full 6-digit code.'); return; }
 
     setLoading(true);
     haptic();
     try {
-      const res = await apiClient.post('/auth/verify-otp', { email: email.trim(), otp: code });
+      const res = await apiClient.post('/auth/verify-otp', { email: normalizeEmail(email), otp: code });
       if (res.data?.success) {
         haptic('success');
         setStep('newPassword');
@@ -126,14 +131,14 @@ export default function ForgotPasswordScreen() {
     haptic();
     try {
       const res = await apiClient.post('/auth/reset-password', {
-        email: email.trim(),
-        otp: otp.join(''),
+        email: normalizeEmail(email),
+        otp: normalizeOtp(otp.join('')),
         newPassword,
       });
       if (res.data?.success) {
         haptic('success');
         // Also trigger Firebase password reset so Firebase Auth stays in sync
-        await authService.syncFirebasePasswordReset(email.trim());
+        await authService.syncFirebasePasswordReset(normalizeEmail(email));
         setStep('success');
       } else {
         throw new Error(res.data?.message || 'Failed to reset password.');
@@ -148,18 +153,19 @@ export default function ForgotPasswordScreen() {
 
   // ── OTP input helpers ─────────────────────────────────────────────────────────
   function handleOtpChange(text: string, index: number) {
-    const digit = text.replace(/[^0-9]/g, '');
+    const digit = normalizeOtp(text);
     const next = [...otp];
     if (digit.length > 1) {
-      const chars = digit.slice(0, 6).split('');
-      chars.forEach((c, i) => { if (i < 6) next[i] = c; });
+      const chars = digit.split('');
+      next.fill('');
+      chars.forEach((c, i) => { if (i < OTP_LENGTH) next[i] = c; });
       setOtp(next);
-      otpRefs.current[Math.min(chars.length, 5)]?.focus();
+      otpRefs.current[Math.min(chars.length, OTP_LENGTH - 1)]?.focus();
       return;
     }
     next[index] = digit;
     setOtp(next);
-    if (digit && index < 5) otpRefs.current[index + 1]?.focus();
+    if (digit && index < OTP_LENGTH - 1) otpRefs.current[index + 1]?.focus();
   }
 
   function handleOtpKeyPress(key: string, index: number) {
@@ -245,7 +251,7 @@ export default function ForgotPasswordScreen() {
                       onChangeText={t => handleOtpChange(t, i)}
                       onKeyPress={({ nativeEvent }) => handleOtpKeyPress(nativeEvent.key, i)}
                       keyboardType="number-pad"
-                      maxLength={i === 0 ? 6 : 1}
+                      maxLength={i === 0 ? OTP_LENGTH : 1}
                       textContentType="oneTimeCode"
                       autoFocus={i === 0}
                       selectTextOnFocus
@@ -259,7 +265,7 @@ export default function ForgotPasswordScreen() {
                   title={loading ? 'VERIFYING...' : 'VERIFY CODE'}
                   icon={loading ? undefined : 'checkmark-circle-outline'}
                   onPress={handleVerifyOtp}
-                  disabled={loading || otp.join('').length < 6}
+                  disabled={loading || normalizeOtp(otp.join('')).length < OTP_LENGTH}
                 />
               </Animated.View>
 

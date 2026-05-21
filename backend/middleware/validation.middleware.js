@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 // with the canonical role list rather than a hardcoded, stale subset.
 import { USER_ROLES } from '../constants/roles.js';
 import { parseRegisterPhone } from '../utils/phone.utils.js';
+import { normalizeOtpInput } from '../utils/otp.utils.js';
 
 /* ═══════════════════════════════════════════════════════
    VALIDATION MIDDLEWARE — express-validator chains
@@ -115,7 +116,7 @@ export const validateVerifyOtp = [
     .normalizeEmail(),
 
   body('otp')
-    .trim()
+    .customSanitizer(normalizeOtpInput)
     .notEmpty().withMessage('OTP code is required')
     .isLength({ min: 6, max: 6 }).withMessage('OTP must be exactly 6 digits')
     .isNumeric().withMessage('OTP must contain only numbers'),
@@ -147,7 +148,7 @@ export const validateResetPassword = [
     .normalizeEmail(),
 
   body('otp')
-    .trim()
+    .customSanitizer(normalizeOtpInput)
     .notEmpty().withMessage('OTP code is required')
     .isLength({ min: 6, max: 6 }).withMessage('OTP must be exactly 6 digits')
     .isNumeric().withMessage('OTP must contain only numbers'),
@@ -196,7 +197,7 @@ export const validateVerifyLoginOtp = [
     .isMongoId().withMessage('Invalid userId format'),
 
   body('otp')
-    .trim()
+    .customSanitizer(normalizeOtpInput)
     .notEmpty().withMessage('OTP code is required')
     .isLength({ min: 6, max: 6 }).withMessage('OTP must be exactly 6 digits')
     .isNumeric().withMessage('OTP must contain only numbers'),

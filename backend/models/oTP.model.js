@@ -58,8 +58,9 @@ const otpSchema = new mongoose.Schema(
 
 // Automatically delete expired OTPs
 otpSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+// Deterministic lookup for email verification/password-reset OTPs.
+otpSchema.index({ email: 1, purpose: 1, createdAt: -1 });
 // Fast lookup for login OTP challenge
 otpSchema.index({ userId: 1, purpose: 1 });
 
 export default mongoose.model('OTP', otpSchema);
-

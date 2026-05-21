@@ -69,7 +69,7 @@ export default function LoginScreen() {
 
     setLoading(true);
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const result = await signIn(email.trim(), password);
+    const result = await signIn(email.trim().toLowerCase(), password);
     if (result.success) {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setIsLocked(false); setLockUntilMs(null);

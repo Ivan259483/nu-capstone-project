@@ -393,10 +393,11 @@ export default function Login() {
     /* ── Register submit ── */
     const handleRegisterSubmit = async () => {
         const { firstName, lastName, email, password, confirmPassword } = registerForm;
+        const emailNorm = email.trim().toLowerCase();
         const dial =
             REGISTER_COUNTRY_DIALS.find((c) => c.iso === registerPhoneCountryIso)?.dial ?? "63";
 
-        if (!firstName || !lastName || !email || !password || !confirmPassword) {
+        if (!firstName || !lastName || !emailNorm || !password || !confirmPassword) {
             toast.error("Please fill in all required fields.");
             return;
         }
@@ -436,7 +437,7 @@ export default function Login() {
             const res = await fetch(`${getBaseApiUrl()}/auth/register`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: fullName, email, password, phone: phoneE164 }),
+                body: JSON.stringify({ name: fullName, email: emailNorm, password, phone: phoneE164 }),
             });
             const data = await res.json();
             if (!res.ok || !data.success) {
@@ -444,7 +445,7 @@ export default function Login() {
                 return;
             }
             toast.success("Account created! Please check your email for a verification code.");
-            navigate(`/verify-otp?email=${encodeURIComponent(email)}`);
+            navigate(`/verify-otp?email=${encodeURIComponent(emailNorm)}`);
         } catch {
             toast.error("Registration failed. Please try again.");
         } finally {

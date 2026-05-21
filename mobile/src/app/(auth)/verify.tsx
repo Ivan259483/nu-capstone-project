@@ -18,12 +18,16 @@ import { Palette } from '@/constants/theme';
 import GlassCard from '@/components/ui/GlassCard';
 import PremiumButton from '@/components/ui/PremiumButton';
 
+const OTP_LENGTH = 6;
+const normalizeOtp = (value: string) => value.replace(/[^0-9]/g, '').slice(0, OTP_LENGTH);
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
+
 export default function VerifyScreen() {
   const { colors } = useTheme();
   const { email: emailParam } = useLocalSearchParams<{ email?: string | string[] }>();
   const email = useMemo(() => {
     if (emailParam == null) return '';
-    return Array.isArray(emailParam) ? (emailParam[0] ?? '') : emailParam;
+    return normalizeEmail(Array.isArray(emailParam) ? (emailParam[0] ?? '') : emailParam);
   }, [emailParam]);
 
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -34,8 +38,8 @@ export default function VerifyScreen() {
 
   // ── Verify OTP ─────────────────────────────────────────────
   async function handleVerifyOtp() {
-    const token = otp.join('');
-    if (token.length !== 6) {
+    const token = normalizeOtp(otp.join(''));
+    if (token.length !== OTP_LENGTH) {
       Alert.alert('Invalid Code', 'Please enter the full 6-digit code.');
       return;
     }
@@ -47,7 +51,7 @@ export default function VerifyScreen() {
     setLoading(true);
     try {
       const response = await apiClient.post('/auth/verify-otp', {
-        email: email.trim().toLowerCase(),
+        email,
         otp: token,
       });
 
@@ -69,23 +73,24 @@ export default function VerifyScreen() {
 
   // ── Input Handlers ─────────────────────────────────────────────
   function handleOtpChange(text: string, index: number) {
-    const digit = text.replace(/[^0-9]/g, '');
+    const digit = normalizeOtp(text);
     const newOtp = [...otp];
 
     if (digit.length > 1) {
-      const chars = digit.slice(0, 6).split('');
+      const chars = digit.split('');
+      newOtp.fill('');
       chars.forEach((c, i) => {
-        if (i < 6) newOtp[i] = c;
+        if (i < OTP_LENGTH) newOtp[i] = c;
       });
       setOtp(newOtp);
-      otpRefs.current[Math.min(chars.length, 5)]?.focus();
+      otpRefs.current[Math.min(chars.length, OTP_LENGTH - 1)]?.focus();
       return;
     }
 
     newOtp[index] = digit;
     setOtp(newOtp);
 
-    if (digit && index < 5) {
+    if (digit && index < OTP_LENGTH - 1) {
       otpRefs.current[index + 1]?.focus();
     }
   }
@@ -117,7 +122,7 @@ export default function VerifyScreen() {
     setLoading(true);
     try {
       const response = await apiClient.post('/auth/resend-otp', {
-        email: email.trim().toLowerCase(),
+        email,
       });
       if (!response.data?.success) {
         throw new Error(response.data?.message || 'Unable to resend code.');
@@ -188,7 +193,7 @@ export default function VerifyScreen() {
                     handleOtpKeyPress(nativeEvent.key, i)
                   }
                   keyboardType="number-pad"
-                  maxLength={i === 0 ? 6 : 1}
+                  maxLength={i === 0 ? OTP_LENGTH : 1}
                   textContentType="oneTimeCode"
                   autoFocus={i === 0}
                   selectTextOnFocus
@@ -201,7 +206,7 @@ export default function VerifyScreen() {
                 title={loading ? 'Verifying...' : 'Verify Email'}
                 icon={loading ? undefined : 'checkmark-circle-outline'}
                 onPress={handleVerifyOtp}
-                disabled={loading || otp.join('').length !== 6}
+                disabled={loading || normalizeOtp(otp.join('')).length !== OTP_LENGTH}
               />
             </View>
 
