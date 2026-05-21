@@ -4029,97 +4029,137 @@ export default function CustomerDashboard() {
 	                    ? `${documents.length} document${documents.length !== 1 ? 's' : ''} · All signed`
 	                    : `${signedCount} signed · ${pendingCount} pending`;
 	                return (
-	                  <div className="customer-content-fade-in space-y-6 pb-10">
-	                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-	                      <div>
-	                        <p className={CUSTOMER_SECTION_LABEL}>Documents</p>
-	                        <h2 className="mt-1 text-[28px] font-bold text-slate-900 tracking-tight">Documents</h2>
-	                        <p className="text-sm text-slate-500 mt-0.5">Download service records, intake forms, and generated reports.</p>
+	                  <div className="customer-content-fade-in customer-documents-section flex min-h-[calc(100dvh-8rem)] flex-col gap-4 pb-6">
+	                    <div className="flex flex-wrap items-start justify-between gap-3">
+	                      <div className="min-w-0">
+	                        <h2 className="text-[26px] font-bold tracking-tight text-slate-900 sm:text-[28px]">Documents</h2>
+	                        <p className="mt-0.5 text-sm text-slate-500">Download service records, intake forms, and generated reports.</p>
 	                      </div>
-	                      <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
+	                      <div className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700">
 	                        <iconify-icon icon="solar:check-circle-bold" width="17"></iconify-icon>
 	                        {summaryCopy}
 	                      </div>
 	                    </div>
 
-	                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
+	                    <div className="grid grid-cols-3 gap-3">
 	                      {[
-	                        { label: 'All', active: true },
-	                        { label: 'Signed', active: false },
-	                        { label: 'Pending', active: false },
-	                      ].map((tab) => (
-	                        <button
-	                          key={tab.label}
-	                          type="button"
-	                          disabled={!tab.active}
-	                          className={`rounded-lg px-4 py-2 text-xs font-semibold transition-colors ${
-	                            tab.active
-	                              ? 'bg-blue-600 text-white shadow-sm'
-	                              : 'cursor-not-allowed text-slate-500 hover:bg-slate-50'
-	                          }`}
-	                        >
-	                          {tab.label}
-	                        </button>
+	                        { label: 'Total', value: documents.length, icon: 'solar:folder-with-files-bold', tone: 'border-slate-200 bg-white text-slate-700' },
+	                        { label: 'Signed', value: signedCount, icon: 'solar:check-circle-bold', tone: 'border-emerald-100 bg-emerald-50/80 text-emerald-700' },
+	                        { label: 'Pending', value: pendingCount, icon: 'solar:clock-circle-bold', tone: 'border-blue-100 bg-blue-50/80 text-blue-700' },
+	                      ].map((stat) => (
+	                        <div key={stat.label} className={`flex items-center gap-3 rounded-xl border px-3 py-3 shadow-sm ${stat.tone}`}>
+	                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/80 ring-1 ring-black/5">
+	                            <iconify-icon icon={stat.icon} width="18"></iconify-icon>
+	                          </span>
+	                          <div className="min-w-0">
+	                            <p className="text-[10px] font-bold uppercase tracking-[0.08em] opacity-80">{stat.label}</p>
+	                            <p className="text-xl font-bold tabular-nums leading-none">{stat.value}</p>
+	                          </div>
+	                        </div>
 	                      ))}
 	                    </div>
 
-	                    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-	                      {documents.length === 0 ? (
-	                        <div className="p-10 text-center">
-	                          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-50 ring-1 ring-slate-100">
-	                            <iconify-icon icon="solar:document-text-linear" width="24" className="text-slate-300"></iconify-icon>
-	                          </div>
-	                          <p className="text-sm font-semibold text-slate-900">No documents available yet</p>
-	                          <p className="text-xs text-slate-500 mt-1">Book a service or run a scan to generate your first document.</p>
-	                        </div>
-	                      ) : (
-	                        <div className="divide-y divide-slate-100">
-	                          {documents.map((doc) => {
-	                            const status = String(doc.status || '').toLowerCase();
-	                            const isSigned = status.includes('signed');
-	                            const isPending = status.includes('pending');
-	                            const tone = isSigned
-	                              ? { border: CUSTOMER_UI.success, icon: 'bg-emerald-50 text-emerald-600 ring-emerald-100', pill: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
-	                              : isPending
-	                                ? { border: CUSTOMER_UI.primary, icon: 'bg-blue-50 text-blue-600 ring-blue-100', pill: 'bg-blue-50 text-blue-700 border-blue-100' }
-	                                : { border: '#94A3B8', icon: 'bg-slate-50 text-slate-500 ring-slate-100', pill: 'bg-slate-50 text-slate-600 border-slate-200' };
-	                            return (
-	                              <div
-	                                key={doc.id}
-	                                className="flex items-start gap-4 border-l-4 p-4 transition-colors hover:bg-slate-50"
-	                                style={{ borderLeftColor: tone.border }}
-	                              >
-	                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ring-1 ring-inset ${tone.icon}`}>
-	                                  <iconify-icon icon={doc.icon || 'solar:file-text-bold'} width="20"></iconify-icon>
-	                                </div>
-	                                <div className="flex-1 min-w-0">
-	                                  <div className="flex flex-wrap items-center gap-2">
-	                                    <p className="text-[18px] font-semibold text-slate-900 truncate">{doc.title}</p>
-	                                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] ${tone.pill}`}>
-	                                      {doc.status || 'Draft'}
-	                                    </span>
-	                                  </div>
-	                                  <p className="text-sm text-slate-500 mt-0.5">{doc.desc}</p>
-	                                  <p className="text-xs text-slate-400 mt-1">{doc.date}</p>
-	                                </div>
-	                                <button
-	                                  onClick={() => downloadDocument(doc)}
-	                                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
-	                                >
-	                                  Download
-	                                </button>
-	                              </div>
-	                            );
-	                          })}
-	                        </div>
-	                      )}
+	                    <div className="flex flex-wrap items-center justify-between gap-3">
+	                      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+	                        {[
+	                          { label: 'All', active: true },
+	                          { label: 'Signed', active: false },
+	                          { label: 'Pending', active: false },
+	                        ].map((tab) => (
+	                          <button
+	                            key={tab.label}
+	                            type="button"
+	                            disabled={!tab.active}
+	                            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+	                              tab.active
+	                                ? 'bg-blue-600 text-white shadow-sm'
+	                                : 'cursor-not-allowed text-slate-500 hover:bg-slate-50'
+	                            }`}
+	                          >
+	                            {tab.label}
+	                          </button>
+	                        ))}
+	                      </div>
+	                      <p className="text-xs text-slate-500">New files appear after each completed service.</p>
 	                    </div>
 
-	                    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-500">
-	                      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm ring-1 ring-slate-100">
-	                        <iconify-icon icon="solar:folder-with-files-linear" width="21"></iconify-icon>
-	                      </span>
-	                      <span>More documents will appear here as you complete services.</span>
+	                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+	                      {documents.length === 0 ? (
+	                        <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+	                          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 ring-1 ring-slate-100">
+	                            <iconify-icon icon="solar:document-text-linear" width="28" className="text-slate-300"></iconify-icon>
+	                          </div>
+	                          <p className="text-base font-semibold text-slate-900">No documents available yet</p>
+	                          <p className="mt-1 max-w-sm text-sm text-slate-500">Book a service or run a scan to generate your first document.</p>
+	                          <button
+	                            type="button"
+	                            onClick={openBookingModal}
+	                            className={`${CUSTOMER_PRIMARY_BUTTON} mt-5`}
+	                          >
+	                            Book Service
+	                          </button>
+	                        </div>
+	                      ) : (
+	                        <>
+	                          <div className="hidden border-b border-slate-100 bg-slate-50/80 px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 lg:grid lg:grid-cols-[minmax(0,1fr)_140px_120px_100px] lg:gap-4">
+	                            <span>Document</span>
+	                            <span>Vehicle</span>
+	                            <span>Date</span>
+	                            <span className="text-right">Action</span>
+	                          </div>
+	                          <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
+	                            {documents.map((doc) => {
+	                              const status = String(doc.status || '').toLowerCase();
+	                              const isSigned = status.includes('signed');
+	                              const isPending = status.includes('pending');
+	                              const tone = isSigned
+	                                ? { border: CUSTOMER_UI.success, icon: 'bg-emerald-50 text-emerald-600 ring-emerald-100', pill: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
+	                                : isPending
+	                                  ? { border: CUSTOMER_UI.primary, icon: 'bg-blue-50 text-blue-600 ring-blue-100', pill: 'bg-blue-50 text-blue-700 border-blue-100' }
+	                                  : { border: '#94A3B8', icon: 'bg-slate-50 text-slate-500 ring-slate-100', pill: 'bg-slate-50 text-slate-600 border-slate-200' };
+	                              return (
+	                                <div
+	                                  key={doc.id}
+	                                  className="group grid gap-3 border-l-4 px-4 py-3 transition-colors hover:bg-slate-50 lg:grid-cols-[minmax(0,1fr)_140px_120px_100px] lg:items-center lg:gap-4 lg:py-2.5"
+	                                  style={{ borderLeftColor: tone.border }}
+	                                >
+	                                  <div className="flex min-w-0 items-center gap-3">
+	                                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset ${tone.icon}`}>
+	                                      <iconify-icon icon={doc.icon || 'solar:file-text-bold'} width="18"></iconify-icon>
+	                                    </div>
+	                                    <div className="min-w-0">
+	                                      <div className="flex flex-wrap items-center gap-2">
+	                                        <p className="truncate text-sm font-semibold text-slate-900 sm:text-[15px]">{doc.title}</p>
+	                                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] ${tone.pill}`}>
+	                                          {doc.status || 'Draft'}
+	                                        </span>
+	                                      </div>
+	                                      <p className="mt-0.5 truncate text-xs text-slate-500 lg:hidden">{doc.desc}</p>
+	                                      <p className="mt-0.5 text-xs text-slate-400 lg:hidden">{doc.date}</p>
+	                                    </div>
+	                                  </div>
+	                                  <p className="hidden truncate text-xs text-slate-600 lg:block lg:text-sm">{doc.desc}</p>
+	                                  <p className="hidden text-xs text-slate-500 lg:block lg:text-sm">{doc.date}</p>
+	                                  <div className="flex lg:justify-end">
+	                                    <button
+	                                      type="button"
+	                                      onClick={() => downloadDocument(doc)}
+	                                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 lg:w-auto"
+	                                    >
+	                                      <iconify-icon icon="solar:download-linear" width="14"></iconify-icon>
+	                                      Download
+	                                    </button>
+	                                  </div>
+	                                </div>
+	                              );
+	                            })}
+	                          </div>
+	                        </>
+	                      )}
+	                      <div className="flex shrink-0 items-center gap-2.5 border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 text-xs text-slate-500">
+	                        <iconify-icon icon="solar:folder-with-files-linear" width="16" className="shrink-0 text-blue-600"></iconify-icon>
+	                        <span>More documents will appear here as you complete services.</span>
+	                      </div>
 	                    </div>
 	                  </div>
 	                );
@@ -5839,7 +5879,11 @@ export default function CustomerDashboard() {
             </div>
 
             {/* Form */}
-            <form onSubmit={handleAddVehicleSubmit} className="customer-vehicle-form space-y-5 overflow-y-auto px-5 py-5 sm:px-6 sm:py-6" noValidate>
+            <form
+              onSubmit={handleAddVehicleSubmit}
+              className="customer-vehicle-form min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              noValidate
+            >
 
               <VehicleGarageForm
                 variant="customer-rich"

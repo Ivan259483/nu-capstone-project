@@ -50,7 +50,7 @@ export default function RootIndex() {
   // Still waiting for Firebase to confirm auth state
   if (!initialized) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: '#040405', justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="small" color="#F97316" />
       </View>
     );

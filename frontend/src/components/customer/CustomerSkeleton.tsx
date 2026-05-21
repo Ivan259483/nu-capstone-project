@@ -164,23 +164,27 @@ export function CustomerDashboardHomeSkeleton() {
 
 export function CustomerDocumentsSkeleton() {
   return (
-    <div className="customer-content-fade-in space-y-6 pb-10" aria-busy="true">
+    <div className="customer-content-fade-in customer-documents-section flex min-h-[calc(100dvh-8rem)] flex-col gap-4 pb-6" aria-busy="true">
       <SkeletonHeader action />
-      <SkeletonTabs count={3} />
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        {Array.from({ length: 2 }).map((_, index) => (
-          <div key={index} className="flex items-start gap-4 border-b border-slate-100 p-4 last:border-b-0">
-            <CustomerSkeleton className="h-10 w-10 rounded-lg" />
-            <div className="flex-1 space-y-2">
-              <CustomerSkeleton className="h-5 w-64 max-w-full" />
-              <CustomerSkeleton className="h-4 w-80 max-w-full" />
-              <CustomerSkeleton className="h-3 w-32" />
-            </div>
-            <CustomerSkeleton className="hidden h-8 w-24 sm:block" />
-          </div>
+      <div className="grid grid-cols-3 gap-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <CustomerSkeleton key={index} className="h-[68px] w-full rounded-xl" />
         ))}
       </div>
-      <CustomerSkeleton className="h-16 w-full" />
+      <SkeletonTabs count={3} />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="flex items-center gap-4 border-b border-slate-100 px-4 py-3 last:border-b-0">
+            <CustomerSkeleton className="h-9 w-9 shrink-0 rounded-lg" />
+            <div className="flex-1 space-y-2">
+              <CustomerSkeleton className="h-4 w-48 max-w-full" />
+              <CustomerSkeleton className="h-3 w-32 max-w-full" />
+            </div>
+            <CustomerSkeleton className="h-8 w-24 shrink-0" />
+          </div>
+        ))}
+        <CustomerSkeleton className="mt-auto h-10 w-full rounded-none" />
+      </div>
     </div>
   );
 }

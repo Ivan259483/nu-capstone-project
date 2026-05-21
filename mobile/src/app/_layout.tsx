@@ -63,7 +63,7 @@ function InnerLayout() {
   // ── Block ALL rendering until Firebase auth is confirmed ──────────────
   if (!initialized) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: '#040405', justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="small" color="#F97316" />
       </View>
     );

@@ -2664,6 +2664,14 @@ html.dark * {
 .customer-vehicle-form {
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.58)) !important;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.customer-vehicle-form::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
 }
 
 .customer-vehicle-form input,

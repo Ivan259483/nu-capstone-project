@@ -1,10 +1,9 @@
 /**
  * AutoSPF+ Theme Context
- * System-aware dark mode with manual override persisted in AsyncStorage.
+ * Dark mode by default; optional light override persisted in AsyncStorage.
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useColorScheme as useSystemColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, type ColorScheme } from '@/constants/theme';
 
@@ -21,29 +20,26 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-  scheme: 'light',
-  colors: Colors.light,
-  isDark: false,
+  scheme: 'dark',
+  colors: Colors.dark,
+  isDark: true,
   toggleTheme: () => {},
   setScheme: () => {},
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const systemScheme = useSystemColorScheme();
   const [override, setOverride] = useState<ColorScheme | null>(null);
-  const [loaded, setLoaded] = useState(false);
 
-  // Load persisted preference
+  // Load persisted preference (only when user explicitly toggled theme in settings)
   useEffect(() => {
     AsyncStorage.getItem(THEME_KEY).then((val) => {
       if (val === 'light' || val === 'dark') {
         setOverride(val);
       }
-      setLoaded(true);
     });
   }, []);
 
-  const scheme: ColorScheme = override ?? (systemScheme === 'dark' ? 'dark' : 'light');
+  const scheme: ColorScheme = override ?? 'dark';
   const isDark = scheme === 'dark';
   const colors = Colors[scheme];
 
@@ -57,8 +53,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setOverride(s);
     AsyncStorage.setItem(THEME_KEY, s);
   }, []);
-
-  if (!loaded) return null; // Prevent flash
 
   return (
     <ThemeContext.Provider value={{ scheme, colors, isDark, toggleTheme, setScheme }}>
