@@ -5,7 +5,9 @@ import { getIO } from '../utils/socket.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { generateQCPDF } from '../utils/pdf.utils.js';
-import Notification from '../models/notification.model.js';
+import {
+  createCustomerStageNotification,
+} from '../utils/customerStageNotifications.utils.js';
 import {
   TRACKER_GATE_STAGES,
   countGatePhotos,
@@ -14,7 +16,11 @@ import {
   requiredGatePhotosForValidation,
 } from '../utils/trackerGatePhotos.utils.js';
 import { normalizeToCanonical } from '../constants/roles.js';
-import { applyPickupGateCompleteSideEffects } from '../utils/readyPickupPaymentFlow.utils.js';
+import {
+  applyPickupGateCompleteSideEffects,
+  computeOrderBalanceDue,
+} from '../utils/readyPickupPaymentFlow.utils.js';
+import { notifySalesBalancePickupQueue } from '../utils/bookingManagerNotifications.utils.js';
 import { isSlotConsumingStatus, releaseBookingSlot } from '../services/slot.service.js';
 
 const QC_JOB_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
@@ -242,27 +248,6 @@ export const getQCJobs = async (req, res, next) => {
             },
       };
     });
-
-    // #region agent log
-    try {
-      const j0 = jobs[0];
-      const cl0 = Array.isArray(j0?.qcChecklist) ? j0.qcChecklist.length : -1;
-      fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
-        body: JSON.stringify({
-          sessionId: '968466',
-          hypothesisId: 'H-projection',
-          location: 'qc.controller.js:getQCJobs',
-          message: 'qc jobs mapped sample',
-          data: { jobCount: jobs.length, firstQcChecklistLen: cl0 },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-    } catch {
-      /* ignore */
-    }
-    // #endregion
 
     const total = skip + jobs.length + (hasNextPage ? 1 : 0);
     const totalPages = page + (hasNextPage ? 1 : 0);
@@ -608,6 +593,21 @@ export const approveJob = async (req, res, next) => {
       console.warn('[QC] Socket emit failed:', e.message);
     }
 
+    try {
+      await createCustomerStageNotification(order, 'ready_pickup');
+    } catch (ne) {
+      console.warn('[QC] Failed to create stage notification:', ne.message);
+    }
+
+    if (order.status === 'ready_for_payment') {
+      try {
+        const balanceDue = await computeOrderBalanceDue(order);
+        await notifySalesBalancePickupQueue(order, { balanceDue });
+      } catch (ne) {
+        console.warn('[QC] Failed to notify sales balance pickup:', ne.message);
+      }
+    }
+
     // Trigger workflow orchestrator (async, non-blocking)
     onOrderStatusChange(order, prevStatus, req.user).catch((err) =>
       console.error('[QC] Workflow orchestrator error:', err.message)
@@ -863,35 +863,7 @@ export const updateServiceStatus = async (req, res, next) => {
 
     // ── Create per-stage customer notification ────────────────────────────
     try {
-      const stageMessages = {
-        received:      { title: '🚗 Vehicle Arrived',              message: 'Your vehicle has arrived at the shop. Our team will begin service shortly.' },
-        in_progress:   { title: '🔧 Service In Progress',          message: "We've started working on your vehicle. Sit back and relax!" },
-        quality_check: { title: '🛡️ Quality Check Underway',     message: 'Your vehicle is undergoing final quality inspection.' },
-        ready_pickup:  { title: '🎉 Ready for Pickup!',            message: 'Your vehicle service is complete. You can now pick it up at the shop!' },
-        released:      { title: '🏁 Vehicle Released',             message: 'Your vehicle has been handed back. Thank you for choosing AutoSPF+!' },
-      };
-      const msg = stageMessages[stage];
-      if (msg) {
-        const customerId = typeof order.customer === 'object'
-          ? order.customer?._id : order.customer;
-        if (customerId) {
-          const notif = await Notification.create({
-            title: msg.title,
-            message: msg.message,
-            type: 'booking',
-            recipientUserId: customerId,
-            metadata: { orderId: order._id, stage },
-          });
-          // Real-time push to customer
-          try {
-            const io = getIO();
-            io.to(`user:${customerId.toString()}`).emit('notification:customer', {
-              id: notif._id, title: notif.title, message: notif.message,
-              type: notif.type, isRead: false, createdAt: notif.createdAt,
-            });
-          } catch (_) {}
-        }
-      }
+      await createCustomerStageNotification(order, stage);
     } catch (ne) { console.warn('[QC] Failed to create stage notification:', ne.message); }
 
     logActivity({

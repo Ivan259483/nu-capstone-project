@@ -4,10 +4,38 @@ import { toast } from 'sonner';
 import {
   BillingService,
   type BillingDoc,
+  type BillingDiscount,
   type BillingLineItem,
 } from '@/lib/billing-service';
 import { formatPeso } from '@/lib/salesData';
-import { computeBillingTotals } from '@/lib/billingTotals';
+import { computeBillingTotals, type BillingComputed } from '@/lib/billingTotals';
+import type { InvoiceA4Snapshot } from '@/components/sales/billing/InvoiceA4';
+
+export type BillingChargesPayload = {
+  discount: BillingDiscount;
+  taxVatAmount: number;
+  additionalFees: number;
+  downpayment: number;
+  computed?: BillingComputed;
+};
+
+type MoneyField = number | '';
+
+function parseMoneyInput(raw: string): MoneyField {
+  const t = raw.trim();
+  if (t === '') return '';
+  const n = Number(t);
+  if (!Number.isFinite(n) || n < 0) return '';
+  return n;
+}
+
+function moneyFieldStr(v: MoneyField): string {
+  return v === '' ? '' : String(v);
+}
+
+function moneyFieldNum(v: MoneyField): number {
+  return v === '' ? 0 : v;
+}
 
 function statusBadge(status: string) {
   const map: Record<string, { bg: string; text: string; label: string }> = {
@@ -25,26 +53,50 @@ export default function BillingWorkspace({
   orderId,
   syncNonce = 0,
   onCheckoutSuccess,
+  onChargesChange,
   compact = false,
+  /** When true (e.g. embedded in POS), checkout is handled by Payment Summary above */
+  hideCheckout = false,
+  /** Debounced auto-save when discount/VAT/fees change (POS embed) */
+  autoSaveCharges = false,
 }: {
   orderId: string | null;
   syncNonce?: number;
-  onCheckoutSuccess?: (payload: { invoiceNumber: string; pdfUrl: string }) => void;
+  onCheckoutSuccess?: (payload: {
+    invoiceNumber: string;
+    pdfUrl: string;
+    snapshot?: InvoiceA4Snapshot;
+  }) => void;
+  onChargesChange?: (payload: BillingChargesPayload) => void;
   compact?: boolean;
+  hideCheckout?: boolean;
+  autoSaveCharges?: boolean;
 }) {
   const [billing, setBilling] = useState<BillingDoc | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
-  const [taxVat, setTaxVat] = useState(0);
-  const [fees, setFees] = useState(0);
-  const [downpayment, setDownpayment] = useState(0);
+  const [taxVat, setTaxVat] = useState<MoneyField>(0);
+  const [fees, setFees] = useState<MoneyField>(0);
+  const [downpayment, setDownpayment] = useState<MoneyField>(0);
   const [discType, setDiscType] = useState<'fixed' | 'percent'>('fixed');
-  const [discVal, setDiscVal] = useState(0);
+  const [discVal, setDiscVal] = useState<MoneyField>(0);
   const [discReason, setDiscReason] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'gcash'>('cash');
   const [cashReceived, setCashReceived] = useState<number | ''>('');
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  const buildChargesPayload = useCallback(
+    (computed?: BillingComputed): BillingChargesPayload => ({
+      discount: { discountType: discType, value: moneyFieldNum(discVal), reason: discReason },
+      taxVatAmount: moneyFieldNum(taxVat),
+      additionalFees: moneyFieldNum(fees),
+      downpayment: moneyFieldNum(downpayment),
+      computed,
+    }),
+    [discType, discVal, discReason, taxVat, fees, downpayment]
+  );
 
   const load = useCallback(async () => {
     if (!orderId) {
@@ -79,33 +131,88 @@ export default function BillingWorkspace({
         unitPrice: li.unitPrice,
         quantity: li.quantity,
       })),
-      discount: { discountType: discType, value: Number(discVal) || 0, reason: discReason },
-      taxVatAmount: Number(taxVat) || 0,
-      additionalFees: Number(fees) || 0,
-      downpayment: Number(downpayment) || 0,
+      discount: { discountType: discType, value: moneyFieldNum(discVal), reason: discReason },
+      taxVatAmount: moneyFieldNum(taxVat),
+      additionalFees: moneyFieldNum(fees),
+      downpayment: moneyFieldNum(downpayment),
     });
   }, [billing, discType, discVal, discReason, taxVat, fees, downpayment]);
 
+  const chargeFieldEditing =
+    taxVat === '' || fees === '' || downpayment === '' || discVal === '';
+
   const readOnly = billing?.status === 'checked_out' || !orderId;
 
-  const persistCharges = async (nextLines?: BillingLineItem[]) => {
-    if (!orderId || readOnly) return;
-    setSaving(true);
-    const res = await BillingService.putBilling(orderId, {
-      lineItems: nextLines ?? (billing?.lineItems as BillingLineItem[]) ?? [],
-      discount: { discountType: discType, value: Number(discVal) || 0, reason: discReason },
-      taxVatAmount: Number(taxVat) || 0,
-      additionalFees: Number(fees) || 0,
-      downpayment: Number(downpayment) || 0,
-    });
-    setSaving(false);
+  useEffect(() => {
+    if (!onChargesChange) return;
+    onChargesChange(buildChargesPayload(comp));
+  }, [onChargesChange, buildChargesPayload, comp]);
+
+  const persistCharges = async (
+    nextLines?: BillingLineItem[],
+    options?: { silent?: boolean }
+  ) => {
+    if (!orderId || readOnly) return false;
+    if (autoSaveCharges) setAutoSaveStatus('saving');
+    else setSaving(true);
+    const payload: Parameters<typeof BillingService.putBilling>[1] = {
+      discount: { discountType: discType, value: moneyFieldNum(discVal), reason: discReason },
+      taxVatAmount: moneyFieldNum(taxVat),
+      additionalFees: moneyFieldNum(fees),
+      downpayment: moneyFieldNum(downpayment),
+    };
+    if (nextLines !== undefined) {
+      payload.lineItems = nextLines;
+    } else if (!autoSaveCharges && billing?.lineItems?.length) {
+      payload.lineItems = billing.lineItems as BillingLineItem[];
+    }
+
+    const res = await BillingService.putBilling(orderId, payload);
+    if (autoSaveCharges) setAutoSaveStatus('saved');
+    else setSaving(false);
     if (res.success && 'data' in res && res.data) {
       setBilling(res.data);
-      toast.success('Billing saved');
+      const serverComp = res.data.computed;
+      onChargesChange?.(buildChargesPayload(serverComp));
+      if (!options?.silent) toast.success('Billing saved');
+      return true;
+    }
+    if (autoSaveCharges) {
+      setAutoSaveStatus('idle');
+      toast.error((res as { message?: string }).message || 'Could not save billing charges');
     } else {
       toast.error((res as { message?: string }).message || 'Save failed');
     }
+    return false;
   };
+
+  useEffect(() => {
+    if (
+      !autoSaveCharges ||
+      !orderId ||
+      readOnly ||
+      !billing?.lineItems?.length ||
+      chargeFieldEditing
+    ) {
+      return undefined;
+    }
+    const t = window.setTimeout(() => {
+      void persistCharges(undefined, { silent: true });
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [
+    autoSaveCharges,
+    orderId,
+    readOnly,
+    chargeFieldEditing,
+    taxVat,
+    fees,
+    downpayment,
+    discType,
+    discVal,
+    discReason,
+    billing?.lineItems?.length,
+  ]);
 
   const removeLine = async (idx: number) => {
     if (!billing?.lineItems || readOnly) return;
@@ -132,10 +239,10 @@ export default function BillingWorkspace({
     }
     const saveFirst = await BillingService.putBilling(orderId, {
       lineItems: (billing.lineItems as BillingLineItem[]) ?? [],
-      discount: { discountType: discType, value: Number(discVal) || 0, reason: discReason },
-      taxVatAmount: Number(taxVat) || 0,
-      additionalFees: Number(fees) || 0,
-      downpayment: Number(downpayment) || 0,
+      discount: { discountType: discType, value: moneyFieldNum(discVal), reason: discReason },
+      taxVatAmount: moneyFieldNum(taxVat),
+      additionalFees: moneyFieldNum(fees),
+      downpayment: moneyFieldNum(downpayment),
     });
     if (!saveFirst.success || !('data' in saveFirst) || !saveFirst.data) {
       toast.error((saveFirst as { message?: string }).message || 'Save billing before checkout failed');
@@ -154,6 +261,7 @@ export default function BillingWorkspace({
       onCheckoutSuccess?.({
         invoiceNumber: res.data.invoiceNumber,
         pdfUrl: res.data.pdfUrl,
+        snapshot: res.data.snapshot,
       });
       await load();
     } else {
@@ -185,9 +293,15 @@ export default function BillingWorkspace({
       }`}
     >
       <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <h3 className="text-sm font-semibold text-slate-900">Billing workspace</h3>
           {billing && statusBadge(billing.status)}
+          {autoSaveCharges && autoSaveStatus === 'saving' && (
+            <span className="text-[10px] font-semibold text-amber-700">Saving…</span>
+          )}
+          {autoSaveCharges && autoSaveStatus === 'saved' && (
+            <span className="text-[10px] font-semibold text-emerald-700">Saved</span>
+          )}
         </div>
         <button
           type="button"
@@ -250,34 +364,37 @@ export default function BillingWorkspace({
           <label className="block text-[11px] font-semibold text-slate-600">
             VAT / tax (amount)
             <input
-              type="number"
+              type="text"
               inputMode="decimal"
               disabled={readOnly}
+              placeholder="0"
               className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
-              value={taxVat}
-              onChange={(e) => setTaxVat(Number(e.target.value))}
+              value={moneyFieldStr(taxVat)}
+              onChange={(e) => setTaxVat(parseMoneyInput(e.target.value))}
             />
           </label>
           <label className="block text-[11px] font-semibold text-slate-600">
             Additional fees
             <input
-              type="number"
+              type="text"
               inputMode="decimal"
               disabled={readOnly}
+              placeholder="0"
               className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
-              value={fees}
-              onChange={(e) => setFees(Number(e.target.value))}
+              value={moneyFieldStr(fees)}
+              onChange={(e) => setFees(parseMoneyInput(e.target.value))}
             />
           </label>
           <label className="block text-[11px] font-semibold text-slate-600">
-            Downpayment (already collected)
+            Downpayment (reservation / GCash already collected)
             <input
-              type="number"
+              type="text"
               inputMode="decimal"
               disabled={readOnly}
+              placeholder="500"
               className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
-              value={downpayment}
-              onChange={(e) => setDownpayment(Number(e.target.value))}
+              value={moneyFieldStr(downpayment)}
+              onChange={(e) => setDownpayment(parseMoneyInput(e.target.value))}
             />
           </label>
           <div className="block text-[11px] font-semibold text-slate-600">
@@ -293,11 +410,13 @@ export default function BillingWorkspace({
                 <option value="percent">Percent %</option>
               </select>
               <input
-                type="number"
+                type="text"
+                inputMode="decimal"
                 disabled={readOnly}
+                placeholder="0"
                 className="flex-1 min-w-0 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
-                value={discVal}
-                onChange={(e) => setDiscVal(Number(e.target.value))}
+                value={moneyFieldStr(discVal)}
+                onChange={(e) => setDiscVal(parseMoneyInput(e.target.value))}
               />
             </div>
             <input
@@ -338,7 +457,7 @@ export default function BillingWorkspace({
           </div>
         </div>
 
-        {!readOnly && (
+        {!readOnly && !hideCheckout && (
           <div className="space-y-3 pt-2 border-t border-slate-100">
             <p className="text-xs font-bold text-slate-700">Checkout</p>
             <div className="flex flex-wrap gap-2">
@@ -387,6 +506,11 @@ export default function BillingWorkspace({
               {checkoutLoading ? 'Processing…' : 'Confirm checkout & invoice'}
             </button>
           </div>
+        )}
+        {!readOnly && hideCheckout && (
+          <p className="pt-2 border-t border-slate-100 text-[10px] text-slate-500 leading-relaxed">
+            Edit discount and VAT here — totals update in Payment Summary above. Charges save automatically.
+          </p>
         )}
       </div>
     </div>

@@ -17,6 +17,7 @@ import {
   applyPickupGateCompleteSideEffects,
   revertReadyForPaymentIfPickupIncomplete,
 } from '../utils/readyPickupPaymentFlow.utils.js';
+import { notifyReadyForPickupIfGateComplete } from '../utils/customerStageNotifications.utils.js';
 
 /** Same coarse stages as QC `service-status`; `confirmed` is optional text-only for customers. */
 const TRACKER_MEDIA_STAGES = ['confirmed', 'received', 'in_progress', 'quality_check', 'ready_pickup'];
@@ -337,6 +338,14 @@ export const patchTrackerStagePhoto = async (req, res, next) => {
     await order.save({ validateBeforeSave: false });
     emitTrackerStageMediaUpdate(order);
 
+    if (stage === 'ready_pickup') {
+      try {
+        await notifyReadyForPickupIfGateComplete(order);
+      } catch (ne) {
+        console.warn('[tracker] Failed to create ready_pickup notification:', ne.message);
+      }
+    }
+
     logActivity({
       req,
       type: 'booking_updated',
@@ -449,6 +458,14 @@ export const postTrackerStagePhotoUpload = async (req, res, next) => {
 
     await order.save({ validateBeforeSave: false });
     emitTrackerStageMediaUpdate(order);
+
+    if (stage === 'ready_pickup') {
+      try {
+        await notifyReadyForPickupIfGateComplete(order);
+      } catch (ne) {
+        console.warn('[tracker] Failed to create ready_pickup notification:', ne.message);
+      }
+    }
 
     if (storage === 'inline_fast') {
       queueCloudinaryStagePhotoBackfill({

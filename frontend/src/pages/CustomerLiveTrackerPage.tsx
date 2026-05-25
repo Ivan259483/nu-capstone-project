@@ -584,16 +584,15 @@ export default function CustomerLiveTrackerPage() {
     socket.on('booking:status', handleBookingStatus);
     socket.on('orderUpdated', handleOrderUpdated);
 
-    // Visibility / focus refresh
+    // Refetch when tab becomes visible again — not on every window focus (file pickers fire focus).
     let visTimer: ReturnType<typeof setTimeout> | null = null;
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         if (visTimer) clearTimeout(visTimer);
-        visTimer = setTimeout(fetchActiveBooking, 500);
+        visTimer = setTimeout(fetchActiveBooking, 1500);
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('focus', handleVisibility);
 
     const unsubscribe = OrderService.subscribeToCustomerBookings(user.id, (bookings) => {
       const nextBooking = selectActiveBooking(bookings, user);
@@ -616,7 +615,6 @@ export default function CustomerLiveTrackerPage() {
       socket.off('booking:status', handleBookingStatus);
       socket.off('orderUpdated', handleOrderUpdated);
       document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('focus', handleVisibility);
       if (visTimer) clearTimeout(visTimer);
       unsubscribe?.();
     };

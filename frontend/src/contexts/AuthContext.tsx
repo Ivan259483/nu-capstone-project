@@ -30,7 +30,7 @@ async function isBackendReachable(): Promise<boolean> {
             method: 'GET',
             signal: controller?.signal,
         })
-            .then((resp) => resp.ok)
+            .then((resp) => resp.status > 0 && resp.status < 500)
             .catch(() => false);
 
         const timeout = new Promise<boolean>((resolve) => {

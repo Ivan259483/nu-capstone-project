@@ -279,8 +279,10 @@ function AppRoutes() {
 // Only show the floating ChatWidget on public pages — not inside any dashboard
 function _ConditionalChatWidget() {
     const { pathname } = useLocation();
-    const isDashboardRoute = /^\/(customer|detailer|admin|ops)/.test(pathname);
+    const { user } = useAuth();
+    const isDashboardRoute = /^\/(customer|detailer|admin|sales|inventory|ops)/.test(pathname);
     if (isDashboardRoute) return null;
+    if (getSafeUserRole(user?.role) === 'sales') return null;
     return <ChatWidget />;
 }
 

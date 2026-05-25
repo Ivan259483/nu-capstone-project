@@ -7,6 +7,7 @@ import {
   getPaymentMethodLabel,
 } from '@/lib/salesData';
 import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
+import { COMPANY_BRANDING, companyContactLine } from '@/lib/company-branding';
 
 export type DetailedReceiptLine = {
   name: string;
@@ -38,13 +39,6 @@ export type DetailedReceipt = {
   paymentMethod: string;
   paymentStatus: string;
   notes?: string;
-};
-
-const COMPANY = {
-  name: 'AutoSPF+',
-  subtitle: 'Automotive Detailing & Protection Center',
-  address: 'Unit 12, Autozone Bldg., Quezon Ave., Quezon City',
-  contact: '(02) 8888-AUTOSPF - care@autospf.ph',
 };
 
 const safeNumber = (value: unknown) => {
@@ -255,10 +249,10 @@ export const buildDetailedReceiptHtml = (receipt: DetailedReceipt) => {
     <main class="page">
       <section class="top">
         <div class="brand">
-          <h1>${COMPANY.name}</h1>
-          <p>${COMPANY.subtitle}</p>
-          <p>${COMPANY.address}</p>
-          <p>${COMPANY.contact}</p>
+          <h1>${COMPANY_BRANDING.brandName}</h1>
+          <p>${COMPANY_BRANDING.tagline}</p>
+          <p>${COMPANY_BRANDING.address}</p>
+          <p>${companyContactLine()}</p>
         </div>
         <div class="title">
           <h2>Official Digital Receipt</h2>
@@ -355,7 +349,7 @@ export const downloadDetailedReceiptPdf = (receipt: DetailedReceipt) => {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
   doc.setTextColor(29, 78, 216);
-  doc.text(COMPANY.name, margin, y);
+  doc.text(COMPANY_BRANDING.brandName, margin, y);
   doc.setTextColor(15, 23, 42);
   rightText('Official Digital Receipt', pageW - margin, y);
   y += 18;
@@ -363,13 +357,13 @@ export const downloadDetailedReceiptPdf = (receipt: DetailedReceipt) => {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
-  doc.text(COMPANY.subtitle, margin, y);
+  doc.text(COMPANY_BRANDING.tagline, margin, y);
   rightText(receipt.receiptNumber, pageW - margin, y);
   y += 13;
-  doc.text(COMPANY.address, margin, y);
+  doc.text(COMPANY_BRANDING.address, margin, y);
   if (receipt.invoiceNumber) rightText(`Invoice ${receipt.invoiceNumber}`, pageW - margin, y);
   y += 13;
-  doc.text(COMPANY.contact, margin, y);
+  doc.text(companyContactLine(), margin, y);
   y += 22;
   line();
   y += 18;

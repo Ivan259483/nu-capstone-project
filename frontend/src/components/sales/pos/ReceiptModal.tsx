@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { X, Printer, Download, RotateCcw, CheckCircle2, Car, Phone, Mail } from 'lucide-react';
 import { Customer, Vehicle, CartItem, formatPeso, getPaymentMethodLabel, PaymentMethod } from '@/lib/salesData';
 import AppLogo from '@/components/sales/ui/AppLogo';
+import { COMPANY_BRANDING, companyContactLine } from '@/lib/company-branding';
 
 interface Props {
   txnId: string;
@@ -88,9 +89,10 @@ export default function ReceiptModal({
             <div className="flex items-center gap-3 pb-5 border-b border-dashed border-slate-200">
               <AppLogo size={36} />
               <div>
-                <p className="font-bold text-slate-900 text-base">AutoSPF<span className="text-blue-700">+</span></p>
-                <p className="text-[11px] text-slate-500">Automotive Detailing &amp; Protection Center</p>
-                <p className="text-[10px] text-slate-400">Unit 12, Autozone Bldg., Quezon Ave., Quezon City</p>
+                <p className="font-bold text-slate-900 text-base text-blue-800">{COMPANY_BRANDING.brandName}</p>
+                <p className="text-[11px] text-slate-500">{COMPANY_BRANDING.tagline}</p>
+                <p className="text-[10px] text-slate-400">{COMPANY_BRANDING.address}</p>
+                <p className="text-[10px] text-slate-400">{companyContactLine()}</p>
               </div>
             </div>
 
@@ -191,7 +193,7 @@ export default function ReceiptModal({
             <div className="pt-4 text-center">
               <p className="text-[11px] text-slate-500">Thank you for choosing AutoSPF+!</p>
               <p className="text-[10px] text-slate-400 mt-0.5">
-                For concerns, call us at (02) 8888-AUTOSPF or email care@autospf.ph
+                For concerns, call {COMPANY_BRANDING.phone} or email {COMPANY_BRANDING.email}
               </p>
               <div className="mt-3 flex items-center justify-center gap-1">
                 <div className="w-16 h-0.5 bg-slate-200 rounded-full" />

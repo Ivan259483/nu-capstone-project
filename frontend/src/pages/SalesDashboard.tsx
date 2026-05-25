@@ -75,7 +75,13 @@ function DashboardView({ onNavigate }: { onNavigate: (v: SalesView) => void }) {
 }
 
 // ── POS View ──────────────────────────────────────────────────────────────────
-function POSView() {
+function POSView({
+  preloadOrderId,
+  onPreloadConsumed,
+}: {
+  preloadOrderId: string | null;
+  onPreloadConsumed: () => void;
+}) {
   const today = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ gap: '14px' }}>
@@ -89,7 +95,9 @@ function POSView() {
           <span className="text-xs font-semibold text-blue-700">POS Active</span>
         </div>
       </div>
-      <div className="flex-1 overflow-hidden"><POSWorkspace /></div>
+      <div className="flex-1 overflow-hidden">
+        <POSWorkspace preloadOrderId={preloadOrderId} onPreloadConsumed={onPreloadConsumed} />
+      </div>
     </div>
   );
 }
@@ -115,16 +123,30 @@ function CalendarView() {
 export default function SalesDashboard() {
   const [activeView, setActiveView] = useState<SalesView>('dashboard');
   const [collapsed, setCollapsed] = useState(false);
+  const [posPreloadOrderId, setPosPreloadOrderId] = useState<string | null>(null);
+  const [approvalsPreloadOrderId, setApprovalsPreloadOrderId] = useState<string | null>(null);
 
   const renderView = () => {
     switch (activeView) {
       case 'dashboard': return <DashboardView onNavigate={setActiveView} />;
-      case 'pos': return <POSView />;
+      case 'pos':
+        return (
+          <POSView
+            preloadOrderId={posPreloadOrderId}
+            onPreloadConsumed={() => setPosPreloadOrderId(null)}
+          />
+        );
       case 'transactions': return <TransactionsView />;
       case 'customers': return <CustomersView />;
       case 'reports': return <SalesReportsView />;
       case 'settings': return <SettingsView />;
-      case 'approvals': return <BookingApprovalsPage />;
+      case 'approvals':
+        return (
+          <BookingApprovalsPage
+            preloadOrderId={approvalsPreloadOrderId}
+            onPreloadConsumed={() => setApprovalsPreloadOrderId(null)}
+          />
+        );
       case 'calendar': return <CalendarView />;
       default: return <DashboardView onNavigate={setActiveView} />;
     }
@@ -140,7 +162,16 @@ export default function SalesDashboard() {
           onToggle={() => setCollapsed(!collapsed)}
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <SalesTopbar onNavigateToApprovals={() => setActiveView('approvals')} />
+          <SalesTopbar
+            onNavigateToApprovals={(orderId) => {
+              if (orderId) setApprovalsPreloadOrderId(orderId);
+              setActiveView('approvals');
+            }}
+            onNavigateToPos={(orderId) => {
+              if (orderId) setPosPreloadOrderId(orderId);
+              setActiveView('pos');
+            }}
+          />
           <main className={`min-h-0 flex-1 p-6 scrollbar-thin ${activeView === 'pos' ? 'flex flex-col overflow-hidden' :
               activeView === 'calendar' ? 'flex flex-col overflow-hidden' :
                 'overflow-y-auto'

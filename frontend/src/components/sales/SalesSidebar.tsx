@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { getSharedSocket } from '@/hooks/useRealtimeSync';
 
 type SalesView = 'dashboard' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
 
@@ -56,7 +57,19 @@ export default function SalesSidebar({ activeView, onNavigate, collapsed, onTogg
     };
     fetchCount();
     const interval = setInterval(fetchCount, 60_000);
-    return () => clearInterval(interval);
+
+    const socket = getSharedSocket();
+    const onQueueChange = () => {
+      void fetchCount();
+    };
+    socket.on('booking:approval-updated', onQueueChange);
+    socket.on('notification:booking-manager', onQueueChange);
+
+    return () => {
+      clearInterval(interval);
+      socket.off('booking:approval-updated', onQueueChange);
+      socket.off('notification:booking-manager', onQueueChange);
+    };
   }, []);
 
   const linkBase = 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 cursor-pointer';

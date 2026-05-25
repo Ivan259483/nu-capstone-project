@@ -62,6 +62,9 @@ export const DEFAULT_TRACKER_STAGE_DESCRIPTION: Record<TrackerMediaStage, string
     'Your vehicle is ready! Please proceed to our shop for pickup.',
 };
 
+export const QC_COMPLETE_TRACKER_STAGE_DESCRIPTION =
+  "Your vehicle has passed final quality inspection. We're preparing it for pickup.";
+
 export type TrackerStageMediaEntry = {
   stage: string;
   slot?: string;
@@ -162,12 +165,49 @@ export function findTrackerStageMedia(
   return booking.trackerStageMedia.find((e) => e.stage === stage) || null;
 }
 
-/** Final line shown to customer: staff note wins when non-empty, else default catalog line. */
+function normalizedTrackerValue(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase().replace(/-/g, '_');
+}
+
+function isQualityCheckCompleteForCustomer(
+  booking:
+    | {
+        trackerStageMedia?: TrackerStageMediaEntry[];
+        serviceTrackingStage?: string | null;
+        status?: string | null;
+      }
+    | null
+    | undefined
+): boolean {
+  const trackerStage = normalizedTrackerValue(booking?.serviceTrackingStage);
+  const status = normalizedTrackerValue(booking?.status);
+  const qcEvidenceComplete =
+    getCustomerStageSlotPhotos(booking, 'quality_check').length >=
+    customerGateMinSlotCount('quality_check');
+
+  return (
+    qcEvidenceComplete ||
+    ['ready_pickup', 'completed', 'released'].includes(trackerStage) ||
+    ['ready_for_payment', 'completed', 'paid', 'released', 'done'].includes(status)
+  );
+}
+
+/** Final line shown to customer: completed QC copy wins, then staff note, then default catalog line. */
 export function resolveTrackerStageDescription(
-  booking: { trackerStageMedia?: TrackerStageMediaEntry[] } | null | undefined,
+  booking:
+    | {
+        trackerStageMedia?: TrackerStageMediaEntry[];
+        serviceTrackingStage?: string | null;
+        status?: string | null;
+      }
+    | null
+    | undefined,
   stage: TrackerMediaStage | null | undefined
 ): string {
   if (!stage) return '';
+  if (stage === 'quality_check' && isQualityCheckCompleteForCustomer(booking)) {
+    return QC_COMPLETE_TRACKER_STAGE_DESCRIPTION;
+  }
   const rows = listTrackerStageMediaForStage(booking, stage);
   const custom = rows.map((r) => (r.description || '').trim()).find(Boolean);
   if (custom) return custom;

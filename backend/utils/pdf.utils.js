@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import { uploadBufferToCloudinary } from './cloudinaryStorage.utils.js';
 import { normalizeMoney } from './billingTotals.js';
 import { resolvePlainVehiclePlate } from './vehiclePlate.utils.js';
+import { COMPANY_BRANDING, companyContactLine } from '../constants/companyBranding.js';
 
 export const generateTermsAndConditionsPDF = async (order, signatureBase64) => {
   try {
@@ -285,7 +286,7 @@ export const buildInvoicePdfBuffer = (snapshot) => {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
   doc.setTextColor(29, 78, 216);
-  doc.text('AutoSPF+', margin, y);
+  doc.text(COMPANY_BRANDING.brandName, margin, y);
   doc.setTextColor(15, 23, 42);
   right('Official Digital Receipt');
   y += 18;
@@ -293,13 +294,15 @@ export const buildInvoicePdfBuffer = (snapshot) => {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
-  doc.text('Automotive Detailing & Protection Center', margin, y);
+  doc.text(COMPANY_BRANDING.tagline, margin, y);
   right(snapshot.invoiceNumber || payment.posInvoiceId || '');
   y += 13;
-  doc.text('Unit 12, Autozone Bldg., Quezon Ave., Quezon City', margin, y);
+  doc.text(COMPANY_BRANDING.address, margin, y);
   if (snapshot.bookingReference) right(`Booking ${snapshot.bookingReference}`);
   y += 13;
-  doc.text('(02) 8888-AUTOSPF - care@autospf.ph', margin, y);
+  doc.text(companyContactLine(), margin, y);
+  y += 11;
+  doc.text(COMPANY_BRANDING.facebook, margin, y);
   y += 22;
   rule();
   y += 18;

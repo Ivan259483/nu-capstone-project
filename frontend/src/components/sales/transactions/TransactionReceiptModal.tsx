@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Printer, Download, CheckCircle2, Clock, XCircle, Car, Phone, Image as ImageIcon } from 'lucide-react';
 import { Transaction, formatPeso, getPaymentMethodLabel, PaymentMethod } from '@/lib/salesData';
 import AppLogo from '@/components/sales/ui/AppLogo';
+import { COMPANY_BRANDING, companyContactLine } from '@/lib/company-branding';
 import {
   downloadDetailedReceiptPdf,
   printDetailedReceipt,
@@ -97,10 +98,10 @@ export default function TransactionReceiptModal({ txn, onClose }: Props) {
             <div className="flex items-center gap-3 pb-5 border-b border-dashed border-slate-200">
               <AppLogo size={36} />
               <div>
-                <p className="font-bold text-slate-900 text-base">AutoSPF<span className="text-blue-700">+</span></p>
-                <p className="text-[11px] text-slate-500">Automotive Detailing & Protection Center</p>
-                <p className="text-[10px] text-slate-400">Unit 12, Autozone Bldg., Quezon Ave., Quezon City</p>
-                <p className="text-[10px] text-slate-400">(02) 8888-AUTOSPF · care@autospf.ph</p>
+                <p className="font-bold text-slate-900 text-base text-blue-800">{COMPANY_BRANDING.brandName}</p>
+                <p className="text-[11px] text-slate-500">{COMPANY_BRANDING.tagline}</p>
+                <p className="text-[10px] text-slate-400">{COMPANY_BRANDING.address}</p>
+                <p className="text-[10px] text-slate-400">{companyContactLine()}</p>
               </div>
             </div>
 

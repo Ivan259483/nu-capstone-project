@@ -1,6 +1,39 @@
 import mongoose from 'mongoose';
 import Notification from '../models/notification.model.js';
-import { getNotificationAudiencesForRole } from '../constants/roles.js';
+import {
+  getNotificationAudiencesForRole,
+  isCustomerRole,
+  normalizeToCanonical,
+} from '../constants/roles.js';
+import {
+  getSalesBookingApprovalNotificationQuery,
+  syncMissingSalesBalancePickupNotifications,
+} from '../utils/bookingManagerNotifications.utils.js';
+import { syncMissingCustomerStageNotifications } from '../utils/customerStageNotifications.utils.js';
+
+function buildNotificationsQuery(role, userId) {
+  if (normalizeToCanonical(role) === 'sales') {
+    return getSalesBookingApprovalNotificationQuery();
+  }
+
+  const recipientRoles = getNotificationAudiencesForRole(role);
+  const broadcastRoles = recipientRoles.filter((r) => r !== 'customer');
+
+  return {
+    $or: [
+      ...(broadcastRoles.length > 0
+        ? [{
+            recipientRole: { $in: broadcastRoles },
+            $or: [
+              { recipientUserId: null },
+              { recipientUserId: { $exists: false } },
+            ],
+          }]
+        : []),
+      { recipientUserId: userId },
+    ],
+  };
+}
 
 /**
  * Get notifications for the current user's role (+ per-user targeting)
@@ -13,29 +46,24 @@ export const getNotifications = async (req, res, next) => {
   try {
     const role = req.user.role;
     const userId = new mongoose.Types.ObjectId(req.user._id || req.user.id);
-    const recipientRoles = getNotificationAudiencesForRole(role);
 
-    // Filter out 'customer' from broadcast audiences — those must be per-user
-    const broadcastRoles = recipientRoles.filter(r => r !== 'customer');
+    if (isCustomerRole(role)) {
+      try {
+        await syncMissingCustomerStageNotifications(userId);
+      } catch (syncErr) {
+        console.warn('[notifications] Stage sync failed:', syncErr.message);
+      }
+    }
 
-    const query = {
-      $or: [
-        // 1. Role-based broadcasts (admin_family, all, etc.) — never 'customer'
-        ...(broadcastRoles.length > 0
-          ? [{
-              recipientRole: { $in: broadcastRoles },
-              $or: [
-                { recipientUserId: null },
-                { recipientUserId: { $exists: false } },
-              ],
-            }]
-          : []),
-        // 2. Notifications specifically targeted to this user
-        {
-          recipientUserId: userId,
-        },
-      ],
-    };
+    if (normalizeToCanonical(role) === 'sales') {
+      try {
+        await syncMissingSalesBalancePickupNotifications();
+      } catch (syncErr) {
+        console.warn('[notifications] Balance pickup sync failed:', syncErr.message);
+      }
+    }
+
+    const query = buildNotificationsQuery(role, userId);
 
     const notifications = await Notification.find(query)
       .sort({ createdAt: -1 })
@@ -78,25 +106,10 @@ export const markAllAsRead = async (req, res, next) => {
   try {
     const role = req.user.role;
     const userId = new mongoose.Types.ObjectId(req.user._id || req.user.id);
-    const recipientRoles = getNotificationAudiencesForRole(role);
-    const broadcastRoles = recipientRoles.filter(r => r !== 'customer');
+    const query = buildNotificationsQuery(role, userId);
 
     await Notification.updateMany(
-      {
-        $or: [
-          ...(broadcastRoles.length > 0
-            ? [{
-                recipientRole: { $in: broadcastRoles },
-                $or: [
-                  { recipientUserId: null },
-                  { recipientUserId: { $exists: false } },
-                ],
-              }]
-            : []),
-          { recipientUserId: userId },
-        ],
-        isRead: false,
-      },
+      { ...query, isRead: false },
       { isRead: true }
     );
     res.json({ success: true, message: 'All notifications marked as read' });

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { LucideIcon } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import {
@@ -39,6 +40,7 @@ import {
   QC_FORM_SLOT_SHORT,
 } from '@/lib/tracker-gate-photo-slots';
 import { clearLiveTrackerDeepLinkJobId, readLiveTrackerDeepLinkJobId } from '@/lib/qc-job-workflow';
+import { pauseQcJobsRefetchForUpload } from '@/hooks/useQCData';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSafeUserRole, STAFF_QC_ROLE } from '@/lib/roles';
 import {
@@ -65,6 +67,22 @@ function mediaRepresentsSavedPhoto(media?: TrackerMedia | null): boolean {
   if (mediaHasRenderablePhotoUrl(media)) return true;
   if (media.hasPhoto) return true;
   return Boolean(media.stage && media.stage !== 'confirmed');
+}
+
+/** Drop inline base64 from server payloads — use blob preview or hasPhoto placeholder instead. */
+function sanitizeInlineTrackerPhotoUrl(url: unknown): string {
+  const trimmed = String(url ?? '').trim();
+  if (!trimmed || trimmed.startsWith('data:')) return '';
+  return trimmed;
+}
+
+function sanitizeTrackerMediaEntry(entry: TrackerMedia): TrackerMedia {
+  const photoUrl = sanitizeInlineTrackerPhotoUrl(entry.photoUrl);
+  if (photoUrl) return { ...entry, photoUrl };
+  if (String(entry.photoUrl || '').startsWith('data:')) {
+    return { ...entry, photoUrl: undefined, hasPhoto: entry.hasPhoto ?? true };
+  }
+  return entry;
 }
 
 function countTrackerPhotoUrls(media: TrackerMedia[] | undefined): number {
@@ -171,6 +189,9 @@ const QC_CHECKLIST_ITEMS = QC_CHECKLIST_SECTIONS.flatMap((section, sectionIndex)
   }))
 );
 
+/** Survives SelectedOrderPanel remounts so checklist toggles are not reset after photo upload refetch. */
+const qcChecklistUiCache = new Map<string, Set<string>>();
+
 function qcChecklistPassedCount(rows: unknown): number {
   if (!Array.isArray(rows)) return 0;
   return rows.filter((r: any) => r && (r.passed === true || r.checked === true)).length;
@@ -249,6 +270,7 @@ function displayNameForPipelineStage(stage: ServiceStage): string {
 
 const TRACKED_ORDER_STATUSES = ['approved', 'confirmed', 'assigned', 'received', 'in_progress', 'ready_for_payment', 'completed', 'released'];
 const CUSTOMER_UPDATE_STALE_MS = 24 * 60 * 60 * 1000;
+const QC_LIVE_MODAL_PERSIST_KEY = 'autospf:qc-live-modal:v1';
 
 function relTime(iso?: string) {
   if (!iso) return 'Recently';
@@ -393,6 +415,45 @@ function matchesStageSlotRow(item: TrackerMedia, media: TrackerMedia): boolean {
     return true;
   }
   return false;
+}
+
+/** Keep in-memory blob previews until a remote https URL is available (avoid swapping in heavy base64). */
+function preferTrackerPhotoMerge(existing: TrackerMedia | undefined, incoming: TrackerMedia): TrackerMedia {
+  const existingUrl = String(existing?.photoUrl || '').trim();
+  const incomingUrl = String(incoming?.photoUrl || '').trim();
+  if (existingUrl.startsWith('blob:')) {
+    if (!incomingUrl || incomingUrl.startsWith('data:')) return existing ?? incoming;
+    if (incomingUrl.startsWith('http://') || incomingUrl.startsWith('https://') || incomingUrl.startsWith('/')) {
+      return { ...incoming, photoUrl: incomingUrl };
+    }
+    return existing ?? incoming;
+  }
+  return incoming;
+}
+
+function mergeTrackerStageMediaLists(oldList: TrackerMedia[], serverList: TrackerMedia[]): TrackerMedia[] {
+  const merged: TrackerMedia[] = [];
+  const consumed = new Set<number>();
+  const safeServerList = serverList.map(sanitizeTrackerMediaEntry);
+
+  for (const oldItem of oldList) {
+    const serverIndex = safeServerList.findIndex(
+      (serverItem, index) => !consumed.has(index) && matchesStageSlotRow(oldItem, serverItem)
+    );
+    if (serverIndex >= 0) {
+      consumed.add(serverIndex);
+      merged.push(preferTrackerPhotoMerge(oldItem, safeServerList[serverIndex]!));
+    } else if (mediaRepresentsSavedPhoto(oldItem) || String(oldItem.photoUrl || '').startsWith('blob:')) {
+      merged.push(oldItem);
+    }
+  }
+
+  safeServerList.forEach((serverItem, index) => {
+    if (consumed.has(index)) return;
+    if (mediaRepresentsSavedPhoto(serverItem)) merged.push(serverItem);
+  });
+
+  return merged;
 }
 
 function stageToOrderStatus(stage: ServiceStage, fallback?: string) {
@@ -1160,9 +1221,14 @@ function CurrentGateCard({
   qcValidation: QCGateValidation;
   onUploadStagePhoto: (
     orderId: string,
-    payload: { stage: string; slot?: string; description?: string; file?: File | null }
+    payload: { stage: string; slot?: string; description?: string; file?: File | null },
+    opts?: { skipJobsRefresh?: boolean }
+  ) => Promise<{ success: boolean; photoUrl?: string; trackerStageMedia?: unknown[] }>;
+  onDeleteTrackerStagePhoto: (
+    orderId: string,
+    payload: { stage: string; slot: string },
+    opts?: { skipJobsRefresh?: boolean }
   ) => Promise<boolean>;
-  onDeleteTrackerStagePhoto: (orderId: string, payload: { stage: string; slot: string }) => Promise<boolean>;
   onLocalStageMedia: (id: string, media: TrackerMedia) => void;
   onPhotoUploadSuccess?: () => void;
   onUploadInteractionChange?: (active: boolean) => void;
@@ -1205,9 +1271,8 @@ function CurrentGateCard({
         if (timer) clearTimeout(timer);
       });
       clearFilePickerFallback();
-      onUploadInteractionChange?.(false);
     };
-  }, [clearFilePickerFallback, onUploadInteractionChange]);
+  }, [clearFilePickerFallback]);
 
   const clearSlotSuccess = (slot: StaffGateSlotKey) => {
     const timer = successTimersRef.current[slot];
@@ -1246,7 +1311,7 @@ function CurrentGateCard({
         pendingSlotRef.current = null;
         setPendingSlot(null);
         onUploadInteractionChange?.(false);
-      }, 800);
+      }, 8000);
     };
     filePickerFocusListenerRef.current = clearAfterPickerReturns;
     window.addEventListener('focus', clearAfterPickerReturns, { once: true });
@@ -1277,18 +1342,31 @@ function CurrentGateCard({
     let ok = false;
     try {
       await waitForNextPaint();
-      ok = await onUploadStagePhoto(job.id, {
-        stage: currentStage,
-        slot,
-        file,
-      });
+      const result = await onUploadStagePhoto(
+        job.id,
+        { stage: currentStage, slot, file },
+        { skipJobsRefresh: true }
+      );
+      ok = Boolean(result?.success);
+      const savedUrl = typeof result?.photoUrl === 'string' ? result.photoUrl.trim() : '';
+      const isRemoteSavedUrl =
+        savedUrl.startsWith('http://') || savedUrl.startsWith('https://') || savedUrl.startsWith('/');
+      if (ok && isRemoteSavedUrl) {
+        URL.revokeObjectURL(previewUrl);
+        onLocalStageMedia(job.id, {
+          stage: currentStage,
+          slot,
+          photoUrl: savedUrl,
+          uploadedAt: new Date().toISOString(),
+        });
+      }
     } finally {
       setUploadingSlots((current) => {
         const next = { ...current };
         delete next[slot];
         return next;
       });
-      onUploadInteractionChange?.(false);
+      window.setTimeout(() => onUploadInteractionChange?.(false), 2800);
     }
 
     if (!ok) {
@@ -1298,7 +1376,7 @@ function CurrentGateCard({
     }
 
     markSlotSuccess(slot);
-    onPhotoUploadSuccess?.();
+    // Avoid focus() here — it can scroll the modal and feel like a page reload after file picker.
   };
 
   const removeSlot = async (slot: StaffGateSlotKey) => {
@@ -1324,7 +1402,6 @@ function CurrentGateCard({
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={handlePhotoSelected}
       />
@@ -1761,9 +1838,14 @@ type SelectedOrderPanelProps = {
   onAdvance: (id: string, stage: ServiceStage) => Promise<boolean>;
   onUploadStagePhoto: (
     orderId: string,
-    payload: { stage: string; slot?: string; description?: string; file?: File | null }
+    payload: { stage: string; slot?: string; description?: string; file?: File | null },
+    opts?: { skipJobsRefresh?: boolean }
+  ) => Promise<{ success: boolean; photoUrl?: string; trackerStageMedia?: unknown[] }>;
+  onDeleteTrackerStagePhoto: (
+    orderId: string,
+    payload: { stage: string; slot: string },
+    opts?: { skipJobsRefresh?: boolean }
   ) => Promise<boolean>;
-  onDeleteTrackerStagePhoto: (orderId: string, payload: { stage: string; slot: string }) => Promise<boolean>;
   onAddStaffNote: (orderId: string, content: string) => Promise<boolean>;
   onLocalStageUpdate: (id: string, stage: ServiceStage) => void;
   onLocalStageMedia: (id: string, media: TrackerMedia) => void;
@@ -1824,30 +1906,17 @@ function SelectedOrderPanel({
   const qcCheckedIdsRef = useRef<Set<string>>(qcCheckedIds);
   const qcPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const qcChecklistDirtyRef = useRef(false);
+  const onPersistQcChecklistRef = useRef(onPersistQcChecklist);
+  onPersistQcChecklistRef.current = onPersistQcChecklist;
 
   useEffect(() => {
-    qcChecklistDirtyRef.current = false;
+    const cached = qcChecklistUiCache.get(job.id);
     const raw = (job as any).qcChecklist;
-    const initial = qcChecklistRowsToCheckedSet(raw);
-    const rowsLen = Array.isArray(raw) ? raw.length : -1;
-    // #region agent log
-    fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
-      body: JSON.stringify({
-        sessionId: '968466',
-        hypothesisId: 'H-hydrate',
-        location: 'QCLiveTrackerView.tsx:SelectedOrderPanel',
-        message: 'hydrate qc checklist from job',
-        data: {
-          idSuffix: job.id ? String(job.id).slice(-6) : '',
-          rowsLen,
-          initialCheckedSize: initial.size,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    const fromServer = qcChecklistRowsToCheckedSet(raw);
+    const initial =
+      cached && cached.size >= fromServer.size ? new Set(cached) : new Set(fromServer);
+    qcChecklistUiCache.set(job.id, initial);
+    qcChecklistDirtyRef.current = false;
     qcCheckedIdsRef.current = initial;
     setQcCheckedIds(initial);
   }, [job.id]);
@@ -1861,18 +1930,19 @@ function SelectedOrderPanel({
       clearTimeout(qcPersistTimerRef.current);
       qcPersistTimerRef.current = null;
     }
-    if (!onPersistQcChecklist) return;
-    void onPersistQcChecklist(job.id, checkedSetToQcChecklistPayload(qcCheckedIdsRef.current));
-  }, [job.id, onPersistQcChecklist]);
+    const persist = onPersistQcChecklistRef.current;
+    if (!persist) return;
+    void persist(job.id, checkedSetToQcChecklistPayload(qcCheckedIdsRef.current));
+  }, [job.id]);
 
   const scheduleQcChecklistPersist = useCallback(() => {
-    if (!onPersistQcChecklist) return;
+    if (!onPersistQcChecklistRef.current) return;
     if (qcPersistTimerRef.current) clearTimeout(qcPersistTimerRef.current);
     qcPersistTimerRef.current = setTimeout(() => {
       qcPersistTimerRef.current = null;
       flushQcChecklistPersist();
-    }, 420);
-  }, [flushQcChecklistPersist, onPersistQcChecklist]);
+    }, 800);
+  }, [flushQcChecklistPersist]);
 
   useEffect(() => {
     return () => {
@@ -1880,11 +1950,12 @@ function SelectedOrderPanel({
         clearTimeout(qcPersistTimerRef.current);
         qcPersistTimerRef.current = null;
       }
-      if (onPersistQcChecklist && qcChecklistDirtyRef.current) {
-        void onPersistQcChecklist(job.id, checkedSetToQcChecklistPayload(qcCheckedIdsRef.current));
+      const persist = onPersistQcChecklistRef.current;
+      if (persist && qcChecklistDirtyRef.current) {
+        void persist(job.id, checkedSetToQcChecklistPayload(qcCheckedIdsRef.current));
       }
     };
-  }, [job.id, onPersistQcChecklist]);
+  }, [job.id]);
 
   const qcValidation = useMemo(
     () => buildQCGateValidation(qcPlateValue, qcCheckedIds, mediaList),
@@ -1898,27 +1969,13 @@ function SelectedOrderPanel({
 
   const handleToggleQcItem = useCallback(
     (itemId: string) => {
-      // #region agent log
-      fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
-        body: JSON.stringify({
-          sessionId: '968466',
-          hypothesisId: 'H-toggle',
-          runId: 'diag',
-          location: 'QCLiveTrackerView.tsx:handleToggleQcItem',
-          message: 'qc checklist toggle click',
-          data: { itemPrefix: String(itemId).slice(0, 12) },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       qcChecklistDirtyRef.current = true;
       setQcCheckedIds((current) => {
         const next = new Set(current);
         if (next.has(itemId)) next.delete(itemId);
         else next.add(itemId);
         qcCheckedIdsRef.current = next;
+        qcChecklistUiCache.set(job.id, next);
         scheduleQcChecklistPersist();
         return next;
       });
@@ -1977,7 +2034,6 @@ function SelectedOrderPanel({
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,7fr)_minmax(280px,3fr)]">
           <div className="min-w-0 space-y-5">
             <CurrentGateCard
-              key={`${job.id}-${tracker.currentGate.id}`}
               job={job}
               detailsLoading={detailsLoading}
               viewerIsQualityChecker={viewerIsQualityChecker}
@@ -2045,7 +2101,7 @@ function LiveTrackerOrderModal({ onClose, isUploadInteractionActive = false, ...
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    focusDialog();
+    dialogRef.current?.focus({ preventScroll: true });
 
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -2056,7 +2112,9 @@ function LiveTrackerOrderModal({ onClose, isUploadInteractionActive = false, ...
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKey);
     };
-  }, [focusDialog, onClose]);
+    // Mount-only: avoid re-focusing the dialog when parent re-renders during upload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div
@@ -2064,7 +2122,6 @@ function LiveTrackerOrderModal({ onClose, isUploadInteractionActive = false, ...
       className="qc-live-order-backdrop fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
       onClick={(event) => {
         const targetIsBackdrop = event.target === overlayRef.current;
-        console.log('[BACKDROP CLICK]', { targetIsBackdrop, isUploadInteractionActive });
         if (targetIsBackdrop && !isUploadInteractionActive) onClose();
       }}
       role="dialog"
@@ -2102,9 +2159,14 @@ export default function QCLiveTrackerView({
   onAdvance: (id: string, stage: ServiceStage) => Promise<boolean>;
   onUploadStagePhoto: (
     orderId: string,
-    payload: { stage: string; slot?: string; description?: string; file?: File | null }
+    payload: { stage: string; slot?: string; description?: string; file?: File | null },
+    opts?: { skipJobsRefresh?: boolean }
+  ) => Promise<{ success: boolean; photoUrl?: string; trackerStageMedia?: unknown[] }>;
+  onDeleteTrackerStagePhoto: (
+    orderId: string,
+    payload: { stage: string; slot: string },
+    opts?: { skipJobsRefresh?: boolean }
   ) => Promise<boolean>;
-  onDeleteTrackerStagePhoto: (orderId: string, payload: { stage: string; slot: string }) => Promise<boolean>;
   onAddStaffNote: (orderId: string, content: string) => Promise<boolean>;
   onSaveQCHandoffSheet: (id: string, payload: QCHandoffFormState) => Promise<boolean>;
   onPersistQcChecklist?: (
@@ -2123,8 +2185,15 @@ export default function QCLiveTrackerView({
   const selectedJobIdRef = useRef<string | null>(null);
   const isOrderModalOpenRef = useRef(false);
   const isUploadInteractionActiveRef = useRef(false);
+  const uploadLockCountRef = useRef(0);
   const selectedDetailRequestRef = useRef(0);
-  const qcDebugMountIdRef = useRef(0);
+  const detailRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (detailRefreshTimerRef.current) clearTimeout(detailRefreshTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     selectedJobIdRef.current = selectedJobId;
@@ -2139,105 +2208,42 @@ export default function QCLiveTrackerView({
   }, [isUploadInteractionActive]);
 
   const handleUploadInteractionChange = useCallback((active: boolean) => {
-    isUploadInteractionActiveRef.current = active;
-    setIsUploadInteractionActive(active);
+    if (active) {
+      uploadLockCountRef.current += 1;
+      if (uploadLockCountRef.current === 1) {
+        isUploadInteractionActiveRef.current = true;
+        setIsUploadInteractionActive(true);
+        pauseQcJobsRefetchForUpload(20_000);
+        selectedDetailRequestRef.current += 1;
+        if (detailRefreshTimerRef.current) {
+          clearTimeout(detailRefreshTimerRef.current);
+          detailRefreshTimerRef.current = null;
+        }
+      }
+    } else {
+      uploadLockCountRef.current = Math.max(0, uploadLockCountRef.current - 1);
+      if (uploadLockCountRef.current === 0) {
+        isUploadInteractionActiveRef.current = false;
+        setIsUploadInteractionActive(false);
+      }
+    }
   }, []);
 
   useEffect(() => {
-    qcDebugMountIdRef.current += 1;
-    const mountId = qcDebugMountIdRef.current;
-    // #region agent log
-    fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
-      body: JSON.stringify({
-        sessionId: '968466',
-        hypothesisId: 'H-lifecycle',
-        runId: 'diag',
-        location: 'QCLiveTrackerView.tsx:mount',
-        message: 'QCLiveTrackerView mounted/remounted',
-        data: { mountId },
-        timestamp: Date.now(),
-      }),
-      keepalive: true,
-    }).catch(() => {});
-    // #endregion
-
-    const sendUnload = (reason: string) => {
-      // #region agent log
-      fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
-        body: JSON.stringify({
-          sessionId: '968466',
-          hypothesisId: 'H-full-unload',
-          runId: 'diag',
-          location: 'QCLiveTrackerView.tsx:unload-signal',
-          message: reason,
-          data: { mountId },
-          timestamp: Date.now(),
-        }),
-        keepalive: true,
-      }).catch(() => {});
-      // #endregion
-    };
-
-    const onBeforeUnload = () => sendUnload('beforeunload');
-    const onPageHide = (e: PageTransitionEvent) => sendUnload(e.persisted ? 'pagehide-bfcache' : 'pagehide');
-
-    window.addEventListener('beforeunload', onBeforeUnload);
-    window.addEventListener('pagehide', onPageHide);
-    return () => {
-      window.removeEventListener('beforeunload', onBeforeUnload);
-      window.removeEventListener('pagehide', onPageHide);
-    };
-  }, []);
-
-  useEffect(() => {
+    if (isUploadInteractionActiveRef.current) {
+      return;
+    }
     setLocalJobs((prev) => {
       if (jobs.length === 0 && prev.length > 0) return prev;
 
       const prevById = new Map(prev.map((j) => [j.id, j]));
-      // #region agent log
-      try {
-        const j0 = jobs[0] as any;
-        const raw = j0?.qcChecklist;
-        fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
-          body: JSON.stringify({
-            sessionId: '968466',
-            hypothesisId: 'H-projection',
-            location: 'QCLiveTrackerView.tsx:jobs-merge',
-            message: 'incoming jobs sample',
-            data: {
-              nJobs: jobs.length,
-              idSuffix: j0?.id ? String(j0.id).slice(-6) : '',
-              qcChecklistLen: Array.isArray(raw) ? raw.length : -1,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-      } catch {
-        /* ignore */
-      }
-      // #endregion
       const nextJobs = jobs.map((job) => {
         const old = prevById.get(job.id);
         if (!old) return job;
-        const nServer = countTrackerPhotoUrls(job.trackerStageMedia as TrackerMedia[] | undefined);
-        const nLocal = countTrackerPhotoUrls(old.trackerStageMedia as TrackerMedia[] | undefined);
-        const renderableServer = countRenderableTrackerPhotoUrls(job.trackerStageMedia as TrackerMedia[] | undefined);
-        const renderableLocal = countRenderableTrackerPhotoUrls(old.trackerStageMedia as TrackerMedia[] | undefined);
-        if (nLocal > nServer || renderableLocal > renderableServer) {
-          return {
-            ...job,
-            trackerStageMedia: old.trackerStageMedia,
-            qcChecklist: mergeOrderQcChecklistPayload(old as QCJob, (job as any).qcChecklist) as any,
-          } as QCJob;
-        }
+        const mergedMedia = mergeTrackerStageMediaLists(getMediaList(old), getMediaList(job));
         return {
           ...job,
+          trackerStageMedia: mergedMedia,
           qcChecklist: mergeOrderQcChecklistPayload(old as QCJob, (job as any).qcChecklist) as any,
         } as QCJob;
       });
@@ -2291,6 +2297,11 @@ export default function QCLiveTrackerView({
     isOrderModalOpenRef.current = true;
     setSelectedJobId(job.id);
     setIsOrderModalOpen(true);
+    try {
+      sessionStorage.setItem(QC_LIVE_MODAL_PERSIST_KEY, JSON.stringify({ jobId: job.id }));
+    } catch {
+      /* ignore quota errors */
+    }
   }, []);
 
   useEffect(() => {
@@ -2311,7 +2322,24 @@ export default function QCLiveTrackerView({
     }
   }, [openSelectedOrder, selectedJobId, trackedOrders]);
 
+  useEffect(() => {
+    if (selectedJobId || isOrderModalOpen || trackedOrders.length === 0) return;
+    try {
+      const raw = sessionStorage.getItem(QC_LIVE_MODAL_PERSIST_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { jobId?: string };
+      const jobId = typeof parsed?.jobId === 'string' ? parsed.jobId : '';
+      if (!jobId) return;
+      const job = trackedOrders.find((entry) => entry.id === jobId);
+      if (!job) return;
+      openSelectedOrder(job);
+    } catch {
+      /* ignore corrupt session payload */
+    }
+  }, [isOrderModalOpen, openSelectedOrder, selectedJobId, trackedOrders]);
+
   const refreshSelectedOrderDetails = useCallback(async (id: string, options?: { silent?: boolean }) => {
+    if (isUploadInteractionActiveRef.current) return false;
     const requestId = ++selectedDetailRequestRef.current;
     const silent = Boolean(options?.silent);
     if (!silent) setSelectedOrderDetailsLoading(true);
@@ -2321,6 +2349,10 @@ export default function QCLiveTrackerView({
       const detail = response?.success ? response.data : null;
       if (!detail) return false;
 
+      if (isUploadInteractionActiveRef.current || requestId !== selectedDetailRequestRef.current) {
+        return false;
+      }
+
       setLocalJobs((current) =>
         current.map((job) => {
           if (job.id !== id) return job;
@@ -2329,22 +2361,11 @@ export default function QCLiveTrackerView({
           const fetchedMedia = (Array.isArray((detail as any).trackerStageMedia)
             ? ((detail as any).trackerStageMedia as TrackerMedia[])
             : []
-          ).filter(Boolean);
+          )
+            .filter(Boolean)
+            .map(sanitizeTrackerMediaEntry);
 
-          const mergedMedia = fetchedMedia.map((media) => {
-            const existing = existingMedia.find((item) => matchesStageSlotRow(item, media));
-            const existingUrl = String(existing?.photoUrl || '').trim();
-            const fetchedUrl = String(media?.photoUrl || '').trim();
-            if (existingUrl.startsWith('blob:') && !fetchedUrl) return existing;
-            return media;
-          });
-
-          for (const existing of existingMedia) {
-            const existingUrl = String(existing?.photoUrl || '').trim();
-            if (!existingUrl.startsWith('blob:')) continue;
-            if (mergedMedia.some((item) => matchesStageSlotRow(item, existing))) continue;
-            mergedMedia.push(existing);
-          }
+          const mergedMedia = mergeTrackerStageMediaLists(existingMedia, fetchedMedia);
 
           return {
             ...job,
@@ -2418,40 +2439,18 @@ export default function QCLiveTrackerView({
     [onAdvance, refreshSelectedOrderDetails]
   );
 
-  const handleUploadStagePhoto = useCallback(
-    async (
-      orderId: string,
-      payload: { stage: string; slot?: string; description?: string; file?: File | null }
-    ) => {
-      console.log('[UPLOAD] Before upload - selectedJobId:', selectedJobIdRef.current);
-      console.log('[UPLOAD] Modal open state before:', isOrderModalOpenRef.current);
-      const ok = await onUploadStagePhoto(orderId, payload);
-      if (ok) {
-        console.log('[UPLOAD] After upload success - selectedJobId:', selectedJobIdRef.current);
-        console.log('[UPLOAD] Modal open state after:', isOrderModalOpenRef.current);
+  const scheduleSilentDetailRefresh = useCallback(
+    (orderId: string) => {
+      if (detailRefreshTimerRef.current) clearTimeout(detailRefreshTimerRef.current);
+      detailRefreshTimerRef.current = setTimeout(() => {
+        detailRefreshTimerRef.current = null;
+        if (isUploadInteractionActiveRef.current) {
+          return;
+        }
         void refreshSelectedOrderDetails(orderId, { silent: true });
-      }
-      return ok;
+      }, 2500);
     },
-    [onUploadStagePhoto, refreshSelectedOrderDetails]
-  );
-
-  const handleDeleteTrackerStagePhoto = useCallback(
-    async (orderId: string, payload: { stage: string; slot: string }) => {
-      const ok = await onDeleteTrackerStagePhoto(orderId, payload);
-      if (ok) void refreshSelectedOrderDetails(orderId, { silent: true });
-      return ok;
-    },
-    [onDeleteTrackerStagePhoto, refreshSelectedOrderDetails]
-  );
-
-  const handleAddStaffNote = useCallback(
-    async (orderId: string, content: string) => {
-      const ok = await onAddStaffNote(orderId, content);
-      if (ok) void refreshSelectedOrderDetails(orderId, { silent: true });
-      return ok;
-    },
-    [onAddStaffNote, refreshSelectedOrderDetails]
+    [refreshSelectedOrderDetails]
   );
 
   const upsertLocalMedia = useCallback((id: string, media: TrackerMedia) => {
@@ -2467,6 +2466,50 @@ export default function QCLiveTrackerView({
       })
     );
   }, []);
+
+  const handleUploadStagePhoto = useCallback(
+    async (
+      orderId: string,
+      payload: { stage: string; slot?: string; description?: string; file?: File | null },
+      opts?: { skipJobsRefresh?: boolean }
+    ) => {
+      const result = await onUploadStagePhoto(orderId, payload, { ...opts, skipJobsRefresh: true });
+      const savedUrl = typeof result?.photoUrl === 'string' ? result.photoUrl.trim() : '';
+      const isRemoteSavedUrl =
+        savedUrl.startsWith('http://') || savedUrl.startsWith('https://') || savedUrl.startsWith('/');
+      // Only refetch order detail when we have no URL at all (wait for Cloudinary backfill via socket).
+      if (result?.success && !savedUrl) {
+        scheduleSilentDetailRefresh(orderId);
+      } else if (result?.success && isRemoteSavedUrl) {
+        upsertLocalMedia(orderId, {
+          stage: payload.stage,
+          slot: payload.slot,
+          photoUrl: savedUrl,
+          uploadedAt: new Date().toISOString(),
+        });
+      }
+      return result;
+    },
+    [onUploadStagePhoto, scheduleSilentDetailRefresh, upsertLocalMedia]
+  );
+
+  const handleDeleteTrackerStagePhoto = useCallback(
+    async (orderId: string, payload: { stage: string; slot: string }) => {
+      const ok = await onDeleteTrackerStagePhoto(orderId, payload, { skipJobsRefresh: true });
+      if (ok) scheduleSilentDetailRefresh(orderId);
+      return ok;
+    },
+    [onDeleteTrackerStagePhoto, scheduleSilentDetailRefresh]
+  );
+
+  const handleAddStaffNote = useCallback(
+    async (orderId: string, content: string) => {
+      const ok = await onAddStaffNote(orderId, content);
+      if (ok) void refreshSelectedOrderDetails(orderId, { silent: true });
+      return ok;
+    },
+    [onAddStaffNote, refreshSelectedOrderDetails]
+  );
 
   const addLocalStaffNote = useCallback((id: string, content: string) => {
     setLocalJobs((current) =>
@@ -2513,9 +2556,7 @@ export default function QCLiveTrackerView({
   );
 
   const closeSelectedOrder = useCallback(() => {
-    console.log('[SELECTION CLEARED] Called from:', new Error().stack, {
-      isUploadInteractionActive: isUploadInteractionActiveRef.current,
-    });
+    if (isUploadInteractionActiveRef.current) return;
     isOrderModalOpenRef.current = false;
     isUploadInteractionActiveRef.current = false;
     selectedJobIdRef.current = null;
@@ -2523,11 +2564,17 @@ export default function QCLiveTrackerView({
     setIsOrderModalOpen(false);
     setIsUploadInteractionActive(false);
     setSelectedJobId(null);
+    try {
+      sessionStorage.removeItem(QC_LIVE_MODAL_PERSIST_KEY);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const modalJob = selectedJob || lastSelectedJobRef.current;
+  const modalPinned = Boolean(isOrderModalOpenRef.current || isOrderModalOpen || modalJob);
 
-  if (loading && !(isOrderModalOpen && modalJob)) {
+  if (loading && !modalPinned) {
     return (
       <div className="qc-live-shell h-[calc(100vh-96px)] w-full overflow-hidden rounded-[40px] bg-white/95 p-3 shadow-[0_24px_70px_-16px_rgba(15,23,42,0.14)]">
         <div className="flex h-full flex-col overflow-hidden rounded-[36px] bg-slate-50/85">
@@ -2548,7 +2595,7 @@ export default function QCLiveTrackerView({
     );
   }
 
-  if (trackedOrders.length === 0 && !(isOrderModalOpen && modalJob)) {
+  if (trackedOrders.length === 0 && !modalPinned) {
     return (
       <div className="qc-live-panel flex h-[calc(100vh-96px)] flex-col items-center justify-center rounded-[40px] bg-white/95 text-center shadow-[0_20px_60px_-14px_rgba(15,23,42,0.12)]">
         <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100/90 text-slate-400 shadow-[0_8px_24px_-8px_rgba(15,23,42,0.1)]">
@@ -2588,27 +2635,29 @@ export default function QCLiveTrackerView({
           </div>
         </section>
 
-        {isOrderModalOpen && modalJob ? (
-          <LiveTrackerOrderModal
-            key={modalJob.id}
-            job={modalJob}
-            detailsLoading={selectedOrderDetailsLoading}
-            viewerIsQualityChecker={viewerIsQualityChecker}
-            isUploadInteractionActive={isUploadInteractionActive}
-            onAdvance={handleAdvance}
-            onUploadStagePhoto={handleUploadStagePhoto}
-            onDeleteTrackerStagePhoto={handleDeleteTrackerStagePhoto}
-            onAddStaffNote={handleAddStaffNote}
-            onLocalStageUpdate={updateLocalStage}
-            onLocalStageMedia={upsertLocalMedia}
-            onLocalStaffNote={addLocalStaffNote}
-            onSaveQCHandoffSheet={handleSaveQCHandoffSheet}
-            onLocalHandoffPatch={patchLocalHandoff}
-            onPersistQcChecklist={onPersistQcChecklist}
-            onUploadInteractionChange={handleUploadInteractionChange}
-            onClose={closeSelectedOrder}
-          />
-        ) : null}
+        {isOrderModalOpen && modalJob
+          ? createPortal(
+              <LiveTrackerOrderModal
+                job={modalJob}
+                detailsLoading={selectedOrderDetailsLoading}
+                viewerIsQualityChecker={viewerIsQualityChecker}
+                isUploadInteractionActive={isUploadInteractionActive}
+                onAdvance={handleAdvance}
+                onUploadStagePhoto={handleUploadStagePhoto}
+                onDeleteTrackerStagePhoto={handleDeleteTrackerStagePhoto}
+                onAddStaffNote={handleAddStaffNote}
+                onLocalStageUpdate={updateLocalStage}
+                onLocalStageMedia={upsertLocalMedia}
+                onLocalStaffNote={addLocalStaffNote}
+                onSaveQCHandoffSheet={handleSaveQCHandoffSheet}
+                onLocalHandoffPatch={patchLocalHandoff}
+                onPersistQcChecklist={onPersistQcChecklist}
+                onUploadInteractionChange={handleUploadInteractionChange}
+                onClose={closeSelectedOrder}
+              />,
+              document.body
+            )
+          : null}
       </div>
     </div>
   );

@@ -22,6 +22,7 @@ import {
   isStaffRole,
   normalizeToCanonical,
 } from '../constants/roles.js';
+import { emitBookingManagerNotification } from '../utils/bookingManagerNotifications.utils.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { onOrderStatusChange } from '../utils/workflow.utils.js';
 import { decrypt } from '../utils/encryption.utils.js';
@@ -1295,11 +1296,11 @@ export const createOrder = async (req, res, next) => {
           const notifMessage = hasReservationProof
             ? `${customerLabel} sent a reservation fee proof for ${serviceLabel}. Ref ${bookingRefForSideEffects}. Review payment in Booking Approvals.`
             : `New booking ${orderNumberForSideEffects} — ${customerLabel}, ${serviceLabel}${vehicleLine ? ` (${vehicleLine})` : ''}. Review in Booking Approvals.`;
-          await Notification.create({
+          const salesNotif = await Notification.create({
             title: notifTitle,
             message: notifMessage,
             type: 'booking',
-            recipientRole: 'admin_family',
+            recipientRole: 'sales',
             link: `/admin/bookings/${orderIdForSideEffects}`,
             metadata: {
               orderId: orderIdForSideEffects,
@@ -1307,6 +1308,7 @@ export const createOrder = async (req, res, next) => {
               kind: hasReservationProof ? 'reservation_fee' : 'booking',
             },
           });
+          emitBookingManagerNotification(salesNotif);
         } catch (notifyErr) {
           console.error('Failed to create notification:', notifyErr);
         }
@@ -3316,22 +3318,34 @@ export const uploadPaymentProof = async (req, res, next) => {
     await order.save();
     reservedSlot = null;
 
+    emitBookingApprovalQueueUpdate(order);
+
     const io = getIO();
     // Notify customer
     io.to(`user:${order.customer.toString()}`).emit('booking:status', {
       bookingId: order._id,
       status: order.status,
     });
-    
-    // Notify admin
-    io.to('admin:chat').emit('booking:status', {
-      bookingId: order._id,
-      status: order.status,
-    });
-    io.to('admin:chat').emit('admin:notification', {
-      type: 'payment_proof_uploaded',
-      message: `Customer uploaded payment proof for booking ${order.orderNumber}`
-    });
+
+    try {
+      const customerLabel = order.customerName || 'Customer';
+      const serviceLabel = order.serviceType || 'Service';
+      const salesNotif = await Notification.create({
+        title: 'GCash reservation submitted',
+        message: `${customerLabel} uploaded payment proof for ${serviceLabel}. Ref ${order.bookingReference || order.orderNumber}. Review in Booking Approvals.`,
+        type: 'booking',
+        recipientRole: 'sales',
+        link: `/admin/bookings/${order._id}`,
+        metadata: {
+          orderId: order._id,
+          bookingReference: order.bookingReference,
+          kind: 'reservation_fee',
+        },
+      });
+      emitBookingManagerNotification(salesNotif);
+    } catch (notifyErr) {
+      console.warn('Failed to create payment proof notification:', notifyErr.message);
+    }
 
     res.status(200).json({
       success: true,

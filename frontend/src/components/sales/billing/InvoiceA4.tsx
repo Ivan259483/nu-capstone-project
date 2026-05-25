@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { COMPANY_BRANDING, companyContactLine } from '@/lib/company-branding';
 import { formatPeso } from '@/lib/salesData';
 
 export type InvoiceA4Snapshot = {
@@ -37,9 +38,12 @@ export type InvoiceA4Snapshot = {
 export default function InvoiceA4({
   snapshot,
   title = 'Invoice',
+  /** Narrow sidebar / POS panel — no full A4 min-height, readable totals */
+  embedded = false,
 }: {
   snapshot: InvoiceA4Snapshot | null;
   title?: string;
+  embedded?: boolean;
 }) {
   const lines = snapshot?.lineItems || [];
   const c = snapshot?.computed;
@@ -65,17 +69,29 @@ export default function InvoiceA4({
     );
   }
 
+  const totalsLabelClass = embedded
+    ? 'text-slate-600 shrink-0 whitespace-nowrap text-left'
+    : 'text-slate-600 shrink-0 whitespace-nowrap text-left';
+
   return (
-    <div className="invoice-a4-root bg-white text-slate-900 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div
+      className={`invoice-a4-root bg-white text-slate-900 rounded-xl border border-slate-200 shadow-sm ${
+        embedded ? 'overflow-visible' : 'overflow-hidden'
+      }`}
+    >
       <style dangerouslySetInnerHTML={{ __html: printCss }} />
       <div
-        className="p-8 max-w-[210mm] mx-auto"
-        style={{ minHeight: '297mm', boxSizing: 'border-box' }}
+        className={`max-w-[210mm] mx-auto w-full ${embedded ? 'p-4' : 'p-8'}`}
+        style={embedded ? { boxSizing: 'border-box' } : { minHeight: '297mm', boxSizing: 'border-box' }}
       >
         <div className="flex justify-between items-start gap-4 border-b border-slate-200 pb-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-blue-800">AutoSPF+</h1>
-            <p className="text-xs text-slate-500 mt-1">{title}</p>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-bold tracking-tight text-blue-800">{COMPANY_BRANDING.brandName}</h1>
+            <p className="text-xs text-slate-600 mt-1">{COMPANY_BRANDING.tagline}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{COMPANY_BRANDING.address}</p>
+            <p className="text-xs text-slate-500">{companyContactLine()}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">{COMPANY_BRANDING.facebook}</p>
+            <p className="text-xs text-slate-500 mt-2 font-medium">{title}</p>
           </div>
           <div className="text-right text-sm">
             <p className="font-mono font-bold text-slate-800">{snapshot.invoiceNumber}</p>
@@ -131,41 +147,45 @@ export default function InvoiceA4({
           </tbody>
         </table>
 
-        <div className="mt-8 ml-auto w-72 max-w-full space-y-1.5 text-sm">
-          <div className="flex justify-between gap-4 items-start">
-            <span className="text-slate-600 shrink min-w-0 break-words text-left">Subtotal</span>
+        <div
+          className={`mt-6 space-y-1.5 text-sm w-full ${embedded ? '' : 'ml-auto max-w-[18rem]'}`}
+        >
+          <div className="flex justify-between gap-3 items-center min-w-0">
+            <span className={totalsLabelClass}>Subtotal</span>
             <span className="tabular-nums shrink-0 text-right whitespace-nowrap">{formatPeso(c?.subtotal ?? 0)}</span>
           </div>
           {(c?.discountTotal ?? 0) > 0 && (
-            <div className="flex justify-between gap-4 items-start">
-              <span className="text-slate-600 shrink min-w-0 break-words text-left">Discount</span>
+            <div className="flex justify-between gap-3 items-center min-w-0">
+              <span className={totalsLabelClass}>Discount</span>
               <span className="tabular-nums shrink-0 text-right whitespace-nowrap">−{formatPeso(c?.discountTotal ?? 0)}</span>
             </div>
           )}
           {(c?.taxVatTotal ?? 0) !== 0 && (
-            <div className="flex justify-between gap-4 items-start">
-              <span className="text-slate-600 shrink min-w-0 break-words text-left">VAT / tax</span>
+            <div className="flex justify-between gap-3 items-center min-w-0">
+              <span className={totalsLabelClass}>VAT / tax</span>
               <span className="tabular-nums shrink-0 text-right whitespace-nowrap">{formatPeso(c?.taxVatTotal ?? 0)}</span>
             </div>
           )}
           {(c?.additionalFeesTotal ?? 0) !== 0 && (
-            <div className="flex justify-between gap-4 items-start">
-              <span className="text-slate-600 shrink min-w-0 break-words text-left">Fees</span>
+            <div className="flex justify-between gap-3 items-center min-w-0">
+              <span className={totalsLabelClass}>Fees</span>
               <span className="tabular-nums shrink-0 text-right whitespace-nowrap">{formatPeso(c?.additionalFeesTotal ?? 0)}</span>
             </div>
           )}
-          <div className="flex justify-between gap-4 items-start font-bold border-t border-slate-200 pt-2">
-            <span className="shrink min-w-0 break-words text-left">Service total</span>
+          <div className="flex justify-between gap-3 items-center min-w-0 font-bold border-t border-slate-200 pt-2">
+            <span className={totalsLabelClass}>Service total</span>
             <span className="tabular-nums shrink-0 text-right whitespace-nowrap">{formatPeso(c?.grandTotal ?? 0)}</span>
           </div>
           {(snapshot.downpayment ?? 0) > 0 && (
-            <div className="flex justify-between gap-4 items-start text-amber-800 font-semibold">
-              <span className="shrink min-w-0 break-words text-left leading-snug">Less reservation / downpayment (paid earlier)</span>
+            <div className="flex justify-between gap-3 items-start text-amber-800 font-semibold min-w-0">
+              <span className={`${totalsLabelClass} leading-snug max-w-[55%]`}>
+                Less reservation / downpayment (paid earlier)
+              </span>
               <span className="tabular-nums shrink-0 text-right whitespace-nowrap">−{formatPeso(snapshot.downpayment ?? 0)}</span>
             </div>
           )}
-          <div className="flex justify-between gap-4 items-start text-amber-900 font-bold">
-            <span className="shrink min-w-0 break-words text-left">Balance due</span>
+          <div className="flex justify-between gap-3 items-center min-w-0 text-amber-900 font-bold">
+            <span className={totalsLabelClass}>Balance due</span>
             <span className="tabular-nums shrink-0 text-right whitespace-nowrap">{formatPeso(c?.balanceDue ?? 0)}</span>
           </div>
         </div>

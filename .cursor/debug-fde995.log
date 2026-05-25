@@ -1,0 +1,29 @@
+{"sessionId":"fde995","hypothesisId":"H-detail-race","runId":"fix-v6","location":"QCLiveTrackerView:refreshSelectedOrderDetails","message":"applied detail refresh","data":{"idSuffix":"57dbba"},"timestamp":1779729360228}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:unmount","message":"component unmounted","data":{"modalOpen":true,"uploadGuard":false},"timestamp":1779729364250}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:mount","message":"component mounted","timestamp":1779729364890}
+{"sessionId":"fde995","hypothesisId":"H-full-reload","runId":"fix-v6","location":"QCLiveTrackerView:restoreModal","message":"restored modal after reload","data":{"idSuffix":"57dbba"},"timestamp":1779729364891}
+{"sessionId":"fde995","hypothesisId":"H-detail-race","runId":"fix-v6","location":"QCLiveTrackerView:refreshSelectedOrderDetails","message":"applied detail refresh","data":{"idSuffix":"57dbba"},"timestamp":1779729365113}
+{"sessionId":"fde995","hypothesisId":"H-full-reload","runId":"fix-v3","location":"QCLiveTrackerView:beforeunload","message":"full page unload during session","data":{"modalOpen":true,"uploadGuard":false},"timestamp":1779729369278}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:mount","message":"component mounted","timestamp":1779729370179}
+{"sessionId":"fde995","hypothesisId":"H-full-reload","runId":"fix-v6","location":"QCLiveTrackerView:restoreModal","message":"restored modal after reload","data":{"idSuffix":"57dbba"},"timestamp":1779729370180}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:unmount","message":"component unmounted","data":{"modalOpen":true,"uploadGuard":false},"timestamp":1779729370201}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:mount","message":"component mounted","timestamp":1779729370677}
+{"sessionId":"fde995","hypothesisId":"H-full-reload","runId":"fix-v6","location":"QCLiveTrackerView:restoreModal","message":"restored modal after reload","data":{"idSuffix":"57dbba"},"timestamp":1779729370677}
+{"sessionId":"fde995","hypothesisId":"H-detail-race","runId":"fix-v6","location":"QCLiveTrackerView:refreshSelectedOrderDetails","message":"applied detail refresh","data":{"idSuffix":"57dbba"},"timestamp":1779729370887}
+{"sessionId":"fde995","hypothesisId":"H-upload-guard","runId":"fix-v4","location":"QCLiveTrackerView:handleUploadInteractionChange","message":"upload lock +1","data":{"lockCount":1,"modalOpen":true,"guardActive":true},"timestamp":1779729373123}
+{"sessionId":"fde995","hypothesisId":"H-upload-flow","runId":"fix-v6","location":"CurrentGateCard:handlePhotoSelected","message":"photo selected","data":{"slot":"front","stage":"ready_pickup","fileSize":1560076},"timestamp":1779729377233}
+{"sessionId":"fde995","hypothesisId":"H-upload-flow","runId":"fix-v6","location":"CurrentGateCard:handlePhotoSelected","message":"photo upload succeeded","data":{"slot":"front","stage":"ready_pickup"},"timestamp":1779729377591}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:unmount","message":"component unmounted","data":{"modalOpen":true,"uploadGuard":true},"timestamp":1779729378260}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:mount","message":"component mounted","timestamp":1779729378653}
+{"sessionId":"fde995","hypothesisId":"H-full-reload","runId":"fix-v6","location":"QCLiveTrackerView:restoreModal","message":"restored modal after reload","data":{"idSuffix":"57dbba"},"timestamp":1779729378654}
+{"sessionId":"fde995","hypothesisId":"H-detail-race","runId":"fix-v6","location":"QCLiveTrackerView:refreshSelectedOrderDetails","message":"applied detail refresh","data":{"idSuffix":"57dbba"},"timestamp":1779729378809}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:unmount","message":"component unmounted","data":{"modalOpen":true,"uploadGuard":false},"timestamp":1779729379622}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:mount","message":"component mounted","timestamp":1779729380047}
+{"sessionId":"fde995","hypothesisId":"H-full-reload","runId":"fix-v6","location":"QCLiveTrackerView:restoreModal","message":"restored modal after reload","data":{"idSuffix":"57dbba"},"timestamp":1779729380048}
+{"sessionId":"fde995","hypothesisId":"H-detail-race","runId":"fix-v6","location":"QCLiveTrackerView:refreshSelectedOrderDetails","message":"applied detail refresh","data":{"idSuffix":"57dbba"},"timestamp":1779729380245}
+{"sessionId":"fde995","hypothesisId":"H-upload-guard","runId":"fix-v4","location":"QCLiveTrackerView:handleUploadInteractionChange","message":"upload lock -1","data":{"lockCount":0,"modalOpen":true,"guardActive":false},"timestamp":1779729380392}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:mount","message":"component mounted","timestamp":1779729485037}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:unmount","message":"component unmounted","data":{"modalOpen":false,"uploadGuard":false},"timestamp":1779729485035}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:unmount","message":"component unmounted","data":{"modalOpen":false,"uploadGuard":false},"timestamp":1779729486548}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:mount","message":"component mounted","timestamp":1779729486549}
+{"sessionId":"fde995","hypothesisId":"H-remount","runId":"fix-v6","location":"QCLiveTrackerView:unmount","message":"component unmounted","data":{"modalOpen":false,"uploadGuard":false},"timestamp":1779729487281}

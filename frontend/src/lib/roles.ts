@@ -71,7 +71,7 @@ export const USER_REGISTRATION_ROLES: UserRole[] = ['administrator', 'office_adm
 
 export const AI_ESTIMATOR_ROLES: UserRole[] = ['administrator', 'office_admin', 'staff_quality_checker'];
 
-export const AI_CHATBOT_ROLES: UserRole[] = ['administrator', 'office_admin', 'sales', 'staff_quality_checker'];
+export const AI_CHATBOT_ROLES: UserRole[] = ['administrator', 'office_admin', 'staff_quality_checker'];
 
 export const STAFF_QC_ROLE: UserRole = 'staff_quality_checker';
 

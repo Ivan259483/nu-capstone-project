@@ -96,6 +96,54 @@ function mongoOrderIdString(booking: { _id?: unknown; id?: unknown }): string {
     return '';
   }
 }
+
+/** Fetch approval preview + GCash proof fields for the proof review modal. */
+async function loadBookingWithProof(
+  orderId: string,
+  options?: { signal?: AbortSignal }
+): Promise<{ merged: Record<string, unknown> | null; error?: string }> {
+  const id = String(orderId).trim();
+  if (!id) return { merged: null, error: 'Invalid booking id.' };
+
+  const signal = options?.signal;
+  const [s0, s1] = await Promise.allSettled([
+    OrderService.getOrderApprovalPreview(id, { signal }),
+    OrderService.getOrderGcashProofFields(id, { signal }),
+  ]);
+
+  if (signal?.aborted) return { merged: null };
+
+  if (s0.status === 'rejected') {
+    if (axios.isCancel(s0.reason)) return { merged: null };
+    throw s0.reason;
+  }
+  if (s1.status === 'rejected' && axios.isCancel(s1.reason)) return { merged: null };
+
+  const res = s0.value;
+  const pr = s1.status === 'fulfilled' ? s1.value : { success: false as const, data: undefined };
+  const d = res?.data as Record<string, unknown> | undefined;
+  const pd = (pr?.success && pr?.data ? pr.data : {}) as {
+    downpaymentProof?: string;
+    paymentProofUrl?: string;
+  };
+
+  if (!res?.success || !res.data) {
+    return { merged: null, error: res?.message || 'Failed to load booking proof.' };
+  }
+
+  const merged = {
+    ...res.data,
+    downpaymentProof: pd?.downpaymentProof ?? (d?.downpaymentProof as string | undefined),
+    paymentProofUrl: pd?.paymentProofUrl ?? (d?.paymentProofUrl as string | undefined),
+    hasPaymentProof: Boolean(
+      pd?.downpaymentProof ||
+        pd?.paymentProofUrl ||
+        d?.downpaymentProof ||
+        d?.paymentProofUrl
+    ),
+  };
+  return { merged };
+}
 const APPROVAL_PENDING_STATUSES = ['pending_confirmation'];
 const APPROVAL_APPROVED_STATUSES = ['approved', 'confirmed'];
 const APPROVAL_REJECTED_STATUSES = ['rejected'];
@@ -433,45 +481,13 @@ function BookingCard({ booking, onApprove, onReject, idx }: {
     setDetailLoading(true);
     setDetailError('');
     try {
-      const [s0, s1] = await Promise.allSettled([
-        OrderService.getOrderApprovalPreview(id, { signal }),
-        OrderService.getOrderGcashProofFields(id, { signal }),
-      ]);
-
+      const { merged, error } = await loadBookingWithProof(id, { signal });
       if (signal.aborted || detailLoadGenRef.current !== myGen) return;
-
-      if (s0.status === 'rejected') {
-        if (axios.isCancel(s0.reason)) return;
-        throw s0.reason;
-      }
-      if (s1.status === 'rejected' && axios.isCancel(s1.reason)) return;
-
-      const res = s0.value;
-      const pr = s1.status === 'fulfilled' ? s1.value : { success: false as const, data: undefined };
-      const d = res?.data as Record<string, unknown> | undefined;
-      const pd = (pr?.success && pr?.data ? pr.data : {}) as {
-        downpaymentProof?: string;
-        paymentProofUrl?: string;
-      };
-
-      if (!res?.success || !res.data) {
-        setDetailError(res?.message || 'Failed to load booking proof.');
+      if (!merged) {
+        setDetailError(error || 'Failed to load booking proof.');
         return;
       }
-
-      const merged = {
-        ...res.data,
-        downpaymentProof: pd?.downpaymentProof ?? (d?.downpaymentProof as string | undefined),
-        paymentProofUrl: pd?.paymentProofUrl ?? (d?.paymentProofUrl as string | undefined),
-        hasPaymentProof: Boolean(
-          pd?.downpaymentProof ||
-            pd?.paymentProofUrl ||
-            d?.downpaymentProof ||
-            d?.paymentProofUrl
-        ),
-      };
       setDetailBooking(merged);
-      setDetailLoading(false);
     } catch (e) {
       if (axios.isCancel(e) || detailLoadGenRef.current !== myGen) return;
       setDetailError('Failed to load booking proof.');
@@ -728,11 +744,32 @@ function HistoryRow({ b, type }: { b: any; type: 'approved' | 'rejected' }) {
   );
 }
 
+type ForcedProofReviewState = {
+  stub: any;
+  detail: any | null;
+  loading: boolean;
+  error: string;
+  acting: boolean;
+  rejectMode: boolean;
+  reason: string;
+};
+
+type BookingApprovalsPageProps = {
+  /** From sales bell — auto-open GCash proof modal for this order */
+  preloadOrderId?: string | null;
+  onPreloadConsumed?: () => void;
+};
+
 // ─── Main page ───────────────────────────────────────────────────────────────
-export default function BookingApprovalsPage() {
+export default function BookingApprovalsPage({
+  preloadOrderId = null,
+  onPreloadConsumed,
+}: BookingApprovalsPageProps = {}) {
   const [tab, setTab] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [forcedReview, setForcedReview] = useState<ForcedProofReviewState | null>(null);
+  const forcedProofAbortRef = useRef<AbortController | null>(null);
 
   const fetchAll = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!silent) setLoading(true);
@@ -889,6 +926,85 @@ export default function BookingApprovalsPage() {
     }
   };
 
+  const closeForcedReview = useCallback(() => {
+    forcedProofAbortRef.current?.abort();
+    setForcedReview(null);
+  }, []);
+
+  useEffect(() => {
+    const orderId = String(preloadOrderId || '').trim();
+    if (!orderId) return;
+
+    let cancelled = false;
+    forcedProofAbortRef.current?.abort();
+    forcedProofAbortRef.current = new AbortController();
+    const signal = forcedProofAbortRef.current.signal;
+
+    void (async () => {
+      setTab('pending');
+
+      let stub = allBookings.find((b) => mongoOrderIdString(b) === orderId);
+      if (!stub) {
+        try {
+          const preview = await OrderService.getOrderApprovalPreview(orderId, { signal });
+          if (signal.aborted || cancelled) return;
+          if (preview.success && preview.data) {
+            stub = toApprovalListBooking(preview.data);
+          }
+        } catch (e) {
+          if (axios.isCancel(e) || signal.aborted || cancelled) return;
+        }
+      }
+
+      if (!stub) {
+        toast.error('Could not open GCash proof review for this booking');
+        onPreloadConsumed?.();
+        return;
+      }
+
+      setForcedReview({
+        stub,
+        detail: null,
+        loading: true,
+        error: '',
+        acting: false,
+        rejectMode: false,
+        reason: '',
+      });
+
+      try {
+        const { merged, error } = await loadBookingWithProof(orderId, { signal });
+        if (signal.aborted || cancelled) return;
+        setForcedReview((fr) =>
+          fr
+            ? {
+                ...fr,
+                detail: merged || fr.stub,
+                loading: false,
+                error: error || '',
+              }
+            : null
+        );
+      } catch {
+        if (signal.aborted || cancelled) return;
+        setForcedReview((fr) =>
+          fr ? { ...fr, loading: false, error: 'Failed to load booking proof.' } : null
+        );
+      } finally {
+        onPreloadConsumed?.();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      forcedProofAbortRef.current?.abort();
+    };
+  }, [preloadOrderId, onPreloadConsumed]);
+
+  const forcedModalBooking = forcedReview ? forcedReview.detail || forcedReview.stub : null;
+  const forcedOrderId = forcedReview ? mongoOrderIdString(forcedModalBooking || forcedReview.stub) : '';
+  const forcedCustomerName = forcedModalBooking?.customerName || 'Customer';
+
   const TABS = [
     { key: 'pending', label: 'Pending', count: pending.length, pulse: true },
     { key: 'approved', label: 'Approved', count: approved.length },
@@ -897,6 +1013,85 @@ export default function BookingApprovalsPage() {
 
   return (
     <div className="booking-approvals-shell flex min-h-0 flex-col space-y-5 page-enter pb-6">
+      {forcedReview && !forcedReview.rejectMode && forcedModalBooking && (
+        <ProofModal
+          booking={forcedModalBooking}
+          loading={forcedReview.loading}
+          error={forcedReview.error}
+          onClose={closeForcedReview}
+          onApprove={async () => {
+            if (!forcedOrderId) return;
+            setForcedReview((fr) => (fr ? { ...fr, acting: true } : null));
+            await handleApprove(forcedOrderId, forcedCustomerName);
+            closeForcedReview();
+          }}
+          onReject={() => {
+            setForcedReview((fr) => (fr ? { ...fr, rejectMode: true } : null));
+          }}
+          acting={forcedReview.acting}
+        />
+      )}
+      {forcedReview?.rejectMode &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) closeForcedReview();
+            }}
+          >
+            <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={closeForcedReview} />
+            <div className="relative w-full max-w-md rounded-[24px] bg-white p-5 shadow-[0_24px_60px_rgba(15,23,42,0.25)]">
+              <div className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-rose-700">
+                <AlertTriangle size={15} />
+                Reason for rejection
+              </div>
+              <textarea
+                value={forcedReview.reason}
+                onChange={(e) =>
+                  setForcedReview((fr) => (fr ? { ...fr, reason: e.target.value } : null))
+                }
+                rows={4}
+                placeholder="Example: screenshot unclear, amount does not match ₱500, or sender cannot be verified."
+                className="mb-4 w-full resize-none rounded-2xl border-0 bg-slate-50 px-3.5 py-3 text-sm text-slate-800 shadow-inner focus:outline-none focus:ring-4 focus:ring-rose-500/12"
+              />
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  disabled={forcedReview.acting}
+                  onClick={async () => {
+                    if (!forcedOrderId) return;
+                    setForcedReview((fr) => (fr ? { ...fr, acting: true } : null));
+                    await handleReject(
+                      forcedOrderId,
+                      forcedCustomerName,
+                      forcedReview.reason || 'Payment proof could not be verified.'
+                    );
+                    closeForcedReview();
+                  }}
+                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-rose-600 text-sm font-black text-white disabled:opacity-70"
+                >
+                  {forcedReview.acting ? (
+                    <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  ) : (
+                    <XCircle size={16} />
+                  )}
+                  Confirm rejection
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForcedReview((fr) => (fr ? { ...fr, rejectMode: false } : null))
+                  }
+                  className="h-11 rounded-2xl bg-slate-100 px-5 text-sm font-black text-slate-600"
+                >
+                  Back to proof
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
       {/* Header */}
       <div className="booking-approvals-header shrink-0 overflow-hidden rounded-[28px] border-0 bg-white px-5 py-5 shadow-[0_4px_24px_-10px_rgba(15,23,42,0.08),0_18px_48px_-18px_rgba(15,23,42,0.09)] sm:px-6">
         <div className="flex flex-wrap items-start justify-between gap-4">

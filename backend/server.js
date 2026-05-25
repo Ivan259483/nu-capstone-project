@@ -130,6 +130,11 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests, please try again later.' },
+  skip: (req) => {
+    const path = req.path || '';
+    const original = req.originalUrl || '';
+    return path === '/health' || original.startsWith('/api/health');
+  },
 });
 
 // Auth endpoints: stricter — 100 requests per 15 minutes per IP

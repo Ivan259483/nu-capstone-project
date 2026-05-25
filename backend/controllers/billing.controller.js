@@ -66,6 +66,36 @@ function pushBillingEvent(billing, req, action, summary, payload = null) {
   });
 }
 
+function isBillingVersionConflict(err) {
+  return (
+    err?.name === 'VersionError' ||
+    /No matching document found/i.test(String(err?.message || ''))
+  );
+}
+
+function applyBillingBody(billing, body) {
+  const dedupe = body.dedupeByServiceId !== undefined ? !!body.dedupeByServiceId : billing.dedupeByServiceId;
+
+  if (Array.isArray(body.lineItems)) {
+    billing.lineItems = dedupeLineItems(body.lineItems, dedupe);
+  }
+  if (body.discount) {
+    billing.discount = {
+      discountType: body.discount.discountType === 'percent' ? 'percent' : 'fixed',
+      value: normalizeMoney(body.discount.value),
+      reason: String(body.discount.reason || '').slice(0, 500),
+    };
+  }
+  if (body.taxVatAmount !== undefined) billing.taxVatAmount = normalizeMoney(body.taxVatAmount);
+  if (body.additionalFees !== undefined) billing.additionalFees = normalizeMoney(body.additionalFees);
+  if (body.downpayment !== undefined) billing.downpayment = normalizeMoney(body.downpayment);
+  if (body.dedupeByServiceId !== undefined) billing.dedupeByServiceId = !!body.dedupeByServiceId;
+
+  billing.version = (billing.version || 1) + 1;
+  billing.status = billing.lineItems.length ? 'updated' : 'pending';
+  applyComputed(billing);
+}
+
 async function syncOrderItemsFromBilling(order, billing) {
   order.items = billing.lineItems.map((li) => ({
     product: li.serviceId || undefined,
@@ -171,56 +201,53 @@ export const putBilling = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Cannot edit billing on a paid order' });
     }
 
-    let billing = await Billing.findOne({ order: orderId });
-    if (!billing) {
-      billing = new Billing({ order: orderId });
-    }
-    if (billing.status === 'checked_out') {
-      return res.status(400).json({ success: false, message: 'Billing already checked out' });
-    }
-
     const body = req.body || {};
-    const dedupe = body.dedupeByServiceId !== undefined ? !!body.dedupeByServiceId : billing.dedupeByServiceId;
+    const MAX_ATTEMPTS = 4;
 
-    if (Array.isArray(body.lineItems)) {
-      billing.lineItems = dedupeLineItems(body.lineItems, dedupe);
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      let billing = await Billing.findOne({ order: orderId });
+      if (!billing) {
+        billing = new Billing({ order: orderId });
+      }
+      if (billing.status === 'checked_out') {
+        return res.status(400).json({ success: false, message: 'Billing already checked out' });
+      }
+
+      applyBillingBody(billing, body);
+      billing.lastEditedBy = req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : null;
+
+      pushBillingEvent(billing, req, 'billing_updated', `v${billing.version} — ${billing.lineItems.length} line(s)`, {
+        computed: billing.computed,
+      });
+
+      try {
+        await billing.save();
+      } catch (saveErr) {
+        if (isBillingVersionConflict(saveErr) && attempt < MAX_ATTEMPTS - 1) {
+          await new Promise((r) => setTimeout(r, 40 * (attempt + 1)));
+          continue;
+        }
+        throw saveErr;
+      }
+
+      logActivity({
+        req,
+        type: 'billing_update',
+        module: 'Sales',
+        action: 'Billing updated',
+        description: `Order ${order.orderNumber || orderId} billing v${billing.version} (${billing.lineItems.length} lines).`,
+        status: 'info',
+        referenceId: String(order._id),
+        metadata: { orderId: order._id, billingVersion: billing.version },
+      });
+
+      return res.json({ success: true, data: billing });
     }
-    if (body.discount) {
-      billing.discount = {
-        discountType: body.discount.discountType === 'percent' ? 'percent' : 'fixed',
-        value: normalizeMoney(body.discount.value),
-        reason: String(body.discount.reason || '').slice(0, 500),
-      };
-    }
-    if (body.taxVatAmount !== undefined) billing.taxVatAmount = normalizeMoney(body.taxVatAmount);
-    if (body.additionalFees !== undefined) billing.additionalFees = normalizeMoney(body.additionalFees);
-    if (body.downpayment !== undefined) billing.downpayment = normalizeMoney(body.downpayment);
-    if (body.dedupeByServiceId !== undefined) billing.dedupeByServiceId = !!body.dedupeByServiceId;
 
-    billing.version = (billing.version || 1) + 1;
-    billing.status = billing.lineItems.length ? 'updated' : 'pending';
-    billing.lastEditedBy = req.user?.id ? new mongoose.Types.ObjectId(req.user.id) : null;
-
-    applyComputed(billing);
-
-    pushBillingEvent(billing, req, 'billing_updated', `v${billing.version} — ${billing.lineItems.length} line(s)`, {
-      computed: billing.computed,
+    return res.status(409).json({
+      success: false,
+      message: 'Billing was updated by another action. Please try again.',
     });
-
-    await billing.save();
-
-    logActivity({
-      req,
-      type: 'billing_update',
-      module: 'Sales',
-      action: 'Billing updated',
-      description: `Order ${order.orderNumber || orderId} billing v${billing.version} (${billing.lineItems.length} lines).`,
-      status: 'info',
-      referenceId: String(order._id),
-      metadata: { orderId: order._id, billingVersion: billing.version },
-    });
-
-    return res.json({ success: true, data: billing });
   } catch (err) {
     next(err);
   }
@@ -378,6 +405,7 @@ export const checkoutBilling = async (req, res, next) => {
         receipt: receiptData,
         inventoryWarnings,
         pdfUrl: `/api/invoices/${encodeURIComponent(invoiceNumber)}/pdf`,
+        snapshot: invoiceRecord.snapshot,
       },
     });
   } catch (err) {

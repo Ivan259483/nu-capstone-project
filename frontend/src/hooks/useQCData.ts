@@ -107,6 +107,17 @@ const QC_JOBS_SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000;
 const SUMMARY_POLL_INTERVAL_MS = 60_000;
 const SOCKET_JOBS_DEBOUNCE_MS = 350;
 const REQUEST_DEDUPE_MS = 5_000;
+/** After stage-photo upload, skip socket-driven /qc/jobs refetch to avoid modal remount/flicker. */
+let qcSocketJobsRefetchPausedUntil = 0;
+
+function pauseQcSocketJobsRefetch(ms = 4500) {
+  qcSocketJobsRefetchPausedUntil = Date.now() + ms;
+}
+
+/** Pause socket/list refetch while the file picker or upload is active (Live Tracker). */
+export function pauseQcJobsRefetchForUpload(ms = 15_000) {
+  pauseQcSocketJobsRefetch(ms);
+}
 
 type CacheEntry<T> = {
   data?: T;
@@ -187,6 +198,109 @@ const isCanceledRequest = (err: any) =>
   err?.code === 'ERR_CANCELED' ||
   err?.name === 'CanceledError' ||
   err?.message === 'canceled';
+
+type QcChecklistItem = { item: string; passed: boolean; note?: string };
+
+/** Coalesce auto-saves from Live Tracker checklist toggles to avoid 429 rate limits. */
+const checklistSaveQueues = new Map<
+  string,
+  {
+    inFlight: Promise<boolean> | null;
+    pending: { id: string; items: QcChecklistItem[]; opts?: { quiet?: boolean } } | null;
+    lastKey: string;
+  }
+>();
+
+let checklistQuietRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+function qcChecklistPayloadKey(items: QcChecklistItem[]): string {
+  return items.map((i) => `${i.item}:${i.passed ? 1 : 0}`).join('|');
+}
+
+function scheduleQuietChecklistJobsRefresh(fetchJobs: (silent?: boolean) => Promise<void>) {
+  if (checklistQuietRefreshTimer) clearTimeout(checklistQuietRefreshTimer);
+  checklistQuietRefreshTimer = setTimeout(() => {
+    checklistQuietRefreshTimer = null;
+    invalidateQcJobsRequestCache();
+    void fetchJobs(true);
+  }, 2500);
+}
+
+async function patchQcChecklist(
+  id: string,
+  items: QcChecklistItem[],
+  quiet: boolean
+): Promise<void> {
+  const maxAttempts = quiet ? 3 : 1;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      await api.patch(`/qc/jobs/${id}/checklist`, { items });
+      return;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 429 && quiet && attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+async function runCoalescedChecklistSave(
+  id: string,
+  items: QcChecklistItem[],
+  opts: { quiet?: boolean } | undefined,
+  fetchJobs: (silent?: boolean) => Promise<void>
+): Promise<boolean> {
+  const quiet = Boolean(opts?.quiet);
+  const payloadKey = qcChecklistPayloadKey(items);
+  let queue = checklistSaveQueues.get(id);
+  if (!queue) {
+    queue = { inFlight: null, pending: null, lastKey: '' };
+    checklistSaveQueues.set(id, queue);
+  }
+
+  if (queue.inFlight) {
+    queue.pending = { id, items, opts };
+    return queue.inFlight;
+  }
+
+  if (quiet && queue.lastKey === payloadKey) {
+    return true;
+  }
+
+  const execute = async (): Promise<boolean> => {
+    try {
+      await patchQcChecklist(id, items, quiet);
+
+      queue!.lastKey = payloadKey;
+      if (!quiet) {
+        toast.success('Checklist saved');
+        invalidateQcJobsRequestCache();
+        void fetchJobs(true);
+      } else {
+        scheduleQuietChecklistJobsRefresh(fetchJobs);
+      }
+      return true;
+    } catch (err: any) {
+      if (!quiet) {
+        toast.error('Failed to save checklist');
+      }
+      return false;
+    } finally {
+      queue!.inFlight = null;
+      const pending = queue!.pending;
+      queue!.pending = null;
+      if (pending) {
+        return runCoalescedChecklistSave(pending.id, pending.items, pending.opts, fetchJobs);
+      }
+    }
+  };
+
+  queue.inFlight = execute();
+  return queue.inFlight;
+}
 
 const dedupedRequest = async <T,>(key: string, request: () => Promise<T>): Promise<T> => {
   const now = Date.now();
@@ -391,9 +505,11 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
     /** Coalesce db_change + orderUpdated bursts into one jobs refresh. */
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleSocketRefetch = () => {
+      if (Date.now() < qcSocketJobsRefetchPausedUntil) return;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
+        if (Date.now() < qcSocketJobsRefetchPausedUntil) return;
         fetchJobs(true);
       }, SOCKET_JOBS_DEBOUNCE_MS);
     };
@@ -448,86 +564,8 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
   }, [fetchJobs, fetchStats, fetchActivity]);
 
   const updateChecklist = useCallback(
-    async (
-      id: string,
-      items: { item: string; passed: boolean; note?: string }[],
-      opts?: { quiet?: boolean }
-    ): Promise<boolean> => {
-      try {
-        // #region agent log
-        fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
-          body: JSON.stringify({
-            sessionId: '968466',
-            hypothesisId: 'H-patch-flow',
-            runId: 'diag',
-            location: 'useQCData.ts:updateChecklist',
-            message: 'checklist PATCH start',
-            data: { idSuffix: id ? String(id).slice(-6) : '', quiet: Boolean(opts?.quiet), nItems: items?.length ?? 0 },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
-        await api.patch(`/qc/jobs/${id}/checklist`, { items });
-        // #region agent log
-        fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
-          body: JSON.stringify({
-            sessionId: '968466',
-            hypothesisId: 'H-patch-flow',
-            runId: 'diag',
-            location: 'useQCData.ts:updateChecklist',
-            message: 'checklist PATCH ok',
-            data: { idSuffix: id ? String(id).slice(-6) : '' },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
-        if (!opts?.quiet) {
-          toast.success('Checklist saved');
-        }
-        invalidateQcJobsRequestCache();
-        void fetchJobs(true);
-        // #region agent log
-        fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
-          body: JSON.stringify({
-            sessionId: '968466',
-            hypothesisId: 'H-patch-flow',
-            runId: 'diag',
-            location: 'useQCData.ts:updateChecklist',
-            message: 'after invalidate + fetchJobs scheduled',
-            data: { idSuffix: id ? String(id).slice(-6) : '' },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
-        return true;
-      } catch (err: any) {
-        // #region agent log
-        fetch('http://127.0.0.1:7942/ingest/8cc35304-90ec-4f44-b68b-faf6fcc2fdcb', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '968466' },
-          body: JSON.stringify({
-            sessionId: '968466',
-            hypothesisId: 'H-patch-flow',
-            runId: 'diag',
-            location: 'useQCData.ts:updateChecklist',
-            message: 'checklist PATCH error',
-            data: {
-              idSuffix: id ? String(id).slice(-6) : '',
-              status: err?.response?.status,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
-        toast.error('Failed to save checklist');
-        return false;
-      }
+    async (id: string, items: QcChecklistItem[], opts?: { quiet?: boolean }): Promise<boolean> => {
+      return runCoalescedChecklistSave(id, items, opts, fetchJobs);
     },
     [fetchJobs]
   );
@@ -555,20 +593,16 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
   const uploadTrackerStagePhoto = useCallback(
     async (
       orderId: string,
-      payload: { stage: string; slot?: string; description?: string; file?: File | null }
-    ): Promise<boolean> => {
-      console.log('[BASE UPLOAD] Starting...', {
-        orderId,
-        stage: payload.stage,
-        slot: payload.slot,
-        hasFile: Boolean(payload.file),
-      });
+      payload: { stage: string; slot?: string; description?: string; file?: File | null },
+      opts?: { skipJobsRefresh?: boolean }
+    ): Promise<{ success: boolean; photoUrl?: string; trackerStageMedia?: unknown[] }> => {
+      pauseQcSocketJobsRefetch(15_000);
       let loadingId: string | number | undefined;
       try {
         if (payload.file) {
           if (isGatePhotoStage(payload.stage) && !payload.slot) {
             toast.error('Missing photo slot');
-            return false;
+            return { success: false };
           }
           loadingId = toast.loading('Preparing photo…', { duration: 120_000 });
           let file = payload.file;
@@ -591,11 +625,28 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
           if (payload.description?.trim()) form.append('description', payload.description.trim());
           form.append('photo', file);
 
-          await api.post(`/orders/${orderId}/stage-photo`, form, {
+          const postRes = await api.post(`/orders/${orderId}/stage-photo`, form, {
             timeout: 120_000,
             headers: { 'Content-Type': undefined },
             meta: { suppressErrorToast: true },
           } as any);
+          const postData = postRes?.data?.data;
+          toast.success('Stage photo saved', {
+            id: loadingId,
+            description: 'Shown on the customer live tracker.',
+          });
+          pauseQcSocketJobsRefetch();
+          if (!opts?.skipJobsRefresh) {
+            invalidateQcJobsRequestCache();
+            void fetchJobs(true);
+          }
+          return {
+            success: true,
+            photoUrl: typeof postData?.photoUrl === 'string' ? postData.photoUrl : undefined,
+            trackerStageMedia: Array.isArray(postData?.trackerStageMedia)
+              ? postData.trackerStageMedia
+              : undefined,
+          };
         } else if (payload.stage === 'confirmed' && payload.description?.trim()) {
           loadingId = toast.loading('Saving note…');
           await api.patch(
@@ -612,35 +663,42 @@ export function useQCData({ loadSummary = true }: UseQCDataOptions = {}) {
               ? 'Add a customer note or choose a photo'
               : 'Please choose an image file'
           );
-          return false;
+          return { success: false };
         }
         toast.success('Stage photo saved', {
           id: loadingId,
           description: 'Shown on the customer live tracker.',
         });
-        invalidateQcJobsRequestCache();
-        // Refresh jobs in background — do not await (GET /qc/jobs can be very slow; Live Tracker already merges locally).
-        void fetchJobs(true);
-        return true;
+        if (!opts?.skipJobsRefresh) {
+          invalidateQcJobsRequestCache();
+          void fetchJobs(true);
+        }
+        return { success: true };
       } catch (err: any) {
         const msg = err?.response?.data?.message || err?.message || 'Upload failed';
         toast.error('Stage photo upload failed', { id: loadingId, description: msg });
-        return false;
+        return { success: false };
       }
     },
     [fetchJobs]
   );
 
   const deleteTrackerStagePhoto = useCallback(
-    async (orderId: string, payload: { stage: string; slot: string }): Promise<boolean> => {
+    async (
+      orderId: string,
+      payload: { stage: string; slot: string },
+      opts?: { skipJobsRefresh?: boolean }
+    ): Promise<boolean> => {
       try {
         await api.delete(`/orders/${orderId}/stage-photo`, {
           params: { stage: payload.stage, slot: payload.slot },
           meta: { suppressErrorToast: true },
         } as any);
         toast.success('Photo removed');
-        invalidateQcJobsRequestCache();
-        void fetchJobs(true);
+        if (!opts?.skipJobsRefresh) {
+          invalidateQcJobsRequestCache();
+          void fetchJobs(true);
+        }
         return true;
       } catch (err: any) {
         const msg = err?.response?.data?.message || err?.message || 'Remove failed';

@@ -1,4 +1,33 @@
 import api from './api';
+import type { InvoiceA4Snapshot } from '@/components/sales/billing/InvoiceA4';
+
+/** Normalize GET /invoices/:id or checkout payload into a renderable A4 snapshot. */
+export function extractInvoiceSnapshot(
+  response: { success?: boolean; data?: unknown } | null | undefined
+): InvoiceA4Snapshot | null {
+  if (!response?.success || !response.data || typeof response.data !== 'object') return null;
+  const d = response.data as Record<string, unknown>;
+  const snap = d.snapshot;
+  if (snap && typeof snap === 'object' && !Array.isArray(snap)) {
+    return snap as InvoiceA4Snapshot;
+  }
+  if (Array.isArray(d.lineItems) && d.computed && typeof d.computed === 'object') {
+    return d as InvoiceA4Snapshot;
+  }
+  return null;
+}
+
+/** Serialize PUT billing per order to avoid Mongoose version conflicts from parallel saves. */
+const billingPutChains = new Map<string, Promise<unknown>>();
+
+function enqueueBillingPut<T>(orderId: string, run: () => Promise<T>): Promise<T> {
+  const prev = billingPutChains.get(orderId) ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(run);
+  billingPutChains.set(orderId, next);
+  return next.finally(() => {
+    if (billingPutChains.get(orderId) === next) billingPutChains.delete(orderId);
+  });
+}
 
 export type BillingLineItem = {
   _id?: string;
@@ -62,15 +91,17 @@ export const BillingService = {
       dedupeByServiceId?: boolean;
     }
   ) => {
-    try {
-      const { data } = await api.put(`/orders/${orderId}/billing`, body);
-      return data as { success: boolean; data: BillingDoc; message?: string };
-    } catch (error: any) {
-      return {
-        success: false,
-        message: error.response?.data?.message || 'Failed to save billing',
-      };
-    }
+    return enqueueBillingPut(orderId, async () => {
+      try {
+        const { data } = await api.put(`/orders/${orderId}/billing`, body);
+        return data as { success: boolean; data: BillingDoc; message?: string };
+      } catch (error: any) {
+        return {
+          success: false,
+          message: error.response?.data?.message || 'Failed to save billing',
+        };
+      }
+    });
   },
 
   checkout: async (
@@ -94,6 +125,7 @@ export const BillingService = {
           receipt: Record<string, unknown>;
           inventoryWarnings: unknown[];
           pdfUrl: string;
+          snapshot?: InvoiceA4Snapshot;
         };
         message?: string;
       };
@@ -157,3 +189,8 @@ export const BillingService = {
   getInvoicePdfUrl: (invoiceNumber: string) =>
     `/api/invoices/${encodeURIComponent(invoiceNumber)}/pdf`,
 };
+
+export async function fetchInvoiceSnapshot(invoiceNumber: string): Promise<InvoiceA4Snapshot | null> {
+  const inv = await BillingService.getInvoice(invoiceNumber);
+  return extractInvoiceSnapshot(inv);
+}

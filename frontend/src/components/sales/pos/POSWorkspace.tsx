@@ -1,16 +1,22 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import CustomerVehiclePanel from './CustomerVehiclePanel';
 import ServiceCartPanel from './ServiceCartPanel';
 import PaymentSummaryPanel from './PaymentSummaryPanel';
 import ReceiptModal from './ReceiptModal';
-import BillingWorkspace from '@/components/sales/billing/BillingWorkspace';
+import BillingWorkspace, { type BillingChargesPayload } from '@/components/sales/billing/BillingWorkspace';
+import type { BillingDiscount } from '@/lib/billing-service';
 import InvoiceA4, { type InvoiceA4Snapshot } from '@/components/sales/billing/InvoiceA4';
 import { Customer, Vehicle, CartItem, formatPeso } from '@/lib/salesData';
 import { useServices, VehicleType, getEffectivePrice } from '@/hooks/useServices';
-import { BillingService } from '@/lib/billing-service';
-import { computeBillingTotals, type BillingLineItem } from '@/lib/billingTotals';
+import {
+  BillingService,
+  extractInvoiceSnapshot,
+  fetchInvoiceSnapshot,
+} from '@/lib/billing-service';
+import { computeBillingTotals, type BillingComputed, type BillingLineItem } from '@/lib/billingTotals';
 import { toast } from 'sonner';
+import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
 import { DEFAULT_SPF_ADDON_PRICES } from '@/lib/service-pricing';
 
@@ -78,6 +84,57 @@ function isSalesBalanceCheckoutQueueOrder(b: any): boolean {
 
 /** When billing + order have no stored reservation, assume ₱500 for booking-linked POS checkout. */
 const BOOKING_RESERVATION_DP_FALLBACK = 500;
+
+type PosBillingCharges = {
+  discount: BillingDiscount;
+  taxVatAmount: number;
+  additionalFees: number;
+  downpayment: number;
+};
+
+const emptyBillingCharges = (): PosBillingCharges => ({
+  discount: { discountType: 'fixed', value: 0 },
+  taxVatAmount: 0,
+  additionalFees: 0,
+  downpayment: 0,
+});
+
+function chargesFromBillingDoc(
+  bd: {
+    discount?: BillingDiscount;
+    taxVatAmount?: number;
+    additionalFees?: number;
+    downpayment?: number;
+  } | null,
+  orderDownPayment: unknown,
+  isBookingOrder: boolean
+): PosBillingCharges {
+  const d = bd?.discount;
+  return {
+    discount: {
+      discountType: d?.discountType === 'percent' ? 'percent' : 'fixed',
+      value: Math.max(0, Number(d?.value) || 0),
+      reason: d?.reason,
+    },
+    taxVatAmount: Math.max(0, Number(bd?.taxVatAmount) || 0),
+    additionalFees: Math.max(0, Number(bd?.additionalFees) || 0),
+    downpayment: resolvePosDownpayment(bd?.downpayment, orderDownPayment, isBookingOrder),
+  };
+}
+
+function chargesToPutBody(charges: PosBillingCharges) {
+  const val = Math.max(0, Number(charges.discount.value) || 0);
+  return {
+    discount: {
+      discountType: charges.discount.discountType,
+      value: val,
+      reason: charges.discount.reason,
+    },
+    taxVatAmount: charges.taxVatAmount,
+    additionalFees: charges.additionalFees,
+    downpayment: charges.downpayment,
+  };
+}
 
 function resolvePosDownpayment(
   billingDownpayment: unknown,
@@ -263,8 +320,17 @@ function CheckInQueuePanel({
   );
 }
 
+type POSWorkspaceProps = {
+  /** When set (e.g. from balance notification), load this order into checkout */
+  preloadOrderId?: string | null;
+  onPreloadConsumed?: () => void;
+};
+
 // ── Main POS Workspace ────────────────────────────────────────────────────────
-export default function POSWorkspace() {
+export default function POSWorkspace({
+  preloadOrderId = null,
+  onPreloadConsumed,
+}: POSWorkspaceProps = {}) {
   const { services, isLoading: servicesLoading } = useServices();
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -283,9 +349,8 @@ export default function POSWorkspace() {
   const isVehicleFromCustomer = !manualVehicleType && customerVehicleType !== null;
 
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [discount, setDiscount] = useState<number>(0);
-  /** Manual VAT (peso) — added on top of (subtotal − discount). Synced to order billing as `taxVatAmount`. */
-  const [vatAmount, setVatAmount] = useState<number>(0);
+  const [billingCharges, setBillingCharges] = useState<PosBillingCharges>(emptyBillingCharges);
+  const [billingComputedLive, setBillingComputedLive] = useState<BillingComputed | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [showReceipt, setShowReceipt] = useState(false);
   const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
@@ -311,10 +376,26 @@ export default function POSWorkspace() {
   const [unpaidOrders, setUnpaidOrders] = useState<any[]>([]);
   const [unpaidOrdersLoading, setUnpaidOrdersLoading] = useState(false);
   const [billingSyncNonce, setBillingSyncNonce] = useState(0);
-  /** Reservation / GCash downpayment applied to balance-due (from billing or order; booking fallback ₱500). */
-  const [posReservationDownpayment, setPosReservationDownpayment] = useState(0);
-  const [invoiceSnap, setInvoiceSnap] = useState<InvoiceA4Snapshot | null>(null);
+  const [lastInvoiceSnap, setLastInvoiceSnap] = useState<InvoiceA4Snapshot | null>(null);
+  const [lastInvoiceNumber, setLastInvoiceNumber] = useState<string | null>(null);
   const [checkInQueueTick, setCheckInQueueTick] = useState(0);
+
+  const handleBillingChargesChange = useCallback((payload: BillingChargesPayload) => {
+    setBillingCharges({
+      discount: payload.discount,
+      taxVatAmount: payload.taxVatAmount,
+      additionalFees: payload.additionalFees,
+      downpayment: payload.downpayment,
+    });
+    if (payload.computed) setBillingComputedLive(payload.computed);
+  }, []);
+
+  const resetPosTransaction = useCallback(() => {
+    setBillingCharges(emptyBillingCharges());
+    setBillingComputedLive(null);
+    setLastInvoiceSnap(null);
+    setLastInvoiceNumber(null);
+  }, []);
 
   const effectiveOrderId = linkedOrderId ?? posBillingOrderId;
 
@@ -340,6 +421,20 @@ export default function POSWorkspace() {
 
   useEffect(() => {
     loadUnpaidOrders();
+  }, [loadUnpaidOrders]);
+
+  useEffect(() => {
+    const socket = getSharedSocket();
+    const onBalancePickupNotif = (payload: { metadata?: { kind?: string } }) => {
+      if (payload?.metadata?.kind === 'balance_pickup') {
+        setCheckInQueueTick((t) => t + 1);
+        void loadUnpaidOrders();
+      }
+    };
+    socket.on('notification:booking-manager', onBalancePickupNotif);
+    return () => {
+      socket.off('notification:booking-manager', onBalancePickupNotif);
+    };
   }, [loadUnpaidOrders]);
 
   const buildLineItemsFromCart = useCallback(() => {
@@ -368,10 +463,6 @@ export default function POSWorkspace() {
       const order = ordRes.success ? (ordRes.data as any) : null;
       const bd =
         billRes.success && 'data' in billRes && billRes.data ? (billRes.data as any) : null;
-      setPosReservationDownpayment(
-        resolvePosDownpayment(bd?.downpayment, order?.downPaymentAmount, Boolean(orderId))
-      );
-
       if (bd && Array.isArray(bd.lineItems) && bd.lineItems.length > 0) {
         const items: CartItem[] = bd.lineItems.map((li: any, i: number) => {
           const sid = li.serviceId ? String(li.serviceId) : `billing-line-${orderId}-${i}`;
@@ -387,21 +478,14 @@ export default function POSWorkspace() {
           };
         });
         setCartItems(items);
-        const d = bd.discount;
-        if (d?.discountType === 'fixed' && Number(d.value) > 0) {
-          setDiscount(Number(d.value));
-        } else {
-          setDiscount(0);
-        }
-        setVatAmount(Math.max(0, Number(bd.taxVatAmount) || 0));
+        setBillingCharges(chargesFromBillingDoc(bd, order?.downPaymentAmount, Boolean(orderId)));
         setBillingSyncNonce((n) => n + 1);
         return;
       }
 
       if (!order) {
         setCartItems([]);
-        setDiscount(0);
-        setVatAmount(0);
+        setBillingCharges(emptyBillingCharges());
         setBillingSyncNonce((n) => n + 1);
         return;
       }
@@ -426,8 +510,9 @@ export default function POSWorkspace() {
           };
         });
         setCartItems(mapped);
-        setDiscount(0);
-        setVatAmount(0);
+        setBillingCharges(
+          chargesFromBillingDoc(null, order.downPaymentAmount, Boolean(orderId))
+        );
         setBillingSyncNonce((n) => n + 1);
         return;
       }
@@ -449,14 +534,12 @@ export default function POSWorkspace() {
       } else {
         setCartItems([]);
       }
-      setDiscount(0);
-      setVatAmount(0);
+      setBillingCharges(chargesFromBillingDoc(null, order?.downPaymentAmount, Boolean(orderId)));
       setBillingSyncNonce((n) => n + 1);
     } catch {
       toast.error('Could not load order line items');
       setCartItems([]);
-      setVatAmount(0);
-      setPosReservationDownpayment(0);
+      setBillingCharges(emptyBillingCharges());
     }
   }, [services]);
 
@@ -466,34 +549,47 @@ export default function POSWorkspace() {
       void (async () => {
         const put = await BillingService.putBilling(effectiveOrderId, {
           lineItems: buildLineItemsFromCart(),
-          discount: discount > 0 ? { discountType: 'fixed' as const, value: discount } : undefined,
-          taxVatAmount: vatAmount,
-          additionalFees: 0,
-          downpayment: posReservationDownpayment,
         });
-        if (put.success) setBillingSyncNonce((n) => n + 1);
+        if (put.success && put.data?.computed) {
+          setBillingComputedLive(put.data.computed);
+          setBillingCharges(chargesFromBillingDoc(put.data, undefined, true));
+        }
       })();
     }, 450);
     return () => window.clearTimeout(t);
-  }, [effectiveOrderId, cartItems, discount, vatAmount, buildLineItemsFromCart, posReservationDownpayment]);
+  }, [effectiveOrderId, cartItems, buildLineItemsFromCart]);
+
+  const persistInvoiceAfterCheckout = useCallback(
+    async (invoiceNumber: string, snapshotFromCheckout?: InvoiceA4Snapshot) => {
+      if (snapshotFromCheckout && typeof snapshotFromCheckout === 'object') {
+        setLastInvoiceSnap(snapshotFromCheckout);
+        setLastInvoiceNumber(invoiceNumber);
+        return;
+      }
+      const snap = await fetchInvoiceSnapshot(invoiceNumber);
+      if (snap) {
+        setLastInvoiceSnap(snap);
+        setLastInvoiceNumber(invoiceNumber);
+      } else {
+        toast.warning('Payment saved. Invoice preview could not load — use Print PDF from billing.');
+      }
+    },
+    []
+  );
 
   const onBillingCheckoutSuccess = useCallback(
-    async ({ invoiceNumber }: { invoiceNumber: string; pdfUrl: string }) => {
-      const inv = await BillingService.getInvoice(invoiceNumber);
-      if (inv.success && 'data' in inv && inv.data && typeof inv.data === 'object' && 'snapshot' in inv.data) {
-        setInvoiceSnap((inv.data as { snapshot: InvoiceA4Snapshot }).snapshot);
-      }
+    async ({ invoiceNumber, snapshot }: { invoiceNumber: string; pdfUrl: string; snapshot?: InvoiceA4Snapshot }) => {
+      await persistInvoiceAfterCheckout(invoiceNumber, snapshot);
       setCartItems([]);
-      setDiscount(0);
-      setVatAmount(0);
+      setBillingCharges(emptyBillingCharges());
+      setBillingComputedLive(null);
       setReceiptData(null);
       setLinkedOrderId(null);
       setPosBillingOrderId(null);
-      setPosReservationDownpayment(0);
       loadUnpaidOrders();
       setCheckInQueueTick((n) => n + 1);
     },
-    [loadUnpaidOrders]
+    [loadUnpaidOrders, persistInvoiceAfterCheckout]
   );
 
   const handleUnpaidOrderSelect = useCallback(
@@ -545,43 +641,81 @@ export default function POSWorkspace() {
     [unpaidOrders, hydrateCartFromOrder]
   );
 
+  const applyBookingToPos = useCallback(
+    (b: any) => {
+      const orderId = String(b._id || b.id || '');
+      if (!orderId) return;
+      const cleanPlate = sanitizeVehiclePlate(b.vehiclePlate || '');
+      const syntheticCustomer: Customer = {
+        id: String(b.customer || b._id || ''),
+        name: b.customerName || 'Customer',
+        phone: b.customerPhone || '',
+        email: b.customerEmail || '',
+        tier: 'bronze',
+        visitCount: 0,
+        totalSpent: 0,
+        lastVisit: new Date().toISOString(),
+        memberSince: new Date().toISOString(),
+        notes: '',
+        isSynthetic: true,
+        vehicles: [{
+          id: cleanPlate
+            ? `plate-${String(cleanPlate).replace(/\W/g, '-')}`
+            : `booking-${orderId}-veh`,
+          plate: cleanPlate,
+          make: b.vehicleMake || '',
+          model: b.vehicleModel || '',
+          year:
+            typeof b.vehicleYear === 'number'
+              ? b.vehicleYear
+              : parseInt(String(b.vehicleYear || '0'), 10) || 0,
+          color: b.vehicleColor || '',
+          type: b.vehicleType || 'sedan',
+        }],
+      };
+      setSelectedCustomer(syntheticCustomer);
+      setSelectedVehicle(syntheticCustomer.vehicles[0]);
+      setManualVehicleType(null);
+      setLinkedOrderId(orderId);
+      setPosBillingOrderId(null);
+      setLastInvoiceSnap(null);
+      setLastInvoiceNumber(null);
+      void hydrateCartFromOrder(orderId);
+    },
+    [hydrateCartFromOrder]
+  );
+
   const handleSelectBooking = (b: any) => {
-    const cleanPlate = sanitizeVehiclePlate(b.vehiclePlate || '');
-    const syntheticCustomer: Customer = {
-      id: String(b.customer || b._id || ''),
-      name: b.customerName || 'Customer',
-      phone: b.customerPhone || '',
-      email: b.customerEmail || '',
-      tier: 'bronze',
-      visitCount: 0,
-      totalSpent: 0,
-      lastVisit: new Date().toISOString(),
-      memberSince: new Date().toISOString(),
-      notes: '',
-      isSynthetic: true,
-      vehicles: [{
-        id: cleanPlate
-          ? `plate-${String(cleanPlate).replace(/\W/g, '-')}`
-          : `booking-${String(b._id || b.id)}-veh`,
-        plate: cleanPlate,
-        make: b.vehicleMake || '',
-        model: b.vehicleModel || '',
-        year:
-          typeof b.vehicleYear === 'number'
-            ? b.vehicleYear
-            : parseInt(String(b.vehicleYear || '0'), 10) || 0,
-        color: b.vehicleColor || '',
-        type: b.vehicleType || 'sedan',
-      }],
-    };
-    setSelectedCustomer(syntheticCustomer);
-    setSelectedVehicle(syntheticCustomer.vehicles[0]);
-    setManualVehicleType(null);
-    setLinkedOrderId(String(b._id || b.id));
-    setPosBillingOrderId(null);
-    toast.success(`Loaded booking: ${b.customerName}`);
-    void hydrateCartFromOrder(String(b._id || b.id));
+    applyBookingToPos(b);
+    toast.success(`Loaded booking: ${b.customerName || 'Customer'}`);
   };
+
+  const loadOrderForCheckout = useCallback(
+    async (orderId: string) => {
+      const id = String(orderId).trim();
+      if (!id) return;
+      let b = unpaidOrders.find((x: any) => String(x._id || x.id) === id);
+      if (!b) {
+        const { OrderService } = await import('@/lib/order-service');
+        const res = await OrderService.getOrderById(id);
+        if (res.success && res.data) b = res.data;
+      }
+      if (!b) {
+        toast.error('Could not load order for POS');
+        return;
+      }
+      applyBookingToPos(b);
+      toast.success(
+        `Ready to collect payment — ${b.customerName || b.orderNumber || 'customer'}`
+      );
+    },
+    [unpaidOrders, applyBookingToPos]
+  );
+
+  useEffect(() => {
+    if (!preloadOrderId) return;
+    void loadOrderForCheckout(preloadOrderId).finally(() => onPreloadConsumed?.());
+  }, [preloadOrderId, loadOrderForCheckout, onPreloadConsumed]);
 
   const addToCart = (svcId: string, withTint = false) => {
     const svc = services.find((s) => s._id === svcId);
@@ -636,7 +770,124 @@ export default function POSWorkspace() {
   };
 
   const subtotal = cartItems.reduce((sum, c) => sum + c.price * c.quantity, 0);
-  const total = Math.max(0, subtotal - discount + vatAmount);
+
+  const totalsFromCharges = useCallback(
+    (lineItems: BillingLineItem[]) =>
+      computeBillingTotals({
+        lineItems,
+        discount: billingCharges.discount,
+        taxVatAmount: billingCharges.taxVatAmount,
+        additionalFees: billingCharges.additionalFees,
+        downpayment: billingCharges.downpayment,
+      }),
+    [billingCharges]
+  );
+
+  const walkInTotals = useMemo(
+    () =>
+      cartItems.length > 0
+        ? totalsFromCharges(buildLineItemsFromCart() as BillingLineItem[])
+        : null,
+    [cartItems.length, totalsFromCharges, buildLineItemsFromCart]
+  );
+
+  const total = walkInTotals?.grandTotal ?? 0;
+
+  const walkInDiscountDisplay =
+    billingCharges.discount.discountType === 'fixed'
+      ? billingCharges.discount.value
+      : walkInTotals?.discountTotal ?? 0;
+
+  const balanceCheckoutPreview = useMemo(() => {
+    if (!effectiveOrderId || cartItems.length === 0) return null;
+    const computed =
+      billingComputedLive ??
+      totalsFromCharges(buildLineItemsFromCart() as BillingLineItem[]);
+    return {
+      grandTotal: computed.grandTotal,
+      reservationApplied: billingCharges.downpayment,
+      balanceDue: computed.balanceDue,
+      discountTotal: computed.discountTotal,
+      taxVatTotal: computed.taxVatTotal,
+      additionalFeesTotal: computed.additionalFeesTotal,
+    };
+  }, [
+    effectiveOrderId,
+    cartItems.length,
+    billingComputedLive,
+    billingCharges.downpayment,
+    totalsFromCharges,
+    buildLineItemsFromCart,
+  ]);
+
+  const activeUnpaidOrder = useMemo(() => {
+    if (!effectiveOrderId) return null;
+    return unpaidOrders.find((o: any) => String(o._id) === effectiveOrderId) ?? null;
+  }, [effectiveOrderId, unpaidOrders]);
+
+  /** Live A4 preview while order is loaded (not a static screenshot). */
+  const liveInvoicePreview = useMemo((): InvoiceA4Snapshot | null => {
+    if (lastInvoiceSnap) return null;
+    if (!effectiveOrderId || cartItems.length === 0) return null;
+    const lineItems = buildLineItemsFromCart() as BillingLineItem[];
+    const computed =
+      billingComputedLive ?? totalsFromCharges(lineItems);
+    const o = activeUnpaidOrder;
+    return {
+      invoiceNumber: 'Preview',
+      issuedAt: new Date().toISOString(),
+      orderNumber: o?.orderNumber,
+      bookingReference: o?.bookingReference,
+      customerName: selectedCustomer?.name || o?.customerName,
+      customerPhone: selectedCustomer?.phone || o?.customerPhone,
+      vehicle: selectedVehicle
+        ? {
+            year: selectedVehicle.year,
+            make: selectedVehicle.make,
+            model: selectedVehicle.model,
+            plate: sanitizeVehiclePlate(selectedVehicle.plate) || selectedVehicle.plate,
+          }
+        : o
+          ? {
+              year: o.vehicleYear,
+              make: o.vehicleMake,
+              model: o.vehicleModel,
+              plate: sanitizeVehiclePlate(o.vehiclePlate) || o.vehiclePlate,
+            }
+          : undefined,
+      lineItems: lineItems.map((li) => ({
+        name: li.name,
+        quantity: li.quantity,
+        unitPrice: li.unitPrice,
+        lineTotal: li.unitPrice * li.quantity,
+        billingGroup: li.billingGroup,
+      })),
+      discount: billingCharges.discount,
+      taxVatAmount: billingCharges.taxVatAmount,
+      additionalFees: billingCharges.additionalFees,
+      downpayment: billingCharges.downpayment,
+      computed,
+      paymentStatus: 'draft',
+    };
+  }, [
+    lastInvoiceSnap,
+    effectiveOrderId,
+    cartItems.length,
+    buildLineItemsFromCart,
+    billingComputedLive,
+    totalsFromCharges,
+    activeUnpaidOrder,
+    selectedCustomer,
+    selectedVehicle,
+    billingCharges,
+  ]);
+
+  const displayInvoiceSnap = lastInvoiceSnap ?? liveInvoicePreview;
+  const invoicePanelSuffix = lastInvoiceNumber
+    ? `— ${lastInvoiceNumber}`
+    : liveInvoicePreview
+      ? '— live preview'
+      : '(A4)';
 
   const handleProcessPayment = () => {
     if (!selectedCustomer) { toast.error('Please select a customer before processing payment.'); return; }
@@ -645,14 +896,7 @@ export default function POSWorkspace() {
 
     const lineItemsForConfirm = buildLineItemsFromCart() as BillingLineItem[];
     const confirmBalance = effectiveOrderId
-      ? computeBillingTotals({
-          lineItems: lineItemsForConfirm,
-          discount:
-            discount > 0 ? { discountType: 'fixed' as const, value: discount } : { discountType: 'fixed' as const, value: 0 },
-          taxVatAmount: vatAmount,
-          additionalFees: 0,
-          downpayment: posReservationDownpayment,
-        }).balanceDue
+      ? (billingComputedLive?.balanceDue ?? totalsFromCharges(lineItemsForConfirm).balanceDue)
       : total;
 
     setPaymentConfirmAmountLabel(
@@ -675,10 +919,7 @@ export default function POSWorkspace() {
         const lineItems = buildLineItemsFromCart();
         const put = await BillingService.putBilling(effectiveOrderId, {
           lineItems,
-          discount: discount > 0 ? { discountType: 'fixed' as const, value: discount } : undefined,
-          taxVatAmount: vatAmount,
-          additionalFees: 0,
-          downpayment: posReservationDownpayment,
+          ...chargesToPutBody(billingCharges),
         });
         if (!put.success || !('data' in put) || !put.data) {
           toast.error((put as { message?: string }).message || 'Could not update billing');
@@ -698,29 +939,33 @@ export default function POSWorkspace() {
         } else {
           const chkData = chk.data;
           const txnId = chkData.invoiceNumber || chkData.posInvoiceId || `TXN-${Date.now()}`;
+          const discTotal = put.data.computed?.discountTotal ?? 0;
           setReceiptData({
             txnId,
             cartItems: cartItems.map((c) => ({ ...c })),
             subtotal,
-            discount,
-            vatAmount,
+            discount: discTotal,
+            vatAmount: billingCharges.taxVatAmount,
             total: balanceDue,
             paymentMethod,
-            reservationApplied: posReservationDownpayment,
+            reservationApplied: billingCharges.downpayment,
           });
           setCompletedTxnId(txnId);
           setShowReceipt(true);
-          toast.success(`Payment recorded — ${chkData.invoiceNumber || ''}`);
-          const inv = await BillingService.getInvoice(chkData.invoiceNumber);
-          if (inv.success && 'data' in inv && inv.data && typeof inv.data === 'object' && 'snapshot' in inv.data) {
-            setInvoiceSnap((inv.data as { snapshot: InvoiceA4Snapshot }).snapshot);
+          const invNum = chkData.invoiceNumber || '';
+          toast.success(invNum ? `Invoice ${invNum} generated` : 'Payment recorded');
+          if (invNum) {
+            const snapFromCheckout =
+              chkData.snapshot && typeof chkData.snapshot === 'object'
+                ? (chkData.snapshot as InvoiceA4Snapshot)
+                : extractInvoiceSnapshot({ success: true, data: chkData });
+            await persistInvoiceAfterCheckout(invNum, snapFromCheckout ?? undefined);
           }
           setCartItems([]);
-          setDiscount(0);
-          setVatAmount(0);
+          setBillingCharges(emptyBillingCharges());
+          setBillingComputedLive(null);
           setLinkedOrderId(null);
           setPosBillingOrderId(null);
-          setPosReservationDownpayment(0);
           loadUnpaidOrders();
           setCheckInQueueTick((n) => n + 1);
         }
@@ -745,7 +990,7 @@ export default function POSWorkspace() {
         })),
         totalAmount: subtotal,
         totalPrice: total,
-        discount: discount,
+        discount: walkInDiscountDisplay,
         paymentMethod: paymentMethod,
         status: 'completed',
         notes: '',
@@ -757,8 +1002,8 @@ export default function POSWorkspace() {
           txnId,
           cartItems: cartItems.map((c) => ({ ...c })),
           subtotal,
-          discount,
-          vatAmount,
+          discount: walkInDiscountDisplay,
+          vatAmount: billingCharges.taxVatAmount,
           total,
           paymentMethod,
           reservationApplied: 0,
@@ -767,8 +1012,7 @@ export default function POSWorkspace() {
         setShowReceipt(true);
         toast.success(`Payment processed! ${txnId}`);
         setCartItems([]);
-        setDiscount(0);
-        setVatAmount(0);
+        setBillingCharges(emptyBillingCharges());
       } else {
         toast.error(res.message || 'Failed to process payment');
       }
@@ -779,8 +1023,8 @@ export default function POSWorkspace() {
         txnId: fallbackId,
         cartItems: cartItems.map((c) => ({ ...c })),
         subtotal,
-        discount,
-        vatAmount,
+        discount: walkInDiscountDisplay,
+        vatAmount: billingCharges.taxVatAmount,
         total,
         paymentMethod,
         reservationApplied: 0,
@@ -798,8 +1042,7 @@ export default function POSWorkspace() {
     setSelectedVehicle(null);
     setManualVehicleType(null);
     setCartItems([]);
-    setDiscount(0);
-    setVatAmount(0);
+    resetPosTransaction();
     setPaymentMethod('cash');
     setShowReceipt(false);
     setShowPaymentConfirm(false);
@@ -807,15 +1050,13 @@ export default function POSWorkspace() {
     setReceiptData(null);
     setLinkedOrderId(null);
     setPosBillingOrderId(null);
-    setPosReservationDownpayment(0);
-    setInvoiceSnap(null);
   };
 
   const receiptSnap = receiptData;
   const receiptCartItems = receiptSnap?.cartItems ?? cartItems;
   const receiptSubtotal = receiptSnap?.subtotal ?? subtotal;
-  const receiptDiscount = receiptSnap?.discount ?? discount;
-  const receiptVat = receiptSnap?.vatAmount ?? vatAmount;
+  const receiptDiscount = receiptSnap?.discount ?? walkInDiscountDisplay;
+  const receiptVat = receiptSnap?.vatAmount ?? billingCharges.taxVatAmount;
   const receiptTotal = receiptSnap?.total ?? total;
   const receiptTxnId = receiptSnap?.txnId ?? completedTxnId;
   const receiptPm = receiptSnap?.paymentMethod ?? paymentMethod;
@@ -873,7 +1114,14 @@ export default function POSWorkspace() {
             <CustomerVehiclePanel
               selectedCustomer={selectedCustomer}
               selectedVehicle={selectedVehicle}
-              onSelectCustomer={(c) => { setSelectedCustomer(c); setSelectedVehicle(null); setManualVehicleType(null); setLinkedOrderId(null); setPosBillingOrderId(null); setInvoiceSnap(null); setPosReservationDownpayment(0); }}
+              onSelectCustomer={(c) => {
+                setSelectedCustomer(c);
+                setSelectedVehicle(null);
+                setManualVehicleType(null);
+                setLinkedOrderId(null);
+                setPosBillingOrderId(null);
+                resetPosTransaction();
+              }}
               onSelectVehicle={(v) => { setSelectedVehicle(v); setManualVehicleType(null); }}
             />
           </div>
@@ -893,41 +1141,67 @@ export default function POSWorkspace() {
           </div>
 
           <div className="lg:col-span-4 flex flex-col min-h-0 overflow-hidden gap-2">
-            {/* flex-1 + min-h-0: bounds height so PaymentSummary inner overflow-y-auto can scroll */}
-            <div className="flex-1 min-h-0 flex flex-col">
+            {/* Balance checkout: summary stays full height (no squeeze); billing scrolls below */}
+            <div
+              className={
+                effectiveOrderId
+                  ? 'shrink-0 flex flex-col'
+                  : 'flex-1 min-h-0 flex flex-col'
+              }
+            >
               <PaymentSummaryPanel
                 cartItems={cartItems}
                 subtotal={subtotal}
-                discount={discount}
-                vatAmount={vatAmount}
+                discount={walkInDiscountDisplay}
+                vatAmount={billingCharges.taxVatAmount}
                 total={total}
+                balanceCheckout={balanceCheckoutPreview}
+                compact={Boolean(effectiveOrderId)}
                 paymentMethod={paymentMethod}
                 processing={processing}
-                onDiscountChange={setDiscount}
-                onVatChange={setVatAmount}
+                onDiscountChange={(v) =>
+                  setBillingCharges((c) => ({
+                    ...c,
+                    discount: { discountType: 'fixed', value: v },
+                  }))
+                }
+                onVatChange={(v) =>
+                  setBillingCharges((c) => ({ ...c, taxVatAmount: Math.max(0, v) }))
+                }
                 onPaymentMethodChange={setPaymentMethod}
                 onProcessPayment={handleProcessPayment}
               />
             </div>
             {effectiveOrderId && (
-              <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pr-0.5">
+              <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pr-0.5 min-h-[120px]">
                 <BillingWorkspace
                   orderId={effectiveOrderId}
                   syncNonce={billingSyncNonce}
                   onCheckoutSuccess={onBillingCheckoutSuccess}
+                  onChargesChange={handleBillingChargesChange}
                   compact
+                  hideCheckout
+                  autoSaveCharges
                 />
-                {invoiceSnap && (
-                  <details className="rounded-xl border border-slate-200 bg-white overflow-hidden shrink-0" open>
-                    <summary className="cursor-pointer px-3 py-2 text-xs font-bold text-slate-800 bg-slate-50 border-b border-slate-100">
-                      Invoice preview (A4)
-                    </summary>
-                    <div className="p-2 max-h-[480px] overflow-y-auto">
-                      <InvoiceA4 snapshot={invoiceSnap} />
-                    </div>
-                  </details>
-                )}
               </div>
+            )}
+            {displayInvoiceSnap && (effectiveOrderId || lastInvoiceSnap) && (
+              <details
+                className="rounded-xl border border-slate-200 bg-white shrink-0 min-w-0"
+                open
+              >
+                <summary className="cursor-pointer px-3 py-2 text-xs font-bold text-slate-800 bg-slate-50 border-b border-slate-100">
+                  Invoice {invoicePanelSuffix}
+                </summary>
+                <div className="p-2 max-h-[min(70vh,560px)] overflow-y-auto overflow-x-auto min-w-0">
+                  {liveInvoicePreview && !lastInvoiceSnap && (
+                    <p className="text-[10px] text-amber-800 font-medium mb-2 px-1">
+                      Live preview — matches Billing discount/VAT. Final invoice number appears after Collect balance.
+                    </p>
+                  )}
+                  <InvoiceA4 snapshot={displayInvoiceSnap} embedded />
+                </div>
+              </details>
             )}
           </div>
         </div>
