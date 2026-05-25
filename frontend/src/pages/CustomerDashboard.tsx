@@ -5957,9 +5957,9 @@ export default function CustomerDashboard() {
       {/* Add Vehicle Modal */}
 
       {addVehicleOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-md sm:p-5" onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5" onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}>
           <div
-            className="customer-vehicle-modal flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
+            className="customer-vehicle-modal customer-vehicle-modal--premium flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
             onClick={e => e.stopPropagation()}
             style={{
               animation: 'modalIn .2s ease-out',
@@ -5970,12 +5970,13 @@ export default function CustomerDashboard() {
             {/* Header */}
             <div className="customer-vehicle-header flex shrink-0 items-center justify-between gap-4 border-0 px-5 py-4 sm:px-6">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm">
-                  <iconify-icon icon="solar:garage-bold" width="20"></iconify-icon>
+                <div className="customer-vehicle-header-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white">
+                  <iconify-icon icon="solar:garage-bold" width="22"></iconify-icon>
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-base font-bold text-slate-950">Add Vehicle</h3>
-                  <p className="mt-0.5 text-xs font-medium text-slate-500">Create a clean garage profile for booking.</p>
+                  <p className="customer-vehicle-eyebrow">My garage</p>
+                  <h3 className="text-lg font-bold tracking-tight text-slate-950">Add Vehicle</h3>
+                  <p className="mt-0.5 text-xs font-medium text-slate-500">Create a clean profile for faster booking.</p>
                 </div>
               </div>
               <button
@@ -6025,7 +6026,7 @@ export default function CustomerDashboard() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 py-3 text-sm font-semibold text-white shadow-[0_4px_18px_-6px_rgba(15,23,42,0.45),inset_0_1px_0_rgba(255,255,255,0.12)] transition-all hover:from-slate-700 hover:to-slate-800 hover:shadow-[0_6px_22px_-6px_rgba(15,23,42,0.5)]"
+                  className="customer-vehicle-btn-primary flex-1 rounded-2xl py-3.5 text-sm font-semibold text-white transition-all duration-200"
                 >
                   Add Vehicle
                 </button>
@@ -7930,37 +7931,51 @@ export default function CustomerDashboard() {
       }
     `}</style>
 
-      {/* Edit Vehicle Modal */}
+      {/* Edit Vehicle Modal — same shell + form as Add Vehicle */}
       {editVehicleOpen && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-          style={{ backgroundColor: 'rgba(0,0,0,.4)', backdropFilter: 'blur(4px)' }}
-          onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); }}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5"
+          onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); setEditVehicleApiError(''); }}
         >
           <div
-            className="bg-white rounded-xl w-full max-w-[420px] shadow-2xl max-h-[90vh] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            className="customer-vehicle-modal customer-vehicle-modal--premium flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
             onClick={e => e.stopPropagation()}
-            style={{ animation: 'modalIn .2s ease-out', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            style={{
+              animation: 'modalIn .2s ease-out',
+              maxHeight: '94vh',
+            }}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
-                  <iconify-icon icon="solar:pen-bold" width="15" style={{ color: '#475569' }}></iconify-icon>
+            <div className="customer-vehicle-header flex shrink-0 items-center justify-between gap-4 border-0 px-5 py-4 sm:px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="customer-vehicle-header-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white">
+                  <iconify-icon icon="solar:garage-bold" width="22"></iconify-icon>
                 </div>
-                <h3 className="text-[15px] font-semibold text-gray-900">Edit Vehicle</h3>
+                <div className="min-w-0">
+                  <p className="customer-vehicle-eyebrow">My garage</p>
+                  <h3 className="text-lg font-bold tracking-tight text-slate-950">Edit Vehicle</h3>
+                  <p className="mt-0.5 text-xs font-medium text-slate-500">Update your garage profile for booking.</p>
+                </div>
               </div>
               <button
                 type="button"
-                onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); }}
-                className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); setEditVehicleApiError(''); }}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border-0 bg-white text-slate-500 shadow-md shadow-slate-900/10 transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 hover:shadow-lg"
+                aria-label="Close"
               >
                 <iconify-icon icon="solar:close-circle-linear" width="18"></iconify-icon>
               </button>
             </div>
 
-            <div className="px-5 py-4 space-y-3">
+            <form
+              className="customer-vehicle-form min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              noValidate
+              onSubmit={(e) => {
+                e.preventDefault();
+                void saveEditVehicle();
+              }}
+            >
               <VehicleGarageForm
-                variant="compact"
+                variant="customer-rich"
                 values={editVehicleForm}
                 onChange={setEditVehicleForm}
                 errors={editVehicleErrors}
@@ -7970,25 +7985,30 @@ export default function CustomerDashboard() {
                 apiError={editVehicleApiError}
                 showPricingPreview
                 bookingPackages={bookingPackages}
+                enableVehicleDatabase
+                footerHint={
+                  <>
+                    Changes apply to future bookings. Open <span className="font-semibold text-slate-800">Book</span> on this vehicle when you are ready to schedule.
+                  </>
+                }
               />
-            </div>
 
-            <div className="flex gap-2 px-5 pb-5 pt-1">
-              <button
-                type="button"
-                onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); }}
-                className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={saveEditVehicle}
-                className="flex-1 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-              >
-                Save Changes
-              </button>
-            </div>
+              <div className="customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white/95 px-5 pt-4 shadow-[0_-12px_32px_-16px_rgba(15,23,42,0.08)] backdrop-blur sm:-mx-6 sm:flex-row sm:px-6">
+                <button
+                  type="button"
+                  onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); setEditVehicleApiError(''); }}
+                  className="flex-1 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-white to-slate-50/90 py-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all hover:border-slate-300/85 hover:shadow-[0_4px_14px_-6px_rgba(15,23,42,0.1)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="customer-vehicle-btn-primary flex-1 rounded-2xl py-3.5 text-sm font-semibold text-white transition-all duration-200"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

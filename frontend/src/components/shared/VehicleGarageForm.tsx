@@ -85,8 +85,12 @@ function VehicleSearchSelect({
         disabled && 'cursor-not-allowed opacity-60'
       )
     : cx(
-        'flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm outline-none transition-colors',
-        hasError ? 'border-red-300 bg-red-50 text-red-700' : selectedLabel ? 'border-gray-200 text-gray-900' : 'border-gray-200 text-gray-400',
+        'flex w-full items-center justify-between rounded-xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/80 px-3.5 py-2.5 text-left text-sm outline-none transition-[border-color,box-shadow,background-color] duration-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] focus-visible:border-slate-300/90 focus-visible:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.12)] data-[state=open]:border-slate-300/90 data-[state=open]:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.12)]',
+        hasError
+          ? 'border-red-200/90 bg-red-50/70 text-red-800'
+          : selectedLabel
+            ? 'text-slate-900 hover:border-slate-300/85'
+            : 'text-slate-400 hover:border-slate-300/85',
         disabled && 'cursor-not-allowed opacity-60'
       );
 
@@ -221,6 +225,17 @@ export default function VehicleGarageForm({
 
   const previewPlate = v.plate ? normalizePlateNumber(v.plate) : 'Plate';
   const previewName = [v.year, v.brand, v.model].filter(Boolean).join(' ') || 'Your Vehicle';
+  const previewGradient =
+    v.color && colorHex[v.color]
+      ? `linear-gradient(135deg, ${colorHex[v.color]}, ${colorHex[v.color]}dd)`
+      : 'linear-gradient(135deg, #1e3a5f 0%, #334155 48%, #475569 100%)';
+  const previewTextLight = !v.color || ['White', 'Silver', 'Yellow', ''].includes(v.color);
+
+  const RichSectionLabel = ({ children }: { children: React.ReactNode }) => (
+    <div className="customer-vehicle-section-label">
+      <span>{children}</span>
+    </div>
+  );
 
   return (
     <>
@@ -229,7 +244,7 @@ export default function VehicleGarageForm({
           className={
             rich
               ? 'flex items-start gap-3 rounded-2xl border border-red-100/90 bg-red-50/85 px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]'
-              : 'flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 px-3 py-2.5'
+              : 'flex items-start gap-2.5 rounded-xl border border-red-100/90 bg-red-50/85 px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]'
           }
         >
           <iconify-icon icon="solar:danger-triangle-bold" width="16" style={{ color: '#dc2626', marginTop: '1px', flexShrink: 0 }} />
@@ -239,43 +254,44 @@ export default function VehicleGarageForm({
 
       {/* Preview */}
       {rich ? (
-        <div className="customer-vehicle-preview overflow-hidden rounded-[26px] border border-white/70 bg-white/80">
+        <div className="customer-vehicle-preview customer-vehicle-preview--premium overflow-hidden rounded-[1.625rem] border border-slate-200/60 bg-gradient-to-b from-white to-slate-50/90">
+          <div className="border-b border-slate-200/50 bg-slate-50/80 px-4 py-2 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Live garage preview</p>
+          </div>
           <div
-            className="relative overflow-hidden px-5 py-5"
-            style={{
-              background: `linear-gradient(135deg, ${colorHex[v.color] || '#94a3b8'}, ${(colorHex[v.color] || '#94a3b8')}dd)`,
-            }}
+            className="customer-vehicle-preview-hero relative overflow-hidden px-5 py-5"
+            style={{ background: previewGradient }}
           >
-            <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/15" />
-            <div className="absolute -bottom-12 left-8 h-28 w-28 rounded-full bg-white/10" />
+            <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/12 blur-[1px]" />
+            <div className="absolute -bottom-12 left-8 h-28 w-28 rounded-full bg-white/8" />
             <div className="relative flex items-center gap-4">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/18 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_8px_20px_-8px_rgba(0,0,0,0.2)] backdrop-blur-[2px]">
                 <iconify-icon
                   icon="solar:car-bold"
                   width="30"
                   style={{
-                    color: ['White', 'Silver', 'Yellow', ''].includes(v.color) ? '#1e293b' : '#f8fafc',
-                    opacity: 0.9,
+                    color: previewTextLight ? '#1e293b' : '#f8fafc',
+                    opacity: 0.92,
                   }}
                 />
               </div>
               <div className="min-w-0 flex-1">
                 <p
-                  className="truncate text-sm font-bold"
-                  style={{ color: ['White', 'Silver', 'Yellow', ''].includes(v.color) ? '#1e293b' : '#f8fafc' }}
+                  className="truncate text-[15px] font-bold tracking-tight"
+                  style={{ color: previewTextLight ? '#1e293b' : '#f8fafc' }}
                 >
                   {previewName}
                 </p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
+                <div className="mt-2.5 flex flex-wrap items-center gap-2">
                   <span
-                    className="rounded-lg bg-white/22 px-2.5 py-1 font-mono text-xs font-bold uppercase"
-                    style={{ color: ['White', 'Silver', 'Yellow', ''].includes(v.color) ? '#1e293b' : '#f8fafc' }}
+                    className="rounded-xl bg-white/25 px-2.5 py-1 font-mono text-xs font-bold uppercase tracking-wide shadow-sm"
+                    style={{ color: previewTextLight ? '#1e293b' : '#f8fafc' }}
                   >
                     {previewPlate}
                   </span>
                   <span
-                    className="rounded-lg bg-white/18 px-2.5 py-1 text-xs font-semibold"
-                    style={{ color: ['White', 'Silver', 'Yellow', ''].includes(v.color) ? '#1e293b' : '#f8fafc', opacity: 0.86 }}
+                    className="rounded-xl bg-white/16 px-2.5 py-1 text-xs font-semibold backdrop-blur-[1px]"
+                    style={{ color: previewTextLight ? '#1e293b' : '#f8fafc', opacity: 0.9 }}
                   >
                     {v.type || 'Vehicle class'}
                   </span>
@@ -283,96 +299,64 @@ export default function VehicleGarageForm({
               </div>
             </div>
           </div>
-          <div className="customer-vehicle-preview-stats grid grid-cols-3 gap-2 bg-white/72 p-2">
+          <div className="customer-vehicle-preview-stats grid grid-cols-3 gap-2.5 bg-slate-50/50 p-3">
             {[
               { label: 'Brand', value: v.brand || 'Not set' },
               { label: 'Model', value: v.model || 'Not set' },
               { label: 'Color', value: v.color || 'Not set' },
             ].map((item) => (
-              <div key={item.label} className="min-w-0 rounded-2xl bg-white/64 px-3 py-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
-                <p className="text-[11px] font-semibold text-slate-400">{item.label}</p>
-                <p className="mt-0.5 truncate text-xs font-bold text-slate-700">{item.value}</p>
+              <div key={item.label} className="customer-vehicle-stat-tile min-w-0 rounded-2xl px-3 py-3 text-center">
+                <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">{item.label}</p>
+                <p className="mt-1 truncate text-xs font-bold text-slate-800">{item.value}</p>
               </div>
             ))}
           </div>
         </div>
       ) : (
         (v.brand || v.model || v.plate) && (
-          <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+          <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white/90 shadow-[0_10px_28px_-14px_rgba(15,23,42,0.18),inset_0_1px_0_rgba(255,255,255,0.95)]">
             <div
+              className="relative flex items-center gap-3 px-4 py-4"
               style={{
                 background: `linear-gradient(135deg, ${colorHex[v.color] || '#94a3b8'}, ${(colorHex[v.color] || '#94a3b8')}dd)`,
-                padding: '14px 16px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
               }}
             >
-              <iconify-icon icon="solar:car-bold" width="36" style={{ color: '#f8fafc', opacity: 0.8, flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: '#f8fafc',
-                    lineHeight: 1.3,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {previewName}
-                </p>
-                <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
+              <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-white/12" />
+              <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/18 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]">
+                <iconify-icon icon="solar:car-bold" width="28" style={{ color: '#f8fafc', opacity: 0.9 }} />
+              </div>
+              <div className="relative min-w-0 flex-1">
+                <p className="truncate text-sm font-bold text-white">{previewName}</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {v.plate && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: '#f8fafc',
-                        opacity: 0.8,
-                        letterSpacing: '0.05em',
-                        background: 'rgba(255,255,255,0.2)',
-                        padding: '1px 6px',
-                        borderRadius: 4,
-                      }}
-                    >
+                    <span className="rounded-lg bg-white/22 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-white">
                       {normalizePlateNumber(v.plate)}
                     </span>
                   )}
                   {v.type && (
-                    <span style={{ fontSize: 10, fontWeight: 600, color: '#f8fafc', opacity: 0.7 }}>{v.type}</span>
+                    <span className="rounded-lg bg-white/16 px-2 py-0.5 text-[10px] font-semibold text-white/90">
+                      {v.type}
+                    </span>
                   )}
                 </div>
               </div>
             </div>
-            <div
-              style={{
-                background: '#f8fafc',
-                padding: '6px 16px',
-                fontSize: 10,
-                color: '#94a3b8',
-                fontWeight: 500,
-                textAlign: 'center',
-              }}
-            >
+            <div className="border-t border-slate-200/60 bg-gradient-to-b from-slate-50/95 to-white px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               Live Preview
             </div>
           </div>
         )
       )}
 
-      <div className={rich ? 'space-y-1' : ''}>
-        {rich ? (
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Required</p>
-        ) : null}
+      <div className={rich ? 'space-y-3' : ''}>
+        {rich ? <RichSectionLabel>Required</RichSectionLabel> : null}
         <div className={rich ? 'grid grid-cols-1' : 'grid grid-cols-2 gap-3'}>
           <div className={rich ? '' : 'col-span-2'}>
             <label
               className={
                 rich
                   ? 'mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500'
-                  : 'mb-1 block text-xs font-medium text-gray-600'
+                  : 'mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500'
               }
             >
               Plate number <span className="font-bold text-red-500 normal-case">*</span>
@@ -392,8 +376,10 @@ export default function VehicleGarageForm({
                         ? 'border-red-100/95 bg-red-50/60 focus:border-red-200/90 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.14)]'
                         : 'border-slate-100 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'
                     }`
-                  : `w-full rounded-lg border px-3 py-2 text-sm uppercase tracking-widest text-gray-900 placeholder:text-gray-300 outline-none transition-colors font-mono ${
-                      errors.plate ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-gray-400'
+                  : `w-full rounded-xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/80 px-3.5 py-2.5 text-sm uppercase tracking-widest text-slate-900 placeholder:text-slate-400/75 outline-none transition-[border-color,box-shadow] duration-200 font-mono shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] ${
+                      errors.plate
+                        ? 'border-red-200/90 bg-red-50/70 focus:border-red-300 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_0_0_3px_rgba(248,113,113,0.12)]'
+                        : 'focus:border-slate-300/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.12)]'
                     }`
               }
             />
@@ -423,7 +409,7 @@ export default function VehicleGarageForm({
             className={
               rich
                 ? 'mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500'
-                : 'mb-1 block text-xs font-medium text-gray-600'
+                : 'mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500'
             }
           >
             Brand <span className="font-bold text-red-500 normal-case">*</span>
@@ -508,7 +494,7 @@ export default function VehicleGarageForm({
             className={
               rich
                 ? 'mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500'
-                : 'mb-1 block text-xs font-medium text-gray-600'
+                : 'mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500'
             }
           >
             Model <span className="font-bold text-red-500 normal-case">*</span>
@@ -584,7 +570,7 @@ export default function VehicleGarageForm({
             className={
               rich
                 ? 'mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500'
-                : 'mb-1 block text-xs font-medium text-gray-600'
+                : 'mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500'
             }
           >
             Year <span className="font-normal normal-case text-slate-400">(optional)</span>
@@ -624,7 +610,7 @@ export default function VehicleGarageForm({
             className={
               rich
                 ? 'mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500'
-                : 'mb-1 block text-xs font-medium text-gray-600'
+                : 'mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500'
             }
           >
             Type <span className="font-bold text-red-500 normal-case">*</span>
@@ -698,23 +684,26 @@ export default function VehicleGarageForm({
               <p className="mt-2.5 text-center text-[10px] font-medium text-slate-500">Shown rates apply when you book for this vehicle</p>
             </div>
           ) : (
-            <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 12, padding: '12px 14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#f59e0b' }} />
-                <span style={{ fontSize: 10, fontWeight: 800, color: '#f59e0b', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-3.5 shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45),inset_0_1px_0_rgba(255,255,255,0.08)] ring-1 ring-white/10">
+              <div className="mb-2.5 flex items-center gap-2">
+                <iconify-icon icon="solar:lock-keyhole-bold" width="12" style={{ color: '#fbbf24' }} />
+                <span className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-amber-400/95">
                   {v.type} Pricing — Locked to this vehicle
                 </span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              <div className="grid grid-cols-2 gap-2">
                 {bookingPackages.map((pkg) => {
                   const priceKey = getVehiclePriceKey(v.type) as keyof typeof pkg.prices;
                   const price = pkg.prices[String(priceKey)] ?? null;
                   return (
-                    <div key={pkg.id} style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: '8px 10px' }}>
-                      <p style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginBottom: 2, lineHeight: 1.3 }}>
+                    <div
+                      key={pkg.id}
+                      className="rounded-xl border border-white/8 bg-white/[0.06] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                    >
+                      <p className="mb-0.5 line-clamp-2 text-[10px] font-semibold leading-snug text-slate-400">
                         {pkg.name.split('—')[0].trim()}
                       </p>
-                      <p style={{ fontSize: 14, fontWeight: 900, color: '#fff', letterSpacing: '-0.01em' }}>
+                      <p className="text-sm font-black tracking-tight text-white">
                         {price === null ? 'N/A' : `₱${price.toLocaleString()}`}
                       </p>
                     </div>
@@ -726,7 +715,7 @@ export default function VehicleGarageForm({
         </>
       )}
 
-      {rich ? <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Optional</p> : null}
+      {rich ? <RichSectionLabel>Optional</RichSectionLabel> : null}
 
       <div>
         <label
@@ -738,7 +727,7 @@ export default function VehicleGarageForm({
         >
           Color <span className="font-normal normal-case text-slate-400">(optional)</span>
         </label>
-        <div className={rich ? 'flex flex-wrap gap-2' : ''} style={rich ? undefined : { display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div className={rich ? 'flex flex-wrap gap-2' : 'flex flex-wrap gap-2'}>
           {[
             { name: 'White', hex: '#f1f5f9' },
             { name: 'Black', hex: '#1e293b' },
@@ -775,18 +764,12 @@ export default function VehicleGarageForm({
                   set({ color: c.name });
                   onShowCustomColorInput(false);
                 }}
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
-                  border: sel ? '2.5px solid #0f172a' : '2px solid #e2e8f0',
-                  background: c.hex,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                  boxShadow: sel ? '0 0 0 2px #fff, 0 0 0 4px #0f172a' : 'none',
-                  outline: 'none',
-                  flexShrink: 0,
-                }}
+                className={`h-8 w-8 shrink-0 rounded-full border-0 shadow-[0_1px_3px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.25)] transition-all duration-200 outline-none ring-2 ${
+                  sel
+                    ? 'ring-slate-500/50 ring-offset-2 ring-offset-white scale-[1.06]'
+                    : 'ring-white/90 ring-slate-200/60 hover:ring-slate-300/70'
+                }`}
+                style={{ background: c.hex }}
               />
             );
           })}
@@ -812,18 +795,11 @@ export default function VehicleGarageForm({
                 onShowCustomColorInput(true);
                 set({ color: '' });
               }}
-              style={{
-                height: 28,
-                padding: '0 10px',
-                borderRadius: 14,
-                fontSize: 11,
-                fontWeight: 600,
-                border: showCustomColorInput ? '2px solid #0f172a' : '2px solid #e2e8f0',
-                background: showCustomColorInput ? '#f8fafc' : '#fff',
-                color: '#64748b',
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}
+              className={`h-8 shrink-0 rounded-full border px-3 text-[11px] font-semibold transition-all duration-200 shadow-[0_1px_2px_rgba(15,23,42,0.05)] ${
+                showCustomColorInput
+                  ? 'border-slate-300/70 bg-gradient-to-b from-slate-50 to-slate-100/80 text-slate-800 ring-2 ring-slate-300/35 ring-offset-2 ring-offset-white'
+                  : 'border-slate-200/80 bg-gradient-to-b from-white to-slate-50/70 text-slate-500 hover:border-slate-300/80 hover:text-slate-700'
+              }`}
             >
               Other
             </button>
@@ -838,7 +814,7 @@ export default function VehicleGarageForm({
             className={
               rich
                 ? 'mt-2.5 w-full rounded-2xl border border-slate-100 bg-gradient-to-b from-white to-slate-50/80 px-3.5 py-2.5 text-sm text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-slate-400/75 focus:border-slate-200/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.14)]'
-                : 'mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-400 transition-colors'
+                : 'mt-2.5 w-full rounded-xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/80 px-3.5 py-2.5 text-sm text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_1px_2px_rgba(15,23,42,0.04)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-slate-400/75 focus:border-slate-300/90 focus:shadow-[inset_0_1px_0_#fff,0_0_0_3px_rgba(148,163,184,0.12)]'
             }
             autoFocus
           />
@@ -856,7 +832,7 @@ export default function VehicleGarageForm({
             className={
               rich
                 ? 'mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500'
-                : 'mb-1 block text-xs font-medium text-gray-600'
+                : 'mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500'
             }
           >
             Transmission <span className="font-normal normal-case text-slate-400">(optional)</span>
@@ -894,7 +870,7 @@ export default function VehicleGarageForm({
             className={
               rich
                 ? 'mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500'
-                : 'mb-1 block text-xs font-medium text-gray-600'
+                : 'mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500'
             }
           >
             Fuel type <span className="font-normal normal-case text-slate-400">(optional)</span>
@@ -931,9 +907,9 @@ export default function VehicleGarageForm({
       </div>
 
       {rich && footerHint && (
-        <div className="flex gap-3.5 rounded-2xl border-0 bg-slate-50/90 px-4 py-3.5 ring-1 ring-slate-200/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
-          <div className="shrink-0 pt-0.5" aria-hidden>
-            <iconify-icon icon="solar:calendar-mark-bold" width="18" style={{ color: '#64748b' }} />
+        <div className="customer-vehicle-footer-hint flex gap-3.5 rounded-2xl px-4 py-3.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/60" aria-hidden>
+            <iconify-icon icon="solar:calendar-mark-bold" width="18" style={{ color: '#475569' }} />
           </div>
           <div className="text-[12px] font-medium leading-relaxed text-slate-600">{footerHint}</div>
         </div>

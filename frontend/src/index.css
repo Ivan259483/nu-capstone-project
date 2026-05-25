@@ -2663,7 +2663,7 @@ html.dark * {
         0 2px 8px rgba(15, 23, 42, 0.04) !important;
 }
 
-/* Customer add vehicle modal */
+/* Customer add / edit vehicle modal */
 .customer-vehicle-modal {
     border: none !important;
     box-shadow:
@@ -2671,11 +2671,129 @@ html.dark * {
         0 12px 40px rgba(15, 23, 42, 0.1) !important;
 }
 
+.customer-vehicle-modal--premium {
+    outline: 1px solid rgba(15, 23, 42, 0.05) !important;
+    box-shadow:
+        0 32px 90px -12px rgba(15, 23, 42, 0.28),
+        0 16px 48px -16px rgba(15, 23, 42, 0.14),
+        0 0 0 1px rgba(255, 255, 255, 0.75) inset !important;
+}
+
+.customer-vehicle-modal--premium .customer-vehicle-header {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(248, 250, 252, 0.92) 100%) !important;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.72) !important;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset !important;
+}
+
+.customer-vehicle-header-icon {
+    background: linear-gradient(145deg, #0f172a 0%, #1e293b 52%, #334155 100%) !important;
+    box-shadow:
+        0 10px 28px -8px rgba(15, 23, 42, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
+}
+
+.customer-vehicle-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.2rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    background: rgba(15, 23, 42, 0.04);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
 .customer-vehicle-header {
     border: none !important;
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.84)) !important;
     box-shadow: 0 14px 32px -20px rgba(15, 23, 42, 0.08) !important;
+}
+
+.customer-vehicle-preview--premium {
+    box-shadow:
+        0 22px 52px -26px rgba(15, 23, 42, 0.32),
+        0 0 0 1px rgba(255, 255, 255, 0.65) inset !important;
+}
+
+.customer-vehicle-preview--premium .customer-vehicle-preview-hero {
+    position: relative;
+}
+
+.customer-vehicle-preview--premium .customer-vehicle-preview-hero::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, transparent 55%, rgba(15, 23, 42, 0.08) 100%);
+}
+
+.customer-vehicle-preview-stats .customer-vehicle-stat-tile {
+    border: 1px solid rgba(226, 232, 240, 0.55) !important;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.88)) !important;
+    box-shadow:
+        0 1px 2px rgba(15, 23, 42, 0.04),
+        inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+}
+
+.customer-vehicle-section-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding-top: 0.15rem;
+}
+
+.customer-vehicle-section-label span {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+
+.customer-vehicle-section-label::after {
+    content: '';
+    height: 1px;
+    flex: 1;
+    background: linear-gradient(90deg, rgba(203, 213, 225, 0.95), transparent);
+}
+
+.customer-vehicle-footer-hint {
+    border: 1px solid rgba(226, 232, 240, 0.65) !important;
+    background: linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.92)) !important;
+    box-shadow:
+        0 1px 2px rgba(15, 23, 42, 0.04),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.customer-vehicle-btn-primary {
+    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%) !important;
+    box-shadow:
+        0 4px 20px -6px rgba(15, 23, 42, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+}
+
+.customer-vehicle-btn-primary:hover {
+    background: linear-gradient(180deg, #334155 0%, #1e293b 100%) !important;
+    box-shadow:
+        0 8px 28px -8px rgba(15, 23, 42, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
+}
+
+.customer-vehicle-modal--premium .customer-vehicle-form {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.72) 100%) !important;
+}
+
+.customer-vehicle-modal--premium .customer-vehicle-actions {
+    border-top: 1px solid rgba(226, 232, 240, 0.55) !important;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.98)) !important;
 }
 
 .customer-vehicle-form {
