@@ -90,17 +90,19 @@ function resolveCustomerDashboardSection(pathname: string, searchString: string)
     ? 'settings'
     : s === 'bookings'
       ? 'bookings'
-      : s === 'scan' && AI_INSPECTION_HISTORY_ENABLED
-        ? 'scan'
-        : s === 'documents'
-          ? 'documents'
-          : s === 'payments'
-            ? 'payments'
-            : s === 'rewards'
-              ? 'rewards'
-              : s === 'tracker'
-                ? 'tracker'
-                : 'dashboard';
+      : s === 'services'
+        ? 'services'
+        : s === 'scan' && AI_INSPECTION_HISTORY_ENABLED
+          ? 'scan'
+          : s === 'documents'
+            ? 'documents'
+            : s === 'payments'
+              ? 'payments'
+              : s === 'rewards'
+                ? 'rewards'
+                : s === 'tracker'
+                  ? 'tracker'
+                  : 'dashboard';
 }
 
 function getStoredSidebarCollapsed() {
@@ -559,7 +561,6 @@ export default function CustomerDashboard() {
   );
 
   // Bookings & Documents
-  const [hasActiveBooking, setHasActiveBooking] = useState(false);
   const [pendingConfirmationBooking, setPendingConfirmationBooking] = useState<any>(null);
   const [approvedBooking, setApprovedBooking] = useState<any>(null);
   const [rejectedBooking, setRejectedBooking] = useState<any>(null);
@@ -849,9 +850,6 @@ export default function CustomerDashboard() {
     }
 
     const loyaltyPoints = completed.length * 50;
-
-    const trackerOrder = pickCustomerLiveTrackerBooking(myBookings);
-    setHasActiveBooking(!!trackerOrder);
 
     const approvedOrder = myOrders.find((o: any) => ['approved', 'confirmed', 'assigned'].includes(norm(o.status)));
     setApprovedBooking(approvedOrder || null);
@@ -1249,6 +1247,7 @@ export default function CustomerDashboard() {
   }, [bookingPackages]);
 
   const openBookingModal = async (preSelectedVehicle?: any, options?: { presetPackageId?: string }) => {
+    dismissCustomerOverlaysForBooking();
     setBookingOpen(true); setBookingStep(1); setBookingDone(false);
     setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null);
     setSlotStatuses([]); setBookedSlots([]); setSlotError(''); setMonthAvailability({});
@@ -1293,6 +1292,35 @@ export default function CustomerDashboard() {
       date: '', time: '', notes: '',
     });
   };
+
+  function resetBookingModalState() {
+    setBookingAgreed(false);
+    setBookingTermsReachedEnd(false);
+    setBookingDownpaymentProof(null);
+    setPackagePeekHidden();
+  }
+
+  function closeBookingModal() {
+    if (bookingSubmitting) return;
+    setBookingOpen(false);
+    resetBookingModalState();
+  }
+
+  function dismissCustomerOverlaysForBooking() {
+    setNotificationsOpen(false);
+    setProfileMenuOpen(false);
+    setProfileSubMenu(null);
+    setTrackerEvidenceLightbox(null);
+    setPaymentLightboxUrl(null);
+    closeCustomerOrderReceiptPdf();
+    setCancelConfirmId(null);
+    setAddVehicleOpen(false);
+    setVehicleHistoryOpen(false);
+    setEditVehicleOpen(false);
+    setDeleteConfirmIdx(-1);
+    setShowOnboarding(false);
+    setFeedbackOpen(false);
+  }
 
   const bookingPrevStepRef = useRef(bookingStep);
   const bookingTcScrollRef = useRef<HTMLDivElement | null>(null);
@@ -1911,7 +1939,7 @@ export default function CustomerDashboard() {
       return;
     }
     const nextSection = resolveCustomerDashboardSection(location.pathname, location.search);
-    if (CUSTOMER_BOOKINGS_DATA_SECTIONS.includes(nextSection)) {
+    if (CUSTOMER_BOOKINGS_DATA_SECTIONS.includes(nextSection) && !customerBookingsLoadedOnceRef.current) {
       setMyBookingsLoading(true);
     }
     setActiveSection(nextSection);
@@ -1936,7 +1964,8 @@ export default function CustomerDashboard() {
       // guarantees we hit the network on every poll tick.
       invalidate('/bookings');
 
-      if (!silent) setMyBookingsLoading(true);
+      const showBlockingLoader = !silent && !customerBookingsLoadedOnceRef.current;
+      if (showBlockingLoader) setMyBookingsLoading(true);
       try {
         const { OrderService } = await import('../lib/order-service');
         const res = await OrderService.getAllOrders({
@@ -1988,10 +2017,13 @@ export default function CustomerDashboard() {
         console.warn('[MyBookings]', e);
       } finally {
         bookingsLoadLockRef.current = false;
-        if (!silent) {
+        if (showBlockingLoader) {
           customerBookingsLoadedOnceRef.current = true;
           setCustomerBookingsLoadedOnce(true);
           setMyBookingsLoading(false);
+        } else if (!silent && !customerBookingsLoadedOnceRef.current) {
+          customerBookingsLoadedOnceRef.current = true;
+          setCustomerBookingsLoadedOnce(true);
         }
       }
     };
@@ -2013,6 +2045,15 @@ export default function CustomerDashboard() {
   }, [activeSection, user]);
 
   const activeTrackerBooking = useMemo(() => pickCustomerLiveTrackerBooking(myBookings), [myBookings]);
+  const stableTrackerBookingRef = useRef<any | undefined>(undefined);
+  useEffect(() => {
+    if (activeTrackerBooking) stableTrackerBookingRef.current = activeTrackerBooking;
+  }, [activeTrackerBooking]);
+  // Keep last known tracker booking during refetch/remount so sidebar + tracker section do not flicker.
+  const displayedTrackerBooking = activeTrackerBooking ?? stableTrackerBookingRef.current;
+  const hasActiveTrackerBooking = Boolean(
+    displayedTrackerBooking && bookingShowsCustomerLiveTracker(displayedTrackerBooking)
+  );
 
   useEffect(() => {
     const activeId = bookingRowId(activeTrackerBooking);
@@ -2059,7 +2100,7 @@ export default function CustomerDashboard() {
     activeTrackerBooking?.serviceTrackingStage,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (location.pathname === '/customer/book' && !bookRouteAutoOpenRef.current) {
       bookRouteAutoOpenRef.current = true;
       openBookingModal();
@@ -2106,7 +2147,7 @@ export default function CustomerDashboard() {
 
   const nav = (section: DashboardSection) => {
     if (section === 'scan' && !AI_INSPECTION_HISTORY_ENABLED) return;
-    if (CUSTOMER_BOOKINGS_DATA_SECTIONS.includes(section)) {
+    if (CUSTOMER_BOOKINGS_DATA_SECTIONS.includes(section) && !customerBookingsLoadedOnceRef.current) {
       setMyBookingsLoading(true);
     }
     setActiveSection(section);
@@ -2114,7 +2155,7 @@ export default function CustomerDashboard() {
     const urlMap: Record<DashboardSection, string> = {
       dashboard: '/customer/dashboard',
       scan: '/customer/dashboard?section=scan',
-      services: '/customer/services',
+      services: '/customer/dashboard?section=services',
       settings: '/customer/dashboard?section=settings',
       bookings: '/customer/dashboard?section=bookings',
       documents: '/customer/dashboard?section=documents',
@@ -2127,13 +2168,20 @@ export default function CustomerDashboard() {
 
   useEffect(() => {
     if (activeSection !== 'tracker' || !user || myBookingsLoading) return;
+    if (!customerBookingsLoadedOnce) return;
     if (myBookings.length === 0) return;
-    if (!pickCustomerLiveTrackerBooking(myBookings)) {
+    const hasTracker =
+      Boolean(activeTrackerBooking) ||
+      Boolean(
+        stableTrackerBookingRef.current &&
+          bookingShowsCustomerLiveTracker(stableTrackerBookingRef.current)
+      );
+    if (!hasTracker && !bookingOpen) {
       setActiveSection('dashboard');
       setIsSidebarOpen(false);
       navigate('/customer/dashboard', { replace: true });
     }
-  }, [activeSection, myBookings, myBookingsLoading, user, navigate]);
+  }, [activeSection, activeTrackerBooking, bookingOpen, myBookings.length, myBookingsLoading, customerBookingsLoadedOnce, user, navigate]);
 
   const openScanStudio = (vehicle?: any) => {
     if (!AI_INSPECTION_HISTORY_ENABLED) return;
@@ -2538,7 +2586,7 @@ export default function CustomerDashboard() {
               <iconify-icon icon="solar:tag-price-linear" width="20" className="shrink-0"></iconify-icon>
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Services</span>
             </button>
-            {pickCustomerLiveTrackerBooking(myBookings) && (
+            {hasActiveTrackerBooking && (
             <button
               type="button"
               onClick={() => nav('tracker')}
@@ -2617,7 +2665,7 @@ export default function CustomerDashboard() {
         </aside>
 
         {/* Main Content */}
-        <div className={`customer-main-shell ${sidebarCollapsed ? 'is-sidebar-collapsed' : 'is-sidebar-expanded'} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} flex flex-1 flex-col min-w-0`}>
+        <div className={`customer-main-shell ${sidebarCollapsed ? 'is-sidebar-collapsed' : 'is-sidebar-expanded'} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} ${bookingOpen ? 'is-booking-modal-open' : ''} flex flex-1 flex-col min-w-0`}>
 
           {/* Header */}
           <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-10">
@@ -2641,7 +2689,7 @@ export default function CustomerDashboard() {
             <div className="flex items-center gap-4">
               {activeSection !== 'bookings' && (
                 <button
-                  onClick={openBookingModal}
+                  onClick={() => void openBookingModal()}
                   className="hidden sm:flex items-center justify-center px-4 py-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-md font-medium transition-colors shadow-sm"
                 >
                   Book Service
@@ -4093,7 +4141,7 @@ export default function CustomerDashboard() {
 	                          <p className="mt-1 max-w-sm text-sm text-slate-500">Book a service or run a scan to generate your first document.</p>
 	                          <button
 	                            type="button"
-	                            onClick={openBookingModal}
+	                            onClick={() => void openBookingModal()}
 	                            className={`${CUSTOMER_PRIMARY_BUTTON} mt-5`}
 	                          >
 	                            Book Service
@@ -4336,7 +4384,7 @@ export default function CustomerDashboard() {
             ) : activeSection === 'tracker' ? (
               /* ═══ Live Tracker ═══ */
               (() => {
-                const activeBooking = pickCustomerLiveTrackerBooking(myBookings);
+                const activeBooking = displayedTrackerBooking;
                 const TRACKER_STEPS = [
                   { id: 'confirmed', label: 'Appointment Confirmed', icon: 'solar:calendar-bold' },
                   { id: 'received', label: 'Vehicle Arrive', icon: 'solar:garage-bold' },
@@ -4748,7 +4796,7 @@ export default function CustomerDashboard() {
                 </div>
 
                 {/* ── PENDING CONFIRMATION card ── */}
-                {pendingConfirmationBooking && !hasActiveBooking && (() => {
+                {pendingConfirmationBooking && !hasActiveTrackerBooking && (() => {
                   const ref = pendingConfirmationBooking.bookingReference || pendingConfirmationBooking.orderNumber || '—';
                   const dateStr = pendingConfirmationBooking.bookingDate
                     ? new Date(pendingConfirmationBooking.bookingDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
@@ -4836,7 +4884,7 @@ export default function CustomerDashboard() {
                 })()}
 
                 {/* ── REJECTED booking card ── */}
-                {rejectedBooking && !hasActiveBooking && !pendingConfirmationBooking && (
+                {rejectedBooking && !hasActiveTrackerBooking && !pendingConfirmationBooking && (
                   <section style={{ marginBottom: 32 }}>
                     <div style={{ background: 'linear-gradient(145deg,#1a0a0a 0%,#1e0f0f 100%)', borderRadius: 20, overflow: 'hidden', boxShadow: '0 16px 40px rgba(239,68,68,.1), 0 0 0 1px rgba(239,68,68,.15)', position: 'relative', padding: '24px 24px 20px' }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
@@ -4859,7 +4907,7 @@ export default function CustomerDashboard() {
                 )}
 
                 {/* ── APPROVED / CONFIRMED — Bring your vehicle card ── */}
-                {approvedBooking && !hasActiveBooking && (() => {
+                {approvedBooking && !hasActiveTrackerBooking && (() => {
                   const ref = approvedBooking.bookingReference || approvedBooking.orderNumber || '—';
                   const dateStr = approvedBooking.bookingDate
                     ? new Date(approvedBooking.bookingDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -4918,8 +4966,8 @@ export default function CustomerDashboard() {
                 })()}
 
                 {/* ── Live Service Tracker ── */}
-                {hasActiveBooking && (() => {
-                  const activeBooking = pickCustomerLiveTrackerBooking(myBookings);
+                {hasActiveTrackerBooking && (() => {
+                  const activeBooking = displayedTrackerBooking;
                   const status = activeBooking ? String(activeBooking.status || '').toLowerCase() : '';
                   const trackingStage = (activeBooking as any)?.serviceTrackingStage;
                   const tsKey = normTrackerStr(trackingStage);
@@ -5927,7 +5975,7 @@ export default function CustomerDashboard() {
 
       {/* Book Service Modal */}
       {bookingOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-md sm:p-5" onClick={() => { if (!bookingSubmitting) { setBookingOpen(false); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); } }}>
+        <div className="customer-booking-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/85 p-3 sm:p-5" onClick={closeBookingModal}>
           <div
             className={`customer-booking-modal w-full min-h-0 overflow-hidden rounded-[1.75rem] border-0 bg-white ${!bookingDone && (bookingStep === 4 || bookingStep === 5) ? 'max-w-4xl' : 'max-w-3xl'}`}
             onClick={e => e.stopPropagation()}
@@ -5967,7 +6015,7 @@ export default function CustomerDashboard() {
                   </div>
                 </div>
                 {!bookingSubmitting && (
-                  <button onClick={() => { setBookingOpen(false); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); }}
+                  <button onClick={closeBookingModal}
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border-0 bg-white text-slate-500 shadow-md shadow-slate-900/10 transition-all hover:bg-slate-50 hover:text-slate-900 hover:shadow-lg">
                     <iconify-icon icon="solar:close-circle-linear" width="16"></iconify-icon>
                   </button>
@@ -6162,7 +6210,7 @@ export default function CustomerDashboard() {
                   {/* CTA Footer */}
                   <div style={{ padding: '14px 20px', borderTop: '1px solid #f1f5f9', background: '#fff', flexShrink: 0 }}>
                     <button
-                      onClick={() => { setBookingOpen(false); setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null); }}
+                      onClick={closeBookingModal}
                       style={{ width: '100%', padding: '13px 0', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg,#1e293b,#0f172a)', color: '#fff', fontSize: 14, fontWeight: 700, letterSpacing: '0.01em', cursor: 'pointer', boxShadow: '0 4px 16px rgba(15,23,42,0.2)', transition: 'all 0.2s' }}>
                       Done — Back to Dashboard
                     </button>
@@ -6439,7 +6487,7 @@ export default function CustomerDashboard() {
 	                        <p className="booking-step2-section-label">Vehicle Details</p>
 	                        <button
 	                          type="button"
-	                          onClick={() => setBookingOpen(false)}
+	                          onClick={closeBookingModal}
                           className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
                         >
                           <iconify-icon icon="solar:pen-linear" width="12"></iconify-icon>
@@ -6523,7 +6571,7 @@ export default function CustomerDashboard() {
                           </div>
                         </div>
                       </div>
-	                      <p className="text-[10px] text-gray-400 pl-1">Auto-filled from your garage · <button type="button" onClick={() => setBookingOpen(false)} className="text-blue-600 hover:underline">Go to garage to update</button></p>
+	                      <p className="text-[10px] text-gray-400 pl-1">Auto-filled from your garage · <button type="button" onClick={closeBookingModal} className="text-blue-600 hover:underline">Go to garage to update</button></p>
                         </div>
 	                    </div>
 	                  ) : (

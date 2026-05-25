@@ -58,16 +58,16 @@ export default function QCTopbar({ sidebarCollapsed }: Props) {
             )}
           </button>
           {notifOpen && (
-            <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-2xl border border-slate-200/45 bg-white shadow-[0_24px_64px_-24px_rgba(15,23,42,0.32)]">
-              <div className="flex items-center justify-between border-b border-slate-200/45 px-4 py-3.5">
+            <div className="qc-drop-panel qc-notif-panel absolute right-0 top-12 z-50 flex w-80 flex-col overflow-hidden">
+              <div className="qc-drop-panel__head flex shrink-0 items-center justify-between px-4 py-3">
                 <span className="text-sm font-black tracking-tight text-slate-900">Notifications</span>
                 <button type="button" className="text-xs font-bold text-blue-600 transition hover:text-blue-700">Mark all read</button>
               </div>
-              <div className="max-h-72 space-y-1 overflow-y-auto px-2 py-2">
+              <div className="qc-notif-panel__body max-h-72 space-y-1 overflow-y-auto px-2 py-2">
                 {notifications.length > 0 ? notifications.map((item) => (
                   <div
                     key={item.id}
-                    className={`flex cursor-pointer items-start gap-3 rounded-lg px-3 py-3 transition hover:bg-slate-50 ${item.unread ? 'bg-blue-50/60' : ''}`}
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 transition hover:bg-slate-50/90 ${item.unread ? 'bg-blue-50/60' : ''}`}
                   >
                     <div className={`mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full ${item.unread ? 'bg-blue-500' : 'bg-transparent'}`} />
                     <div className="min-w-0 flex-1">
@@ -76,8 +76,8 @@ export default function QCTopbar({ sidebarCollapsed }: Props) {
                     </div>
                   </div>
                 )) : (
-                  <div className="px-4 py-10 text-center">
-                    <div className="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
+                  <div className="px-4 py-7 text-center">
+                    <div className="mx-auto mb-2.5 flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100/90 text-slate-400 ring-1 ring-slate-200/40">
                       <Bell size={15} />
                     </div>
                     <p className="text-sm font-bold text-slate-600">No notifications</p>
@@ -85,7 +85,7 @@ export default function QCTopbar({ sidebarCollapsed }: Props) {
                   </div>
                 )}
               </div>
-              <div className="border-t border-slate-200/45 bg-slate-50/70 px-4 py-3 text-center">
+              <div className="qc-drop-panel__foot shrink-0 bg-slate-50/55 px-4 py-2.5 text-center">
                 <button type="button" className="text-xs font-bold text-blue-600 transition hover:text-blue-700">View all notifications</button>
               </div>
             </div>
@@ -110,8 +110,8 @@ export default function QCTopbar({ sidebarCollapsed }: Props) {
             <ChevronDown size={13} className="hidden text-slate-400 md:block" />
           </button>
           {profileOpen && (
-            <div className="absolute right-0 top-12 z-50 w-52 overflow-hidden rounded-2xl border border-slate-200/45 bg-white shadow-[0_24px_64px_-24px_rgba(15,23,42,0.32)]">
-              <div className="border-b border-slate-200/45 px-4 py-3.5">
+            <div className="qc-drop-panel absolute right-0 top-12 z-50 w-52 overflow-hidden">
+              <div className="qc-drop-panel__head px-4 py-3">
                 <p className="text-sm font-black tracking-tight text-slate-900">{user?.name || 'Quality Inspector'}</p>
                 <p className="mt-0.5 truncate text-xs text-slate-400">{user?.email || ''}</p>
               </div>
