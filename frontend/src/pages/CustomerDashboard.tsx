@@ -649,6 +649,23 @@ export default function CustomerDashboard() {
     }
   }, []);
 
+  const receiptDeepLinkHandledRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const search = new URLSearchParams(location.search);
+    const receiptOrderId = search.get('receiptOrderId')?.trim();
+    if (!receiptOrderId || !user) return;
+    if (receiptDeepLinkHandledRef.current === receiptOrderId) return;
+    receiptDeepLinkHandledRef.current = receiptOrderId;
+
+    setActiveSection('payments');
+    void openCustomerOrderReceiptPdf(receiptOrderId);
+
+    search.delete('receiptOrderId');
+    const section = search.get('section') || 'payments';
+    navigate(`/customer/dashboard?section=${section}`, { replace: true });
+  }, [location.search, user, navigate, openCustomerOrderReceiptPdf]);
+
   useEffect(() => {
     orderReceiptPdfUrlRef.current = orderReceiptPdfUrl;
   }, [orderReceiptPdfUrl]);
@@ -721,7 +738,24 @@ export default function CustomerDashboard() {
       if (prev.some((n: any) => n.id === notif.id || n._id === notif.id)) return prev;
       return [{ ...notif, isRead: false }, ...prev];
     });
-  }, []);
+    if (notif.metadata?.kind === 'receipt_ready') {
+      const orderId = String(notif.metadata?.orderId || '').trim();
+      toast.success(notif.title || 'Your receipt is ready', {
+        description: notif.message,
+        duration: 10000,
+        action: orderId
+          ? {
+              label: 'View receipt',
+              onClick: () => {
+                navigate(
+                  `/customer/dashboard?section=payments&receiptOrderId=${encodeURIComponent(orderId)}`
+                );
+              },
+            }
+          : undefined,
+      });
+    }
+  }, [navigate]);
   useLiveJobs(user, handleBookingStatus, handleIncomingNotification, scheduleSilentBookingsRefetch);
 
   useLayoutEffect(() => {
@@ -2362,8 +2396,36 @@ export default function CustomerDashboard() {
 
   const markNotificationAsRead = async (id: string) => {
     await NotificationService.markAsRead(id);
-    setNotifications(notifications.map(n => n.id === id ? { ...n, isRead: true } : n));
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id || n._id === id ? { ...n, isRead: true } : n))
+    );
   };
+
+  const handleCustomerNotificationClick = useCallback(
+    async (n: SystemNotification) => {
+      const id = n.id || n._id || '';
+      if (id) await markNotificationAsRead(id);
+      setNotificationsOpen(false);
+
+      const meta = n.metadata as { kind?: string; orderId?: string } | undefined;
+      const orderId = meta?.orderId ? String(meta.orderId).trim() : '';
+
+      if (meta?.kind === 'receipt_ready' && orderId) {
+        receiptDeepLinkHandledRef.current = orderId;
+        setActiveSection('payments');
+        navigate(
+          `/customer/dashboard?section=payments&receiptOrderId=${encodeURIComponent(orderId)}`
+        );
+        return;
+      }
+
+      if (n.link) {
+        const path = n.link.startsWith('/') ? n.link : `/${n.link}`;
+        navigate(path);
+      }
+    },
+    [navigate]
+  );
 
   const markAllNotificationsAsRead = async () => {
     await NotificationService.markAllAsRead();
@@ -2756,7 +2818,7 @@ export default function CustomerDashboard() {
                         ) : (
                           <div className="divide-y divide-slate-50">
                             {notifications.map(n => (
-                              <button key={n.id || n._id} onClick={() => markNotificationAsRead(n.id || n._id || '')} className={`w-full text-left p-4 hover:bg-slate-50 transition-colors flex gap-3 ${!n.isRead ? 'bg-slate-50/50' : ''}`}>
+                              <button key={n.id || n._id} onClick={() => void handleCustomerNotificationClick(n)} className={`w-full text-left p-4 hover:bg-slate-50 transition-colors flex gap-3 ${!n.isRead ? 'bg-slate-50/50' : ''}`}>
                                 <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!n.isRead ? 'bg-blue-500' : 'bg-transparent'}`}></div>
                                 <div className="flex-1 min-w-0">
                                   <p className={`text-[13px] text-slate-900 truncate ${!n.isRead ? 'font-semibold' : 'font-medium'}`}>{n.title}</p>

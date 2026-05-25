@@ -7,6 +7,7 @@ import { computeBillingTotals, normalizeMoney } from '../utils/billingTotals.js'
 import { runPosCheckoutCore } from './payment.controller.js';
 import { logActivity } from '../utils/logActivity.utils.js';
 import { buildInvoicePdfBuffer } from '../utils/pdf.utils.js';
+import { notifyCustomerReceiptReady } from '../utils/customerReceiptNotification.utils.js';
 import { resolvePlainVehiclePlate } from '../utils/vehiclePlate.utils.js';
 import { isCustomerRole, isPosManagerRole } from '../constants/roles.js';
 
@@ -375,6 +376,23 @@ export const checkoutBilling = async (req, res, next) => {
     };
     invoiceRecord.markModified('snapshot');
     await invoiceRecord.save();
+
+    const customerId = order.customer?._id || order.customer;
+    if (customerId) {
+      try {
+        await notifyCustomerReceiptReady({
+          customerId,
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          bookingReference: order.bookingReference,
+          invoiceNumber,
+          paymentId: payment._id,
+          amountCollected: totals.balanceDue,
+        });
+      } catch (receiptNotifyErr) {
+        console.warn('[billing] Customer receipt notification failed:', receiptNotifyErr.message);
+      }
+    }
 
     billing.status = 'checked_out';
     pushBillingEvent(billing, req, 'billing_checked_out', `Invoice ${invoiceNumber}`, {

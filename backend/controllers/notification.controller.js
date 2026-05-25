@@ -10,6 +10,7 @@ import {
   syncMissingSalesBalancePickupNotifications,
 } from '../utils/bookingManagerNotifications.utils.js';
 import { syncMissingCustomerStageNotifications } from '../utils/customerStageNotifications.utils.js';
+import { syncMissingCustomerReceiptNotifications } from '../utils/customerReceiptNotification.utils.js';
 
 function buildNotificationsQuery(role, userId) {
   if (normalizeToCanonical(role) === 'sales') {
@@ -52,6 +53,11 @@ export const getNotifications = async (req, res, next) => {
         await syncMissingCustomerStageNotifications(userId);
       } catch (syncErr) {
         console.warn('[notifications] Stage sync failed:', syncErr.message);
+      }
+      try {
+        await syncMissingCustomerReceiptNotifications(userId);
+      } catch (syncErr) {
+        console.warn('[notifications] Receipt sync failed:', syncErr.message);
       }
     }
 
