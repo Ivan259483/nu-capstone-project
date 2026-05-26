@@ -1,0 +1,279 @@
+import Service from '../models/service.model.js';
+import {
+  SPF_PACKAGE_PRICING,
+  VEHICLE_PRICE_FIELDS,
+  getPackageKeyFromName,
+} from '../constants/spfPricing.js';
+
+const toNumberOrNull = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const LEGACY_PRICE_KEYS = {
+  hatchback: 'hatchback',
+  sedan: 'sedan',
+  midsized: 'midsized',
+  suv: 'suv',
+  pickup: 'pickup',
+  largeSuv: 'largesuv',
+  highend: 'highend',
+};
+
+const VEHICLE_TYPE_ALIASES = [
+  { apiKey: 'hatchback', label: 'Hatchback', patterns: [/\bhatch\s*back\b/i, /\bhatchback\b/i] },
+  { apiKey: 'sedan', label: 'Sedan', patterns: [/\bsedan\b/i, /\bsaloon\b/i] },
+  { apiKey: 'midsized', label: 'Midsized', patterns: [/\bmid[\s-]?siz(?:ed|e)?\b/i, /\bmid\s*size\b/i] },
+  { apiKey: 'suv', label: 'SUV', patterns: [/\bsuv\b/i, /\bsport\s*utility\b/i, /\bcrossover\b/i] },
+  { apiKey: 'pickup', label: 'Pick Up', patterns: [/\bpick[\s-]?up\b/i, /\btruck\b/i] },
+  { apiKey: 'largeSuv', label: 'Large SUV / Van', patterns: [/\blarge\s*suv\b/i, /\bfull[\s-]?size\s*suv\b/i, /\bvan\b/i] },
+  { apiKey: 'highend', label: 'Highend Sedan', patterns: [/\bhigh[\s-]?end\b/i, /\bluxury\s*sedan\b/i, /\bpremium\s*sedan\b/i] },
+];
+
+export const formatCurrency = (value) => `₱${Number(value || 0).toLocaleString('en-PH')}`;
+
+const getPublishedSpfServices = async () => {
+  const services = await Service.find({
+    status: 'Active',
+    isPublished: true,
+    name: { $regex: /spf\s*[-_]*(80|89|99|101)/i },
+  })
+    .select('name pricing prices basePrice')
+    .lean();
+
+  return services;
+};
+
+const getPricingEntry = (publishedService, packageDefaults, apiKey) => {
+  const legacyKey = LEGACY_PRICE_KEYS[apiKey];
+  const fromDb = publishedService?.pricing?.[apiKey] || {};
+  const legacyBase = publishedService?.prices?.[legacyKey];
+
+  return {
+    base:
+      toNumberOrNull(fromDb.base)
+      ?? toNumberOrNull(legacyBase)
+      ?? toNumberOrNull(packageDefaults.base[apiKey]),
+    original:
+      toNumberOrNull(fromDb.original) ?? toNumberOrNull(packageDefaults.original[apiKey]),
+    addon: toNumberOrNull(fromDb.addon) ?? toNumberOrNull(packageDefaults.addon[apiKey]),
+  };
+};
+
+/**
+ * Merges Mongo published SPF services with bundled defaults (same source as /services page).
+ */
+export const buildSpfPricingMatrix = async () => {
+  const published = await getPublishedSpfServices();
+  const publishedByKey = new Map();
+
+  published.forEach((service) => {
+    const key = getPackageKeyFromName(service.name);
+    if (key && !publishedByKey.has(key)) {
+      publishedByKey.set(key, service);
+    }
+  });
+
+  const packages = Object.entries(SPF_PACKAGE_PRICING).map(([packageKey, defaults]) => {
+    const publishedService = publishedByKey.get(packageKey);
+    const byVehicle = {};
+
+    VEHICLE_PRICE_FIELDS.forEach(({ apiKey }) => {
+      byVehicle[apiKey] = getPricingEntry(publishedService, defaults, apiKey);
+    });
+
+    return {
+      packageKey,
+      name: publishedService?.name || defaults.name,
+      description: defaults.description,
+      duration: defaults.duration,
+      byVehicle,
+    };
+  });
+
+  return packages.sort((a, b) => {
+    const order = { spf80: 1, spf89: 2, spf99: 3, spf101: 4 };
+    return (order[a.packageKey] || 99) - (order[b.packageKey] || 99);
+  });
+};
+
+export const detectVehicleTypeFromMessage = (message = '') => {
+  const text = String(message).toLowerCase();
+  const hits = VEHICLE_TYPE_ALIASES.filter((entry) => entry.patterns.some((pattern) => pattern.test(text)));
+
+  if (hits.length === 1) return hits[0];
+  if (hits.length > 1) {
+    const specific = hits.find((entry) => entry.apiKey === 'midsized') || hits[0];
+    return specific;
+  }
+  return null;
+};
+
+export const getVehicleLabel = (apiKey) => {
+  const fromAlias = VEHICLE_TYPE_ALIASES.find((entry) => entry.apiKey === apiKey);
+  if (fromAlias) return fromAlias.label;
+  const fromFields = VEHICLE_PRICE_FIELDS.find((field) => field.apiKey === apiKey);
+  return fromFields?.label || apiKey;
+};
+
+const formatPackageLine = (pkgName, entry) => {
+  if (entry.base == null) return null;
+
+  const promo = formatCurrency(entry.base);
+  if (entry.original != null && entry.original > entry.base) {
+    return `${pkgName}: ${promo} promotional (regular ${formatCurrency(entry.original)})`;
+  }
+  return `${pkgName}: ${promo}`;
+};
+
+const formatVehicleSection = (vehicleLabel, packages, apiKey) => {
+  const lines = packages
+    .map((pkg) => formatPackageLine(pkg.name, pkg.byVehicle[apiKey]))
+    .filter(Boolean);
+
+  if (!lines.length) return null;
+  return `**${vehicleLabel}**\n${lines.map((line) => `- ${line}`).join('\n')}`;
+};
+
+export const buildSpfPricingKnowledge = async (preferredVehicleKey = null) => {
+  const packages = await buildSpfPricingMatrix();
+
+  if (preferredVehicleKey) {
+    const vehicle = VEHICLE_PRICE_FIELDS.find((field) => field.apiKey === preferredVehicleKey)
+      || VEHICLE_TYPE_ALIASES.find((entry) => entry.apiKey === preferredVehicleKey);
+
+    const label = vehicle?.label || preferredVehicleKey;
+    const section = formatVehicleSection(label, packages, preferredVehicleKey);
+    if (section) {
+      return [
+        '### SPF CERAMIC COATING — OFFICIAL PRICING (matches autoservices page)',
+        `Use ONLY these ${label} vehicle prices when answering. Do not substitute sedan or hatchback rates.`,
+        section,
+        '',
+        'Optional add-on: Nano Ceramic Window Tint pricing is listed separately on the Services page when applicable.',
+      ].join('\n');
+    }
+  }
+
+  const sections = VEHICLE_PRICE_FIELDS.map(({ apiKey, label }) => formatVehicleSection(label, packages, apiKey))
+    .filter(Boolean);
+
+  return [
+    '### SPF CERAMIC COATING — OFFICIAL PRICING BY VEHICLE TYPE',
+    'These rates match the public Services page (/services). Promotional price is what customers pay; regular price is the pre-discount reference shown struck through on the site.',
+    'When the customer names a vehicle type (sedan, midsized, SUV, etc.), quote ONLY that section. If vehicle type is unknown, ask before quoting.',
+    '',
+    sections.join('\n\n'),
+  ].join('\n');
+};
+
+export const buildOtherServicesSummary = async () => {
+  const services = await Service.find({
+    status: 'Active',
+    isPublished: true,
+    name: { $not: { $regex: /spf\s*[-_]*(80|89|99|101)/i } },
+  })
+    .select('name basePrice category duration')
+    .sort({ bookingCount: -1, createdAt: -1 })
+    .limit(30)
+    .lean();
+
+  if (!services.length) return '';
+
+  const lines = services.map(
+    (service) => `${service.name} (${service.category || 'Standard'}) — from ${formatCurrency(service.basePrice)}`,
+  );
+
+  return ['### OTHER PUBLISHED SERVICES', lines.join('\n')].join('\n');
+};
+
+/** Topics the concierge may discuss — everything else must be declined. */
+const SHOP_TOPIC_PATTERNS = [
+  /\bautospf\b/i,
+  /\bauto\s*spf\b/i,
+  /\b(price|pric|rate|cost|quote|estimate|magkano|presyo|pricing)\b/i,
+  /\b(book|booking|schedule|appointment|reserve|paano.*book|mag[\s-]?book)\b/i,
+  /\b(login|log[\s-]?in|sign[\s-]?in|register|sign[\s-]?up|account|password|dashboard)\b/i,
+  /\b(spf|ppf|ceramic|coating|detailing|detail|tint|undercoat|graphene|wax|wash|sonax)\b/i,
+  /\b(sedan|suv|hatchback|midsized|pickup|vehicle|kotse|sasakyan|car)\b/i,
+  /\b(service|package|menu|offer|promo|website|site)\b/i,
+  /\b(location|address|hours|open|contact|phone|las\s*piñas|piñas|marcos)\b/i,
+  /\b(track|repair|order|status|waiver)\b/i,
+  /\b(payment|pay|gcash|installment|down[\s-]?payment)\b/i,
+  /\b(scan|damage|ai\b)/i,
+  /\b(gallery|about|contact|services)\b/i,
+  /\b(warranty|protection|years?)\b/i,
+  /\b(included|include|features?|kasama)\b/i,
+  /\b(how\s+(to|do)|paano|what\s+is\s+(spf|ppf|ceramic))\b/i,
+  /\b(human|agent|specialist|tawag|call)\b/i,
+  /\b(hello|hi|hey|good\s*(morning|afternoon|evening)|kamusta|musta)\b/i,
+  /\b(salamat|thank|thanks)\b/i,
+];
+
+const OFF_TOPIC_BLOCK_PATTERNS = [
+  /\b(weather|forecast|temperature|ulan)\b/i,
+  /\b(recipe|cook|bake|lutuin)\b/i,
+  /\b(joke|funny|story|poem|riddle|kwentong)\b/i,
+  /\b(homework|essay|assignment|exam)\b/i,
+  /\b(president|election|politics|religion|war)\b/i,
+  /\b(bitcoin|crypto|stock\s*market|forex|trading)\b/i,
+  /\b(python|javascript|react|programming|debug\s+code)\b/i,
+  /\b(movie|song|lyrics|celebrity|gossip|nba|football)\b/i,
+  /\b(capital\s+of|who\s+(invented|discovered)|solve\s+for\s+x)\b/i,
+  /\btranslate\s+(this|to)\b/i,
+  /\b(medical|doctor|medicine|sick|disease)\b/i,
+  /\b(other\s+shop|competitor|cheaper\s+than)\b/i,
+];
+
+const FOLLOW_UP_PATTERNS = [
+  /^(yes|no|okay|ok|sure|sige|oo|hindi|yep|nope)[\s!.?]*$/i,
+  /^(midsized|sedan|suv|hatchback|pickup|highend|large\s*suv|van)\b/i,
+  /^spf\s*[-_]?\s*(80|89|99|101)\b/i,
+  /^[\d\s,+().-]{7,25}$/,
+];
+
+export const OFF_TOPIC_REPLY =
+  'I can only help with AutoSPF+ — service prices (by vehicle type), SPF/PPF/detailing packages, how to book, login, shop location, and repair tracking. Ask about one of those, or tap **Talk to a human specialist**.';
+
+const messageMatchesShopTopic = (text) => SHOP_TOPIC_PATTERNS.some((pattern) => pattern.test(text));
+
+const messageMatchesFollowUp = (text) => FOLLOW_UP_PATTERNS.some((pattern) => pattern.test(text.trim()));
+
+/**
+ * Returns true when the message is allowed for the AutoSPF+ concierge.
+ * @param {string} message
+ * @param {string[]} recentUserMessages - prior user lines in this session (newest first)
+ */
+export const isAutoSpfScopeMessage = (message = '', recentUserMessages = []) => {
+  const text = String(message).trim();
+  if (!text) return false;
+
+  if (messageMatchesShopTopic(text)) return true;
+
+  const recentHasShopContext = recentUserMessages.some((line) => messageMatchesShopTopic(String(line || '')));
+
+  if (messageMatchesFollowUp(text) && recentHasShopContext) return true;
+
+  const isBriefSocial = /^(hi|hello|hey|kamusta|musta|good\s*(morning|afternoon|evening))[\s!.?]*$/i.test(text);
+  if (isBriefSocial) return true;
+
+  if (OFF_TOPIC_BLOCK_PATTERNS.some((pattern) => pattern.test(text)) && !messageMatchesShopTopic(text)) {
+    return false;
+  }
+
+  if (recentHasShopContext && text.length <= 80) return true;
+
+  return false;
+};
+
+export const buildWebsiteGuide = () => [
+  '### AUTOSPF+ WEBSITE — WHAT YOU MAY EXPLAIN',
+  '- **Services (/services):** SPF 80/89/99/101 packages; prices change by vehicle type (hatchback, sedan, midsized, SUV, pick up, large SUV/van, highend sedan).',
+  '- **Book Now:** Customer picks package → vehicle details → schedule → confirm. Guest users may need name & phone for quotes.',
+  '- **Login / Register:** Top nav **Login**; customers use dashboard for bookings, live tracker, garage, AI scan.',
+  '- **Gallery / About / Contact:** Shop proof, team story, map & contact form.',
+  '- **Live tracker:** Logged-in customers see job progress after booking.',
+  '- **Location:** Las Piñas City, Metro Manila (Marcos Alvarez Ave.).',
+  '- **Human help:** Offer **Talk to a human specialist** for complex cases.',
+].join('\n');

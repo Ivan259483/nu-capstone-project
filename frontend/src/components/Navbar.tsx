@@ -1,12 +1,65 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X, Car } from "lucide-react";
+import { Menu, X, Globe, ChevronDown, Check } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+const LANGUAGES = [
+    { code: "en" as const, label: "EN", name: "English" },
+    { code: "fil" as const, label: "FIL", name: "Filipino" },
+];
+
+function LanguageSwitcher({ className }: { className?: string }) {
+    const { lang, setLang } = useLanguage();
+    const current = LANGUAGES.find((l) => l.code === lang) ?? LANGUAGES[0];
+
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <button
+                    type="button"
+                    aria-label="Select language"
+                    className={cn(
+                        "flex items-center gap-2 px-3.5 py-2 rounded-full",
+                        "bg-gradient-gold text-white text-xs font-semibold uppercase tracking-wide",
+                        "hover:opacity-90 transition-opacity",
+                        "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+                        className
+                    )}
+                >
+                    <Globe className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />
+                    <span>{current.label}</span>
+                    <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-90" strokeWidth={2.5} />
+                </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[9rem]">
+                {LANGUAGES.map((language) => (
+                    <DropdownMenuItem
+                        key={language.code}
+                        onClick={() => setLang(language.code)}
+                        className="cursor-pointer gap-2"
+                    >
+                        <span className="font-semibold w-7">{language.label}</span>
+                        <span className="text-muted-foreground">{language.name}</span>
+                        {lang === language.code && (
+                            <Check className="ml-auto h-4 w-4 text-primary" />
+                        )}
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+}
 
 export default function Navbar() {
-    const { t, lang, setLang } = useLanguage();
+    const { t } = useLanguage();
     const [scrolled, setScrolled] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const location = useLocation();
@@ -81,15 +134,7 @@ export default function Navbar() {
 
                     {/* Right Actions */}
                     <div className="hidden lg:flex items-center gap-3">
-                        {/* Language Toggle */}
-                        <button
-                            onClick={() => setLang(lang === "en" ? "fil" : "en")}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-gold/30 bg-background text-xs font-semibold text-primary hover:bg-gold/10 transition-all duration-300"
-                        >
-                            <span className={cn("transition-opacity", lang === "en" ? "text-primary opacity-100" : "text-muted-foreground opacity-60")}>EN</span>
-                            <span className="text-muted-foreground/50">|</span>
-                            <span className={cn("transition-opacity", lang === "fil" ? "text-primary opacity-100" : "text-muted-foreground opacity-60")}>FIL</span>
-                        </button>
+                        <LanguageSwitcher />
 
                         <Link to="/login">
                             <Button variant="outline" size="sm" className="border-gold/30 text-primary hover:bg-gold/10 hover:border-gold/60 transition-all duration-300">
@@ -106,12 +151,7 @@ export default function Navbar() {
 
                     {/* Mobile Menu Button */}
                     <div className="flex lg:hidden items-center gap-3">
-                        <button
-                            onClick={() => setLang(lang === "en" ? "fil" : "en")}
-                            className="flex items-center justify-center gap-1 px-3 py-2 min-h-[44px] min-w-[44px] rounded-md border border-gold/30 bg-background text-xs font-semibold text-primary"
-                        >
-                            <span>{lang === "en" ? "EN" : "FIL"}</span>
-                        </button>
+                        <LanguageSwitcher className="min-h-[44px]" />
                         <button
                             onClick={() => setMenuOpen(!menuOpen)}
                             className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-foreground hover:text-primary transition-colors"

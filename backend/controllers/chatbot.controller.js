@@ -5,6 +5,16 @@ import Service from '../models/service.model.js';
 import Product from '../models/product.model.js';
 import Notification from '../models/notification.model.js';
 import { getIO } from '../utils/socket.utils.js';
+import {
+  buildOtherServicesSummary,
+  buildSpfPricingKnowledge,
+  buildWebsiteGuide,
+  detectVehicleTypeFromMessage,
+  formatCurrency,
+  getVehicleLabel,
+  isAutoSpfScopeMessage,
+  OFF_TOPIC_REPLY,
+} from '../services/chatbotKnowledge.service.js';
 
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
@@ -32,32 +42,35 @@ const AVAILABILITY_MAP = [
 
 const FAQS = [
   {
-    q: 'What services do you offer?',
-    a: 'We offer Body Wash, Waxing, Detailing, Ceramic Coating, and PPF packages.'
+    q: 'How do I book?',
+    a: 'On the website: tap Book Now (or Services → choose package). Add vehicle type and details, pick a date, then confirm. You can also log in first so your garage is saved.',
   },
   {
-    q: 'How long does a service take?',
-    a: 'Most washes take 45-90 minutes. Detailing and coatings take longer depending on package.'
+    q: 'How do I log in?',
+    a: 'Use Login in the top navigation. New customers choose Register, then sign in to open the dashboard (bookings, tracker, garage).',
   },
   {
-    q: 'Do you offer packages?',
-    a: 'Yes, we have Basic, Standard, and Premium tiers with bundled services.'
-  }
+    q: 'Where are you located?',
+    a: 'Las Piñas City, Metro Manila — Marcos Alvarez Ave. See the Contact page for map and details.',
+  },
+  {
+    q: 'How long does coating take?',
+    a: 'SPF 80 about 2–3 hours; SPF 89 about 3–4 hours; SPF 99/101 about 4–8 hours depending on vehicle and prep.',
+  },
 ];
 
-const formatCurrency = (value) => `₱${Number(value || 0).toLocaleString('en-PH')}`;
+const buildKnowledgeBase = async (preferredVehicleKey = null) => {
+  const [spfPricingSummary, otherServicesSummary, products] = await Promise.all([
+    buildSpfPricingKnowledge(preferredVehicleKey),
+    buildOtherServicesSummary(),
+    Product.find({ isActive: true }).select('name inventory minLevel').lean(),
+  ]);
 
-const buildKnowledgeBase = async () => {
   const services = await Service.find({ status: 'Active' })
     .select('name basePrice category duration')
     .lean();
-  const products = await Product.find({ isActive: true })
-    .select('name inventory minLevel')
-    .lean();
 
-  const serviceSummary = services
-    .map((s) => `${s.name} (${s.category || 'Standard'}) - ${formatCurrency(s.basePrice)} (${s.duration || 'Standard duration'})`)
-    .join('\n');
+  const serviceSummary = [spfPricingSummary, otherServicesSummary].filter(Boolean).join('\n\n');
 
   const inventorySummary = products
     .slice(0, 50)
@@ -67,6 +80,27 @@ const buildKnowledgeBase = async () => {
   const faqSummary = FAQS.map((f) => `Q: ${f.q}\nA: ${f.a}`).join('\n');
 
   return { services, products, serviceSummary, inventorySummary, faqSummary };
+};
+
+const resolveVehicleContext = async (sessionId, currentMessage) => {
+  const fromCurrent = detectVehicleTypeFromMessage(currentMessage);
+  if (fromCurrent) return fromCurrent.apiKey;
+
+  const recentUserMessages = await ChatMessage.find({
+    sessionId,
+    sender: 'user',
+  })
+    .sort({ createdAt: -1 })
+    .limit(8)
+    .select('message')
+    .lean();
+
+  for (const entry of recentUserMessages) {
+    const detected = detectVehicleTypeFromMessage(entry.message);
+    if (detected) return detected.apiKey;
+  }
+
+  return null;
 };
 
 const emitAdminChatNotification = (payload) => {
@@ -142,8 +176,8 @@ const callOpenAI = async (messages) => {
     {
       model: GROQ_MODEL,
       messages,
-      temperature: 0.4,
-      max_tokens: 350,
+      temperature: 0.2,
+      max_tokens: 320,
     },
     {
       headers: {
@@ -249,8 +283,25 @@ const processMessage = async ({ sessionId, message, user, context = null, allowQ
     return { reply, action: { type: 'handoff' }, leadRequired: isGuest && !hasLead };
   }
 
+  const recentUserLines = await ChatMessage.find({ sessionId, sender: 'user' })
+    .sort({ createdAt: -1 })
+    .limit(8)
+    .select('message')
+    .lean();
+  const recentUserMessages = recentUserLines.map((row) => row.message);
+
+  if (!isAutoSpfScopeMessage(trimmed, recentUserMessages)) {
+    await ChatMessage.create({
+      sessionId,
+      sender: 'assistant',
+      message: OFF_TOPIC_REPLY,
+      metadata: { type: 'off_topic' },
+    });
+    return { reply: OFF_TOPIC_REPLY, leadRequired: false };
+  }
+
   if (isGuest && !hasLead && isQuoteRequest && !allowQuote) {
-    const leadPrompt = 'Before I can provide a quote, please share your name and phone number.';
+    const leadPrompt = 'To send a custom quote, please share your name and mobile number.';
     session.pendingMessage = trimmed;
     session.pendingAt = new Date();
     await session.save();
@@ -265,53 +316,65 @@ const processMessage = async ({ sessionId, message, user, context = null, allowQ
     return { reply: leadPrompt, leadRequired: true };
   }
 
-  const { services, products, serviceSummary, inventorySummary, faqSummary } = await buildKnowledgeBase();
+  const vehicleContextKey = await resolveVehicleContext(sessionId, trimmed);
+  const { services, products, serviceSummary, inventorySummary, faqSummary } = await buildKnowledgeBase(vehicleContextKey);
   const availabilityHints = buildAvailabilityHints(trimmed, products);
 
+  const vehicleDirective = vehicleContextKey
+    ? `The customer is asking about **${getVehicleLabel(vehicleContextKey)}** pricing. Quote ONLY that vehicle type from the SPF pricing section — never reuse sedan/hatchback prices for midsized, SUV, or other types.`
+    : 'If the customer asks for prices without stating vehicle type (sedan, midsized, SUV, hatchback, pick up, large SUV/van, highend sedan), ask which type before listing SPF package prices.';
+
+  const websiteGuide = buildWebsiteGuide();
+
   const systemPrompt = [
-    'You are the AutoSPF+ AI Assistant, an elite, highly intelligent, and professional automotive styling expert.',
-    'Your tone is sophisticated, authoritative, and incredibly helpful, reflecting a premium luxury brand.',
-    'You represent AutoSPF+, a top-tier vehicle protection and detailing studio.',
+    'You are the AutoSPF+ website chatbot — assistant for AutoSPF+ only.',
     '',
-    '### 📍 SHOP INFORMATION',
-    '- **Location:** Las Piñas City, Metro Manila (Marcos Alvarez Ave.)',
-    '- **Core Expertise:** Paint Protection Film (PPF), Ceramic Coating, Interior & Auto Detailing, Nano Ceramic Tint, Color Change Car Foil, Window Tints, and AI Vehicle Damage Scanning.',
-    '- **Mission:** To provide world-class, international-standard vehicle protection, restoration, and aesthetic services with unparalleled attention to detail.',
+    '### STRICT SCOPE (HIGHEST PRIORITY)',
+    'You MUST ONLY answer topics tied to AutoSPF+ and this website:',
+    '- Service & SPF package prices (by vehicle type), PPF, ceramic coating, detailing, tint, add-ons',
+    '- How to book, login/register, dashboard, live repair tracker, gallery, about, contact',
+    '- Shop location, hours, contact, payments, warranties on our packages',
+    '- Short greetings — then guide the user to prices, booking, or login',
+    'If the question is general knowledge, other businesses, coding, jokes, news, weather, homework, medical, or anything NOT about AutoSPF+, reply EXACTLY with this sentence and nothing else:',
+    `"${OFF_TOPIC_REPLY}"`,
+    'Never guess prices. Never answer off-topic even if the user insists.',
     '',
-    '### 🧠 YOUR AI DIRECTIVES & RULES',
-    '1. Answer questions accurately about services, packages, and availability using only the provided context below.',
-    '2. Explain technical concepts (like self-healing PPF, hydrophobic Ceramic Coatings, or AI damage detection) simply but professionally to build trust.',
-    '3. If asked about specific quotes, pricing, or bookings, you MUST politely encourage the customer to share their contact details (name and phone number) so our human experts can provide a personalized quote or arrange an appointment.',
-    '4. All prices are strictly in Philippine Peso (PHP). Format prices nicely (e.g., ₱15,000).',
-    '5. If inventory for a required item is low or zero, mention that availability for that service is currently limited.',
-    '6. Be concise but highly helpful. Keep responses generally under 120 words unless deeply explaining a technical package. Do NOT use emojis excessively.',
+    '### HOW TO WRITE (BE CLEAR)',
+    '- Use short, direct sentences. Plain English (Taglish OK if the user writes Taglish).',
+    '- Max ~90 words unless listing package prices.',
+    '- Use bullet lists for 3+ prices or steps.',
+    '- One clear next step at the end (e.g. "Tap Book Now" or "Tell me your vehicle type").',
+    '- No emojis. No long introductions.',
     '',
-    '### 📱 USER CURRENT CONTEXT',
-    context ? `The user's current app state context:\n${JSON.stringify(context, null, 2)}\nUse this to understand what they are currently doing (e.g. looking at an AI scan result, tracking a repair, etc). If they ask "What is my scan result?" or "Nasaan na unit ko?", refer to this context to answer intelligently.` : 'No live app context provided.',
+    '### PRICING RULES',
+    '1. SPF prices MUST come from the official matrix below (same as /services).',
+    vehicleDirective,
+    '2. Format money as ₱15,000 (PHP only).',
+    '3. Promotional price = what the customer pays; mention regular price only if shown in the matrix.',
     '',
-    '### 🎯 ACTION CHIPS',
-    'You have the power to suggest quick actions. If you want the user to take a specific action, you MUST output a JSON code block exactly at the end of your response.',
-    'Valid Action Chips: "Book Service", "View Estimate", "Track Repair", "Talk to Support", "View Scan Result"',
-    'Example:',
-    'Your explanation...',
+    websiteGuide,
+    '',
+    '### USER APP CONTEXT',
+    context
+      ? `Current app context (use only for tracker/scan/booking questions on our site):\n${JSON.stringify(context, null, 2)}`
+      : 'No live app context.',
+    '',
+    '### ACTION CHIPS (optional, end of reply only)',
+    'Valid: "Book Service", "View Estimate", "Track Repair", "Talk to Support", "View Scan Result"',
     '```json',
-    '["Book Service", "View Estimate"]',
+    '["Book Service"]',
     '```',
     '',
-    '### 🗂️ DYNAMIC KNOWLEDGE BASE',
-    'Use the following real-time data from our system to answer questions exactly:',
+    '### LIVE DATA',
+    '#### SERVICES & PRICING',
+    serviceSummary || 'Pricing is updating — ask the user to open the Services page.',
     '',
-    '#### SERVICES & PRICING:',
-    serviceSummary || 'Our system is currently updating the service prices.',
+    '#### INVENTORY (internal only — mention briefly if relevant)',
+    inventorySummary || 'N/A',
+    availabilityHints ? availabilityHints : '',
     '',
-    '#### CURRENT INVENTORY & AVAILABILITY:',
-    inventorySummary || 'Inventory data is currently refreshing.',
-    availabilityHints ? `\n${availabilityHints}` : '',
-    '',
-    '#### FREQUENTLY ASKED QUESTIONS (FAQS):',
-    faqSummary || 'No technical FAQs available at the moment.',
-    '',
-    'Remember: You are the brilliant digital ambassador of AutoSPF+. Be precise, be premium, and guide the customer.'
+    '#### FAQ',
+    faqSummary,
   ].join('\n');
 
   const history = await getRecentMessages(sessionId);

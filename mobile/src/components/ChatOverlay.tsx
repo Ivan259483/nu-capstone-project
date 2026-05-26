@@ -100,7 +100,7 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
             id: 'welcome',
             sender: 'assistant',
             message:
-              "Hi! 👋 I'm the AutoSPF+ AI assistant. I can help you with services, pricing, bookings, and more. How can I assist you today?",
+              'Hi — how can I help you today?',
           },
         ]);
       }
