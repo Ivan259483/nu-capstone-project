@@ -134,6 +134,29 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
     }
   }, [messages]);
 
+  const upsertAssistantMessage = useCallback((id: string, message: string, actionChips?: string[]) => {
+    setMessages((prev) => {
+      const exists = prev.some((m) => m.id === id);
+      if (exists) {
+        return prev.map((m) => (
+          m.id === id
+            ? { ...m, message, actionChips: actionChips ?? m.actionChips }
+            : m
+        ));
+      }
+      return [
+        ...prev,
+        {
+          id,
+          sender: 'assistant',
+          message,
+          createdAt: new Date().toISOString(),
+          actionChips,
+        },
+      ];
+    });
+  }, []);
+
   const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed || sending) return;
@@ -161,18 +184,69 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
         } catch (e) {}
       }
 
-      const response = await chatbotService.sendMessage(trimmed, localAppContext);
+      const botId = `bot-${Date.now()}`;
+      let response: Awaited<ReturnType<typeof chatbotService.sendMessage>> | null = null;
+      let streamStarted = false;
+      let streamedReply = '';
+      let pendingReply = '';
+      let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-      const botMsg: ChatMessageRecord = {
-        id: `bot-${Date.now()}`,
-        sender: 'assistant',
-        message: response.reply,
-        createdAt: new Date().toISOString(),
-        actionChips: response.actionChips,
+      const flushStream = () => {
+        if (!pendingReply) return;
+        streamedReply += pendingReply;
+        pendingReply = '';
+        upsertAssistantMessage(botId, streamedReply);
       };
-      setMessages((prev) => [...prev, botMsg]);
+
+      try {
+        response = await chatbotService.sendMessageStream(trimmed, localAppContext, {
+          onStart: () => {
+            streamStarted = true;
+            setSending(false);
+            upsertAssistantMessage(botId, '');
+          },
+          onDelta: (text) => {
+            if (!text) return;
+            pendingReply += text;
+            if (!flushTimer) {
+              flushTimer = setTimeout(() => {
+                flushTimer = null;
+                flushStream();
+              }, 40);
+            }
+          },
+        });
+        if (flushTimer) {
+          clearTimeout(flushTimer);
+          flushTimer = null;
+        }
+        flushStream();
+        upsertAssistantMessage(botId, response.reply, response.actionChips);
+      } catch (streamErr) {
+        if (flushTimer) {
+          clearTimeout(flushTimer);
+          flushTimer = null;
+        }
+        if (streamStarted) {
+          throw streamErr;
+        }
+
+        response = await chatbotService.sendMessage(trimmed, localAppContext);
+        const botMsg: ChatMessageRecord = {
+          id: botId,
+          sender: 'assistant',
+          message: response.reply,
+          createdAt: new Date().toISOString(),
+          actionChips: response.actionChips,
+        };
+        setMessages((prev) => [...prev, botMsg]);
+      }
 
       // Handle action intents
+      if (!response) {
+        throw new Error('Missing chat response.');
+      }
+
       if (response.action?.type === 'handoff') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }

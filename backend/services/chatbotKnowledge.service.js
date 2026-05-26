@@ -279,20 +279,31 @@ const SHOP_TOPIC_PATTERNS = [
   /\b(price|pric|price\s*list|pricelist|rate|rates|cost|quote|estimate|magkano|presyo|pricing)\b/i,
   /\b(book|booking|schedule|appointment|reserve|paano.*book|mag[\s-]?book)\b/i,
   /\b(login|log[\s-]?in|sign[\s-]?in|register|sign[\s-]?up|account|password|dashboard)\b/i,
+  /\b(gawan|gawa|gumawa|igawa|iregister|i-register|pa\s*register|signup\s+ako|create\s+acc|gawa\s+acc)\b/i,
   /\b(spf|ppf|ceramic|coating|detailing|detail|tint|undercoat|graphene|wax|wash|sonax)\b/i,
   /\b(sedan|suv|hatchback|midsized|pickup|vehicle|vihicle|vechicle|kotse|sasakyan|car)\b/i,
   /\b(service|package|menu|offer|promo|website|site)\b/i,
   /\b(location|address|hours|open|contact|phone|las\s*piñas|piñas|marcos)\b/i,
   /\b(track|repair|order|status|waiver)\b/i,
   /\b(payment|pay|gcash|installment|down[\s-]?payment)\b/i,
+  /\b(wrong|incorrect|mistake|correction|correct|mali|palitan|change|update)\b[\s\S]{0,80}\b(email|mail|phone|mobile|number|name|reference|appointment|booking)\b/i,
   /\b(scan|damage|ai\b)/i,
   /\b(gallery|about|contact|services)\b/i,
   /\b(warranty|protection|years?)\b/i,
   /\b(included|include|features?|kasama)\b/i,
   /\b(how\s+(to|do)|paano|what\s+is\s+(spf|ppf|ceramic))\b/i,
-  /\b(human|agent|specialist|tawag|call)\b/i,
   /\b(hello|hi|hey|good\s*(morning|afternoon|evening)|kamusta|musta)\b/i,
   /\b(salamat|thank|thanks)\b/i,
+  /\b(nagiisip|isip\s+pa|thinking|sandali|antay)\b/i,
+  /\b(kasi|lang|po|naman)\b/i,
+];
+
+const CASUAL_IN_SCOPE_PATTERNS = [
+  /^(okay|ok|oke|k|yes|yep|yeah|sure|sige|oo|hmm+|ah+|wait|thanks|thank\s+you|salamat|got\s+it|noted|alright)[\s!.?]*$/i,
+  /\b(nagiisip|isip\s+pa|thinking|sandali|hold\s+on|antay)\b/i,
+  /^price\??$/i,
+  /\b(what\s+)?services?\??$/i,
+  /\b(presyo|magkano)\b/i,
 ];
 
 const OFF_TOPIC_BLOCK_PATTERNS = [
@@ -311,14 +322,15 @@ const OFF_TOPIC_BLOCK_PATTERNS = [
 ];
 
 const FOLLOW_UP_PATTERNS = [
-  /^(yes|no|okay|ok|sure|sige|oo|hindi|yep|nope)[\s!.?]*$/i,
+  /^(yes|no|okay|ok|sure|sige|oo|hindi|yep|nope|hmm+|wait|thanks|salamat)[\s!.?]*$/i,
   /^(midsized|sedan|suv|hatchback|pickup|highend|large\s*suv|van)\b/i,
   /^spf\s*[-_]?\s*(80|89|99|101)\b/i,
   /^[\d\s,+().-]{7,25}$/,
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
 ];
 
 export const OFF_TOPIC_REPLY =
-  'Let me connect you with a specialist who can help you better! Please use Talk to a protection specialist below.';
+  'I can help with AutoSPF+ pricing, booking, tracker, location, hours, and services. Which one should we focus on?';
 
 const messageMatchesShopTopic = (text) => SHOP_TOPIC_PATTERNS.some((pattern) => pattern.test(text));
 
@@ -345,11 +357,16 @@ export const isAutoSpfScopeMessage = (message = '', recentUserMessages = []) => 
   const text = String(message).trim();
   if (!text) return false;
 
+  if (CASUAL_IN_SCOPE_PATTERNS.some((pattern) => pattern.test(text))) return true;
+
   if (messageMatchesShopTopic(text)) return true;
 
   const recentHasShopContext = recentUserMessages.some((line) => messageMatchesShopTopic(String(line || '')));
 
-  if (messageMatchesFollowUp(text) && recentHasShopContext) return true;
+  if (messageMatchesFollowUp(text)) {
+    if (recentHasShopContext) return true;
+    if (text.length <= 24) return true;
+  }
 
   const isBriefSocial = /^(hi|hello|hey|kamusta|musta|good\s*(morning|afternoon|evening))[\s!.?]*$/i.test(text);
   if (isBriefSocial) return true;
@@ -359,6 +376,10 @@ export const isAutoSpfScopeMessage = (message = '', recentUserMessages = []) => 
   }
 
   if (recentHasShopContext && text.length <= 80) return true;
+
+  if (text.length <= 48 && /\b(kasi|lang|po|naman|ba|eh)\b/i.test(text) && recentHasShopContext) {
+    return true;
+  }
 
   return false;
 };
@@ -371,5 +392,5 @@ export const buildWebsiteGuide = () => [
   '- **Gallery / About / Contact:** Shop proof, team story, map & contact form.',
   '- **Live tracker:** Logged-in customers see job progress after booking.',
   '- **Location:** Las Piñas City, Metro Manila (Marcos Alvarez Ave.).',
-  '- Human help: Offer Talk to a protection specialist (link below the chat) for complex cases.',
+  '- Human help: Only suggest Talk to a protection specialist when the customer explicitly asks for a person or has a serious unresolved complaint.',
 ].join('\n');

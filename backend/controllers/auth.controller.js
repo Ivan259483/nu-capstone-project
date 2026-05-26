@@ -13,6 +13,7 @@ import { admin } from '../config/firebaseAdmin.js';
 import { parseRegisterPhone } from '../utils/phone.utils.js';
 import { isLoginLockoutExemptEmail } from '../constants/loginLockout.exempt.js';
 import { attachPhoneForClient } from '../utils/phone-client.utils.js';
+import { startChatRegistrationForCustomer } from '../services/chatRegistration.service.js';
 import {
   EMAIL_OTP_PURPOSE,
   LOGIN_OTP_PURPOSE,
@@ -646,85 +647,19 @@ export const verifyOtp = async (req, res, next) => {
  */
 export const startChatRegistration = async (req, res) => {
   try {
-    const parsed = parseChatRegistrationBody(req.body);
-    if (!parsed.ok) {
-      return res.status(parsed.status).json({ success: false, message: parsed.message });
-    }
-
-    const { firstName, lastName, fullName, email, phone } = parsed;
-    let user = await User.findOne({ email });
-    let created = false;
-
-    if (user) {
-      if (user.isDeleted) {
-        return res.status(403).json({
-          success: false,
-          message: 'This account has been deleted by an administrator.',
-        });
-      }
-      if (!user.isActive) {
-        return res.status(403).json({
-          success: false,
-          message: 'Your account has been deactivated. Please contact an administrator.',
-          code: 'ACCOUNT_INACTIVE',
-        });
-      }
-      if (user.role !== 'customer') {
-        return res.status(409).json({
-          success: false,
-          message: 'This email is linked to a staff account. Please sign in or contact support.',
-        });
-      }
-      if (user.isVerified) {
-        return res.status(409).json({
-          success: false,
-          message: 'An active account with this email already exists. Please sign in.',
-        });
-      }
-
-      user.name = fullName;
-      user.phone = phone;
-      user.status = 'pending';
-      user.isVerified = false;
-      user.isActive = true;
-      await user.save();
-    } else {
-      user = new User({
-        name: fullName,
-        email,
-        phone,
-        role: 'customer',
-        isVerified: false,
-        isActive: true,
-        status: 'pending',
+    const result = await startChatRegistrationForCustomer(req.body);
+    if (!result.ok) {
+      return res.status(result.status || 400).json({
+        success: false,
+        message: result.message,
+        ...(result.code ? { code: result.code } : {}),
       });
-      await user.save();
-      created = true;
     }
 
-    const tokenRecord = await issuePasswordSetupEmail(user);
-
-    logActivity({
-      userId: user._id,
-      userName: user.name || email,
-      userRole: user.role,
-      type: 'chat_registration_started',
-      module: 'Auth',
-      action: 'Chat Registration Started',
-      description: `Password setup email sent to ${user.name || email}.`,
-      status: 'success',
-    });
-
-    return res.status(created ? 201 : 200).json({
+    return res.status(result.status || 200).json({
       success: true,
-      message: 'Verification email sent',
-      data: {
-        email,
-        firstName,
-        lastName,
-        expiresAt: tokenRecord.expiresAt,
-        expiresIn: config.passwordSetupTokenExpiry,
-      },
+      message: result.message,
+      data: result.data,
     });
   } catch (error) {
     console.error('❌ Chat Registration Error:', error);

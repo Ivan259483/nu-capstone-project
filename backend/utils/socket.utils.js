@@ -1,7 +1,7 @@
 import { Server as SocketIOServer } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/environment.js';
-import { handleSocketMessage } from '../controllers/chatbot.controller.js';
+import { handleSocketMessage, handleSocketStreamingMessage } from '../controllers/chatbot.controller.js';
 import { isAdminDashboardRole, isBookingManagerRole, isPosManagerRole } from '../constants/roles.js';
 import User from '../models/user.model.js';
 import { sendExpoPushNotification } from './push.utils.js';
@@ -167,6 +167,10 @@ export const initSocket = (httpServer) => {
 
     socket.on('chat:message', async (payload) => {
       await handleSocketMessage(io, socket, payload);
+    });
+
+    socket.on('chat:message:stream', async (payload) => {
+      await handleSocketStreamingMessage(io, socket, payload);
     });
   });
 
