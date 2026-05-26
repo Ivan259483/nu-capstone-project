@@ -291,48 +291,53 @@ export default function ChatConversationScreen({
                     <motion.div
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="ml-0 max-w-[94%] rounded-[24px] border !border-gray-200 bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.08)]"
+                        className="ml-0 max-w-[min(100%,22rem)] rounded-[24px] border !border-gray-200 bg-white px-5 py-6 shadow-[0_12px_30px_rgba(15,23,42,0.08)] sm:px-6 sm:py-7"
                     >
-                        <div className="flex items-start gap-3">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-50">
+                        <div className="flex items-start gap-4">
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-green-50">
                                 <CheckCircle2 className="h-5 w-5 text-green-600" />
                             </div>
-                            <div className="min-w-0 flex-1">
-                                <p className="text-[15px] font-bold text-gray-900">Secure setup link sent</p>
-                                <p className="mt-1 break-words text-[13px] text-gray-500">
-                                    Your AutoSPF+ account link is waiting at {registrationEmailSent}
+                            <div className="min-w-0 flex-1 pt-0.5">
+                                <p className="text-[15px] font-bold leading-snug text-gray-900">Secure setup link sent</p>
+                                <p className="mt-2.5 break-words text-[13px] leading-relaxed text-gray-500">
+                                    Your AutoSPF+ account link is waiting at{' '}
+                                    <span className="font-medium text-gray-700">{registrationEmailSent}</span>
                                 </p>
                             </div>
                         </div>
-                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        <div className="mt-6 flex flex-col gap-2.5">
                             <button
                                 type="button"
                                 onClick={() =>
                                     window.open('https://mail.google.com/mail/u/0/#inbox', '_blank', 'noopener,noreferrer')
                                 }
-                                className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-[12px] text-[12px] font-semibold text-white cursor-pointer"
+                                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[14px] px-4 text-[13px] font-semibold whitespace-nowrap text-white cursor-pointer"
                                 style={{ backgroundColor: CHAT_BLUE }}
                             >
-                                <Mail className="h-3.5 w-3.5" />
+                                <Mail className="h-4 w-4 shrink-0" />
                                 Open Gmail
                             </button>
-                            <button
-                                type="button"
-                                onClick={onResendSetupEmail}
-                                disabled={isResendingSetupEmail}
-                                className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-[12px] border !border-gray-200 text-[12px] font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 cursor-pointer"
-                            >
-                                <RefreshCw className={`h-3.5 w-3.5 ${isResendingSetupEmail ? 'animate-spin' : ''}`} />
-                                Resend
-                            </button>
-                            <button
-                                type="button"
-                                onClick={onChangeRegistrationEmail}
-                                className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-[12px] border !border-gray-200 text-[12px] font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer"
-                            >
-                                <Edit3 className="h-3.5 w-3.5" />
-                                Change email
-                            </button>
+                            <div className="grid grid-cols-2 gap-2.5">
+                                <button
+                                    type="button"
+                                    onClick={onResendSetupEmail}
+                                    disabled={isResendingSetupEmail}
+                                    className="flex min-h-11 items-center justify-center gap-1.5 rounded-[14px] border !border-gray-200 px-3 text-[12px] font-semibold whitespace-nowrap text-gray-700 hover:bg-gray-50 disabled:opacity-50 cursor-pointer"
+                                >
+                                    <RefreshCw
+                                        className={`h-3.5 w-3.5 shrink-0 ${isResendingSetupEmail ? 'animate-spin' : ''}`}
+                                    />
+                                    Resend
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={onChangeRegistrationEmail}
+                                    className="flex min-h-11 items-center justify-center gap-1.5 rounded-[14px] border !border-gray-200 px-3 text-[12px] font-semibold whitespace-nowrap text-gray-700 hover:bg-gray-50 cursor-pointer"
+                                >
+                                    <Edit3 className="h-3.5 w-3.5 shrink-0" />
+                                    Change email
+                                </button>
+                            </div>
                         </div>
                     </motion.div>
                 )}
