@@ -25,6 +25,10 @@ router.post('/register', validateRegistration, authController.register);
 router.post('/login', validateLogin, authController.login);
 router.post('/social-login', validateSocialLogin, authController.socialLogin);
 router.post('/resend-otp', authController.resendOtp);
+router.post('/chat-registration/start', authController.startChatRegistration);
+router.post('/chat-registration/resend', authController.resendChatRegistrationEmail);
+router.post('/password-setup/validate', authController.validatePasswordSetupToken);
+router.post('/password-setup/complete', authController.completePasswordSetup);
 
 // ─── 2FA (login OTP flow) ────────────────────────────────────────────────────
 
@@ -39,10 +43,19 @@ router.delete('/account', authenticate, authController.deleteAccount);
 
 /**
  * @route POST /api/auth/set-password
- * @desc Staff first-login forced password change
- * @access Private (JWT required — issued at login with requiresPasswordChange flag)
+ * @desc Staff first-login (Bearer JWT) OR email setup link (body.token, no Bearer)
+ * @access Public when body.token is present; otherwise JWT required
  */
-router.post('/set-password', authenticate, authController.setPassword);
+router.post('/set-password', (req, res, next) => {
+  const setupToken = String(req.body?.token || '').trim();
+  const hasBearer = Boolean(req.headers.authorization?.startsWith('Bearer '));
+
+  if (setupToken && !hasBearer) {
+    return authController.completePasswordSetup(req, res);
+  }
+
+  return authenticate(req, res, () => authController.setPassword(req, res));
+});
 
 /**
  * @route POST /api/auth/change-password

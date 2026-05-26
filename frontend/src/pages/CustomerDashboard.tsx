@@ -85,6 +85,7 @@ function resolveCustomerDashboardSection(pathname: string, searchString: string)
   if (pathname === '/customer/services') return 'services';
 
   const search = new URLSearchParams(searchString);
+  if (search.get('ref')) return 'bookings';
   const s = search.get('section');
   return s === 'settings'
     ? 'settings'
@@ -103,6 +104,19 @@ function resolveCustomerDashboardSection(pathname: string, searchString: string)
                 : s === 'tracker'
                   ? 'tracker'
                   : 'dashboard';
+}
+
+function normalizeAppointmentReference(value: unknown): string {
+  return String(value || '').trim().replace(/\s+/g, '').toUpperCase();
+}
+
+function bookingMatchesAppointmentReference(booking: any, targetRef: string): boolean {
+  const normalizedTarget = normalizeAppointmentReference(targetRef);
+  if (!normalizedTarget) return false;
+  return [
+    booking?.bookingReference,
+    booking?.orderNumber,
+  ].some((value) => normalizeAppointmentReference(value) === normalizedTarget);
 }
 
 function getStoredSidebarCollapsed() {
@@ -538,6 +552,10 @@ export default function CustomerDashboard() {
   const [sidebarTransitionsReady, setSidebarTransitionsReady] = useState(false);
   const sidebarTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const location = useLocation();
+  const targetAppointmentRef = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return normalizeAppointmentReference(params.get('ref'));
+  }, [location.search]);
   const [activeSection, setActiveSection] = useState<DashboardSection>(() =>
     resolveCustomerDashboardSection(location.pathname, location.search)
   );
@@ -590,6 +608,8 @@ export default function CustomerDashboard() {
   const [customerBookingsLoadedOnce, setCustomerBookingsLoadedOnce] = useState(false);
   const customerBookingsLoadedOnceRef = useRef(false);
   const [bookingsFilter, setBookingsFilter] = useState<'all' | 'upcoming' | 'active' | 'completed' | 'cancelled'>('all');
+  const [highlightedAppointmentRef, setHighlightedAppointmentRef] = useState('');
+  const bookingCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   // Payment History lightbox
   const [paymentLightboxUrl, setPaymentLightboxUrl] = useState<string | null>(null);
@@ -2078,6 +2098,39 @@ export default function CustomerDashboard() {
     };
   }, [activeSection, user]);
 
+  useEffect(() => {
+    if (!targetAppointmentRef || !customerBookingsLoadedOnce || myBookingsLoading) return;
+
+    setActiveSection('bookings');
+    setBookingsFilter('all');
+
+    const matchedBooking = myBookings.find((booking) =>
+      bookingMatchesAppointmentReference(booking, targetAppointmentRef)
+    );
+    if (!matchedBooking) return;
+
+    const matchedRef = normalizeAppointmentReference(
+      matchedBooking.bookingReference || matchedBooking.orderNumber || targetAppointmentRef
+    );
+    setHighlightedAppointmentRef(matchedRef || targetAppointmentRef);
+
+    const scrollTimer = window.setTimeout(() => {
+      const el = bookingCardRefs.current[matchedRef] || bookingCardRefs.current[targetAppointmentRef];
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 180);
+
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedAppointmentRef((current) =>
+        current === matchedRef || current === targetAppointmentRef ? '' : current
+      );
+    }, 6500);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [targetAppointmentRef, customerBookingsLoadedOnce, myBookingsLoading, myBookings]);
+
   const activeTrackerBooking = useMemo(() => pickCustomerLiveTrackerBooking(myBookings), [myBookings]);
   const stableTrackerBookingRef = useRef<any | undefined>(undefined);
   useEffect(() => {
@@ -3255,12 +3308,25 @@ export default function CustomerDashboard() {
                           const svcIcon = Object.entries(serviceIcons).find(([k]) => svcName.includes(k))?.[1] || 'solar:car-wash-bold';
                           const vehicleLabel = [booking.vehicleBrand || booking.vehicleMake, booking.vehicleModel].filter(Boolean).join(' ') || booking.vehicleModel || booking.vehicleMake || '';
                           const plateLabel = displayVehicleLabel(booking.vehiclePlate, '');
+                          const appointmentRef = normalizeAppointmentReference(booking.bookingReference || booking.orderNumber);
+                          const isHighlightedAppointment = Boolean(
+                            highlightedAppointmentRef && bookingMatchesAppointmentReference(booking, highlightedAppointmentRef)
+                          );
 
                           return (
                             <div
                               key={bookingId}
-                              className="rounded-3xl overflow-hidden transition-all duration-300 hover:-translate-y-1 group"
-                              style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.1), 0 1px 4px rgba(0,0,0,0.06)' }}
+                              ref={(el) => {
+                                if (appointmentRef) bookingCardRefs.current[appointmentRef] = el;
+                              }}
+                              data-appointment-ref={appointmentRef || undefined}
+                              className={`rounded-3xl overflow-hidden transition-all duration-300 hover:-translate-y-1 group ${isHighlightedAppointment ? 'ring-4 ring-blue-500/30' : ''}`}
+                              style={{
+                                scrollMarginTop: 120,
+                                boxShadow: isHighlightedAppointment
+                                  ? '0 0 0 4px rgba(37,99,235,0.18), 0 18px 46px rgba(37,99,235,0.20)'
+                                  : '0 4px 24px rgba(0,0,0,0.1), 0 1px 4px rgba(0,0,0,0.06)',
+                              }}
                             >
                               {/* Cancel banner */}
                               {isCancelling && (

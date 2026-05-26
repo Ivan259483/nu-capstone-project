@@ -393,6 +393,64 @@ function passwordResetPlainText(otp) {
   return `AutoSPF+ — password reset\n\n${otp}\n\nValid for 10 minutes. If you did not request this, ignore this email.\n\n${getAppPublicUrl()}`;
 }
 
+// ─── Password Setup Link Template ─────────────────────────────────────────────
+
+function passwordSetupTemplate(name, setupUrl, expiresMinutes = 60) {
+  const safeName = escapeHtml(name || 'there');
+  const safeSetupUrl = escapeHtml(setupUrl);
+  const supportAddr = escapeHtml(getSupportEmail());
+  const supportMailto = escapeHtml(`mailto:${getSupportEmail()}`);
+
+  const content = `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td style="padding:46px 38px 28px;text-align:center;border-bottom:1px solid #f1f5f9">
+          <p style="margin:0 0 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.22em;color:#c2410c">Secure account setup</p>
+          <h1 style="margin:0;font-size:28px;font-weight:700;letter-spacing:-0.035em;color:#0a0f1a;line-height:1.2">Create your AutoSPF+ password</h1>
+          <p style="margin:18px auto 0;font-size:15px;line-height:1.65;color:#64748b;max-width:410px">Hi ${safeName}, your concierge created a pending AutoSPF+ account. Use this secure link to set your own password and activate access.</p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:32px 32px 36px">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 26px">
+            <tr>
+              <td style="border-radius:14px;background:#0f172a">
+                <a href="${safeSetupUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:15px 30px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:14px">Set my password</a>
+              </td>
+            </tr>
+          </table>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="background:#fff7ed;border-radius:14px;border:1px solid #fed7aa;border-left:4px solid #f97316;padding:20px 22px">
+                <p style="margin:0 0 7px;font-size:13px;font-weight:700;color:#9a3412">Valid for ${expiresMinutes} minutes</p>
+                <p style="margin:0;font-size:13px;line-height:1.6;color:#78716c">For your security, this link can be used once. AutoSPF+ will never ask the AI assistant to create a password for you.</p>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:22px 0 0;font-size:12px;line-height:1.65;color:#94a3b8;text-align:center">If the button does not work, copy this link into your browser:<br><a href="${safeSetupUrl}" style="color:#d97706;text-decoration:none;word-break:break-all">${safeSetupUrl}</a></p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:24px">
+            <tr>
+              <td style="border-top:1px solid #f1f5f9;padding-top:18px;text-align:center">
+                <p style="margin:0;font-size:12px;line-height:1.55;color:#64748b">Need help? <a href="${supportMailto}" style="color:#d97706;text-decoration:none;font-weight:600">${supportAddr}</a></p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  return baseWrapper(content, {
+    preheader: 'Set your AutoSPF+ password with a secure one-time link.',
+    accent: 'brand',
+    confidentialityRibbon: true,
+  });
+}
+
+function passwordSetupPlainText(name, setupUrl, expiresMinutes = 60) {
+  return `AutoSPF+ secure account setup\n\nHi ${name || 'there'},\n\nSet your password using this secure one-time link:\n${setupUrl}\n\nThis link is valid for ${expiresMinutes} minutes. AutoSPF+ will never ask the AI assistant to create a password for you.\n\n${getAppPublicUrl()}`;
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export const sendOtpEmail = async (email, otp, { purpose = 'verification', otpRecordId } = {}) => {
@@ -442,6 +500,22 @@ export const sendPasswordResetEmail = async (email, otp, { otpRecordId } = {}) =
   });
 };
 
+export const sendPasswordSetupEmail = async (email, name, setupUrl, { tokenRecordId, expiresInSeconds = 3600 } = {}) => {
+  console.log(`📨 [Resend] Sending password setup link to ${email}...`);
+  const expiresMinutes = Math.max(1, Math.round(Number(expiresInSeconds || 3600) / 60));
+  return sendEmail({
+    to: email,
+    subject: 'Set up your AutoSPF+ password',
+    html: passwordSetupTemplate(name, setupUrl, expiresMinutes),
+    text: passwordSetupPlainText(name, setupUrl, expiresMinutes),
+    tags: [
+      { name: 'type', value: 'account_setup' },
+      { name: 'purpose', value: 'password_setup' },
+    ],
+    idempotencyKey: buildIdempotencyKey('password_setup', tokenRecordId),
+  });
+};
+
 /** Kept for backward compatibility — Resend needs no SMTP initialization */
 export const initializeMailer = async () => {
   const apiKey = process.env.RESEND_API_KEY;
@@ -454,4 +528,4 @@ export const initializeMailer = async () => {
   console.log(`   From: ${FROM}`);
 };
 
-export default { initializeMailer, sendOtpEmail, sendWelcomeEmail, sendPasswordResetEmail };
+export default { initializeMailer, sendOtpEmail, sendWelcomeEmail, sendPasswordResetEmail, sendPasswordSetupEmail };

@@ -13,6 +13,8 @@ import {
     AlertTriangle,
     LockKeyhole,
     Clock,
+    Bot,
+    MessageCircle,
     UserPlus,
     CheckCircle2,
     XCircle,
@@ -33,6 +35,7 @@ import { auth } from "@/config/firebase";
 import { buildRegisterE164, validateRegisterNationalDigits } from "@/lib/phone";
 import { REGISTER_COUNTRY_DIALS } from "@/lib/countries-dial-data";
 import { RegisterPhoneField } from "@/components/auth/RegisterPhoneField";
+import { ManualRegisterForm } from "@/components/auth/ManualRegisterForm";
 import {
     PPF_TERMS_ACCEPTANCE_NOTE,
     PPF_TERMS_BUSINESS,
@@ -51,6 +54,19 @@ import {
 } from "@/components/ui/dialog";
 
 const PPF_TERMS_HIGHLIGHT_ICONS = [Clock, ShieldCheck, RefreshCw, CheckCircle2];
+const DEFAULT_LOGIN_REDIRECT = "/customer/dashboard";
+
+function getSafeLoginRedirect(value: string | null): string {
+    if (!value) return "";
+    let path = value.trim();
+    try {
+        path = decodeURIComponent(path);
+    } catch {
+        return "";
+    }
+    if (!path.startsWith("/") || path.startsWith("//")) return "";
+    return path;
+}
 
 /* Must match backend register password policy (validation.middleware.js, auth.controller.js). */
 const REGISTER_PASSWORD_SPECIAL_RE = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/;
@@ -96,6 +112,11 @@ export default function Login() {
     const navigate = useNavigate();
     const location = useLocation();
     const { login, resetPassword, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser, prepareForLogin } = useAuth();
+    const redirectParamTo = useMemo(() => {
+        const params = new URLSearchParams(window.location.search);
+        return getSafeLoginRedirect(params.get("redirect") || params.get("next"));
+    }, [location.search]);
+    const redirectTo = redirectParamTo || DEFAULT_LOGIN_REDIRECT;
 
     /* ── Form state ── */
     const [showPassword, setShowPassword] = useState(false);
@@ -133,6 +154,7 @@ export default function Login() {
 
     /* ── Tab ── */
     const [tab, setTab] = useState<"login" | "register">("login");
+    const [registerView, setRegisterView] = useState<"ai" | "manual">("ai");
 
     /* ── Register form ── */
     const [registerForm, setRegisterForm] = useState({
@@ -189,6 +211,10 @@ export default function Login() {
             setPpfTermsModalOpen(false);
             setPpfTermsModalScrolledToEnd(false);
             setPpfTermsModalBodyKey((k) => k + 1);
+            setRegisterView("ai");
+        }
+        if (tab !== "register") {
+            setRegisterView("ai");
         }
         prevTabRef.current = tab;
     }, [tab]);
@@ -213,18 +239,9 @@ export default function Login() {
 
     /* ── ?redirect= or ?next= — safe same-origin path only (e.g. return to a protected route after sign-in) ── */
     useEffect(() => {
-        const params = new URLSearchParams(location.search);
-        const raw = params.get("redirect") ?? params.get("next");
-        if (!raw) return;
-        let path: string;
-        try {
-            path = decodeURIComponent(raw.trim());
-        } catch {
-            return;
-        }
-        if (!path.startsWith("/") || path.startsWith("//")) return;
-        sessionStorage.setItem("redirect_after_login", path);
-    }, [location.search]);
+        if (!redirectParamTo) return;
+        sessionStorage.setItem("redirect_after_login", redirectParamTo);
+    }, [redirectParamTo]);
 
     /* ── Login OTP expiry countdown (5 min) ── */
     useEffect(() => {
@@ -283,7 +300,7 @@ export default function Login() {
 
     /* ── Redirect helper ── */
     const performRedirect = useCallback((role: string) => {
-        const redirectUrl = sessionStorage.getItem("redirect_after_login");
+        const redirectUrl = redirectParamTo || getSafeLoginRedirect(sessionStorage.getItem("redirect_after_login"));
         const dashboardPath = getDashboardPathForRole(role);
         console.log('🧭 [DEBUG-Login] performRedirect called:', {
             inputRole: role,
@@ -298,9 +315,10 @@ export default function Login() {
             navigate(redirectUrl, { replace: true });
             return;
         }
-        console.log('🧭 [DEBUG-Login] Navigating to dashboard:', dashboardPath);
-        navigate(dashboardPath, { replace: true });
-    }, [navigate]);
+        const fallbackPath = dashboardPath || redirectTo;
+        console.log('🧭 [DEBUG-Login] Navigating to dashboard:', fallbackPath);
+        navigate(fallbackPath, { replace: true });
+    }, [navigate, redirectParamTo, redirectTo]);
 
     /* ── Redirect on auth state (only after stale session cleared on /login) ── */
     useEffect(() => {
@@ -383,6 +401,7 @@ export default function Login() {
             if (rememberMe) localStorage.setItem("remembered_email", emailNorm);
             else localStorage.removeItem("remembered_email");
             toast.success("Welcome back.");
+            performRedirect(getSafeUserRole(result.role || user?.role || "customer"));
         } catch {
             toast.error("Login failed");
         } finally {
@@ -619,6 +638,13 @@ export default function Login() {
         }
     };
 
+    const openRegistrationChat = () => {
+        window.dispatchEvent(new CustomEvent("autospf:open-chat-registration"));
+        toast.success("AutoSPF+ concierge is ready", {
+            description: "Tell the chatbot the four details it asks for. Your password will be created from the secure email link.",
+        });
+    };
+
 
     /* ═══════════════════════════════════════════════════════
        RENDER
@@ -693,8 +719,79 @@ export default function Login() {
 
                         {/* ══ Form content ══ */}
 
+                        {/* ══════════ MANUAL REGISTER FORM ══════════ */}
+                        {loginOtpStep === "form" && tab === "register" && registerView === "manual" && (
+                            <ManualRegisterForm
+                                onBack={() => setRegisterView("ai")}
+                                onSignIn={() => setTab("login")}
+                            />
+                        )}
+
+                        {/* ══════════ AI REGISTER ENTRY ══════════ */}
+                        {loginOtpStep === "form" && tab === "register" && registerView === "ai" && (
+                            <div className="space-y-5 animate-slide-up">
+                                <div className="relative overflow-hidden rounded-3xl border border-orange-500/20 bg-gradient-to-br from-slate-950/95 via-slate-900/90 to-black/95 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_28px_80px_-36px_rgba(249,115,22,0.45)]">
+                                    <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-orange-500/50 to-transparent" />
+                                    <div className="pointer-events-none absolute -right-20 -top-20 h-52 w-52 rounded-full bg-orange-500/15 blur-3xl" />
+                                    <div className="pointer-events-none absolute -left-24 bottom-0 h-48 w-48 rounded-full bg-cyan-400/10 blur-3xl" />
+
+                                    <div className="relative flex items-start gap-4">
+                                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-orange-600 text-white shadow-lg shadow-orange-600/30 ring-1 ring-orange-400/25">
+                                            <Bot className="h-6 w-6" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-orange-400">
+                                                AI-assisted onboarding
+                                            </p>
+                                            <h2 className="mt-2 text-xl font-black tracking-tight text-white">
+                                                Create your AutoSPF+ account with the concierge
+                                            </h2>
+                                            <p className="mt-2 text-sm leading-relaxed text-white/55">
+                                                The chatbot will ask only for your first name, last name, email address, and mobile number. Your password is created later from a secure email link.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="relative mt-5 grid grid-cols-2 gap-2">
+                                        {[
+                                            "Conversational setup",
+                                            "Secure email link",
+                                            "No AI passwords",
+                                            "Customer dashboard access",
+                                        ].map((item) => (
+                                            <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-2 text-[11px] font-semibold text-white/60">
+                                                {item}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <Button
+                                    id="open-ai-register"
+                                    onClick={openRegistrationChat}
+                                    className="h-12 w-full rounded-2xl bg-orange-600 text-sm font-bold text-white shadow-md shadow-orange-600/25 hover:bg-orange-500"
+                                >
+                                    <MessageCircle className="mr-2 h-4 w-4" />
+                                    Start with AI Concierge
+                                </Button>
+
+                                <button
+                                    type="button"
+                                    id="continue-manual-register"
+                                    onClick={() => setRegisterView("manual")}
+                                    className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-white/70 backdrop-blur-md transition-all duration-300 hover:border-orange-400/35 hover:bg-white/[0.07] hover:text-white"
+                                >
+                                    Continue manually
+                                </button>
+
+                                <p className="text-center text-xs leading-relaxed text-muted-foreground">
+                                    Already received a setup email? Open the link in your inbox to create your password.
+                                </p>
+                            </div>
+                        )}
+
                         {/* ══════════ REGISTER FORM ══════════ */}
-                        {loginOtpStep === "form" && tab === "register" && (
+                        {false && loginOtpStep === "form" && tab === "register" && (
                             <div className="space-y-4">
                                 {/* First Name */}
                                 <div>

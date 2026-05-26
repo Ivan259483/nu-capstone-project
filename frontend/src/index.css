@@ -411,19 +411,19 @@
     --card-foreground: 215 20% 95%;
     --popover: 221 47% 9%;
     --popover-foreground: 215 20% 95%;
-    --primary: 37 90% 55%;
-    --primary-foreground: 221 50% 6%;
+    --primary: 24 95% 53%;
+    --primary-foreground: 0 0% 100%;
     --secondary: 221 40% 12%;
     --secondary-foreground: 215 20% 85%;
     --muted: 221 40% 12%;
     --muted-foreground: 215 15% 65%;
-    --accent: 45 80% 70%;
-    --accent-foreground: 221 50% 6%;
+    --accent: 21 90% 48%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 62.8% 45%;
     --destructive-foreground: 0 0% 98%;
     --border: 221 30% 15%;
     --input: 221 30% 14%;
-    --ring: 37 90% 55%;
+    --ring: 24 95% 53%;
     --radius: 0.625rem;
 
     /* Gold & Glass Custom Tokens */
@@ -462,19 +462,19 @@
     --card-foreground: 215 20% 95%;
     --popover: 221 47% 9%;
     --popover-foreground: 215 20% 95%;
-    --primary: 37 90% 55%;
-    --primary-foreground: 221 50% 6%;
+    --primary: 24 95% 53%;
+    --primary-foreground: 0 0% 100%;
     --secondary: 221 40% 12%;
     --secondary-foreground: 215 20% 85%;
     --muted: 221 40% 12%;
     --muted-foreground: 215 15% 65%;
-    --accent: 45 80% 70%;
-    --accent-foreground: 221 50% 6%;
+    --accent: 21 90% 48%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 62.8% 45%;
     --destructive-foreground: 0 0% 98%;
     --border: 221 30% 15%;
     --input: 221 30% 14%;
-    --ring: 37 90% 55%;
+    --ring: 24 95% 53%;
 }
 
 /* ── Light Mode ── */

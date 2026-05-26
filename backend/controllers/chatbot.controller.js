@@ -1,26 +1,38 @@
 import axios from 'axios';
+import jwt from 'jsonwebtoken';
 import ChatSession from '../models/chatSession.model.js';
 import ChatMessage from '../models/chatMessage.model.js';
 import Service from '../models/service.model.js';
 import Product from '../models/product.model.js';
 import Notification from '../models/notification.model.js';
+import Order from '../models/order.model.js';
+import { config } from '../config/environment.js';
 import { getIO } from '../utils/socket.utils.js';
 import {
+  buildCompleteServicePriceListReply,
   buildOtherServicesSummary,
   buildSpfPricingKnowledge,
   buildWebsiteGuide,
   detectVehicleTypeFromMessage,
-  formatCurrency,
   getVehicleLabel,
   isAutoSpfScopeMessage,
+  isPriceListRequest,
   OFF_TOPIC_REPLY,
 } from '../services/chatbotKnowledge.service.js';
+import { extractActionChipsFromReply, sanitizeChatReply } from '../utils/chatReplyFormat.utils.js';
 
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
-const QUOTE_INTENT_REGEX = /(quote|price|cost|how much|pricing|estimate)/i;
+const QUOTE_INTENT_REGEX = /(quote|price|price\s*list|pricelist|cost|how much|pricing|rate|rates|estimate|presyo|magkano)/i;
 const BOOKING_INTENT_REGEX = /(book|schedule|appointment|reserve|book now)/i;
 const HUMAN_INTENT_REGEX = /(human|agent|representative|person|someone|talk to (a )?(human|person|agent)|real person)/i;
+const TRACKER_INTENT_REGEX = /\b(track|tracker|tracking|status|where\s+is\s+my\s+(car|vehicle)|live\s+tracker|order\s+status|repair\s+status)\b/i;
+const PAYMENT_OR_COMPLAINT_REGEX = /\b(complaint|complain|bad\s+service|dissatisfied|refund|cancel\s+(my\s+)?(booking|appointment|order))\b|\b(payment|pay|paid|gcash|receipt|charge|charged|proof|deposit|down[\s-]?payment)\b[\s\S]{0,60}\b(issue|problem|wrong|failed|missing|not\s+showing|not\s+received|refund|complaint)\b|\b(issue|problem|wrong|failed|missing|refund|complaint)\b[\s\S]{0,60}\b(payment|paid|gcash|receipt|charge|proof|deposit)\b/i;
+const SPECIALIST_ESCALATION_REPLY = 'Let me connect you with a specialist who can help you better! Please use Talk to a protection specialist below.';
+const TRACKER_REFERENCE_PROMPT = 'Sure! Please enter your Appointment Reference Number to pull up your status.\nIt looks like this: ASPF-XXXXXX-XXXX\nYou can find it in your booking confirmation screen or email.';
+const TRACKER_TOKEN_PURPOSE = 'public_tracker';
+const TRACKER_TOKEN_EXPIRES_IN = '1h';
+
 const AVAILABILITY_MAP = [
   {
     keywords: ['ceramic', 'coating'],
@@ -39,6 +51,195 @@ const AVAILABILITY_MAP = [
     productNames: ['Wax Sealant', 'Wax'],
   },
 ];
+
+const TRACKER_STEPS = [
+  { key: 'confirmed', label: 'Appointment Confirmed' },
+  { key: 'received', label: 'Vehicle Arrived' },
+  { key: 'in_progress', label: 'Service In Progress' },
+  { key: 'quality_check', label: 'Quality Check' },
+  { key: 'ready_pickup', label: 'Ready for Pickup' },
+];
+
+const TRACKER_STAGE_ALIASES = {
+  confirmed: 'confirmed',
+  approved: 'confirmed',
+  assigned: 'confirmed',
+  received: 'received',
+  queued: 'received',
+  'in-progress': 'in_progress',
+  in_progress: 'in_progress',
+  detailing: 'in_progress',
+  washing: 'in_progress',
+  finishing: 'quality_check',
+  quality_check: 'quality_check',
+  completed: 'ready_pickup',
+  ready: 'ready_pickup',
+  ready_pickup: 'ready_pickup',
+  ready_for_payment: 'ready_pickup',
+  paid: 'ready_pickup',
+  released: 'ready_pickup',
+};
+
+const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const canonicalTrackerPhone = (value) => {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (/^09\d{9}$/.test(digits)) return `63${digits.slice(1)}`;
+  if (/^9\d{9}$/.test(digits)) return `63${digits}`;
+  if (/^639\d{9}$/.test(digits)) return digits;
+  if (digits.startsWith('00') && digits.length > 4) return digits.slice(2);
+  return digits;
+};
+
+const trackerPhoneMatches = (providedPhone, order) => {
+  const provided = canonicalTrackerPhone(providedPhone);
+  if (!provided) return false;
+
+  const candidates = [
+    order?.customerPhone,
+    typeof order?.customer === 'object' ? order.customer?.phone : '',
+  ].map(canonicalTrackerPhone).filter(Boolean);
+
+  return candidates.some((candidate) => candidate === provided);
+};
+
+const normalizeTrackerReference = (value = '') =>
+  String(value || '').trim().replace(/\s+/g, '').toUpperCase();
+
+const buildTrackerReferenceMatchers = (reference) => {
+  const normalizedReference = normalizeTrackerReference(reference);
+  const compact = normalizedReference.replace(/[^A-Z0-9]/g, '');
+  const matchers = [
+    { bookingReference: { $regex: `^${escapeRegex(normalizedReference)}$`, $options: 'i' } },
+    { orderNumber: { $regex: `^${escapeRegex(normalizedReference)}$`, $options: 'i' } },
+  ];
+
+  const aspfMatch = compact.match(/^ASPF(\d{6})([A-Z0-9]{3,8})$/i);
+  if (aspfMatch) {
+    matchers.push({
+      bookingReference: {
+        $regex: `^ASPF[-\\s]?${escapeRegex(aspfMatch[1])}[-\\s]?${escapeRegex(aspfMatch[2])}$`,
+        $options: 'i',
+      },
+    });
+  }
+
+  const orderMatch = compact.match(/^ORD(\d{6,})$/i);
+  if (orderMatch) {
+    matchers.push({
+      orderNumber: {
+        $regex: `^ORD[-\\s]?${escapeRegex(orderMatch[1])}$`,
+        $options: 'i',
+      },
+    });
+  }
+
+  return matchers;
+};
+
+const resolveTrackerStage = (order) => {
+  const raw = String(order?.serviceTrackingStage || order?.status || order?.customerStatus || 'confirmed')
+    .trim()
+    .toLowerCase();
+  return TRACKER_STAGE_ALIASES[raw] || 'confirmed';
+};
+
+const buildTrackerProgress = (stage) => {
+  const idx = TRACKER_STEPS.findIndex((step) => step.key === stage);
+  const safeIdx = idx >= 0 ? idx : 0;
+  const percent = Math.round((safeIdx / (TRACKER_STEPS.length - 1)) * 100);
+  return { currentStageLabel: TRACKER_STEPS[safeIdx]?.label || TRACKER_STEPS[0].label, progressPercent: percent };
+};
+
+const buildPublicTrackerSummary = (orderDoc) => {
+  const order = typeof orderDoc?.toObject === 'function'
+    ? orderDoc.toObject({ virtuals: true })
+    : orderDoc;
+
+  const serviceName =
+    order.serviceName ||
+    order.serviceType ||
+    order.items?.[0]?.product?.name ||
+    'AutoSPF+ service';
+
+  const vehicleLabel = [
+    order.vehicleYear,
+    order.vehicleMake,
+    order.vehicleModel,
+  ].filter(Boolean).join(' ').trim() || 'Your vehicle';
+
+  const vehicleMeta = [vehicleLabel, order.vehicleColor].filter(Boolean).join(' / ');
+  const scheduleLabel = [order.bookingDate, order.bookingTime].filter(Boolean).join(' · ') || 'Schedule syncing';
+  const stage = resolveTrackerStage(order);
+  const { currentStageLabel, progressPercent } = buildTrackerProgress(stage);
+
+  return {
+    bookingReference: order.bookingReference || order.orderNumber || '',
+    serviceName,
+    vehicleLabel: vehicleMeta,
+    scheduleLabel,
+    status: order.status || '',
+    serviceTrackingStage: stage,
+    currentStageLabel,
+    progressPercent,
+    updatedAt: order.serviceTrackingUpdatedAt || order.updatedAt || order.createdAt || null,
+    trackerStageMedia: Array.isArray(order.trackerStageMedia)
+      ? order.trackerStageMedia.map((entry) => ({
+          stage: entry.stage || '',
+          slot: entry.slot || '',
+          photoUrl: entry.photoUrl || '',
+          description: entry.description || '',
+          uploadedAt: entry.uploadedAt || null,
+        }))
+      : [],
+    serviceStaffAssignments: Array.isArray(order.serviceStaffAssignments)
+      ? order.serviceStaffAssignments
+          .filter((entry) => entry?.name)
+          .map((entry) => ({
+            slot: entry.slot || '',
+            name: entry.name || '',
+            role: entry.role || '',
+          }))
+      : [],
+  };
+};
+
+const loadPublicTrackerOrderByReference = async (reference) => {
+  const normalizedReference = normalizeTrackerReference(reference);
+  if (!normalizedReference) return null;
+
+  return Order.findOne({
+    $or: buildTrackerReferenceMatchers(normalizedReference),
+  })
+    .populate('customer', 'name phone')
+    .populate('items.product', 'name')
+    .select(
+      '_id orderNumber bookingReference customer customerName customerPhone serviceType items.product ' +
+      'status customerStatus serviceTrackingStage serviceTrackingUpdatedAt serviceStaffAssignments trackerStageMedia ' +
+      'vehicleYear vehicleMake vehicleModel vehicleColor bookingDate bookingTime archived createdAt updatedAt'
+    );
+};
+
+const loadPublicTrackerOrderById = async (orderId) =>
+  Order.findById(orderId)
+    .populate('customer', 'name phone')
+    .populate('items.product', 'name')
+    .select(
+      '_id orderNumber bookingReference customer customerName customerPhone serviceType items.product ' +
+      'status customerStatus serviceTrackingStage serviceTrackingUpdatedAt serviceStaffAssignments trackerStageMedia ' +
+      'vehicleYear vehicleMake vehicleModel vehicleColor bookingDate bookingTime archived createdAt updatedAt'
+    );
+
+const signPublicTrackerToken = (order) =>
+  jwt.sign(
+    {
+      purpose: TRACKER_TOKEN_PURPOSE,
+      orderId: order._id?.toString?.() || String(order._id),
+    },
+    config.jwtSecret,
+    { expiresIn: TRACKER_TOKEN_EXPIRES_IN }
+  );
 
 const FAQS = [
   {
@@ -187,8 +388,9 @@ const callOpenAI = async (messages) => {
     }
   );
 
-  const reply = response.data?.choices?.[0]?.message?.content?.trim();
-  return reply || 'I can help with services, pricing, and bookings. What would you like to know?';
+  const raw = response.data?.choices?.[0]?.message?.content?.trim();
+  const reply = raw || 'I can help with services, pricing, and bookings. What would you like to know?';
+  return sanitizeChatReply(reply);
 };
 
 const processMessage = async ({ sessionId, message, user, context = null, allowQuote = false, skipUserSave = false }) => {
@@ -246,11 +448,10 @@ const processMessage = async ({ sessionId, message, user, context = null, allowQ
   const isGuest = !user?.id;
   const hasLead = !!session.leadName && !!session.leadPhone;
   const isQuoteRequest = QUOTE_INTENT_REGEX.test(trimmed);
+  const wantsPriceList = isPriceListRequest(trimmed);
 
   if (HUMAN_INTENT_REGEX.test(trimmed)) {
-    const reply = hasLead || user?.id
-      ? 'I have notified a human specialist. They will follow up shortly.'
-      : 'I have notified a human specialist. Please share your name and phone number so they can reach you.';
+    const reply = SPECIALIST_ESCALATION_REPLY;
 
     try {
       const handoffNotification = await Notification.create({
@@ -283,6 +484,17 @@ const processMessage = async ({ sessionId, message, user, context = null, allowQ
     return { reply, action: { type: 'handoff' }, leadRequired: isGuest && !hasLead };
   }
 
+  if (PAYMENT_OR_COMPLAINT_REGEX.test(trimmed)) {
+    await ChatMessage.create({
+      sessionId,
+      sender: 'assistant',
+      message: SPECIALIST_ESCALATION_REPLY,
+      metadata: { type: 'handoff_prompt' },
+    });
+
+    return { reply: SPECIALIST_ESCALATION_REPLY, action: { type: 'handoff' }, leadRequired: false };
+  }
+
   const recentUserLines = await ChatMessage.find({ sessionId, sender: 'user' })
     .sort({ createdAt: -1 })
     .limit(8)
@@ -291,13 +503,38 @@ const processMessage = async ({ sessionId, message, user, context = null, allowQ
   const recentUserMessages = recentUserLines.map((row) => row.message);
 
   if (!isAutoSpfScopeMessage(trimmed, recentUserMessages)) {
+    const offTopicReply = sanitizeChatReply(OFF_TOPIC_REPLY);
     await ChatMessage.create({
       sessionId,
       sender: 'assistant',
-      message: OFF_TOPIC_REPLY,
+      message: offTopicReply,
       metadata: { type: 'off_topic' },
     });
-    return { reply: OFF_TOPIC_REPLY, leadRequired: false };
+    return { reply: offTopicReply, leadRequired: false };
+  }
+
+  if (wantsPriceList) {
+    const reply = sanitizeChatReply(await buildCompleteServicePriceListReply());
+    await ChatMessage.create({
+      sessionId,
+      sender: 'assistant',
+      message: reply,
+      metadata: { type: 'price_list' },
+    });
+
+    return { reply, leadRequired: false };
+  }
+
+  if (TRACKER_INTENT_REGEX.test(trimmed)) {
+    const reply = TRACKER_REFERENCE_PROMPT;
+    await ChatMessage.create({
+      sessionId,
+      sender: 'assistant',
+      message: reply,
+      metadata: { type: 'tracker_prompt' },
+    });
+
+    return { reply, action: { type: 'tracker_prompt' }, leadRequired: false };
   }
 
   if (isGuest && !hasLead && isQuoteRequest && !allowQuote) {
@@ -341,10 +578,13 @@ const processMessage = async ({ sessionId, message, user, context = null, allowQ
     '',
     '### HOW TO WRITE (BE CLEAR)',
     '- Use short, direct sentences. Plain English (Taglish OK if the user writes Taglish).',
+    '- Professional business tone — calm, helpful, and confident.',
+    '- NEVER use markdown: no asterisks (**), no hash headings (#), no backticks.',
     '- Max ~90 words unless listing package prices.',
-    '- Use bullet lists for 3+ prices or steps.',
+    '- For lists use the bullet character • at the start of each line (not * or -).',
     '- One clear next step at the end (e.g. "Tap Book Now" or "Tell me your vehicle type").',
     '- No emojis. No long introductions.',
+    '- UI labels in plain text only: Book Now, Login, Talk to a protection specialist.',
     '',
     '### PRICING RULES',
     '1. SPF prices MUST come from the official matrix below (same as /services).',
@@ -358,12 +598,6 @@ const processMessage = async ({ sessionId, message, user, context = null, allowQ
     context
       ? `Current app context (use only for tracker/scan/booking questions on our site):\n${JSON.stringify(context, null, 2)}`
       : 'No live app context.',
-    '',
-    '### ACTION CHIPS (optional, end of reply only)',
-    'Valid: "Book Service", "View Estimate", "Track Repair", "Talk to Support", "View Scan Result"',
-    '```json',
-    '["Book Service"]',
-    '```',
     '',
     '### LIVE DATA',
     '#### SERVICES & PRICING',
@@ -397,20 +631,12 @@ const processMessage = async ({ sessionId, message, user, context = null, allowQ
       reply = 'Hello! This is a demo mode. I will be fully active once credits are added.';
     } else {
       console.error('Chatbot OpenAI error:', error.message);
-      reply = 'Sorry, I am having trouble responding right now. Please try again in a moment.';
+      reply = SPECIALIST_ESCALATION_REPLY;
     }
   }
 
-  let actionChips = [];
-  const chipMatch = reply.match(/```json\n?(\[.*?\])\n?```/s);
-  if (chipMatch) {
-    try {
-      actionChips = JSON.parse(chipMatch[1]);
-      reply = reply.replace(chipMatch[0], '').trim();
-    } catch(e) {
-      console.warn('Failed to parse action chips from AI:', e.message);
-    }
-  }
+  const { reply: cleanedReply, actionChips } = extractActionChipsFromReply(reply);
+  reply = cleanedReply;
 
   await ChatMessage.create({
     sessionId,
@@ -534,6 +760,109 @@ export const saveLead = async (req, res, next) => {
       message: 'Lead saved',
       reply: followUp?.reply,
       action: followUp?.action || null,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verifyPublicTracker = async (req, res, next) => {
+  try {
+    const { sessionId, bookingReference, phone } = req.body || {};
+    const reference = normalizeTrackerReference(bookingReference);
+    const providedPhone = String(phone || '').trim();
+
+    if (!reference || !providedPhone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter your booking reference and registered phone number.',
+      });
+    }
+
+    const order = await loadPublicTrackerOrderByReference(reference);
+    const verified = order && trackerPhoneMatches(providedPhone, order);
+
+    if (!verified) {
+      const safeReply = "We couldn't verify that booking. Please check the reference and registered phone number, or use Talk to a protection specialist below.";
+      if (sessionId) {
+        await ChatMessage.create({
+          sessionId,
+          sender: 'assistant',
+          message: safeReply,
+          metadata: { type: 'tracker_verification_failed' },
+        }).catch(() => null);
+      }
+
+      return res.status(404).json({
+        success: false,
+        message: safeReply,
+      });
+    }
+
+    const token = signPublicTrackerToken(order);
+    const tracker = buildPublicTrackerSummary(order);
+    const trackerUrl = `/track/${encodeURIComponent(token)}`;
+
+    if (sessionId) {
+      await ChatMessage.create({
+        sessionId,
+        sender: 'assistant',
+        message: `Verified. Your AutoSPF+ tracker is currently at ${tracker.currentStageLabel}.`,
+        metadata: { type: 'tracker_result' },
+      }).catch(() => null);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        token,
+        trackerUrl,
+        tracker,
+        expiresInSeconds: 60 * 60,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPublicTracker = async (req, res, next) => {
+  try {
+    const token = String(req.params.token || '').trim();
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Tracker token is required.' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, config.jwtSecret);
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: 'This tracker link is invalid or has expired. Please verify your booking again in chat.',
+      });
+    }
+
+    if (decoded?.purpose !== TRACKER_TOKEN_PURPOSE || !decoded?.orderId) {
+      return res.status(401).json({
+        success: false,
+        message: 'This tracker link is invalid or has expired. Please verify your booking again in chat.',
+      });
+    }
+
+    const order = await loadPublicTrackerOrderById(decoded.orderId);
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tracker not found. Please verify your booking again in chat.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        tracker: buildPublicTrackerSummary(order),
+      },
     });
   } catch (error) {
     next(error);

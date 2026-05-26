@@ -1,35 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-    MessageCircle,
-    X,
-    Send,
-    User,
-    PhoneCall,
-    Headset,
-    Sparkles,
-    ArrowRight,
-    Bot,
-    ReceiptText,
-    CheckCircle2,
-    CalendarDays,
-    MapPinned,
-    Radio,
-    ShieldCheck,
-    Zap,
-} from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Variants } from 'framer-motion';
-
-/* ─────────────────────── Types ─────────────────────── */
-interface ChatMessage {
-    id: string;
-    sender: 'user' | 'assistant' | 'system';
-    message: string;
-    createdAt?: string;
-}
+import { chatWindowClass } from '@/components/chat/chat-theme';
+import {
+    type ChatMessage,
+    type ChatScreen,
+    type PublicTrackerSummary,
+    type RegistrationStep,
+    formatRelativeTime,
+    getConversationPreview,
+    getHomeCardPreview,
+    getLastActivityTime,
+} from '@/components/chat/chat-utils';
+import { LauncherBubbleIcon } from '@/components/chat/ChatIcons';
+import ChatHomeScreen from '@/components/chat/ChatHomeScreen';
+import ChatMessagesScreen from '@/components/chat/ChatMessagesScreen';
+import ChatConversationScreen from '@/components/chat/ChatConversationScreen';
 
 interface ChatWidgetProps {
     variant?: 'customer' | 'landing';
@@ -39,8 +28,85 @@ interface ChatWidgetProps {
     className?: string;
 }
 
-/* ─────────────────────── Helpers ─────────────────────── */
-const QUOTE_INTENT_REGEX = /(quote|price|cost|how much|pricing|estimate)/i;
+const QUOTE_INTENT_REGEX = /(quote|price|price\s*list|pricelist|cost|how much|pricing|rate|rates|estimate|presyo|magkano)/i;
+const PRICE_LIST_INTENT_REGEX =
+    /\b(price\s*list|pricelist|rate\s*card|pricing\s*table|service\s*menu)\b|\b(send|show|give|provide|share)\b[\s\S]{0,80}\b(prices?|pricing|presyo|rates?)\b|\b(all|complete|full|lahat|buong)\b[\s\S]{0,80}\b(prices?|pricing|presyo|rates?)\b|\b(prices?|pricing|presyo|rates?)\b[\s\S]{0,80}\b(vehicle|vihicle|vechicle|sasakyan|kotse|car|services?)\b/i;
+const TRACKER_INTENT_REGEX = /\b(track|tracker|tracking|status|where\s+is\s+my\s+(car|vehicle)|live\s+tracker|order\s+status|repair\s+status)\b/i;
+const ASPF_REFERENCE_REGEX = /\bASPF-\d{6}-[A-Z0-9]{4}\b/i;
+const REFERENCE_NOT_FOUND_REGEX = /\b(can'?t\s+find|cannot\s+find|cant\s+find|don'?t\s+have|do\s+not\s+have|lost|no\s+(ref|reference)|wala|di\s+ko\s+makita|hindi\s+ko\s+makita)\b/i;
+const REFERENCE_CONFUSION_REGEX = /\b(what(\s+is|'?s)?\s+(that|this|it|ref|reference|appointment\s+reference)|explain|i\s+don'?t\s+know|idk|not\s+sure|where\s+(do|can)\s+i\s+find|how\s+(do|can)\s+i\s+find|ano\s+(yan|yun|iyon|ito)|di\s+ko\s+alam|hindi\s+ko\s+alam)\b/i;
+const LOGIN_PROBLEM_REGEX = /\b(without\s+log[\s-]?in|no\s+log[\s-]?in|can'?t\s+log[\s-]?in|cannot\s+log[\s-]?in|cant\s+log[\s-]?in|unable\s+to\s+log[\s-]?in|di\s+makalogin|hindi\s+makalogin)\b/i;
+const NO_LOGIN_TRACKER_REGEX = /\b(track|tracker|tracking|status)\b[\s\S]{0,80}\b(without\s+log[\s-]?in|no\s+log[\s-]?in|can'?t\s+log[\s-]?in|cannot\s+log[\s-]?in|cant\s+log[\s-]?in|unable\s+to\s+log[\s-]?in|di\s+makalogin|hindi\s+makalogin)\b|\b(without\s+log[\s-]?in|no\s+log[\s-]?in|can'?t\s+log[\s-]?in|cannot\s+log[\s-]?in|cant\s+log[\s-]?in|unable\s+to\s+log[\s-]?in|di\s+makalogin|hindi\s+makalogin)\b[\s\S]{0,80}\b(track|tracker|tracking|status)\b/i;
+const PHONE_NUMBER_REGEX = /(?:\+?63|0)?9\d{9}\b/;
+const SIGNUP_INTENT_REGEX =
+    /((create|open|make|start|set\s*up|setup)\s+(an?\s+)?(autospf\+?\s+)?account\b)|\b(sign\s*up|signup|register\s+me|register\s+(an?\s+)?account)\b/i;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const TRACKER_REFERENCE_PROMPT = 'Sure! Please enter your Appointment Reference Number to pull up your status.\nIt looks like this: ASPF-XXXXXX-XXXX\nYou can find it in your booking confirmation screen or email.';
+const TRACKER_REFERENCE_EXPLANATION_REPLY = "Your Appointment Reference Number is a unique code we gave you\nwhen you completed your booking.\n\nYou can find it in:\n📧 Your confirmation email from AutoSPF+\n📱 Your booking confirmation screen in the app\n📋 Any SMS we sent after booking\n\nIt looks like: ASPF-260526-EC78\n\nCan't find it? No worries — just share your registered\nmobile number and our team will look it up for you! 🙌";
+const TRACKER_LINK_REPLY = 'Got it! Tap below to view your live tracker 👇\nLog in with your registered account and it loads automatically.';
+const TRACKER_PHONE_LOOKUP_PROMPT = 'No worries — just share your registered mobile number and our team will look it up for you! 🙌';
+const TRACKER_PHONE_LOOKUP_REPLY = 'Thanks! Please log in to your dashboard or let our studio\nteam assist you directly via the option below. 🙌';
+const TRACKER_INVALID_REFERENCE_REPLY = 'That does not look like an AutoSPF+ Appointment Reference Number yet. Please send it in this format: ASPF-XXXXXX-XXXX.';
+const TRACKER_REPLY_DELAY_MS = 1200;
+
+interface RegistrationDraft {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+}
+
+type TrackerStep = 'idle' | 'reference' | 'phoneLookup' | 'fallbackReference' | 'fallbackPhone';
+
+interface TrackerDraft {
+    bookingReference: string;
+}
+
+const emptyRegistrationDraft = (): RegistrationDraft => ({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+});
+
+const createMessageId = (prefix: string) =>
+    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const wait = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms));
+
+const normalizePhoneForRegistration = (value: string) =>
+    value.trim().replace(/[()\-\s]/g, '');
+
+const extractBookingReference = (value: string) => {
+    const match = value.match(ASPF_REFERENCE_REGEX);
+    return (match?.[0] || '').toUpperCase();
+};
+
+const normalizePhoneCandidate = (value: string) => value.replace(/[()\-\s.]/g, '');
+
+const extractPhoneNumber = (value: string) => {
+    const normalized = normalizePhoneCandidate(value);
+    return normalized.match(PHONE_NUMBER_REGEX)?.[0] || '';
+};
+
+const looksLikePhoneNumber = (value: string) => Boolean(extractPhoneNumber(value));
+
+const looksLikeReferenceAttempt = (value: string) => {
+    const text = value.trim();
+    if (!text) return false;
+    if (extractBookingReference(text) || /\bASPF\b/i.test(text)) return true;
+    if (looksLikePhoneNumber(text) || REFERENCE_CONFUSION_REGEX.test(text) || REFERENCE_NOT_FOUND_REGEX.test(text)) return false;
+    if (/\b(ref|reference|appointment\s+(number|code)|booking\s+(number|code))\b/i.test(text) && /\d/.test(text)) return true;
+    return /^[A-Z0-9][A-Z0-9\s-]{7,}$/i.test(text) && /\d/.test(text);
+};
+
+const buildTrackerLoginUrl = (reference: string) =>
+    `/login?redirect=/customer/dashboard?ref=${encodeURIComponent(reference)}`;
+
+const isValidRegistrationPhone = (value: string) => {
+    const phone = normalizePhoneForRegistration(value);
+    return /^09\d{9}$/.test(phone) || /^\+639\d{9}$/.test(phone) || /^639\d{9}$/.test(phone) || /^\+[1-9]\d{7,14}$/.test(phone);
+};
 
 const getSessionId = () => {
     if (typeof window === 'undefined') return 'server-session';
@@ -53,92 +119,17 @@ const getSessionId = () => {
     return newId;
 };
 
-/* ─────────────────────── Quick-reply tiles ─────────────────────── */
-const QUICK_REPLIES = [
-    {
-        label: 'SPF Prices',
-        detail: 'Vehicle packages',
-        prompt: 'What are your SPF package prices? I have a sedan.',
-        Icon: ReceiptText,
-        accent: '#fbbf24',
-        glow: 'rgba(251, 191, 36, 0.24)',
-    },
-    {
-        label: 'How to Book',
-        detail: 'Reserve a slot',
-        prompt: 'How do I book a service on the AutoSPF+ website?',
-        Icon: CalendarDays,
-        accent: '#22d3ee',
-        glow: 'rgba(34, 211, 238, 0.18)',
-    },
-    {
-        label: 'Login Help',
-        detail: 'Account dashboard',
-        prompt: 'How do I log in or register on AutoSPF+?',
-        Icon: CheckCircle2,
-        accent: '#34d399',
-        glow: 'rgba(52, 211, 153, 0.18)',
-    },
-    {
-        label: 'Shop Info',
-        detail: 'Location & contact',
-        prompt: 'Where is AutoSPF+ located and how can I contact you?',
-        Icon: MapPinned,
-        accent: '#fb7185',
-        glow: 'rgba(251, 113, 133, 0.18)',
-    },
-];
-
-const SIGNAL_BARS = [16, 24, 13, 30, 20, 27, 15, 23];
-
-/* ─────────────────────── Framer variants ─────────────────────── */
-const EASE = [0.16, 1, 0.3, 1] as const;
-
 const windowVariants: Variants = {
-    hidden: {
-        opacity: 0,
-        scale: 0.9,
-        y: 26,
-        rotateX: 7,
-        originX: 1,
-        originY: 1,
-        filter: 'blur(8px)',
-    },
+    hidden: { opacity: 0, scale: 0.94, y: 16, originX: 1, originY: 1 },
     visible: {
         opacity: 1,
         scale: 1,
         y: 0,
-        rotateX: 0,
-        filter: 'blur(0px)',
-        transition: { type: 'spring', stiffness: 360, damping: 31, mass: 0.85 },
+        transition: { type: 'spring', stiffness: 380, damping: 32 },
     },
-    exit: {
-        opacity: 0,
-        scale: 0.92,
-        y: 18,
-        filter: 'blur(6px)',
-        transition: { duration: 0.18, ease: 'easeIn' },
-    },
+    exit: { opacity: 0, scale: 0.96, y: 12, transition: { duration: 0.16 } },
 };
 
-const msgVariants: Variants = {
-    hidden: { opacity: 0, y: 12, scale: 0.96 },
-    visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.28, ease: EASE } },
-};
-
-const chipVariants: Variants = {
-    hidden: { opacity: 0, y: 12, scale: 0.92 },
-    visible: (i: number) => ({
-        opacity: 1,
-        y: 0,
-        scale: 1,
-        transition: { duration: 0.42, ease: EASE, delay: 0.2 + i * 0.075 },
-    }),
-};
-
-/* ═══════════════════════════════════════════════════
-   COMPONENT
-═══════════════════════════════════════════════════ */
 export default function ChatWidget({
     variant = 'landing',
     onOpenBooking,
@@ -147,6 +138,8 @@ export default function ChatWidget({
     className,
 }: ChatWidgetProps) {
     const [isOpen, setIsOpen] = useState(false);
+    const [screen, setScreen] = useState<ChatScreen>('home');
+    const [chatReturnTo, setChatReturnTo] = useState<'home' | 'messages'>('home');
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [leadName, setLeadName] = useState('');
@@ -156,16 +149,50 @@ export default function ChatWidget({
     const [isSending, setIsSending] = useState(false);
     const [unread, setUnread] = useState(0);
     const [inputFocused, setInputFocused] = useState(false);
+    const [registrationStep, setRegistrationStep] = useState<RegistrationStep>('idle');
+    const [registrationDraft, setRegistrationDraft] = useState<RegistrationDraft>(() => emptyRegistrationDraft());
+    const [registrationEmailSent, setRegistrationEmailSent] = useState('');
+    const [isResendingSetupEmail, setIsResendingSetupEmail] = useState(false);
+    const [trackerStep, setTrackerStep] = useState<TrackerStep>('idle');
+    const [trackerDraft, setTrackerDraft] = useState<TrackerDraft>({ bookingReference: '' });
 
     const endRef = useRef<HTMLDivElement | null>(null);
-    const inputRef = useRef<HTMLInputElement | null>(null);
+    const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
     const sessionId = useMemo(() => getSessionId(), []);
     const authed = typeof isAuthenticated === 'boolean'
         ? isAuthenticated
         : typeof window !== 'undefined' && !!localStorage.getItem('autospf_token');
 
-    /* ── Restore lead from localStorage ── */
+    const conversationPreview = useMemo(
+        () => getConversationPreview(messages, registrationStep),
+        [messages, registrationStep]
+    );
+
+    const homeCardPreview = useMemo(
+        () => getHomeCardPreview(messages, registrationStep),
+        [messages, registrationStep]
+    );
+
+    const relativeTime = useMemo(
+        () => formatRelativeTime(getLastActivityTime(messages)),
+        [messages]
+    );
+
+    const openChat = (returnTo: 'home' | 'messages' = 'home') => {
+        setChatReturnTo(returnTo);
+        setScreen('chat');
+    };
+
+    const handleOpenWidget = () => {
+        setIsOpen(prev => {
+            if (!prev) {
+                setScreen('home');
+            }
+            return !prev;
+        });
+    };
+
     useEffect(() => {
         const stored = localStorage.getItem('autospf_chat_lead');
         if (stored) {
@@ -173,30 +200,345 @@ export default function ChatWidget({
                 const p = JSON.parse(stored);
                 setLeadName(p.name || '');
                 setLeadPhone(p.phone || '');
-            } catch { localStorage.removeItem('autospf_chat_lead'); }
+            } catch {
+                localStorage.removeItem('autospf_chat_lead');
+            }
         }
     }, []);
 
-    /* ── Auto-scroll only after real conversation activity ── */
     useEffect(() => {
-        if (!isOpen || (messages.length === 0 && !isSending)) return;
+        if (!isOpen || screen !== 'chat' || (messages.length === 0 && !isSending)) return;
         window.requestAnimationFrame(() => {
             endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
         });
-    }, [messages, isOpen, isSending]);
+    }, [messages, isOpen, isSending, screen]);
 
-    /* ── Clear unread when opened ── */
     useEffect(() => {
         if (isOpen) {
             setUnread(0);
-            setTimeout(() => inputRef.current?.focus(), 300);
+            if (screen === 'chat') {
+                setTimeout(() => inputRef.current?.focus(), 300);
+            }
         }
-    }, [isOpen]);
+    }, [isOpen, screen]);
 
-    /* ─── Send helpers ─── */
-    const appendMessage = (msg: ChatMessage) => setMessages(prev => [...prev, msg]);
+    const appendMessage = (msg: ChatMessage) =>
+        setMessages(prev => [...prev, { ...msg, createdAt: msg.createdAt ?? new Date().toISOString() }]);
 
-    /* ── Send via backend (same pipeline as mobile) ── */
+    const appendAssistant = (message: string, meta?: ChatMessage['meta']) => {
+        appendMessage({
+            id: createMessageId('assistant'),
+            sender: 'assistant',
+            message,
+            meta,
+        });
+        setUnread(prev => (isOpen && screen === 'chat' ? 0 : prev + 1));
+    };
+
+    const appendTrackerAssistant = async (message: string, meta?: ChatMessage['meta']) => {
+        setIsSending(true);
+        try {
+            await wait(TRACKER_REPLY_DELAY_MS);
+            appendAssistant(message, meta);
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const beginRegistration = (options?: { includeUserMessage?: boolean }) => {
+        setIsOpen(true);
+        openChat('home');
+        setLeadRequired(false);
+        setPendingMessage(null);
+        setTrackerStep('idle');
+        setTrackerDraft({ bookingReference: '' });
+        setRegistrationDraft(emptyRegistrationDraft());
+        setRegistrationEmailSent('');
+        setRegistrationStep('firstName');
+        if (options?.includeUserMessage) {
+            appendMessage({ id: createMessageId('user'), sender: 'user', message: 'Create an account' });
+        }
+        appendAssistant("I'll help you create your AutoSPF+ account.", { type: 'registration' });
+        appendAssistant('May I have your first name?', { type: 'registration' });
+        window.setTimeout(() => inputRef.current?.focus(), 120);
+    };
+
+    useEffect(() => {
+        const openRegistration = () => {
+            setIsOpen(true);
+            if (registrationStep === 'idle' || registrationStep === 'sent') {
+                beginRegistration({ includeUserMessage: true });
+            } else {
+                openChat('home');
+                window.setTimeout(() => inputRef.current?.focus(), 120);
+            }
+        };
+
+        window.addEventListener('autospf:open-chat-registration', openRegistration);
+        return () => window.removeEventListener('autospf:open-chat-registration', openRegistration);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [registrationStep]);
+
+    const submitChatRegistration = async (draft: RegistrationDraft) => {
+        setRegistrationStep('submitting');
+        setIsSending(true);
+        try {
+            const res = await api.post('/auth/chat-registration/start', draft, {
+                meta: { suppressErrorToast: true },
+            } as any);
+
+            const email = res.data?.data?.email || draft.email;
+            setRegistrationEmailSent(email);
+            setRegistrationStep('sent');
+            appendAssistant(
+                "We've sent a secure setup link to your email address. Please open your inbox and continue setting up your password.",
+                { type: 'registration' }
+            );
+            toast.success('Verification email sent');
+        } catch (error: any) {
+            const message = error?.response?.data?.message || 'I could not send the setup email yet. Please try again.';
+            appendAssistant(message, { type: 'registration' });
+            if (error?.response?.status === 409) {
+                setRegistrationStep('idle');
+            } else {
+                setRegistrationStep('phone');
+            }
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const handleRegistrationInput = async (content: string) => {
+        if (registrationStep === 'firstName') {
+            const firstName = content.trim().replace(/\s+/g, ' ');
+            if (firstName.length < 1 || firstName.length > 40) {
+                appendAssistant('Please enter just your first name.', { type: 'registration' });
+                return;
+            }
+            setRegistrationDraft(prev => ({ ...prev, firstName }));
+            setRegistrationStep('lastName');
+            appendAssistant(`Thanks, ${firstName}. What is your last name?`, { type: 'registration' });
+            return;
+        }
+
+        if (registrationStep === 'lastName') {
+            const lastName = content.trim().replace(/\s+/g, ' ');
+            if (lastName.length < 1 || lastName.length > 40) {
+                appendAssistant('Please enter just your last name.', { type: 'registration' });
+                return;
+            }
+            setRegistrationDraft(prev => ({ ...prev, lastName }));
+            setRegistrationStep('email');
+            appendAssistant('What email address should we use for your secure setup link?', { type: 'registration' });
+            return;
+        }
+
+        if (registrationStep === 'email') {
+            const email = content.trim().toLowerCase();
+            if (!EMAIL_REGEX.test(email)) {
+                appendAssistant('That email does not look quite right. Please enter a valid email address.', { type: 'registration' });
+                return;
+            }
+            setRegistrationDraft(prev => ({ ...prev, email }));
+            setRegistrationStep('phone');
+            appendAssistant('Last detail: what mobile number should we place on your account?', { type: 'registration' });
+            return;
+        }
+
+        if (registrationStep === 'phone') {
+            const phone = normalizePhoneForRegistration(content);
+            if (!isValidRegistrationPhone(phone)) {
+                appendAssistant('Please enter a valid mobile number, such as 09171234567 or +639171234567.', { type: 'registration' });
+                return;
+            }
+            const finalDraft = { ...registrationDraft, phone };
+            setRegistrationDraft(finalDraft);
+            appendAssistant('Perfect. I am preparing your secure password setup link now.', { type: 'registration' });
+            await submitChatRegistration(finalDraft);
+        }
+    };
+
+    const handleResendSetupEmail = async () => {
+        if (!registrationEmailSent || isResendingSetupEmail) return;
+        setIsResendingSetupEmail(true);
+        try {
+            await api.post('/auth/chat-registration/resend', { email: registrationEmailSent }, {
+                meta: { suppressErrorToast: true },
+            } as any);
+            appendAssistant('A fresh secure setup link has been sent to your email.', { type: 'registration' });
+            toast.success('Setup email resent');
+        } catch (error: any) {
+            const retryAfter = error?.response?.data?.data?.retryAfterSeconds;
+            const message = retryAfter
+                ? `Please wait ${retryAfter} second${retryAfter === 1 ? '' : 's'} before resending.`
+                : error?.response?.data?.message || 'Unable to resend the email right now.';
+            appendAssistant(message, { type: 'registration' });
+        } finally {
+            setIsResendingSetupEmail(false);
+        }
+    };
+
+    const handleChangeRegistrationEmail = () => {
+        setRegistrationDraft(prev => ({ ...prev, email: '', phone: '' }));
+        setRegistrationEmailSent('');
+        setRegistrationStep('email');
+        appendAssistant('No problem. What email address should I send the secure setup link to instead?', { type: 'registration' });
+        inputRef.current?.focus();
+    };
+
+    const appendTrackerLink = async (reference: string) => {
+        setTrackerStep('idle');
+        setTrackerDraft({ bookingReference: '' });
+        await appendTrackerAssistant(TRACKER_LINK_REPLY, {
+            type: 'tracker_link',
+            trackerUrl: buildTrackerLoginUrl(reference),
+            trackerReference: reference,
+        });
+    };
+
+    const beginNoLoginTrackerLookup = async (message: string) => {
+        setLeadRequired(false);
+        setPendingMessage(null);
+        const reference = extractBookingReference(message);
+        const phone = extractPhoneNumber(message);
+        if (reference && phone) {
+            setTrackerDraft({ bookingReference: reference });
+            setTrackerStep('fallbackPhone');
+            await verifyTrackerLookup(phone, reference);
+            return;
+        }
+        if (reference) {
+            setTrackerDraft({ bookingReference: reference });
+            setTrackerStep('fallbackPhone');
+            await appendTrackerAssistant(`No worries. I can verify it securely without login. Please enter the registered phone number for ${reference}.`);
+            return;
+        }
+        setTrackerDraft({ bookingReference: '' });
+        setTrackerStep('fallbackReference');
+        await appendTrackerAssistant('No worries. I can verify it securely without login. Please enter your Appointment Reference Number first.\nIt looks like this: ASPF-XXXXXX-XXXX');
+    };
+
+    const beginTrackerLookup = async (message: string) => {
+        setLeadRequired(false);
+        setPendingMessage(null);
+        const reference = extractBookingReference(message);
+        if (reference) {
+            await appendTrackerLink(reference);
+            return;
+        }
+        setTrackerDraft({ bookingReference: '' });
+        setTrackerStep('reference');
+        await appendTrackerAssistant(TRACKER_REFERENCE_PROMPT);
+    };
+
+    const appendTrackerResult = (tracker: PublicTrackerSummary, trackerUrl: string) => {
+        appendAssistant(
+            `Verified. Your AutoSPF+ tracker is currently at ${tracker.currentStageLabel || 'Tracker active'}.`,
+            { type: 'tracker_result', tracker, trackerUrl }
+        );
+    };
+
+    const verifyTrackerLookup = async (phone: string, bookingReference = trackerDraft.bookingReference) => {
+        if (!bookingReference) {
+            setTrackerStep('fallbackReference');
+            appendAssistant('Please enter your AutoSPF+ Appointment Reference Number first.');
+            return;
+        }
+
+        setIsSending(true);
+        try {
+            const res = await api.post('/chat/tracker/verify', {
+                sessionId,
+                bookingReference,
+                phone,
+            }, {
+                meta: { suppressErrorToast: true },
+            } as any);
+
+            const tracker = res.data?.data?.tracker as PublicTrackerSummary | undefined;
+            const trackerUrl = res.data?.data?.trackerUrl || '';
+            if (!tracker) {
+                throw new Error('Missing tracker payload');
+            }
+
+            setTrackerStep('idle');
+            setTrackerDraft({ bookingReference: '' });
+            appendTrackerResult(tracker, trackerUrl);
+        } catch (error: any) {
+            const message = error?.response?.data?.message
+                || "We couldn't verify that booking. Please check the reference and registered phone number, or use Talk to a protection specialist below.";
+            setTrackerStep('fallbackReference');
+            setTrackerDraft({ bookingReference: '' });
+            appendAssistant(message);
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const handleTrackerInput = async (content: string) => {
+        if (trackerStep === 'reference') {
+            if (NO_LOGIN_TRACKER_REGEX.test(content) || LOGIN_PROBLEM_REGEX.test(content)) {
+                await beginNoLoginTrackerLookup(content);
+                return;
+            }
+
+            if (REFERENCE_CONFUSION_REGEX.test(content)) {
+                await appendTrackerAssistant(TRACKER_REFERENCE_EXPLANATION_REPLY);
+                return;
+            }
+
+            if (REFERENCE_NOT_FOUND_REGEX.test(content)) {
+                setTrackerStep('phoneLookup');
+                await appendTrackerAssistant(TRACKER_PHONE_LOOKUP_PROMPT);
+                return;
+            }
+
+            const reference = extractBookingReference(content);
+            if (reference) {
+                await appendTrackerLink(reference);
+                return;
+            }
+
+            if (looksLikePhoneNumber(content)) {
+                setTrackerStep('idle');
+                setTrackerDraft({ bookingReference: '' });
+                await appendTrackerAssistant(TRACKER_PHONE_LOOKUP_REPLY);
+                return;
+            }
+
+            if (looksLikeReferenceAttempt(content)) {
+                await appendTrackerAssistant(TRACKER_INVALID_REFERENCE_REPLY);
+                return;
+            }
+
+            await appendTrackerAssistant(TRACKER_REFERENCE_EXPLANATION_REPLY);
+            return;
+        }
+
+        if (trackerStep === 'phoneLookup') {
+            setTrackerStep('idle');
+            setTrackerDraft({ bookingReference: '' });
+            await appendTrackerAssistant(TRACKER_PHONE_LOOKUP_REPLY);
+            return;
+        }
+
+        if (trackerStep === 'fallbackReference') {
+            const reference = extractBookingReference(content);
+            if (!reference) {
+                await appendTrackerAssistant('Please enter a valid AutoSPF+ Appointment Reference Number in this format: ASPF-XXXXXX-XXXX.');
+                return;
+            }
+            setTrackerDraft({ bookingReference: reference });
+            setTrackerStep('fallbackPhone');
+            await appendTrackerAssistant(`Thanks. Now enter the registered phone number for ${reference}.`);
+            return;
+        }
+
+        if (trackerStep === 'fallbackPhone') {
+            await verifyTrackerLookup(content);
+        }
+    };
+
     const sendMessage = async (content: string) => {
         let data: any;
         try {
@@ -212,12 +554,15 @@ export default function ChatWidget({
 
         const reply = data?.reply || 'Sorry, I could not generate a response.';
 
-        appendMessage({ id: `assistant-${Date.now()}`, sender: 'assistant', message: reply });
-        setUnread(prev => isOpen ? 0 : prev + 1);
+        appendMessage({ id: createMessageId('assistant'), sender: 'assistant', message: reply });
+        setUnread(prev => (isOpen && screen === 'chat' ? 0 : prev + 1));
 
-        // Handle action chips or booking redirects from backend
         if (data?.action?.type === 'open_booking' && onOpenBooking) {
             onOpenBooking({ name: data.action.name, serviceName: data.action.serviceName });
+        }
+        if (data?.action?.type === 'tracker_prompt') {
+            setTrackerStep('reference');
+            setTrackerDraft({ bookingReference: '' });
         }
         if (data?.leadRequired) {
             setLeadRequired(true);
@@ -229,45 +574,90 @@ export default function ChatWidget({
         const trimmed = (overrideText ?? input).trim();
         if (!trimmed) return;
 
-        appendMessage({ id: `user-${Date.now()}`, sender: 'user', message: trimmed });
+        if (screen !== 'chat') {
+            openChat(chatReturnTo);
+        }
+
+        appendMessage({ id: createMessageId('user'), sender: 'user', message: trimmed });
         setInput('');
 
-        const needsLead = !authed && !leadName && !leadPhone && QUOTE_INTENT_REGEX.test(trimmed);
+        if (registrationStep === 'submitting') {
+            appendAssistant('I am still securing your account setup. One moment please.', { type: 'registration' });
+            return;
+        }
+
+        if (registrationStep !== 'idle' && registrationStep !== 'sent') {
+            await handleRegistrationInput(trimmed);
+            return;
+        }
+
+        if (trackerStep !== 'idle') {
+            await handleTrackerInput(trimmed);
+            return;
+        }
+
+        if (NO_LOGIN_TRACKER_REGEX.test(trimmed)) {
+            await beginNoLoginTrackerLookup(trimmed);
+            return;
+        }
+
+        if (TRACKER_INTENT_REGEX.test(trimmed)) {
+            await beginTrackerLookup(trimmed);
+            return;
+        }
+
+        if (!authed && SIGNUP_INTENT_REGEX.test(trimmed)) {
+            beginRegistration();
+            return;
+        }
+
+        const needsLead = !authed && !leadName && !leadPhone && QUOTE_INTENT_REGEX.test(trimmed) && !PRICE_LIST_INTENT_REGEX.test(trimmed);
         if (needsLead) {
             setLeadRequired(true);
             setPendingMessage(trimmed);
             appendMessage({
-                id: `assistant-${Date.now()}`, sender: 'assistant',
+                id: createMessageId('assistant'),
+                sender: 'assistant',
                 message: 'Before I can provide a quote, please share your name and phone number.',
             });
             return;
         }
 
         setIsSending(true);
-        try { await sendMessage(trimmed); }
-        catch { toast.error('Unable to send message.'); }
-        finally { setIsSending(false); }
+        try {
+            await sendMessage(trimmed);
+        } catch {
+            toast.error('Unable to send message.');
+        } finally {
+            setIsSending(false);
+        }
     };
 
     const handleLeadSubmit = async () => {
         if (!leadName.trim() || !leadPhone.trim()) {
-            toast.error('Please enter your name and phone number.'); return;
+            toast.error('Please enter your name and phone number.');
+            return;
         }
         try {
             const res = await api.post('/chat/lead', {
-                sessionId, name: leadName.trim(), phone: leadPhone.trim(),
+                sessionId,
+                name: leadName.trim(),
+                phone: leadPhone.trim(),
             });
             localStorage.setItem('autospf_chat_lead', JSON.stringify({ name: leadName.trim(), phone: leadPhone.trim() }));
             setLeadRequired(false);
             if (res.data?.reply) {
-                appendMessage({ id: `assistant-${Date.now()}`, sender: 'assistant', message: res.data.reply });
-                if (res.data?.action?.type === 'open_booking' && onOpenBooking)
+                appendMessage({ id: createMessageId('assistant'), sender: 'assistant', message: res.data.reply });
+                if (res.data?.action?.type === 'open_booking' && onOpenBooking) {
                     onOpenBooking({ name: res.data.action.name, serviceName: res.data.action.serviceName });
+                }
             } else if (pendingMessage) {
                 await sendMessage(pendingMessage);
             }
             setPendingMessage(null);
-        } catch { toast.error('Unable to save lead details.'); }
+        } catch {
+            toast.error('Unable to save lead details.');
+        }
     };
 
     const handleHandoff = async () => {
@@ -275,19 +665,38 @@ export default function ChatWidget({
         try {
             const res = await api.post('/chat/handoff', { sessionId, lastMessage: lastUserMessage });
             if (res.data?.success) {
-                appendMessage({ id: `assistant-${Date.now()}`, sender: 'assistant', message: 'A human specialist has been notified and will follow up shortly.' });
+                appendMessage({
+                    id: createMessageId('assistant'),
+                    sender: 'assistant',
+                    message: 'Let me connect you with a specialist who can help you better! Please use Talk to a protection specialist below.',
+                });
                 toast.success('Human handoff requested.');
             }
-        } catch { toast.error('Unable to request a human agent.'); }
+        } catch {
+            toast.error('Unable to request a human agent.');
+        }
     };
 
-    /* ════════════════════════════════
-       RENDER
-    ════════════════════════════════ */
+    const chatInputPlaceholder =
+        registrationStep === 'firstName' ? 'First name'
+            : registrationStep === 'lastName' ? 'Last name'
+                : registrationStep === 'email' ? 'Email address'
+                    : registrationStep === 'phone' ? 'Mobile number'
+                        : registrationStep === 'submitting' ? 'Securing your setup link...'
+                            : registrationStep === 'sent' ? 'Email sent. Ask me anything'
+                                : trackerStep === 'reference' ? 'Booking reference'
+                                    : trackerStep === 'phoneLookup' ? 'Registered mobile number'
+                                        : trackerStep === 'fallbackReference' ? 'Appointment reference'
+                                            : trackerStep === 'fallbackPhone' ? 'Registered phone number'
+                                        : 'Message...';
+
+    const windowHeight =
+        variant === 'customer'
+            ? 'min(690px, calc(100dvh - 112px))'
+            : 'min(720px, calc(100dvh - 112px))';
+
     return (
         <div className={className || 'fixed bottom-4 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] flex flex-col items-end gap-3'}>
-
-            {/* ── Chat window ── */}
             <AnimatePresence>
                 {isOpen && (
                     <motion.div
@@ -296,430 +705,113 @@ export default function ChatWidget({
                         initial="hidden"
                         animate="visible"
                         exit="exit"
-                        className="relative w-full sm:w-[500px] sm:max-w-[500px] flex flex-col overflow-hidden rounded-[30px]
-                                   border border-white/[0.12]
-                                   shadow-[0_34px_100px_rgba(0,0,0,0.62),0_0_0_1px_rgba(255,255,255,0.05)]"
+                        className={`${chatWindowClass} sm:w-[400px] sm:max-w-[400px]`}
                         style={{
-                            height: variant === 'customer'
-                                ? 'min(650px, calc(100dvh - 112px))'
-                                : 'min(680px, calc(100dvh - 112px))',
+                            height: windowHeight,
                             maxHeight: 'calc(100dvh - 88px)',
-                            background: 'linear-gradient(180deg, rgba(11,13,22,0.98) 0%, rgba(8,12,20,0.99) 48%, rgba(5,8,13,1) 100%)',
-                            backdropFilter: 'blur(38px)',
-                            perspective: 1200,
                         }}
                     >
-                        {/* Animated atmospheric layer */}
-                        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-                            <motion.div
-                                className="absolute inset-0 opacity-[0.22]"
-                                style={{
-                                    backgroundImage:
-                                        'linear-gradient(rgba(255,255,255,0.075) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.055) 1px, transparent 1px)',
-                                    backgroundSize: '34px 34px',
-                                    maskImage: 'linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,0,0,0.28) 55%, transparent 100%)',
-                                    WebkitMaskImage: 'linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,0,0,0.28) 55%, transparent 100%)',
-                                }}
-                                animate={{ backgroundPosition: ['0px 0px', '34px 34px'] }}
-                                transition={{ duration: 16, repeat: Infinity, ease: 'linear' }}
+                        {screen === 'home' && (
+                            <ChatHomeScreen
+                                preview={homeCardPreview}
+                                relativeTime={relativeTime}
+                                currentUserName={currentUserName}
+                                onClose={() => setIsOpen(false)}
+                                onOpenChat={() => openChat('home')}
+                                onOpenMessages={() => setScreen('messages')}
                             />
-                            <motion.div
-                                className="absolute -left-20 top-[16%] h-px w-[145%] bg-gradient-to-r from-transparent via-amber-300/[0.45] to-transparent"
-                                animate={{ x: ['-15%', '15%'], opacity: [0.12, 0.55, 0.12] }}
-                                transition={{ duration: 4.8, repeat: Infinity, ease: 'easeInOut' }}
+                        )}
+
+                        {screen === 'messages' && (
+                            <ChatMessagesScreen
+                                preview={conversationPreview}
+                                relativeTime={relativeTime}
+                                onClose={() => setIsOpen(false)}
+                                onOpenChat={() => openChat('messages')}
+                                onOpenHome={() => setScreen('home')}
                             />
-                            <motion.div
-                                className="absolute left-0 right-0 top-0 h-32 bg-gradient-to-b from-amber-400/[0.12] via-cyan-300/[0.04] to-transparent"
-                                animate={{ opacity: [0.5, 0.92, 0.5] }}
-                                transition={{ duration: 5.5, repeat: Infinity, ease: 'easeInOut' }}
+                        )}
+
+                        {screen === 'chat' && (
+                            <ChatConversationScreen
+                                messages={messages}
+                                input={input}
+                                inputFocused={inputFocused}
+                                chatInputPlaceholder={chatInputPlaceholder}
+                                isSending={isSending}
+                                registrationStep={registrationStep}
+                                registrationEmailSent={registrationEmailSent}
+                                isResendingSetupEmail={isResendingSetupEmail}
+                                leadRequired={leadRequired}
+                                leadName={leadName}
+                                leadPhone={leadPhone}
+                                currentUserName={currentUserName}
+                                endRef={endRef}
+                                inputRef={inputRef}
+                                onBack={() => setScreen(chatReturnTo)}
+                                onClose={() => setIsOpen(false)}
+                                onInputChange={setInput}
+                                onInputFocus={() => setInputFocused(true)}
+                                onInputBlur={() => setInputFocused(false)}
+                                onSend={() => void handleSend()}
+                                onLeadNameChange={setLeadName}
+                                onLeadPhoneChange={setLeadPhone}
+                                onLeadSubmit={() => void handleLeadSubmit()}
+                                onHandoff={() => void handleHandoff()}
+                                onResendSetupEmail={() => void handleResendSetupEmail()}
+                                onChangeRegistrationEmail={handleChangeRegistrationEmail}
                             />
-                            <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(251,191,36,0.08),transparent_32%),linear-gradient(225deg,rgba(34,211,238,0.07),transparent_36%),linear-gradient(180deg,transparent,rgba(0,0,0,0.26))]" />
-                        </div>
-
-                        {/* ── Header ── */}
-                        <div className="relative z-10 flex items-center justify-between gap-4 px-5 py-4 shrink-0">
-                            <div className="absolute top-0 left-5 right-5 h-px bg-gradient-to-r from-transparent via-amber-300/[0.5] to-cyan-300/[0.3] pointer-events-none" />
-                            <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
-
-                            <div className="flex min-w-0 items-center gap-3.5">
-                                <div className="relative">
-                                    <motion.div
-                                        className="relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-[18px] bg-gradient-to-br from-amber-300 via-orange-500 to-rose-600 text-white shadow-[0_14px_34px_rgba(245,132,11,0.28)] ring-1 ring-white/[0.15]"
-                                        animate={{ boxShadow: ['0 14px 34px rgba(245,132,11,0.24)', '0 18px 42px rgba(34,211,238,0.16)', '0 14px 34px rgba(245,132,11,0.24)'] }}
-                                        transition={{ duration: 4.2, repeat: Infinity, ease: 'easeInOut' }}
-                                    >
-                                        <Bot className="relative z-10 h-[22px] w-[22px]" />
-                                        <motion.span
-                                            className="absolute inset-x-0 h-5 bg-white/[0.24] blur-sm"
-                                            animate={{ y: [-28, 48] }}
-                                            transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 1.3, ease: 'easeInOut' }}
-                                        />
-                                    </motion.div>
-                                    <span className="absolute -bottom-1 -right-1 flex h-4 w-4 rounded-full border-[3px] border-[#0b0f18] bg-emerald-400">
-                                        <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-35" />
-                                    </span>
-                                </div>
-                                <div className="min-w-0">
-                                    <p className="truncate text-white text-[15px] font-bold tracking-tight leading-none mb-1.5">
-                                        AutoSPF+ Chatbot
-                                    </p>
-                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                        <span className="flex items-center gap-1.5 text-emerald-300 text-[10.5px] font-bold">
-                                            <Radio className="h-3 w-3" />
-                                            Online now
-                                        </span>
-                                        <span className="hidden sm:inline-block h-3 w-px bg-white/[0.12]" />
-                                        <p className="hidden sm:block text-white/[0.42] text-[10.5px] font-semibold">
-                                            Prices · booking · login · shop info
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <motion.button
-                                onClick={() => setIsOpen(false)}
-                                whileHover={{ scale: 1.08, rotate: 90 }}
-                                whileTap={{ scale: 0.9 }}
-                                className="w-9 h-9 rounded-2xl flex items-center justify-center text-white/[0.42] hover:text-white
-                                           hover:bg-white/[0.08] transition-all duration-200"
-                                aria-label="Close chat"
-                            >
-                                <X className="h-[18px] w-[18px]" />
-                            </motion.button>
-                        </div>
-
-                        {/* ── Message area ── */}
-                        <div
-                            className="relative z-10 flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0 sm:px-5"
-                            style={{
-                                scrollbarWidth: 'thin',
-                                scrollbarColor: 'rgba(255,255,255,0.11) transparent',
-                            }}
-                        >
-                            {/* Empty state / welcome */}
-                            {messages.length === 0 && (
-                                <>
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 14, scale: 0.98 }}
-                                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                                        transition={{ duration: 0.42, ease: EASE }}
-                                        className="relative mb-3 overflow-hidden rounded-[26px] border border-white/10 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                                    >
-                                        <motion.div
-                                            className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/[0.7] to-transparent"
-                                            animate={{ x: ['-80%', '80%'] }}
-                                            transition={{ duration: 3.8, repeat: Infinity, ease: 'easeInOut' }}
-                                        />
-                                        <div className="relative flex items-start gap-3">
-                                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-black/[0.35] ring-1 ring-white/10">
-                                                <ShieldCheck className="h-5 w-5 text-amber-200" />
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                                <p className="text-[14px] font-bold leading-snug text-white">
-                                                    Ready to help with your next AutoSPF+ plan.
-                                                </p>
-                                                <p className="mt-1 text-[11.5px] font-medium leading-relaxed text-white/[0.48]">
-                                                    Choose a topic below for prices, booking, login, or shop details.
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="mt-4 flex h-8 items-end gap-1.5">
-                                            {SIGNAL_BARS.map((height, i) => (
-                                                <motion.span
-                                                    key={i}
-                                                    className="w-full rounded-full bg-gradient-to-t from-orange-500/[0.2] via-amber-300/[0.5] to-cyan-200/[0.6]"
-                                                    style={{ height }}
-                                                    animate={{ scaleY: [0.72, 1, 0.72], opacity: [0.45, 0.95, 0.45] }}
-                                                    transition={{ duration: 1.35, repeat: Infinity, delay: i * 0.09, ease: 'easeInOut' }}
-                                                />
-                                            ))}
-                                        </div>
-                                    </motion.div>
-
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {QUICK_REPLIES.map((q, i) => (
-                                            <motion.button
-                                                key={q.label}
-                                                custom={i}
-                                                variants={chipVariants}
-                                                initial="hidden"
-                                                animate="visible"
-                                                onClick={() => handleSend(q.prompt)}
-                                                whileHover={{ scale: 1.018, y: -2 }}
-                                                whileTap={{ scale: 0.975 }}
-                                                className="group relative flex min-h-[82px] items-center justify-between gap-2.5 overflow-hidden rounded-[22px]
-                                                           border border-white/10 bg-white/[0.045] pl-3.5 pr-7 py-3 text-left
-                                                           shadow-[inset_0_1px_0_rgba(255,255,255,0.075)]
-                                                           transition-all duration-300 hover:border-white/[0.18] hover:bg-white/[0.07] cursor-pointer"
-                                                style={{ boxShadow: `inset 0 1px 0 rgba(255,255,255,0.075), 0 18px 46px ${q.glow}` }}
-                                            >
-                                                <span
-                                                    className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full opacity-80"
-                                                    style={{ backgroundColor: q.accent }}
-                                                />
-                                                <span
-                                                    className="absolute -right-10 top-0 h-full w-24 rotate-12 bg-white/10 opacity-0 blur-lg transition-all duration-500 group-hover:right-8 group-hover:opacity-40"
-                                                />
-                                                <span className="relative flex min-w-0 items-center gap-2.5">
-                                                    <span
-                                                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-black/[0.3] ring-1 ring-white/10 sm:h-10 sm:w-10"
-                                                        style={{ color: q.accent }}
-                                                    >
-                                                        <q.Icon className="h-[18px] w-[18px]" />
-                                                    </span>
-                                                    <span className="min-w-0">
-                                                        <span className="block truncate whitespace-nowrap text-[11.5px] font-bold leading-tight text-white/[0.86] sm:text-[13px]">{q.label}</span>
-                                                        <span className="mt-1 block text-[10px] font-semibold leading-tight text-white/[0.42] sm:text-[11px]">{q.detail}</span>
-                                                    </span>
-                                                </span>
-                                                <ArrowRight
-                                                    className="absolute right-3.5 h-4 w-4 shrink-0 text-white/[0.24] transition-all duration-300 group-hover:translate-x-1 group-hover:text-white/[0.7]"
-                                                    aria-hidden="true"
-                                                />
-                                            </motion.button>
-                                        ))}
-                                    </div>
-                                </>
-                            )}
-
-                            {/* Messages */}
-                            {messages.map(msg => (
-                                <motion.div
-                                    key={msg.id}
-                                    variants={msgVariants}
-                                    initial="hidden"
-                                    animate="visible"
-                                    className={`flex items-end gap-2.5 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                                >
-                                    {msg.sender !== 'user' && (
-                                        <div className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 via-orange-500 to-rose-600 shadow-sm shadow-amber-500/[0.2] ring-1 ring-white/10">
-                                            <Bot className="h-4 w-4 text-white" />
-                                        </div>
-                                    )}
-                                    <div
-                                        className={`max-w-[80%] whitespace-pre-wrap px-3.5 py-2.5 text-[12.5px] leading-relaxed shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] ${msg.sender === 'user'
-                                            ? 'rounded-[20px] rounded-br-md bg-gradient-to-r from-amber-400 via-orange-500 to-rose-600 text-white shadow-lg shadow-orange-500/[0.15]'
-                                            : 'rounded-[20px] rounded-tl-md border border-white/10 bg-white/[0.065] text-white/[0.78]'
-                                            }`}
-                                    >
-                                        {msg.message}
-                                    </div>
-                                </motion.div>
-                            ))}
-
-                            {/* Typing indicator */}
-                            {isSending && (
-                                <motion.div
-                                    initial={{ opacity: 0, y: 8 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="flex items-end gap-2.5"
-                                >
-                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 via-orange-500 to-rose-600 shadow-sm shadow-amber-500/[0.2] ring-1 ring-white/10">
-                                        <Bot className="h-4 w-4 text-white" />
-                                    </div>
-                                    <div className="flex items-center gap-2 rounded-[20px] rounded-tl-md border border-white/10 bg-white/[0.065] px-4 py-3">
-                                        {[0, 0.15, 0.3].map((delay, i) => (
-                                            <motion.span
-                                                key={i}
-                                                className="h-1.5 w-1.5 rounded-full bg-amber-300"
-                                                animate={{ opacity: [0.28, 1, 0.28], y: [0, -4, 0] }}
-                                                transition={{ duration: 0.9, repeat: Infinity, delay }}
-                                            />
-                                        ))}
-                                        <span className="ml-1 text-[10.5px] font-semibold text-white/[0.38]">checking</span>
-                                    </div>
-                                </motion.div>
-                            )}
-                            <div ref={endRef} />
-                        </div>
-
-                        {/* ── Lead capture ── */}
-                        <AnimatePresence>
-                            {leadRequired && (
-                                <motion.div
-                                    initial={{ opacity: 0, height: 0, y: 10 }}
-                                    animate={{ opacity: 1, height: 'auto', y: 0 }}
-                                    exit={{ opacity: 0, height: 0, y: 8 }}
-                                    className="relative z-10 shrink-0 overflow-hidden border-t border-white/10 px-4 py-4 sm:px-5"
-                                    style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02))' }}
-                                >
-                                    <div className="mb-3 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.18em] text-white/[0.42]">
-                                        <Zap className="h-3.5 w-3.5 text-amber-300" />
-                                        Quote details
-                                    </div>
-                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                        <div className="flex h-11 items-center gap-2 rounded-2xl border border-white/10 bg-black/[0.2] px-3 transition-colors focus-within:border-amber-300/[0.45]">
-                                            <User className="w-3.5 h-3.5 text-white/[0.36] shrink-0" />
-                                            <Input
-                                                value={leadName}
-                                                onChange={e => setLeadName(e.target.value)}
-                                                placeholder="Name"
-                                                className="h-8 border-0 bg-transparent p-0 text-xs text-white placeholder:text-white/[0.28] focus-visible:ring-0"
-                                            />
-                                        </div>
-                                        <div className="flex h-11 items-center gap-2 rounded-2xl border border-white/10 bg-black/[0.2] px-3 transition-colors focus-within:border-cyan-300/[0.45]">
-                                            <PhoneCall className="w-3.5 h-3.5 text-white/[0.36] shrink-0" />
-                                            <Input
-                                                value={leadPhone}
-                                                onChange={e => setLeadPhone(e.target.value)}
-                                                placeholder="Phone"
-                                                className="h-8 border-0 bg-transparent p-0 text-xs text-white placeholder:text-white/[0.28] focus-visible:ring-0"
-                                            />
-                                        </div>
-                                    </div>
-                                    <motion.button
-                                        whileHover={{ scale: 1.015 }}
-                                        whileTap={{ scale: 0.98 }}
-                                        onClick={handleLeadSubmit}
-                                        className="mt-3 h-10 w-full rounded-2xl bg-gradient-to-r from-amber-300 via-orange-500 to-rose-600 text-xs font-bold text-white shadow-lg shadow-orange-500/[0.18]
-                                                   transition-all hover:brightness-110 cursor-pointer"
-                                    >
-                                        Submit Details
-                                    </motion.button>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-
-                        {/* ── Input area ── */}
-                        <div className="relative z-10 px-4 py-3.5 space-y-2.5 shrink-0">
-                            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
-
-                            <div className="flex items-center gap-2.5">
-                                <div className={`relative flex-1 flex items-center h-12 overflow-hidden rounded-[22px] border px-3.5 transition-all duration-300
-                                    ${inputFocused
-                                        ? 'border-cyan-200/[0.42] bg-white/[0.065] shadow-[0_0_28px_rgba(34,211,238,0.10)]'
-                                        : 'border-white/10 bg-white/[0.045]'
-                                    }`}
-                                >
-                                    <motion.span
-                                        className="pointer-events-none absolute inset-y-2 left-0 w-px bg-cyan-200/[0.7]"
-                                        animate={{ opacity: inputFocused ? [0.3, 1, 0.3] : 0.25 }}
-                                        transition={{ duration: 1.4, repeat: inputFocused ? Infinity : 0 }}
-                                    />
-                                    <Input
-                                        ref={inputRef as any}
-                                        value={input}
-                                        onChange={e => setInput(e.target.value)}
-                                        onFocus={() => setInputFocused(true)}
-                                        onBlur={() => setInputFocused(false)}
-                                        placeholder="SPF prices, booking, login, location..."
-                                        className="h-8 flex-1 border-0 bg-transparent p-0 text-sm text-white
-                                                   placeholder:text-white/[0.28] focus-visible:ring-0"
-                                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                                    />
-                                </div>
-                                <motion.button
-                                    onClick={() => handleSend()}
-                                    disabled={isSending || !input.trim()}
-                                    whileHover={{ scale: 1.08, rotate: -3 }}
-                                    whileTap={{ scale: 0.94 }}
-                                    className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[22px] bg-gradient-to-br from-amber-300 via-orange-500 to-rose-600
-                                               shadow-lg shadow-orange-500/[0.25] transition-all duration-200 hover:shadow-orange-500/[0.4]
-                                               disabled:cursor-not-allowed disabled:opacity-35 disabled:shadow-none cursor-pointer"
-                                    aria-label="Send message"
-                                >
-                                    <motion.span
-                                        className="absolute inset-0 bg-white/[0.2]"
-                                        animate={{ x: ['-120%', '120%'] }}
-                                        transition={{ duration: 2.7, repeat: Infinity, ease: 'easeInOut' }}
-                                    />
-                                    <Send className="relative h-[18px] w-[18px] text-white" />
-                                </motion.button>
-                            </div>
-
-                            <motion.button
-                                onClick={handleHandoff}
-                                whileHover={{ scale: 1.01 }}
-                                whileTap={{ scale: 0.98 }}
-                                className="mx-auto flex h-8 w-full items-center justify-center gap-1.5 rounded-2xl
-                                           text-[11px] font-bold text-white/[0.42] transition-all duration-200
-                                           hover:bg-white/[0.045] hover:text-white/[0.72] cursor-pointer"
-                            >
-                                <Headset className="w-3.5 h-3.5" />
-                                Talk to a human specialist
-                            </motion.button>
-
-                            {currentUserName && (
-                                <p className="text-[9px] text-white/[0.18] text-center">Signed in as {currentUserName}</p>
-                            )}
-                        </div>
+                        )}
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            {/* ── Floating trigger button ── */}
-            <div className="relative flex h-[68px] w-[68px] items-center justify-center">
-                <motion.div
-                    className="absolute inset-0 rounded-[26px] opacity-75"
-                    style={{ background: 'conic-gradient(from 0deg, rgba(251,191,36,0), rgba(251,191,36,0.65), rgba(34,211,238,0.48), rgba(251,113,133,0.55), rgba(251,191,36,0))' }}
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
-                    aria-hidden="true"
-                />
-                <motion.button
-                    onClick={() => setIsOpen(o => !o)}
-                    whileHover={{ scale: 1.08 }}
-                    whileTap={{ scale: 0.92 }}
-                    className="relative flex h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-[22px]
-                               bg-gradient-to-br from-amber-300 via-orange-500 to-rose-700
-                               shadow-[0_18px_44px_rgba(245,132,11,0.36),inset_0_1px_0_rgba(255,255,255,0.26)]
-                               ring-1 ring-white/[0.18] transition-shadow duration-300 cursor-pointer"
-                    aria-label={isOpen ? 'Close chat' : 'Open chat'}
-                >
-                    <motion.span
-                        className="absolute inset-x-2 top-0 h-px bg-white/[0.45]"
-                        animate={{ opacity: [0.35, 1, 0.35] }}
-                        transition={{ duration: 2.2, repeat: Infinity }}
-                    />
-                    <motion.span
-                        className="absolute inset-0 bg-white/[0.16]"
-                        animate={{ y: ['-120%', '120%'] }}
-                        transition={{ duration: 3.4, repeat: Infinity, ease: 'easeInOut' }}
-                    />
-                    <AnimatePresence mode="wait" initial={false}>
-                        {isOpen ? (
-                            <motion.span
-                                key="x"
-                                initial={{ rotate: -90, opacity: 0, scale: 0.8 }}
-                                animate={{ rotate: 0, opacity: 1, scale: 1 }}
-                                exit={{ rotate: 90, opacity: 0, scale: 0.8 }}
-                                transition={{ duration: 0.18 }}
-                            >
-                                <X className="h-[22px] w-[22px] text-white" />
-                            </motion.span>
-                        ) : (
-                            <motion.span
-                                key="chat"
-                                initial={{ rotate: 90, opacity: 0, scale: 0.8 }}
-                                animate={{ rotate: 0, opacity: 1, scale: 1 }}
-                                exit={{ rotate: -90, opacity: 0, scale: 0.8 }}
-                                transition={{ duration: 0.18 }}
-                                className="relative"
-                            >
-                                <MessageCircle className="h-[22px] w-[22px] text-white" />
-                                <Sparkles className="absolute -right-2 -top-2 h-3.5 w-3.5 text-white" />
-                            </motion.span>
-                        )}
-                    </AnimatePresence>
+            <motion.button
+                onClick={handleOpenWidget}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="relative flex h-[60px] w-[60px] items-center justify-center rounded-full bg-[#0066FF] shadow-[0_6px_24px_rgba(0,102,255,0.38)] transition-shadow hover:shadow-[0_8px_28px_rgba(0,102,255,0.45)] cursor-pointer"
+                aria-label={isOpen ? 'Close chat' : 'Open chat'}
+            >
+                <AnimatePresence mode="wait" initial={false}>
+                    {isOpen ? (
+                        <motion.span
+                            key="chevron"
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 4 }}
+                            transition={{ duration: 0.15 }}
+                        >
+                            <ChevronDown className="h-6 w-6 text-white" strokeWidth={2.25} />
+                        </motion.span>
+                    ) : (
+                        <motion.span
+                            key="bubble"
+                            initial={{ rotate: 90, opacity: 0, scale: 0.8 }}
+                            animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                            exit={{ rotate: -90, opacity: 0, scale: 0.8 }}
+                            transition={{ duration: 0.15 }}
+                        >
+                            <LauncherBubbleIcon />
+                        </motion.span>
+                    )}
+                </AnimatePresence>
 
-                    {/* Unread badge */}
-                    <AnimatePresence>
-                        {!isOpen && unread > 0 && (
-                            <motion.span
-                                key="badge"
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
-                                exit={{ scale: 0 }}
-                                transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-                                className="absolute -top-1.5 -right-1.5 flex h-5 min-w-[20px] items-center justify-center rounded-full
-                                           border-[2.5px] border-[#0f1119] bg-red-500 px-1 text-[10px] font-bold text-white"
-                            >
-                                {unread}
-                            </motion.span>
-                        )}
-                    </AnimatePresence>
-                </motion.button>
-            </div>
+                <AnimatePresence>
+                    {!isOpen && unread > 0 && (
+                        <motion.span
+                            key="badge"
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            exit={{ scale: 0 }}
+                            transition={{ type: 'spring', stiffness: 400, damping: 15 }}
+                            className="absolute -top-1 -right-1 flex h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-red-500 px-1 text-[10px] font-bold text-white"
+                        >
+                            {unread}
+                        </motion.span>
+                    )}
+                </AnimatePresence>
+            </motion.button>
         </div>
     );
 }

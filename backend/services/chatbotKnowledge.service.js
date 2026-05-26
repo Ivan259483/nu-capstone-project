@@ -31,6 +31,22 @@ const VEHICLE_TYPE_ALIASES = [
   { apiKey: 'highend', label: 'Highend Sedan', patterns: [/\bhigh[\s-]?end\b/i, /\bluxury\s*sedan\b/i, /\bpremium\s*sedan\b/i] },
 ];
 
+const PPF_PRICE_ROWS = [
+  { vehicle: 'Sedan / Hatch', prices: ['₱75,000', '₱80,000', '₱90,000', '₱120,000'] },
+  { vehicle: 'Crossover', prices: ['₱80,000', '₱85,000', '₱95,000', '₱135,000'] },
+  { vehicle: 'SUV / Pick Up', prices: ['₱85,000', '₱90,000', '₱100,000', '₱140,000'] },
+  { vehicle: 'Full-Size SUV', prices: ['₱100,000', '₱110,000', '₱120,000', '₱150,000'] },
+];
+
+const ADD_ON_SERVICE_ROWS = [
+  { name: 'Undercoating', price: '₱8,000' },
+  { name: 'Repainting', price: 'Per panel' },
+  { name: 'PDR (Paintless Dent Repair)', price: 'Per dent' },
+  { name: 'PPF per panel', price: 'Per panel' },
+  { name: 'Interior Detailing', price: 'Inquire' },
+  { name: 'Engine Wash / Detailing', price: 'Inquire' },
+];
+
 export const formatCurrency = (value) => `₱${Number(value || 0).toLocaleString('en-PH')}`;
 
 const getPublishedSpfServices = async () => {
@@ -136,6 +152,74 @@ const formatVehicleSection = (vehicleLabel, packages, apiKey) => {
   return `**${vehicleLabel}**\n${lines.map((line) => `- ${line}`).join('\n')}`;
 };
 
+const formatPackageName = (name = '') => String(name).replace(/\s+—\s+.*$/, '').trim();
+
+const formatCompactPackagePrice = (pkg, apiKey, field) => {
+  const value = pkg.byVehicle?.[apiKey]?.[field];
+  if (value == null) return null;
+  return `${formatPackageName(pkg.name)} ${formatCurrency(value)}`;
+};
+
+const formatVehiclePriceRows = (packages, field) => VEHICLE_PRICE_FIELDS
+  .map(({ apiKey, label }) => {
+    const prices = packages
+      .map((pkg) => formatCompactPackagePrice(pkg, apiKey, field))
+      .filter(Boolean);
+
+    if (!prices.length) return null;
+    return `• ${label}: ${prices.join(' | ')}`;
+  })
+  .filter(Boolean);
+
+const formatPublishedOtherServices = async () => {
+  const services = await Service.find({
+    status: 'Active',
+    isPublished: true,
+    name: { $not: { $regex: /spf\s*[-_]*(80|89|99|101)/i } },
+    basePrice: { $ne: null },
+  })
+    .select('name basePrice category')
+    .sort({ bookingCount: -1, createdAt: -1 })
+    .limit(12)
+    .lean();
+
+  const rows = services
+    .map((service) => {
+      const price = toNumberOrNull(service.basePrice);
+      if (price == null) return null;
+      return `• ${service.name}: from ${formatCurrency(price)}`;
+    })
+    .filter(Boolean);
+
+  return rows;
+};
+
+export const buildCompleteServicePriceListReply = async () => {
+  const packages = await buildSpfPricingMatrix();
+  const spfRows = formatVehiclePriceRows(packages, 'base');
+  const tintRows = formatVehiclePriceRows(packages, 'addon');
+  const publishedOtherRows = await formatPublishedOtherServices();
+
+  return [
+    'AutoSPF+ official service price list',
+    'SPF Ceramic Coating packages — promo price by vehicle type:',
+    ...spfRows,
+    '',
+    'SPF package with Nano Ceramic Window Tint:',
+    ...tintRows,
+    '',
+    'Full-body PPF — all TPU material:',
+    '• Columns: CEO PPF | XPEL | Vinyl Frog | ZIVENT',
+    ...PPF_PRICE_ROWS.map((row) => `• ${row.vehicle}: ${row.prices.join(' | ')}`),
+    '',
+    'Add-on services:',
+    ...ADD_ON_SERVICE_ROWS.map((row) => `• ${row.name}: ${row.price}`),
+    ...(publishedOtherRows.length ? ['', 'Other published services:', ...publishedOtherRows] : []),
+    '',
+    'Tell me your vehicle type and I can recommend the best AutoSPF+ package for your budget.',
+  ].join('\n');
+};
+
 export const buildSpfPricingKnowledge = async (preferredVehicleKey = null) => {
   const packages = await buildSpfPricingMatrix();
 
@@ -192,11 +276,11 @@ export const buildOtherServicesSummary = async () => {
 const SHOP_TOPIC_PATTERNS = [
   /\bautospf\b/i,
   /\bauto\s*spf\b/i,
-  /\b(price|pric|rate|cost|quote|estimate|magkano|presyo|pricing)\b/i,
+  /\b(price|pric|price\s*list|pricelist|rate|rates|cost|quote|estimate|magkano|presyo|pricing)\b/i,
   /\b(book|booking|schedule|appointment|reserve|paano.*book|mag[\s-]?book)\b/i,
   /\b(login|log[\s-]?in|sign[\s-]?in|register|sign[\s-]?up|account|password|dashboard)\b/i,
   /\b(spf|ppf|ceramic|coating|detailing|detail|tint|undercoat|graphene|wax|wash|sonax)\b/i,
-  /\b(sedan|suv|hatchback|midsized|pickup|vehicle|kotse|sasakyan|car)\b/i,
+  /\b(sedan|suv|hatchback|midsized|pickup|vehicle|vihicle|vechicle|kotse|sasakyan|car)\b/i,
   /\b(service|package|menu|offer|promo|website|site)\b/i,
   /\b(location|address|hours|open|contact|phone|las\s*piñas|piñas|marcos)\b/i,
   /\b(track|repair|order|status|waiver)\b/i,
@@ -234,11 +318,23 @@ const FOLLOW_UP_PATTERNS = [
 ];
 
 export const OFF_TOPIC_REPLY =
-  'I can only help with AutoSPF+ — service prices (by vehicle type), SPF/PPF/detailing packages, how to book, login, shop location, and repair tracking. Ask about one of those, or tap **Talk to a human specialist**.';
+  'Let me connect you with a specialist who can help you better! Please use Talk to a protection specialist below.';
 
 const messageMatchesShopTopic = (text) => SHOP_TOPIC_PATTERNS.some((pattern) => pattern.test(text));
 
 const messageMatchesFollowUp = (text) => FOLLOW_UP_PATTERNS.some((pattern) => pattern.test(text.trim()));
+
+export const isPriceListRequest = (message = '') => {
+  const text = String(message).trim();
+  if (!text) return false;
+
+  return [
+    /\b(price\s*list|pricelist|rate\s*card|pricing\s*table|service\s*menu)\b/i,
+    /\b(send|show|give|provide|share)\b[\s\S]{0,80}\b(prices?|pricing|presyo|rates?)\b/i,
+    /\b(all|complete|full|lahat|buong)\b[\s\S]{0,80}\b(prices?|pricing|presyo|rates?)\b/i,
+    /\b(prices?|pricing|presyo|rates?)\b[\s\S]{0,80}\b(vehicle|vihicle|vechicle|sasakyan|kotse|car|services?)\b/i,
+  ].some((pattern) => pattern.test(text));
+};
 
 /**
  * Returns true when the message is allowed for the AutoSPF+ concierge.
@@ -275,5 +371,5 @@ export const buildWebsiteGuide = () => [
   '- **Gallery / About / Contact:** Shop proof, team story, map & contact form.',
   '- **Live tracker:** Logged-in customers see job progress after booking.',
   '- **Location:** Las Piñas City, Metro Manila (Marcos Alvarez Ave.).',
-  '- **Human help:** Offer **Talk to a human specialist** for complex cases.',
+  '- Human help: Offer Talk to a protection specialist (link below the chat) for complex cases.',
 ].join('\n');

@@ -1,10 +1,11 @@
 import User from '../models/user.model.js';
 import OTP from '../models/oTP.model.js';
+import AccountSetupToken from '../models/accountSetupToken.model.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { config } from '../config/environment.js';
-import { sendOtpEmail, sendWelcomeEmail, sendPasswordResetEmail } from '../utils/mail.utils.js'; // Resend mailer
+import { sendOtpEmail, sendWelcomeEmail, sendPasswordResetEmail, sendPasswordSetupEmail } from '../utils/mail.utils.js'; // Resend mailer
 import mockOtpStore from '../utils/mockOtpStore.utils.js';
 import { getInvalidUserRoleMessage, isValidUserRole, STAFF_ASSIGNABLE_ROLES } from '../constants/roles.js';
 import { logActivity } from '../utils/logActivity.utils.js';
@@ -29,6 +30,11 @@ import {
 const NON_CUSTOMER_ROLES = [
   // Bypass all OTP 2FA for demo purposes
 ];
+
+const PASSWORD_SETUP_PURPOSE = 'password_setup';
+const PASSWORD_SETUP_RESEND_COOLDOWN_MS = 60 * 1000;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const NAME_PART_REGEX = /^[a-zA-ZÀ-ÿ\s.\-']+$/;
 
 /**
  * Generate OTP
@@ -77,6 +83,141 @@ async function saveLastSeen(userDoc) {
     console.warn('[saveLastSeen] non-fatal:', err?.message || err);
   }
 }
+
+const getPublicAppUrl = () => {
+  const explicit = process.env.CLIENT_URL || process.env.FRONTEND_URL || process.env.PUBLIC_APP_URL;
+  if (explicit) return String(explicit).replace(/\/$/, '');
+  const cors = process.env.CORS_ORIGIN;
+  if (cors && typeof cors === 'string' && cors.trim() && cors.trim() !== '*') {
+    const first = cors.split(',')[0].trim();
+    if (first) return first.replace(/\/$/, '');
+  }
+  return 'https://autospf.shop';
+};
+
+const generateSetupToken = () => crypto.randomBytes(32).toString('base64url');
+
+const hashSetupToken = (token) =>
+  crypto.createHash('sha256').update(String(token || ''), 'utf8').digest('hex');
+
+const getPasswordPolicyErrors = (password = '') => {
+  const passwordErrors = [];
+  if (password.length < 8) passwordErrors.push('at least 8 characters');
+  if (!/[A-Z]/.test(password)) passwordErrors.push('one uppercase letter');
+  if (!/[a-z]/.test(password)) passwordErrors.push('one lowercase letter');
+  if (!/[0-9]/.test(password)) passwordErrors.push('one number');
+  if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) passwordErrors.push('one special character');
+  return passwordErrors;
+};
+
+const parseChatRegistrationBody = (body = {}) => {
+  const firstName = String(body.firstName || '').trim().replace(/\s+/g, ' ');
+  const lastName = String(body.lastName || '').trim().replace(/\s+/g, ' ');
+  const email = normalizeEmailForOtp(body.email);
+  const fullName = [firstName, lastName].filter(Boolean).join(' ');
+  const phoneParsed = parseRegisterPhone(body.phone);
+
+  if (!firstName || firstName.length > 40 || !NAME_PART_REGEX.test(firstName)) {
+    return { ok: false, status: 400, message: 'Please enter a valid first name.' };
+  }
+  if (!lastName || lastName.length > 40 || !NAME_PART_REGEX.test(lastName)) {
+    return { ok: false, status: 400, message: 'Please enter a valid last name.' };
+  }
+  if (!email || !EMAIL_REGEX.test(email)) {
+    return { ok: false, status: 400, message: 'Please enter a valid email address.' };
+  }
+  if (fullName.length < 2 || fullName.length > 80) {
+    return { ok: false, status: 400, message: 'Name must be between 2 and 80 characters.' };
+  }
+  if (!phoneParsed.ok) {
+    return { ok: false, status: 400, message: phoneParsed.message || 'Invalid phone number.' };
+  }
+
+  return { ok: true, firstName, lastName, fullName, email, phone: phoneParsed.phone };
+};
+
+const buildSetupUrl = (rawToken) =>
+  `${getPublicAppUrl()}/set-password?token=${encodeURIComponent(rawToken)}`;
+
+const issuePasswordSetupEmail = async (user) => {
+  const now = new Date();
+  await AccountSetupToken.updateMany(
+    {
+      userId: user._id,
+      purpose: PASSWORD_SETUP_PURPOSE,
+      usedAt: null,
+      expiresAt: { $gt: now },
+    },
+    { $set: { usedAt: now } }
+  );
+
+  const rawToken = generateSetupToken();
+  const expiresAt = new Date(Date.now() + config.passwordSetupTokenExpiry * 1000);
+  const tokenRecord = await AccountSetupToken.create({
+    userId: user._id,
+    email: user.email,
+    tokenHash: hashSetupToken(rawToken),
+    purpose: PASSWORD_SETUP_PURPOSE,
+    expiresAt,
+    usedAt: null,
+    lastSentAt: now,
+  });
+
+  const emailResult = await sendPasswordSetupEmail(
+    user.email,
+    user.name,
+    buildSetupUrl(rawToken),
+    {
+      tokenRecordId: tokenRecord._id,
+      expiresInSeconds: config.passwordSetupTokenExpiry,
+    }
+  );
+
+  if (!emailResult.success) {
+    await AccountSetupToken.deleteOne({ _id: tokenRecord._id });
+    const error = new Error(emailResult.error || 'Failed to send setup email.');
+    error.emailError = true;
+    throw error;
+  }
+
+  return tokenRecord;
+};
+
+const loadPasswordSetupToken = async (rawToken) => {
+  const token = String(rawToken || '').trim();
+  if (!token) {
+    return { ok: false, status: 400, message: 'Setup token is required.' };
+  }
+
+  const tokenHash = hashSetupToken(token);
+  const tokenRecord = await AccountSetupToken.findOne({
+    tokenHash,
+    purpose: PASSWORD_SETUP_PURPOSE,
+  });
+
+  if (!tokenRecord || tokenRecord.usedAt) {
+    return { ok: false, status: 400, message: 'This setup link is invalid or has already been used.' };
+  }
+  if (tokenRecord.expiresAt < new Date()) {
+    return { ok: false, status: 400, message: 'This setup link has expired. Please request a new email.' };
+  }
+
+  const user = await User.findById(tokenRecord.userId);
+  if (!user || user.isDeleted) {
+    return { ok: false, status: 404, message: 'Account not found.' };
+  }
+  if (!user.isActive) {
+    return { ok: false, status: 403, message: 'This account has been deactivated. Please contact support.' };
+  }
+  if (user.role !== 'customer') {
+    return { ok: false, status: 409, message: 'This setup link is not valid for this account type.' };
+  }
+  if (user.isVerified && user.password) {
+    return { ok: false, status: 400, message: 'This account is already active. Please sign in.' };
+  }
+
+  return { ok: true, tokenRecord, user };
+};
 
 /**
  * Send OTP for signup/login
@@ -493,6 +634,293 @@ export const verifyOtp = async (req, res, next) => {
       message: 'Failed to verify OTP',
       error: error.message,
     });
+  }
+};
+
+/**
+ * Chatbot Registration Start
+ * POST /api/auth/chat-registration/start
+ *
+ * Creates or updates a pending customer account from the deterministic chatbot
+ * flow and emails a one-time password setup link. No password is accepted here.
+ */
+export const startChatRegistration = async (req, res) => {
+  try {
+    const parsed = parseChatRegistrationBody(req.body);
+    if (!parsed.ok) {
+      return res.status(parsed.status).json({ success: false, message: parsed.message });
+    }
+
+    const { firstName, lastName, fullName, email, phone } = parsed;
+    let user = await User.findOne({ email });
+    let created = false;
+
+    if (user) {
+      if (user.isDeleted) {
+        return res.status(403).json({
+          success: false,
+          message: 'This account has been deleted by an administrator.',
+        });
+      }
+      if (!user.isActive) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your account has been deactivated. Please contact an administrator.',
+          code: 'ACCOUNT_INACTIVE',
+        });
+      }
+      if (user.role !== 'customer') {
+        return res.status(409).json({
+          success: false,
+          message: 'This email is linked to a staff account. Please sign in or contact support.',
+        });
+      }
+      if (user.isVerified) {
+        return res.status(409).json({
+          success: false,
+          message: 'An active account with this email already exists. Please sign in.',
+        });
+      }
+
+      user.name = fullName;
+      user.phone = phone;
+      user.status = 'pending';
+      user.isVerified = false;
+      user.isActive = true;
+      await user.save();
+    } else {
+      user = new User({
+        name: fullName,
+        email,
+        phone,
+        role: 'customer',
+        isVerified: false,
+        isActive: true,
+        status: 'pending',
+      });
+      await user.save();
+      created = true;
+    }
+
+    const tokenRecord = await issuePasswordSetupEmail(user);
+
+    logActivity({
+      userId: user._id,
+      userName: user.name || email,
+      userRole: user.role,
+      type: 'chat_registration_started',
+      module: 'Auth',
+      action: 'Chat Registration Started',
+      description: `Password setup email sent to ${user.name || email}.`,
+      status: 'success',
+    });
+
+    return res.status(created ? 201 : 200).json({
+      success: true,
+      message: 'Verification email sent',
+      data: {
+        email,
+        firstName,
+        lastName,
+        expiresAt: tokenRecord.expiresAt,
+        expiresIn: config.passwordSetupTokenExpiry,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Chat Registration Error:', error);
+    return res.status(error.emailError ? 502 : 500).json({
+      success: false,
+      message: error.emailError
+        ? 'Account saved, but we could not send the setup email. Please try resending.'
+        : 'Failed to start account setup.',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Chatbot Registration Resend
+ * POST /api/auth/chat-registration/resend
+ */
+export const resendChatRegistrationEmail = async (req, res) => {
+  try {
+    const email = normalizeEmailForOtp(req.body.email);
+    if (!email || !EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid email address.' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user || user.isDeleted) {
+      return res.status(404).json({ success: false, message: 'No pending account found for this email.' });
+    }
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact an administrator.',
+        code: 'ACCOUNT_INACTIVE',
+      });
+    }
+    if (user.role !== 'customer') {
+      return res.status(409).json({ success: false, message: 'This email is not eligible for chatbot setup.' });
+    }
+    if (user.isVerified) {
+      return res.status(400).json({ success: false, message: 'Account is already active. Please sign in.' });
+    }
+
+    const activeToken = await AccountSetupToken.findOne({
+      userId: user._id,
+      purpose: PASSWORD_SETUP_PURPOSE,
+      usedAt: null,
+      expiresAt: { $gt: new Date() },
+    }).sort({ lastSentAt: -1, createdAt: -1 });
+
+    if (activeToken?.lastSentAt) {
+      const elapsed = Date.now() - activeToken.lastSentAt.getTime();
+      if (elapsed < PASSWORD_SETUP_RESEND_COOLDOWN_MS) {
+        return res.status(429).json({
+          success: false,
+          message: 'Please wait before resending the setup email.',
+          data: {
+            retryAfterSeconds: Math.ceil((PASSWORD_SETUP_RESEND_COOLDOWN_MS - elapsed) / 1000),
+          },
+        });
+      }
+    }
+
+    const tokenRecord = await issuePasswordSetupEmail(user);
+
+    return res.json({
+      success: true,
+      message: 'A new password setup email has been sent.',
+      data: {
+        email,
+        expiresAt: tokenRecord.expiresAt,
+        expiresIn: config.passwordSetupTokenExpiry,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Chat Registration Resend Error:', error);
+    return res.status(error.emailError ? 502 : 500).json({
+      success: false,
+      message: error.emailError ? 'Failed to send setup email. Please try again.' : 'Failed to resend setup email.',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Validate Password Setup Token
+ * POST /api/auth/password-setup/validate
+ */
+export const validatePasswordSetupToken = async (req, res) => {
+  try {
+    const loaded = await loadPasswordSetupToken(req.body.token);
+    if (!loaded.ok) {
+      return res.status(loaded.status).json({ success: false, message: loaded.message });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Setup token is valid.',
+      data: {
+        email: loaded.user.email,
+        name: loaded.user.name,
+        expiresAt: loaded.tokenRecord.expiresAt,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Password Setup Validate Error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to validate setup link.' });
+  }
+};
+
+/**
+ * Complete Password Setup
+ * POST /api/auth/password-setup/complete
+ */
+export const completePasswordSetup = async (req, res) => {
+  try {
+    const { token, newPassword, confirmPassword } = req.body || {};
+
+    if (!newPassword || !confirmPassword) {
+      return res.status(400).json({ success: false, message: 'New password and confirmation are required.' });
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, message: 'Passwords do not match.' });
+    }
+
+    const passwordErrors = getPasswordPolicyErrors(newPassword);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({ success: false, message: `Password must contain: ${passwordErrors.join(', ')}` });
+    }
+
+    const loaded = await loadPasswordSetupToken(token);
+    if (!loaded.ok) {
+      return res.status(loaded.status).json({ success: false, message: loaded.message });
+    }
+
+    const now = new Date();
+    const consumeResult = await AccountSetupToken.updateOne(
+      {
+        _id: loaded.tokenRecord._id,
+        usedAt: null,
+        expiresAt: { $gt: now },
+      },
+      { $set: { usedAt: now } }
+    );
+
+    if (consumeResult.modifiedCount !== 1) {
+      return res.status(400).json({ success: false, message: 'This setup link is no longer valid.' });
+    }
+
+    const user = loaded.user;
+    user.password = newPassword;
+    user.isVerified = true;
+    user.status = 'active';
+    await user.save();
+
+    await AccountSetupToken.updateMany(
+      {
+        userId: user._id,
+        purpose: PASSWORD_SETUP_PURPOSE,
+        usedAt: null,
+      },
+      { $set: { usedAt: now } }
+    );
+
+    const authToken = jwt.sign(
+      { id: user._id, email: user.email, role: user.role },
+      config.jwtSecret,
+      { expiresIn: '7d' }
+    );
+
+    await saveLastSeen(user);
+    sendWelcomeEmail(user.email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
+
+    const userObject = user.toObject({ virtuals: true });
+    delete userObject.password;
+    delete userObject.__v;
+    attachPhoneForClient(user, userObject);
+
+    logActivity({
+      userId: user._id,
+      userName: user.name || user.email,
+      userRole: user.role,
+      type: 'chat_registration_completed',
+      module: 'Auth',
+      action: 'Password Setup Complete',
+      description: `${user.name || user.email} activated their chatbot-created account.`,
+      status: 'success',
+    });
+
+    return res.json({
+      success: true,
+      message: 'Welcome to AutoSPF+. Your account is now active.',
+      data: { user: userObject, token: authToken },
+    });
+  } catch (error) {
+    console.error('❌ Password Setup Complete Error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to complete password setup.', error: error.message });
   }
 };
 

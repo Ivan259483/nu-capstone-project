@@ -18,7 +18,8 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: true,
+      required: false,
+      default: undefined,
     },
     role: {
       type: String,
@@ -128,7 +129,7 @@ userSchema.pre('save', async function (next) {
   }
 
   // Password hashing
-  if (this.isModified('password')) {
+  if (this.isModified('password') && this.password) {
     try {
       const salt = await bcrypt.genSalt(10);
       this.password = await bcrypt.hash(this.password, salt);

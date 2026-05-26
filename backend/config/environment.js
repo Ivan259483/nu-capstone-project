@@ -93,6 +93,7 @@ export const config = {
   // OTP Configuration
   otpExpiry: parseInt(process.env.OTP_EXPIRY || '600', 10), // 10 minutes in seconds
   otpLength: parseInt(process.env.OTP_LENGTH || '6', 10), // 6 digit OTP
+  passwordSetupTokenExpiry: parseInt(process.env.PASSWORD_SETUP_TOKEN_EXPIRY || '3600', 10), // 1 hour in seconds
 };
 
 export default config;

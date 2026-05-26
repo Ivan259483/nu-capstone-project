@@ -29,6 +29,7 @@ const Services = lazy(() => import("./pages/Services"));
 const CustomerDashboard = lazy(() => import("./pages/CustomerDashboard"));
 const CustomerServices = lazy(() => import("./pages/customer/Services"));
 const CustomerLiveTrackerPage = lazy(() => import("./pages/CustomerLiveTrackerPage"));
+const PublicTrackerPage = lazy(() => import("./pages/PublicTrackerPage"));
 const DetailerDashboard = lazy(() => import("./pages/DetailerDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const SalesDashboard = lazy(() => import("./pages/SalesDashboard"));
@@ -106,10 +107,12 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode; allow
 
     if (!user) {
         // Only save route if it's an actual protected destination, not the root
+        let redirectPath = '';
         if (location.pathname !== '/' && location.pathname !== '/login') {
-            sessionStorage.setItem('redirect_after_login', location.pathname + location.search + location.hash);
+            redirectPath = location.pathname + location.search + location.hash;
+            sessionStorage.setItem('redirect_after_login', redirectPath);
         }
-        return <Navigate to="/login" replace />;
+        return <Navigate to={redirectPath ? `/login?redirect=${encodeURIComponent(redirectPath)}` : '/login'} replace />;
     }
 
     const safeRole = getSafeUserRole(user.role);
@@ -162,7 +165,7 @@ function AppRoutes() {
 
     // Hide the public Navbar on dashboard routes — they have their own navigation
     const isDashboardRoute = /^\/(customer|detailer|admin|sales|inventory|ops)/.test(location.pathname);
-    const isStandaloneRoute = /^\/(verify-otp|set-password)/.test(location.pathname);
+    const isStandaloneRoute = /^\/(verify-otp|set-password|track)/.test(location.pathname);
 
     return (
         <ErrorBoundary>
@@ -181,6 +184,7 @@ function AppRoutes() {
                     <Route path="/login" element={<Login />} />
                     <Route path="/verify-otp" element={<VerifyOtpPage />} />
                     <Route path="/set-password" element={<SetPasswordPage />} />
+                    <Route path="/track/:token" element={<PublicTrackerPage />} />
                     <Route
                         path="/customer/dashboard"
                         element={
@@ -281,7 +285,9 @@ function _ConditionalChatWidget() {
     const { pathname } = useLocation();
     const { user } = useAuth();
     const isDashboardRoute = /^\/(customer|detailer|admin|sales|inventory|ops)/.test(pathname);
+    const isPublicTrackerRoute = /^\/track\//.test(pathname);
     if (isDashboardRoute) return null;
+    if (isPublicTrackerRoute) return null;
     if (getSafeUserRole(user?.role) === 'sales') return null;
     return <ChatWidget />;
 }
