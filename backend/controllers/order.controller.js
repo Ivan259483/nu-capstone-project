@@ -564,6 +564,8 @@ export const getAllOrders = async (req, res, next) => {
       customerId,
       serviceId,
       bookingDate,
+      bookingDateFrom,
+      bookingDateTo,
       skip,
       page,
       limit,
@@ -579,6 +581,14 @@ export const getAllOrders = async (req, res, next) => {
     applyCsvFilter(query, 'status', status);
     applyCsvFilter(query, 'paymentStatus', paymentStatus);
     if (bookingDate) query.bookingDate = { $regex: `^${escapeRegex(String(bookingDate))}` };
+    if (!bookingDate && (bookingDateFrom || bookingDateTo)) {
+      const dateRange = {};
+      const from = String(bookingDateFrom || '').trim();
+      const to = String(bookingDateTo || '').trim();
+      if (from) dateRange.$gte = from;
+      if (to) dateRange.$lte = `${to}\uffff`;
+      query.bookingDate = dateRange;
+    }
 
     if (includeArchived === 'only') {
       query.archived = true;

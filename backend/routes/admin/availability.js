@@ -2,6 +2,7 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import ShopAvailability, { buildDefaultRecurringSchedule } from '../../models/shopAvailability.model.js';
 import ScheduledClosure from '../../models/scheduledClosure.model.js';
+import { emitAvailabilityUpdated } from '../../utils/availabilityBroadcast.utils.js';
 
 const router = Router();
 
@@ -200,6 +201,7 @@ router.patch('/emergency', async (req, res, next) => {
       }
     );
 
+    emitAvailabilityUpdated({ type: 'emergency' });
     return res.json({ emergencyClosed: !!doc.emergencyClosed });
   } catch (err) {
     return next(err);
@@ -231,10 +233,12 @@ router.post('/closures', async (req, res, next) => {
 
     if (Array.isArray(req.body)) {
       const created = await ScheduledClosure.insertMany(payloads);
+      emitAvailabilityUpdated({ type: 'closures', count: created.length });
       return res.status(201).json(created);
     }
 
     const created = await ScheduledClosure.create(payloads[0]);
+    emitAvailabilityUpdated({ type: 'closure' });
     return res.status(201).json(created);
   } catch (err) {
     return next(err);
@@ -252,6 +256,7 @@ router.delete('/closures/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Closure not found.' });
     }
 
+    emitAvailabilityUpdated({ type: 'closure_delete' });
     return res.json({ deleted: true });
   } catch (err) {
     return next(err);
@@ -287,6 +292,7 @@ router.put('/recurring', async (req, res, next) => {
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 
+    emitAvailabilityUpdated({ type: 'recurring' });
     return res.json(normalizeRecurringSchedule(doc.recurringSchedule));
   } catch (err) {
     return next(err);
@@ -330,6 +336,7 @@ router.put('/hours', async (req, res, next) => {
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 
+    emitAvailabilityUpdated({ type: 'hours' });
     return res.json(normalizeRecurringSchedule(doc.recurringSchedule));
   } catch (err) {
     return next(err);

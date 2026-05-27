@@ -178,7 +178,17 @@ export function useCalendarSlots(year: number, month: number): UseCalendarSlotsR
     };
 
     const onDbChange = (payload: { collection: string }) => {
-      if (payload?.collection === 'orders') invalidate();
+      if (
+        payload?.collection === 'orders'
+        || payload?.collection === 'shopavailabilities'
+        || payload?.collection === 'scheduledclosures'
+      ) {
+        invalidate();
+      }
+    };
+
+    const onAvailabilityUpdated = () => {
+      invalidate();
     };
 
     // Targeted event emitted by approveBooking / rejectBooking
@@ -191,10 +201,12 @@ export function useCalendarSlots(year: number, month: number): UseCalendarSlotsR
 
     sock.on('db_change', onDbChange);
     sock.on('booking_updated', onBookingUpdated);
+    sock.on('availability_updated', onAvailabilityUpdated);
 
     return () => {
       sock.off('db_change', onDbChange);
       sock.off('booking_updated', onBookingUpdated);
+      sock.off('availability_updated', onAvailabilityUpdated);
     };
   }, [cacheKey, year, month, load]);
 

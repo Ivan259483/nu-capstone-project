@@ -18,7 +18,7 @@ const statusConfig: Record<StatusType, { label: string; className: string; dot: 
 export default function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {
   const config = statusConfig[status];
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full font-semibold ${config.className} ${size === 'sm' ? 'text-[10px] px-2 py-0.5' : 'text-xs px-2.5 py-1'}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full font-semibold ${config.className} ${size === 'sm' ? 'text-[11px] px-2.5 py-1' : 'text-xs px-3 py-1.5'}`}>
       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${config.dot}`} />
       {config.label}
     </span>

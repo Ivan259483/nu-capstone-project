@@ -1,5 +1,24 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Filter, Download, Trash2, ChevronUp, ChevronDown, ChevronsUpDown, Edit2, Eye, CheckSquare, Square, X, SlidersHorizontal } from 'lucide-react';
+import {
+  AlertTriangle,
+  BadgeDollarSign,
+  Boxes,
+  CalendarClock,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  Download,
+  Edit2,
+  Eye,
+  Filter,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  Square,
+  CheckSquare,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import type { InventoryItem, ItemCategory, ItemStatus } from '@/components/inventory/InventoryContext';
 import { useInventory } from '@/components/inventory/InventoryContext';
@@ -23,6 +42,35 @@ const STATUS_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'on-order', label: 'On Order' },
 ];
 
+const CATEGORY_TONE_CLASS: Record<ItemCategory, string> = {
+  Chemicals: 'inv-category-badge--chemicals',
+  Microfiber: 'inv-category-badge--microfiber',
+  Equipment: 'inv-category-badge--equipment',
+  Consumables: 'inv-category-badge--consumables',
+  Packaging: 'inv-category-badge--packaging',
+};
+
+function getCategoryToneClass(category: string) {
+  const exact = CATEGORY_TONE_CLASS[category as ItemCategory];
+  if (exact) return exact;
+  const normalized = category.toLowerCase();
+  if (normalized.includes('chemical') || normalized.includes('clean')) return CATEGORY_TONE_CLASS.Chemicals;
+  if (normalized.includes('microfiber') || normalized.includes('cloth') || normalized.includes('towel')) return CATEGORY_TONE_CLASS.Microfiber;
+  if (normalized.includes('equipment') || normalized.includes('tool')) return CATEGORY_TONE_CLASS.Equipment;
+  if (normalized.includes('packag') || normalized.includes('box')) return CATEGORY_TONE_CLASS.Packaging;
+  return CATEGORY_TONE_CLASS.Consumables;
+}
+
+function itemMatchesCategory(category: string, selected: 'All' | ItemCategory) {
+  if (selected === 'All' || category === selected) return true;
+  const normalized = category.toLowerCase();
+  if (selected === 'Chemicals') return normalized.includes('chemical') || normalized.includes('clean');
+  if (selected === 'Microfiber') return normalized.includes('microfiber') || normalized.includes('cloth') || normalized.includes('towel');
+  if (selected === 'Equipment') return normalized.includes('equipment') || normalized.includes('tool');
+  if (selected === 'Packaging') return normalized.includes('packag') || normalized.includes('box');
+  return normalized.includes('consumable') || normalized.includes('wax') || normalized.includes('polish') || normalized.includes('accessor');
+}
+
 export default function InventoryItemsContent({ embedded = false }: { embedded?: boolean }) {
   const { items, loading: dataLoading, editItem, removeItem, addItem, refreshItems } = useInventory();
   const [activeCategory, setActiveCategory] = useState<'All' | ItemCategory>('All');
@@ -42,7 +90,7 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
 
   const filtered = useMemo(() => {
     let result = items;
-    if (activeCategory !== 'All') result = result.filter((i) => i.category === activeCategory);
+    if (activeCategory !== 'All') result = result.filter((i) => itemMatchesCategory(i.category, activeCategory));
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter((i) => i.name.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q) || i.supplierName.toLowerCase().includes(q));
@@ -118,7 +166,7 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = { All: items.length };
-    CATEGORIES.slice(1).forEach((cat) => { counts[cat] = items.filter((i) => i.category === cat).length; });
+    CATEGORIES.slice(1).forEach((cat) => { counts[cat] = items.filter((i) => itemMatchesCategory(i.category, cat)).length; });
     return counts;
   }, [items]);
 
@@ -139,89 +187,142 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
 
   const pageStart = filtered.length === 0 ? 0 : (page - 1) * perPage + 1;
   const pageEnd = Math.min(page * perPage, filtered.length);
-  const restockCount = items.filter((i) => i.status === 'critical' || i.status === 'out-of-stock').length;
+  const attentionCount = items.filter((i) => i.status === 'low-stock' || i.status === 'critical' || i.status === 'out-of-stock').length;
+  const categoryTotal = CATEGORIES.slice(1).filter((cat) => (categoryCounts[cat] || 0) > 0).length;
+  const inventoryMetrics = [
+    {
+      label: 'Total Items',
+      value: items.length.toLocaleString('en-PH'),
+      detail: `${categoryTotal} categor${categoryTotal === 1 ? 'y' : 'ies'}`,
+      icon: Boxes,
+      tone: 'blue',
+    },
+    {
+      label: 'Stock Value',
+      value: formattedInventoryValue,
+      detail: 'Current inventory',
+      icon: BadgeDollarSign,
+      tone: 'emerald',
+    },
+    {
+      label: 'Need Restock',
+      value: attentionCount.toLocaleString('en-PH'),
+      detail: attentionCount > 0 ? 'Review soon' : 'Healthy levels',
+      icon: AlertTriangle,
+      tone: attentionCount > 0 ? 'amber' : 'emerald',
+    },
+    {
+      label: 'Last Restock',
+      value: latestRestockedLabel,
+      detail: 'Latest update',
+      icon: CalendarClock,
+      tone: 'cyan',
+    },
+  ];
 
   return (
     <>
       <div className={`inv-items-page space-y-5 w-full min-w-0${embedded ? ' inv-items-page--embedded' : ''}`}>
-        <div className="flex w-full items-center gap-4 flex-wrap justify-between">
-          <div className={embedded ? 'min-w-0' : undefined}>
-            {!embedded ? (
-              <>
-                <h2 className="text-lg font-bold text-gray-900">{filtered.length} items{activeCategory !== 'All' && <span className="text-gray-400 font-medium"> in {activeCategory}</span>}</h2>
-                <p className="text-xs text-gray-400 font-medium mt-0.5">{restockCount} items need restocking</p>
-              </>
-            ) : (
-              <p className="text-sm font-medium text-gray-500">
-                <span className="font-semibold text-gray-800">{filtered.length}</span> items
-                {restockCount > 0 ? <span className="text-amber-600"> · {restockCount} need restock</span> : null}
-              </p>
-            )}
+        <div className="inv-items-header">
+          <div className="inv-items-titleblock">
+            <span className="inv-eyebrow">Inventory</span>
+            <h2>Stock Control</h2>
+            <p>
+              <span>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</span>
+              {activeCategory !== 'All' ? <span> in {activeCategory}</span> : null}
+              {attentionCount > 0 ? <span className="inv-attention-text"> · {attentionCount} need restock</span> : null}
+            </p>
           </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <button onClick={handleExportCSV} className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150 active:scale-95 shadow-sm"><Download size={15} /><span className="hidden sm:inline">Export CSV</span></button>
-            <button onClick={() => { setEditingItem(null); setAddEditOpen(true); }} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white gradient-primary hover:opacity-90 transition-all duration-150 active:scale-95 shadow-md glow-blue"><Plus size={16} />Add Item</button>
+          <div className="inv-items-actions">
+            <button onClick={handleExportCSV} className="inv-btn inv-btn--secondary active:scale-95">
+              <Download size={16} />
+              <span className="hidden sm:inline">Export CSV</span>
+            </button>
+            <button onClick={() => { setEditingItem(null); setAddEditOpen(true); }} className="inv-btn inv-btn--primary active:scale-95">
+              <Plus size={16} />
+              Add Item
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 overflow-x-auto pb-1">
+        <div className="inv-metric-grid">
+          {inventoryMetrics.map((metric) => {
+            const Icon = metric.icon;
+            return (
+              <div key={metric.label} className={`inv-metric-card inv-metric-card--${metric.tone}`}>
+                <div className="inv-metric-icon"><Icon size={17} /></div>
+                <div className="inv-metric-copy">
+                  <span>{metric.label}</span>
+                  <strong>{metric.value}</strong>
+                  <p>{metric.detail}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="inv-category-tabs">
           {CATEGORIES.map((cat) => {
             const count = categoryCounts[cat] || 0;
             return (
-              <button key={`cat-tab-${cat}`} onClick={() => { setActiveCategory(cat); setPage(1); }} className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all duration-200 flex-shrink-0 ${activeCategory === cat ? 'gradient-primary text-white shadow-md' : 'text-gray-500 bg-white border border-gray-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200'}`}>
-                {cat}
-                {count > 0 && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${activeCategory === cat ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>{count}</span>}
+              <button
+                key={`cat-tab-${cat}`}
+                onClick={() => { setActiveCategory(cat); setPage(1); }}
+                className={`inv-category-tab ${activeCategory === cat ? 'is-active' : ''}`}
+              >
+                <span>{cat}</span>
+                {count > 0 && <span className="inv-category-count">{count}</span>}
               </button>
             );
           })}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
+        <div className="inv-compact-summary">
           <span className="tabular-nums text-slate-900">{items.length} item{items.length !== 1 ? 's' : ''}</span>
-          <span className="text-slate-300">·</span>
+          <span aria-hidden="true">·</span>
           <span className="tabular-nums">{formattedInventoryValue} total value</span>
-          <span className="text-slate-300">·</span>
+          <span aria-hidden="true">·</span>
           <span>Last restocked: {latestRestockedLabel}</span>
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2.5 focus-within:border-blue-300 focus-within:shadow-sm transition-all duration-200">
-            <Search size={15} className="text-gray-400 flex-shrink-0" />
-            <input type="text" placeholder="Search by name, SKU, or supplier..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="flex-1 text-sm bg-transparent outline-none text-gray-700 placeholder-gray-400" />
-            {search && <button onClick={() => setSearch('')} className="text-gray-400 hover:text-gray-600"><X size={13} /></button>}
+        <div className="inv-control-bar">
+          <div className="inv-search-field">
+            <Search size={16} />
+            <input type="text" placeholder="Search by name, SKU, or supplier..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+            {search && <button onClick={() => setSearch('')} className="inv-clear-search" aria-label="Clear search"><X size={14} /></button>}
           </div>
-          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 focus-within:border-blue-300 transition-all duration-200">
-            <Filter size={14} className="text-gray-400 flex-shrink-0" />
-            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="text-sm text-gray-600 bg-transparent outline-none font-medium cursor-pointer">
+          <div className="inv-select-field">
+            <Filter size={15} />
+            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
               {STATUS_FILTER_OPTIONS.map((opt) => <option key={`status-opt-${opt.value}`} value={opt.value}>{opt.label}</option>)}
             </select>
           </div>
-          <div className="flex items-center gap-2 text-xs text-gray-400 font-medium"><SlidersHorizontal size={13} /><span className="hidden sm:inline">{filtered.length} results</span></div>
+          <div className="inv-result-count"><SlidersHorizontal size={14} /><span>{filtered.length} results</span></div>
         </div>
 
-        <div className="inv-items-table-card w-full rounded-2xl overflow-hidden" style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.035)', boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 4px 16px rgba(0,0,0,0.015)' }}>
+        <div className="inv-items-table-card w-full">
           <div className="inv-items-table-scroll w-full overflow-x-auto">
             <table className="inv-items-table w-full table-fixed">
               <colgroup>
                 <col style={{ width: 44 }} />
                 <col />
-                <col style={{ width: '11%' }} />
-                <col style={{ width: '17%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '16%' }} />
                 <col style={{ width: '10%' }} />
                 <col style={{ width: '10%' }} />
-                <col style={{ width: '14%' }} />
+                <col style={{ width: '12%' }} />
                 <col style={{ width: '10%' }} />
-                <col style={{ width: 108 }} />
+                <col style={{ width: 96 }} />
               </colgroup>
               <thead>
-                <tr style={{ background: 'rgba(248,250,253,0.65)' }}>
-                  <th className="w-10 px-4 py-3.5"><button onClick={toggleSelectAll} className="text-gray-300 hover:text-blue-600 transition-colors">{selectedIds.size === paginated.length && paginated.length > 0 ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}</button></th>
+                <tr>
+                  <th className="w-10 px-4 py-3.5"><button onClick={toggleSelectAll} className={`inv-check-button ${selectedIds.size === paginated.length && paginated.length > 0 ? 'is-checked' : ''}`}>{selectedIds.size === paginated.length && paginated.length > 0 ? <CheckSquare size={16} /> : <Square size={16} />}</button></th>
                   {([{ key: 'name', label: 'Item Name' }, { key: 'category', label: 'Category' }, { key: 'quantity', label: 'Stock Level' }, { key: 'status', label: 'Status' }, { key: 'costPerUnit', label: 'Unit Cost' }, { key: 'supplierName', label: 'Supplier' }, { key: 'lastRestocked', label: 'Last Restock' }] as Array<{ key: SortField | 'supplierName'; label: string }>).map((col) => (
-                    <th key={`th-${col.key}`} className="px-4 py-3.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider cursor-pointer group hover:text-gray-600 transition-colors select-none whitespace-nowrap" onClick={() => { if (['name', 'quantity', 'status', 'category', 'costPerUnit', 'lastRestocked'].includes(col.key)) toggleSort(col.key as SortField); }}>
+                    <th key={`th-${col.key}`} className="inv-table-th group" onClick={() => { if (['name', 'quantity', 'status', 'category', 'costPerUnit', 'lastRestocked'].includes(col.key)) toggleSort(col.key as SortField); }}>
                       <div className="flex items-center gap-1">{col.label}{['name', 'quantity', 'status', 'category', 'costPerUnit', 'lastRestocked'].includes(col.key) && <SortIcon field={col.key as SortField} />}</div>
                     </th>
                   ))}
-                  <th className="px-4 py-3.5 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
+                  <th className="inv-table-th inv-table-th--right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -235,16 +336,16 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
                     </div>
                   </td></tr>
                 ) : paginated.map((item) => (
-                  <tr key={item.id} className={`transition-all duration-200 group ${selectedIds.has(item.id) ? 'bg-blue-50/40' : 'bg-white'} hover:bg-slate-50/60`}>
-                    <td className="px-4 py-3.5 w-10"><button onClick={() => toggleSelect(item.id)} className="text-gray-300 hover:text-blue-600 transition-colors">{selectedIds.has(item.id) ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}</button></td>
-                    <td className="px-4 py-3.5">
+                  <tr key={item.id} className={`inv-table-row group ${selectedIds.has(item.id) ? 'is-selected' : ''}`}>
+                    <td className="px-4 py-3.5 w-10"><button onClick={() => toggleSelect(item.id)} className={`inv-check-button ${selectedIds.has(item.id) ? 'is-checked' : ''}`}>{selectedIds.has(item.id) ? <CheckSquare size={16} /> : <Square size={16} />}</button></td>
+                    <td className="px-4 py-4">
                       <div className="flex flex-col gap-0.5">
-                        <span className="block truncate text-sm font-semibold text-gray-800">{item.name}</span>
-                        <span className="text-[11px] text-gray-400 font-mono">{item.sku}</span>
+                        <span className="inv-item-name">{item.name}</span>
+                        <span className="inv-item-sku">{item.sku}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3.5"><span className="text-[11px] font-medium text-gray-500 bg-gray-50/80 px-2.5 py-1 rounded-md">{item.category}</span></td>
-                    <td className="px-4 py-3.5">
+                    <td className="inv-table-cell--category px-4 py-4"><span className={`inv-category-badge ${getCategoryToneClass(item.category)}`}>{item.category}</span></td>
+                    <td className="px-4 py-4">
                       <div className="flex w-full min-w-0 items-center gap-2">
                         {editingQtyId === item.id ? (
                           <div className="flex items-center gap-1">
@@ -255,19 +356,19 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
                         ) : (
                           <div className="flex flex-col gap-1 w-full">
                             <div className="flex items-center justify-between">
-                              <span className="text-sm font-bold text-gray-800 font-tabular cursor-pointer hover:text-blue-600 transition-colors" onClick={() => handleInlineQtyEdit(item)} title="Click to edit quantity">{item.quantity}<span className="text-xs font-normal text-gray-400 ml-1">{item.unit}</span></span>
-                              <span className="text-[10px] text-gray-400 font-tabular">/{item.maxQuantity}</span>
+                              <span className="inv-stock-value" onClick={() => handleInlineQtyEdit(item)} title="Click to edit quantity">{item.quantity}<span>{item.unit}</span></span>
+                              <span className="inv-stock-max">/{item.maxQuantity}</span>
                             </div>
                             <StockProgressBar current={item.quantity} max={item.maxQuantity} minStock={item.minStock} height="h-1.5" />
                           </div>
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3.5"><StatusBadge status={item.status} size="sm" /></td>
-                    <td className="px-4 py-3.5"><span className="text-sm font-semibold text-gray-700 font-tabular">₱{item.costPerUnit.toFixed(2)}</span></td>
-                    <td className="px-4 py-3.5"><span className="block truncate text-xs font-medium text-gray-500">{item.supplierName || '—'}</span></td>
-                    <td className="px-4 py-3.5"><span className="text-xs text-gray-400 font-medium font-tabular">{new Date(item.lastRestocked).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-4 py-4"><StatusBadge status={item.status} size="sm" /></td>
+                    <td className="px-4 py-4"><span className="inv-money-value">₱{item.costPerUnit.toFixed(2)}</span></td>
+                    <td className="px-4 py-4"><span className="inv-supplier-name">{item.supplierName || '—'}</span></td>
+                    <td className="px-4 py-4"><span className="inv-date-value">{new Date(item.lastRestocked).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></td>
+                    <td className="px-4 py-4">
                       <div className={`flex items-center justify-end gap-0.5 ${embedded ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'} transition-opacity duration-200`}>
                         <button onClick={() => handleInlineQtyEdit(item)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all duration-150" title="Quick edit quantity"><Edit2 size={14} /></button>
                         <button onClick={() => { setEditingItem(item); setAddEditOpen(true); }} className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all duration-150" title="Edit item details"><Eye size={14} /></button>
@@ -280,8 +381,8 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
             </table>
           </div>
           {filtered.length > 0 && (
-            <div className="flex items-center justify-between px-4 py-3" style={{ borderTop: '1px solid rgba(0,0,0,0.04)', background: 'rgba(248,250,253,0.5)' }}>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+            <div className="inv-table-footer">
+              <div className="inv-table-footer-info">
                 <span>
                   Showing <strong className="text-gray-700 font-tabular">{pageStart}–{pageEnd}</strong> of{' '}
                   <strong className="text-gray-700 font-tabular">{filtered.length}</strong> items
@@ -289,17 +390,17 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
                 <span className="hidden text-gray-300 sm:inline">·</span>
                 <label className="flex items-center gap-1.5">
                   <span>Per page</span>
-                  <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }} className="text-xs font-semibold text-gray-600 bg-white border border-gray-200 rounded-lg px-2 py-1 outline-none cursor-pointer">
+                  <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }} className="inv-per-page-select">
                     {[10, 20, 50].map((n) => <option key={`per-page-${n}`} value={n}>{n}</option>)}
                   </select>
                 </label>
               </div>
-              <div className="flex items-center gap-1">
-                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-500 hover:bg-white hover:border hover:border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all">← Prev</button>
+              <div className="inv-pagination">
+                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="inv-page-btn">← Prev</button>
                 {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => i + 1).map((p) => (
-                  <button key={`page-${p}`} onClick={() => setPage(p)} className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${page === p ? 'gradient-primary text-white shadow-sm' : 'text-gray-500 hover:bg-white hover:border hover:border-gray-200'}`}>{p}</button>
+                  <button key={`page-${p}`} onClick={() => setPage(p)} className={`inv-page-number ${page === p ? 'is-active' : ''}`}>{p}</button>
                 ))}
-                <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-500 hover:bg-white hover:border hover:border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all">Next →</button>
+                <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="inv-page-btn">Next →</button>
               </div>
             </div>
           )}

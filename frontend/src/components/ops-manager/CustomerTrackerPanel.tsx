@@ -31,8 +31,8 @@ function SummaryChip({ label, value, icon: Icon, tone }: CommandMetricProps) {
         <Icon size={16} />
       </div>
       <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-        <p className="mt-0.5 text-[20px] font-semibold leading-none tracking-tight text-slate-950 tabular-nums">{value}</p>
+        <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-slate-500">{label}</p>
+        <p className="mt-0.5 text-[20px] font-semibold leading-none tracking-tight text-slate-900 tabular-nums">{value}</p>
       </div>
     </div>
   );
@@ -60,35 +60,35 @@ function LiveMonitorHeader({
           <h2 className="mt-3 text-[24px] font-semibold tracking-tight text-slate-950 sm:text-[28px]">
             Live Customer Tracking
           </h2>
-          <p className="mt-1 max-w-3xl text-[13px] leading-6 text-slate-600">
+          <p className="ct-live-subtitle mt-1 max-w-3xl text-[13px] leading-6 text-slate-600">
             Customer-visible job status, technician updates, and SLA signals across active bookings.
           </p>
         </div>
 
         <div className="ct-summary-grid">
-          <SummaryChip label="Queued" value={summary.queued} icon={Users} tone="bg-slate-100 text-slate-600 shadow-[0_4px_14px_-4px_rgba(15,23,42,0.1)]" />
-          <SummaryChip label="Active" value={summary.active} icon={Activity} tone="bg-blue-50 text-blue-700 shadow-[0_4px_14px_-4px_rgba(37,99,235,0.2)]" />
-          <SummaryChip label="Completed" value={summary.completed} icon={CheckCircle2} tone="bg-emerald-50 text-emerald-700 shadow-[0_4px_14px_-4px_rgba(5,150,105,0.22)]" />
-          <SummaryChip label="Delayed" value={summary.delayed} icon={Clock3} tone="bg-amber-50 text-amber-800 shadow-[0_4px_14px_-4px_rgba(217,119,6,0.22)]" />
+          <SummaryChip label="Queued" value={summary.queued} icon={Users} tone="bg-slate-100 text-slate-600" />
+          <SummaryChip label="Active" value={summary.active} icon={Activity} tone="bg-blue-50 text-blue-700" />
+          <SummaryChip label="Completed" value={summary.completed} icon={CheckCircle2} tone="bg-emerald-50 text-emerald-700" />
+          <SummaryChip label="Delayed" value={summary.delayed} icon={Clock3} tone="bg-amber-50 text-amber-700" />
         </div>
       </div>
 
       <div className="ct-live-monitor-footer">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-slate-600">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2 text-[12px]">
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-35" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             </span>
-            <span className="font-semibold text-slate-800">Live sync</span>
+            <span className="font-semibold">Live sync</span>
           </div>
-          <span className="hidden h-4 w-px bg-slate-200/40 sm:inline-block" />
+          <span className="hidden h-4 w-px bg-slate-200/80 sm:inline-block" />
           <span>
-            Updated <span className="font-medium tabular-nums text-slate-800">{lastUpdatedStr}</span>
+            Updated <span className="font-medium tabular-nums">{lastUpdatedStr}</span>
           </span>
-          <span className="hidden h-4 w-px bg-slate-200/40 sm:inline-block" />
+          <span className="hidden h-4 w-px bg-slate-200/80 sm:inline-block" />
           <span>
-            Auto-refresh <span className="font-medium text-slate-800">30s</span>
+            Auto-refresh <span className="font-medium">30s</span>
           </span>
         </div>
 
@@ -96,9 +96,9 @@ function LiveMonitorHeader({
           type="button"
           onClick={onRefresh}
           disabled={refreshing}
-          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border-0 bg-white px-3 py-2 text-[12px] font-medium text-slate-700 shadow-[0_8px_28px_-8px_rgba(15,23,42,0.12),0_2px_8px_rgba(15,23,42,0.05)] transition hover:bg-slate-50/90 disabled:opacity-50"
+          className="ct-refresh-btn inline-flex shrink-0 items-center justify-center gap-2 rounded-lg px-3 py-2 text-[12px] font-semibold transition disabled:opacity-50"
         >
-          <RefreshCw size={14} className={refreshing ? 'animate-spin text-slate-500' : 'text-slate-500'} />
+          <RefreshCw size={14} className={refreshing ? 'animate-spin opacity-80' : 'opacity-90'} />
           Refresh
         </button>
       </div>
@@ -171,8 +171,8 @@ export default function CustomerTrackerPanel({ embedded = false }: CustomerTrack
     : 'Just now';
 
   const shellClass = embedded
-    ? 'customer-tracker-panel-embedded space-y-6'
-    : 'max-w-screen-2xl mx-auto px-6 lg:px-8 xl:px-10 2xl:px-12 py-6 space-y-6';
+    ? 'customer-tracker-panel customer-tracker-panel-embedded space-y-6'
+    : 'customer-tracker-panel max-w-screen-2xl mx-auto px-6 lg:px-8 xl:px-10 2xl:px-12 py-6 space-y-6';
 
   const showLoadingBlank = loading && jobs.length === 0 && technicians.length === 0;
 

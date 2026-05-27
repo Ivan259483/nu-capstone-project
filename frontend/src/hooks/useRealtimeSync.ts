@@ -12,6 +12,8 @@ const COLLECTION_CACHE_MAP: Record<string, string[]> = {
   orders: ['/bookings', '/orders'],
   products: ['/products'],
   services: ['/services'],
+  shopavailabilities: ['/orders/available-slots'],
+  scheduledclosures: ['/orders/available-slots'],
 };
 
 let sharedSocket: Socket | null = null;

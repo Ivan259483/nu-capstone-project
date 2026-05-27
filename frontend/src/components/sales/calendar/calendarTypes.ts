@@ -3,6 +3,7 @@
 export interface CalendarBooking {
   _id: string;
   id?: string;
+  orderNumber?: string;
   customerName: string;
   customerPhone?: string;
   vehiclePlate?: string;
@@ -13,6 +14,8 @@ export interface CalendarBooking {
   serviceType?: string;
   bookingDate?: string;
   bookingTime?: string;
+  date?: string;
+  time?: string;
   status: string;
   totalPrice?: number;
   totalAmount?: number;

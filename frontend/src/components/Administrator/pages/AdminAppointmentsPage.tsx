@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
-import { CalendarDays, SlidersHorizontal, Users } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ensureAvailabilityRealtimeSync } from '@/lib/availabilitySync';
+import { CalendarDays, SlidersHorizontal } from 'lucide-react';
 import SalesSmartCalendar from '@/components/sales/calendar/SalesSmartCalendar';
 import AvailabilityControls from './AvailabilityControls';
 import { getSafeUserRole, SETTINGS_MANAGER_ROLES } from '@/lib/roles';
 
 interface Props {
-  onNavigate: (page: string) => void;
   currentUserRole?: string;
 }
 
@@ -15,7 +15,7 @@ interface Props {
  */
 type SchedulingTab = 'calendar' | 'availability';
 
-export default function AdminAppointmentsPage({ onNavigate, currentUserRole }: Props) {
+export default function AdminAppointmentsPage({ currentUserRole }: Props) {
   // Availability Controls are shown to any full-admin role (administrator + office_admin).
   // Sales can see the Calendar tab via APPOINTMENT_VIEW_ROLES but NOT Availability Controls.
   const isAdministrator = useMemo(
@@ -24,6 +24,10 @@ export default function AdminAppointmentsPage({ onNavigate, currentUserRole }: P
   );
   const [activeTab, setActiveTab] = useState<SchedulingTab>('calendar');
   const [visitedTabs, setVisitedTabs] = useState<Set<SchedulingTab>>(() => new Set(['calendar']));
+
+  useEffect(() => {
+    ensureAvailabilityRealtimeSync();
+  }, []);
 
   const selectSchedulingTab = (tab: SchedulingTab) => {
     setActiveTab(tab);
@@ -36,69 +40,52 @@ export default function AdminAppointmentsPage({ onNavigate, currentUserRole }: P
   };
 
   return (
-    <div className="ah-page-enter flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-2xl">
-          <p className="ah-section-label">Operations</p>
-          <h1 className="ah-page-title" style={{ marginTop: 4 }}>Appointments & scheduling</h1>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">
-            Full shop calendar with live slot counts. Open/closed days follow{' '}
-            <strong>Availability Controls</strong> (weekly schedule, date closures, holidays).
-            Orange <strong>Closed</strong> on a weekday usually means a scheduled closure or
-            that day is marked off in the weekly schedule.
-          </p>
-        </div>
+    <div className="ah-page-enter admin-appointments-page flex min-h-0 flex-1 flex-col gap-2">
+      <div className="inline-flex w-fit shrink-0 items-center gap-0.5 rounded-xl bg-white p-0.5 shadow-[0_1px_8px_-3px_rgba(15,23,42,0.08),0_0_0_1px_rgba(226,232,240,0.55)]">
         <button
           type="button"
-          className="ah-btn-secondary inline-flex shrink-0 items-center gap-2 font-semibold"
-          onClick={() => onNavigate('users')}
-        >
-          <Users size={16} aria-hidden />
-          User management
-        </button>
-      </div>
-
-      <div className="inline-flex w-fit items-center gap-1 rounded-2xl bg-white p-1 shadow-[0_2px_12px_-4px_rgba(15,23,42,0.08),0_0_0_1px_rgba(226,232,240,0.55)]">
-        <button
-          type="button"
-          className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
             activeTab === 'calendar'
               ? 'bg-blue-600 text-white shadow-sm'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
           onClick={() => selectSchedulingTab('calendar')}
         >
-          <CalendarDays size={15} />
+          <CalendarDays size={14} />
           Calendar
         </button>
         {isAdministrator && (
           <button
             type="button"
-            className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
               activeTab === 'availability'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
             onClick={() => selectSchedulingTab('availability')}
           >
-            <SlidersHorizontal size={15} />
+            <SlidersHorizontal size={14} />
             Availability Controls
           </button>
         )}
       </div>
 
-      <div className="admin-appointments-shell min-h-[560px] overflow-hidden rounded-[28px] bg-white shadow-[0_28px_90px_-28px_rgba(15,23,42,0.14),0_12px_40px_-18px_rgba(15,23,42,0.08)]">
-        <div className="bg-white p-5 sm:p-6">
-          <div className="ah-inner-tab-stack">
-            <div className={`ah-inner-tab-panel ${activeTab === 'calendar' ? 'is-active' : 'is-hidden'}`} aria-hidden={activeTab !== 'calendar'}>
-              <SalesSmartCalendar />
-            </div>
-            {isAdministrator && (activeTab === 'availability' || visitedTabs.has('availability')) && (
-              <div className={`ah-inner-tab-panel ${activeTab === 'availability' ? 'is-active' : 'is-hidden'}`} aria-hidden={activeTab !== 'availability'}>
-                <AvailabilityControls />
-              </div>
-            )}
+      <div className="admin-appointments-shell flex min-h-0 flex-1 flex-col">
+        <div className="ah-inner-tab-stack ah-inner-tab-stack--appointments flex min-h-0 flex-1 flex-col">
+          <div
+            className={`ah-inner-tab-panel ah-inner-tab-panel--calendar ${activeTab === 'calendar' ? 'is-active' : 'is-hidden'}`}
+            aria-hidden={activeTab !== 'calendar'}
+          >
+            <SalesSmartCalendar variant="premiumAdmin" />
           </div>
+          {isAdministrator && (activeTab === 'availability' || visitedTabs.has('availability')) && (
+            <div
+              className={`ah-inner-tab-panel ah-inner-tab-panel--availability ${activeTab === 'availability' ? 'is-active' : 'is-hidden'}`}
+              aria-hidden={activeTab !== 'availability'}
+            >
+              <AvailabilityControls />
+            </div>
+          )}
         </div>
       </div>
     </div>

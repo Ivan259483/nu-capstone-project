@@ -4,6 +4,12 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { NotificationService, SystemNotification } from '../lib/notification-service';
 import { toast } from 'sonner';
 import { invalidate } from '../lib/queryCache';
+import { fetchSlotRange } from '@/components/sales/calendar/calendarService';
+import {
+  AVAILABILITY_UPDATED_EVENT,
+  ensureAvailabilityRealtimeSync,
+  mapRangeSummaryToCustomerDay,
+} from '@/lib/availabilitySync';
 import { ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
 import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking, normalizePhilippineMobileInput, resolveProfilePhoneDisplay } from '../lib/phone';
@@ -1519,18 +1525,17 @@ export default function CustomerDashboard() {
 
   const fetchMonthAvailability = async (year: number, month: number) => {
     setMonthAvailLoading(true);
-    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const token = getStoredAuthToken();
+    const start = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const end = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
     const result: Record<string, DayAvailabilityInfo> = {};
 
-    // Build list of dates to fetch. Backend owns recurring closures/weekend rules.
-    const datesToFetch: string[] = [];
-    for (let d = 1; d <= daysInMonth; d++) {
+    for (let d = 1; d <= daysInMonth; d += 1) {
       const date = new Date(year, month, d);
       const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const isPast = date < today;
-      if (isPast) {
+      if (date < today) {
         result[iso] = {
           status: 'closed',
           unavailable: true,
@@ -1538,55 +1543,19 @@ export default function CustomerDashboard() {
           reason: 'Past date is no longer available for booking.',
           remaining: 0,
         };
-      } else {
-        datesToFetch.push(iso);
       }
     }
 
-    // Parallel fetch for all workday dates
     try {
-      await Promise.all(datesToFetch.map(async (iso) => {
-        try {
-          const monthHeaders: HeadersInit = { Accept: 'application/json' };
-          if (token) monthHeaders.Authorization = `Bearer ${token}`;
-          const res = await fetch(`/api/orders/available-slots?date=${iso}`, {
-            headers: monthHeaders,
-          });
-          const data = await res.json();
-          const {
-            unavailable,
-            errorCode,
-            message: availabilityMessage,
-            remaining,
-            bookedSlots: booked,
-            slots: apiSlots,
-          } = parseAvailableSlotsPayload(data);
-
-          let status: DayAvailabilityStatus = 'available';
-          if (unavailable) {
-            status = errorCode === 'DATE_FULL' ? 'full' : 'closed';
-          } else if (
-            (apiSlots.length > 0 && apiSlots.every((slot) => String(slot.status || '').toUpperCase() === 'FULL' || Number(slot.available ?? 0) <= 0)) ||
-            (apiSlots.length === 0 && ((typeof remaining === 'number' && remaining <= 0) || booked.length >= BOOKING_TIMES.length))
-          ) {
-            status = 'full';
-          }
-
-          const fallbackReason =
-            status === 'full'
-              ? 'All booking slots for this date are fully booked.'
-              : status === 'closed'
-                ? 'This date is not available for booking.'
-                : '';
-
-          result[iso] = {
-            status,
-            unavailable: unavailable || status !== 'available',
-            errorCode: errorCode || (status === 'full' ? 'DATE_FULL' : status === 'closed' ? 'DATE_UNAVAILABLE' : null),
-            reason: availabilityMessage || fallbackReason,
-            remaining,
-          };
-        } catch {
+      const summaries = await fetchSlotRange(start, end);
+      for (const summary of summaries) {
+        if (result[summary.date]) continue;
+        result[summary.date] = mapRangeSummaryToCustomerDay(summary);
+      }
+      for (let d = 1; d <= daysInMonth; d += 1) {
+        const date = new Date(year, month, d);
+        const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        if (date >= today && !result[iso]) {
           result[iso] = {
             status: 'available',
             unavailable: false,
@@ -1595,12 +1564,32 @@ export default function CustomerDashboard() {
             remaining: null,
           };
         }
-      }));
+      }
+    } catch {
+      toast.warning('Could not load calendar availability', {
+        description: 'Showing limited dates. Please try again.',
+        duration: 4000,
+      });
     } finally {
       setMonthAvailability(result);
       setMonthAvailLoading(false);
     }
   };
+
+  useEffect(() => {
+    ensureAvailabilityRealtimeSync();
+  }, []);
+
+  useEffect(() => {
+    const refreshFromAvailability = () => {
+      fetchMonthAvailability(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth());
+      if (bookingForm.date) {
+        fetchSlotsForDate(bookingForm.date, bookingForm.time);
+      }
+    };
+    window.addEventListener(AVAILABILITY_UPDATED_EVENT, refreshFromAvailability);
+    return () => window.removeEventListener(AVAILABILITY_UPDATED_EVENT, refreshFromAvailability);
+  }, [bookingCalMonth, bookingForm.date, bookingForm.time]);
 
   const openVehicleHistory = async (v: any) => {
     setVehicleHistoryVehicle(v);

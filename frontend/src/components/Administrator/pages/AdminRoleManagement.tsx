@@ -86,7 +86,7 @@ export default function AdminRoleManagement({ users }: Props) {
           const Icon = role.icon;
           const count = roleCounts[role.id] || 0;
           return (
-            <div key={role.id} className="ah-card-section ah-slide-up" style={{ padding: 20, animationDelay: `${idx * 0.04}s`, borderLeft: `4px solid ${role.color}`, gridColumn: role.id === 'customer' ? '1 / -1' : undefined }}>
+            <div key={role.id} className="ah-card-section ah-slide-up" style={{ padding: 20, animationDelay: `${idx * 0.04}s`, borderLeft: `4px solid ${role.color}` }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                 <div style={{ width: 40, height: 40, borderRadius: 10, background: role.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <Icon size={20} style={{ color: role.color }} />

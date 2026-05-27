@@ -20,6 +20,7 @@ import {
   type AvailabilityClosure,
 } from './calendarService';
 import { invalidateDateCache } from './useBookingsByDate';
+import { syncAvailabilityCaches } from '@/lib/availabilitySync';
 import type { CalendarBooking } from './calendarTypes';
 import { EXCLUDED_STATUSES } from './calendarTypes';
 import type { DayMapEntry } from './useCalendarSlots';
@@ -377,6 +378,7 @@ export default function DayPanel({ date, bookings, loading, dayInfo, onClose, on
       await Promise.all(selectedClosures.map((closure) => deleteAvailabilityClosure(closure._id)));
       toast.success('Date unblocked', { description: `${label} is available again.` });
       await loadClosures();
+      syncAvailabilityCaches();
       onRefresh();
     } catch (error) {
       toast.error('Could not unblock date', {

@@ -111,6 +111,39 @@ export async function fetchBookingsByDate(date: string): Promise<CalendarBooking
   });
 }
 
+// ── Fetch bookings for a calendar range ───────────────────────────────────────
+export async function fetchBookingsByRange(start: string, end: string): Promise<CalendarBooking[]> {
+  const bookings: CalendarBooking[] = [];
+  let skip = 0;
+  const limit = 100;
+
+  while (true) {
+    const params = new URLSearchParams({
+      bookingDateFrom: start,
+      bookingDateTo: end,
+      limit: String(limit),
+      skip: String(skip),
+      sortBy: 'bookingDate',
+      sortOrder: 'asc',
+    });
+    const res = await fetch(`/api/orders?${params.toString()}`, { headers: authHeaders() });
+    if (res.status === 401 || res.status === 403) return [];
+    if (!res.ok) throw new Error(`Orders range fetch failed: ${res.status}`);
+
+    const json = await res.json();
+    if (!json.success || !Array.isArray(json.data)) return bookings;
+
+    const rows = (json.data as CalendarBooking[]).filter((booking) => {
+      const bookingDate = String(booking.bookingDate || '').slice(0, 10);
+      return bookingDate >= start && bookingDate <= end;
+    });
+    bookings.push(...rows);
+
+    if (!json.pagination?.hasNextPage || rows.length === 0) return bookings;
+    skip += limit;
+  }
+}
+
 export interface AvailabilityClosure {
   _id: string;
   fromDate: string;

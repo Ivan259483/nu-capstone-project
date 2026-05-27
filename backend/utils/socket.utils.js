@@ -88,7 +88,13 @@ function prepareOrderDocumentForSocket(doc) {
 let io;
 
 // ── Collections the frontend actually watches ────────────────────────
-const WATCHED_COLLECTIONS = new Set(['orders', 'products', 'services']);
+const WATCHED_COLLECTIONS = new Set([
+  'orders',
+  'products',
+  'services',
+  'shopavailabilities',
+  'scheduledclosures',
+]);
 
 // ── Debounce/batch rapid successive changes (200 ms window) ─────────
 const BATCH_INTERVAL_MS = 200;

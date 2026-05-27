@@ -22,6 +22,8 @@ import {
   CalendarX,
   Clock,
   GripVertical,
+  Search,
+  ChevronDown,
 } from 'lucide-react';
 import {
   closestCenter,
@@ -44,10 +46,13 @@ import { toast } from 'sonner';
 import { fetchAvailabilityClosures, type AvailabilityClosure } from './calendarService';
 import { useCalendarSlots, type DayMapEntry } from './useCalendarSlots';
 import { useBookingsByDate, invalidateDateCache } from './useBookingsByDate';
+import { ensureAvailabilityRealtimeSync } from '@/lib/availabilitySync';
+import { useMonthBookings } from './useMonthBookings';
 import DayPanel from './DayPanel';
 import DroppableSlot from './DroppableSlot';
 import RescheduleModal from './RescheduleModal';
 import type { DayStatus, CalendarBooking } from './calendarTypes';
+import { EXCLUDED_STATUSES } from './calendarTypes';
 import { useCalendarScheduleDnD } from './CalendarScheduleDnDContext';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -56,7 +61,75 @@ function isSameDay(a: Date, b: Date): boolean { return dateKey(a) === dateKey(b)
 function startOfWeek(d: Date): Date {
   const c = new Date(d); c.setDate(d.getDate() - d.getDay()); c.setHours(0, 0, 0, 0); return c;
 }
+function startOfWeekMonday(d: Date): Date {
+  const c = new Date(d);
+  const day = c.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  c.setDate(c.getDate() + diff);
+  c.setHours(0, 0, 0, 0);
+  return c;
+}
 function addDays(d: Date, n: number): Date { const c = new Date(d); c.setDate(c.getDate() + n); return c; }
+function startOfMonth(d: Date): Date { return new Date(d.getFullYear(), d.getMonth(), 1); }
+function endOfMonth(d: Date): Date { return new Date(d.getFullYear(), d.getMonth() + 1, 0); }
+function getMonthGridDates(year: number, month: number): Date[] {
+  const first = new Date(year, month, 1);
+  const start = startOfWeekMonday(first);
+  return Array.from({ length: 42 }, (_, i) => addDays(start, i));
+}
+function getRangeLabel(start: Date, end: Date): string {
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const startLabel = start.toLocaleDateString('en-PH', {
+    day: 'numeric',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
+  const endLabel = end.toLocaleDateString('en-PH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+  return `${startLabel} - ${endLabel}`;
+}
+function getWeekOfMonth(d: Date): number {
+  const first = new Date(d.getFullYear(), d.getMonth(), 1);
+  const offset = (first.getDay() + 6) % 7;
+  return Math.ceil((d.getDate() + offset) / 7);
+}
+function getBookingDateKey(booking: CalendarBooking): string {
+  return String(booking.bookingDate || booking.date || '').slice(0, 10);
+}
+function getBookingTime(booking: CalendarBooking): string {
+  return String(booking.bookingTime || booking.time || '').trim();
+}
+function timeToMinutes(value: string): number {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return Number.MAX_SAFE_INTEGER;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  const meridiem = match[3]?.toUpperCase();
+  if (meridiem === 'PM' && hour < 12) hour += 12;
+  if (meridiem === 'AM' && hour === 12) hour = 0;
+  return hour * 60 + minute;
+}
+function normaliseBookingStatus(value: string): string {
+  return String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+}
+function bookingMatchesSearch(booking: CalendarBooking, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [
+    booking.customerName,
+    booking.serviceName,
+    booking.serviceType,
+    booking.vehiclePlate,
+    booking.bookingReference,
+    booking.orderNumber,
+    booking.status,
+    getBookingTime(booking),
+  ].some((value) => String(value || '').toLowerCase().includes(q));
+}
 
 // ── Status → visual config (stronger contrast for scanability) ───────────────
 const STATUS_VISUAL: Record<DayStatus, { dot: string; label: string; ring: string; cellBg: string }> = {
@@ -87,6 +160,28 @@ const STATUS_VISUAL: Record<DayStatus, { dot: string; label: string; ring: strin
 };
 
 type CalView = 'month' | 'week';
+type CalendarVariant = 'classic' | 'premiumAdmin';
+
+const CHIP_VISUAL: Record<string, { bg: string; text: string; border: string }> = {
+  pending: { bg: '#fffbeb', text: '#a16207', border: '#fde68a' },
+  pending_confirmation: { bg: '#fdf2f8', text: '#be185d', border: '#fbcfe8' },
+  confirmed: { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
+  approved: { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
+  assigned: { bg: '#f5f3ff', text: '#6d28d9', border: '#ddd6fe' },
+  received: { bg: '#ecfeff', text: '#0e7490', border: '#a5f3fc' },
+  queued: { bg: '#eef2ff', text: '#4338ca', border: '#c7d2fe' },
+  processing: { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa' },
+  in_progress: { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa' },
+  'in-progress': { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa' },
+  completed: { bg: '#ecfdf5', text: '#047857', border: '#a7f3d0' },
+  paid: { bg: '#ecfdf5', text: '#047857', border: '#a7f3d0' },
+  released: { bg: '#ecfeff', text: '#0e7490', border: '#a5f3fc' },
+};
+
+const DEFAULT_CHIP_VISUAL = { bg: '#f8fafc', text: '#475569', border: '#e2e8f0' };
+
+/** Month grid: show at most this many booking pills, then "N more..." */
+const PREMIUM_MONTH_VISIBLE_EVENTS = 4;
 
 // ── Day Cell ──────────────────────────────────────────────────────────────────
 function DayCell({
@@ -212,11 +307,125 @@ function DayCell({
   );
 }
 
+function PremiumDayCell({
+  date,
+  info,
+  bookings,
+  isToday,
+  isSelected,
+  isCurrentMonth,
+  maxVisibleEvents,
+  onClick,
+}: {
+  date: Date;
+  info: DayMapEntry | undefined;
+  bookings: CalendarBooking[];
+  isToday: boolean;
+  isSelected: boolean;
+  isCurrentMonth: boolean;
+  maxVisibleEvents: number;
+  onClick: () => void;
+}) {
+  const rawStatus: DayStatus = info?.status ?? 'available';
+  const status: DayStatus = info?.isClosed ? 'closed' : rawStatus;
+  const visibleLimit = Math.max(0, maxVisibleEvents);
+  const visibleBookings = bookings.slice(0, visibleLimit);
+  const overflowCount = bookings.length > visibleLimit ? bookings.length - visibleLimit : 0;
+
+  return (
+    <DroppableSlot
+      id={`day-${dateKey(date)}`}
+      targetDate={dateKey(date)}
+      status={status}
+      className="premium-calendar-drop"
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onClick();
+          }
+        }}
+        className={`premium-calendar-cell box-border flex h-full min-h-0 select-none flex-col px-1.5 pb-1 pt-1 transition-colors ${
+          isSelected
+            ? 'bg-white'
+            : isToday
+              ? 'bg-white'
+              : isCurrentMonth
+                ? 'bg-white hover:bg-slate-50'
+                : 'bg-[#fbfbfc] text-slate-400 hover:bg-slate-50'
+        }`}
+        aria-label={date.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })}
+      >
+        <div className="mb-0.5 flex shrink-0 items-center justify-between gap-1">
+          <div
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums ${
+              isToday
+                ? 'bg-blue-600 text-white'
+                : isSelected
+                  ? 'text-blue-600 ring-1 ring-blue-600/25'
+                  : isCurrentMonth
+                    ? 'text-[#344054]'
+                    : 'text-[#98a2b3]'
+            }`}
+          >
+            {date.getDate()}
+          </div>
+        </div>
+
+        <div className="premium-calendar-events flex min-h-0 w-full flex-1 flex-col justify-start gap-0.5 overflow-hidden">
+          {visibleBookings.map((booking) => {
+            const statusKey = normaliseBookingStatus(booking.status);
+            const tone = CHIP_VISUAL[statusKey] || DEFAULT_CHIP_VISUAL;
+            const time = getBookingTime(booking);
+            const service = booking.serviceName || booking.serviceType || 'Booking';
+            const label = booking.customerName || booking.bookingReference || 'Customer';
+            return (
+              <button
+                key={booking._id || booking.id || `${dateKey(date)}-${label}-${time}`}
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onClick();
+                }}
+                className="premium-calendar-event grid h-5 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded border px-1.5 text-left text-[11px] font-semibold leading-none transition hover:brightness-[0.98]"
+                style={{ background: tone.bg, borderColor: tone.border, color: tone.text }}
+                title={[label, service, time].filter(Boolean).join(' - ')}
+              >
+                <span className="min-w-0 truncate">{label}</span>
+                {time ? <span className="shrink-0 text-[10px] font-medium tabular-nums opacity-90">{time}</span> : null}
+              </button>
+            );
+          })}
+          {overflowCount > 0 ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onClick();
+              }}
+              className="premium-calendar-events-more mt-0.5 shrink-0 px-0.5 text-left text-[11px] font-semibold leading-tight text-[#667085] transition hover:text-[#344054]"
+            >
+              {overflowCount} more...
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </DroppableSlot>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
-export default function SalesSmartCalendar() {
+export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: CalendarVariant } = {}) {
+  const isPremiumAdmin = variant === 'premiumAdmin';
   const [view, setView] = useState<CalView>('month');
   const [anchor, setAnchor] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [premiumSearchOpen, setPremiumSearchOpen] = useState(false);
+  const [premiumSearch, setPremiumSearch] = useState('');
   
   const [rescheduleData, setRescheduleData] = useState<{ booking: CalendarBooking; targetDate: string } | null>(null);
   /** Shown inside DragOverlay after the day panel closes so the drag continues (see onDragStart). */
@@ -243,9 +452,30 @@ export default function SalesSmartCalendar() {
   const year = anchor.getFullYear();
   const month = anchor.getMonth();
 
+  useEffect(() => {
+    if (isPremiumAdmin) ensureAvailabilityRealtimeSync();
+  }, [isPremiumAdmin]);
+
   // Month-level slot data (with real-time socket updates)
   const { dayMap, loading: slotsLoading, refresh } = useCalendarSlots(year, month);
   const [monthClosures, setMonthClosures] = useState<AvailabilityClosure[]>([]);
+
+  const premiumMonthCells = useMemo(() => getMonthGridDates(year, month), [year, month]);
+  const premiumWeekDays = useMemo(() => {
+    const sw = startOfWeekMonday(anchor);
+    return Array.from({ length: 7 }, (_, i) => addDays(sw, i));
+  }, [anchor]);
+  const premiumVisibleDates = view === 'month' ? premiumMonthCells : premiumWeekDays;
+  const premiumRange = useMemo(() => {
+    const first = premiumVisibleDates[0] || startOfMonth(anchor);
+    const last = premiumVisibleDates[premiumVisibleDates.length - 1] || endOfMonth(anchor);
+    return { start: dateKey(first), end: dateKey(last) };
+  }, [anchor, premiumVisibleDates]);
+  const {
+    bookings: monthBookings,
+    loading: monthBookingsLoading,
+    refetch: refetchMonthBookings,
+  } = useMonthBookings(premiumRange.start, premiumRange.end, isPremiumAdmin);
 
   const loadMonthClosures = useCallback(async () => {
     const monthStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
@@ -302,6 +532,8 @@ export default function SalesSmartCalendar() {
   }, [anchor]);
 
   const cells = view === 'month' ? monthCells : weekDays;
+  const premiumCells = premiumVisibleDates;
+  const premiumMonthRowCount = view === 'month' ? Math.ceil(premiumCells.length / 7) : 1;
 
   // ── Nav label ───────────────────────────────────────────────────────────────
   const navLabel = useMemo(() => {
@@ -312,6 +544,39 @@ export default function SalesSmartCalendar() {
     const em = ew.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
     return `${sm} – ${em}`;
   }, [view, anchor]);
+
+  const premiumTitle = useMemo(() => anchor.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' }), [anchor]);
+
+  const premiumDateRangeLabel = useMemo(() => {
+    if (view === 'month') return getRangeLabel(startOfMonth(anchor), endOfMonth(anchor));
+    const sw = startOfWeekMonday(anchor);
+    return getRangeLabel(sw, addDays(sw, 6));
+  }, [anchor, view]);
+
+  const premiumBookingsByDate = useMemo(() => {
+    const map = new Map<string, CalendarBooking[]>();
+    const filtered = monthBookings
+      .filter((booking) => !EXCLUDED_STATUSES.has(normaliseBookingStatus(booking.status)))
+      .filter((booking) => bookingMatchesSearch(booking, premiumSearch));
+
+    for (const booking of filtered) {
+      const key = getBookingDateKey(booking);
+      if (!key) continue;
+      const rows = map.get(key) || [];
+      rows.push(booking);
+      map.set(key, rows);
+    }
+
+    for (const rows of map.values()) {
+      rows.sort((a, b) => {
+        const timeDelta = timeToMinutes(getBookingTime(a)) - timeToMinutes(getBookingTime(b));
+        if (timeDelta !== 0) return timeDelta;
+        return String(a.customerName || '').localeCompare(String(b.customerName || ''));
+      });
+    }
+
+    return map;
+  }, [monthBookings, premiumSearch]);
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
@@ -329,8 +594,22 @@ export default function SalesSmartCalendar() {
   const handlePanelRefresh = useCallback(() => {
     refetchDay();
     refresh();
+    refetchMonthBookings();
     loadMonthClosures();
-  }, [refetchDay, refresh, loadMonthClosures]);
+  }, [refetchDay, refresh, refetchMonthBookings, loadMonthClosures]);
+
+  const handleRefreshAll = useCallback(() => {
+    refresh();
+    refetchMonthBookings();
+    loadMonthClosures();
+  }, [refresh, refetchMonthBookings, loadMonthClosures]);
+
+  const selectDate = useCallback((date: Date) => {
+    if (isPremiumAdmin && view === 'month' && (date.getFullYear() !== year || date.getMonth() !== month)) {
+      setAnchor(date);
+    }
+    setSelectedDate(date);
+  }, [isPremiumAdmin, month, view, year]);
 
   // ── Drag and Drop ──────────────────────────────────────────────────────────
   const handleDragEnd = useCallback((event: DragEndEvent) => {
@@ -430,7 +709,143 @@ export default function SalesSmartCalendar() {
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEndWrapped}
     >
-    <div className="flex h-full min-h-0 flex-col rounded-2xl bg-white">
+    <div className={`flex flex-col bg-white ${isPremiumAdmin ? 'h-full min-h-0 w-full' : 'h-full min-h-0 rounded-2xl'}`}>
+      {isPremiumAdmin ? (
+        <div className="premium-calendar-surface flex h-full min-h-0 flex-col overflow-hidden bg-white">
+          <div className="premium-calendar-toolbar flex flex-shrink-0 flex-wrap items-center justify-between gap-2 px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="premium-calendar-date-badge flex h-10 w-10 shrink-0 flex-col items-center justify-center">
+                <span className="text-[9px] font-semibold uppercase leading-none text-[#667085]">
+                  {today.toLocaleDateString('en-PH', { month: 'short' })}
+                </span>
+                <span className="mt-0.5 text-base font-bold leading-none text-blue-600 tabular-nums">
+                  {today.getDate()}
+                </span>
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <h2 className="truncate text-base font-semibold leading-tight tracking-normal text-[#101828]">
+                    {premiumTitle}
+                  </h2>
+                  <span className="premium-calendar-toolbar-chip px-2 py-0.5 text-[11px] font-medium leading-none text-[#344054]">
+                    Week {getWeekOfMonth(anchor)}
+                  </span>
+                  <span className="hidden text-xs font-normal text-[#667085] sm:inline">
+                    · {premiumDateRangeLabel}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPremiumSearchOpen((open) => !open)}
+                className={`premium-calendar-toolbar-icon-btn flex h-9 w-9 items-center justify-center text-[#667085] transition ${
+                  premiumSearchOpen || premiumSearch ? 'is-active' : ''
+                }`}
+                aria-label="Search appointments"
+              >
+                <Search size={18} strokeWidth={2} />
+              </button>
+
+              <div className="premium-calendar-toolbar-nav flex h-9 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => navigate(-1)}
+                  className="premium-calendar-toolbar-nav-btn flex h-full w-9 items-center justify-center text-[#667085] transition hover:bg-[#f9fafb] hover:text-[#344054]"
+                  aria-label="Previous"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={goToday}
+                  className="premium-calendar-toolbar-nav-btn premium-calendar-toolbar-nav-btn--today h-full px-4 text-sm font-semibold text-[#344054] transition hover:bg-[#f9fafb]"
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate(1)}
+                  className="premium-calendar-toolbar-nav-btn flex h-full w-9 items-center justify-center text-[#667085] transition hover:bg-[#f9fafb] hover:text-[#344054]"
+                  aria-label="Next"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setView((current) => current === 'month' ? 'week' : 'month')}
+                className="premium-calendar-toolbar-select inline-flex h-9 items-center gap-2 px-4 text-sm font-semibold text-[#344054] transition hover:bg-[#f9fafb]"
+              >
+                {view === 'month' ? 'Month view' : 'Week view'}
+                <ChevronDown size={16} className="text-[#667085]" />
+              </button>
+            </div>
+          </div>
+
+          {(premiumSearchOpen || premiumSearch) && (
+            <div className="flex flex-shrink-0 items-center border-b border-[#eaecf0] bg-[#f9fafb] px-3 py-1.5">
+              <div className="relative w-full max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={premiumSearch}
+                  onChange={(event) => setPremiumSearch(event.target.value)}
+                  placeholder="Search customer, service, plate, reference"
+                  className="h-8 w-full rounded-lg border border-[#e4e7ec] bg-white pl-9 pr-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="premium-calendar-weekdays grid flex-shrink-0 grid-cols-7 border-b border-[#eaecf0] bg-white">
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+              <div key={day} className="px-1 py-1.5 text-center text-xs font-medium text-[#667085]">
+                {day}
+              </div>
+            ))}
+          </div>
+
+          <div className={`premium-calendar-body min-h-0 bg-white ${view === 'month' ? 'is-month-body flex flex-1 flex-col overflow-hidden' : 'flex flex-1 flex-col overflow-hidden'}`}>
+            {slotsLoading && dayMap.size === 0 ? (
+              <div className="flex min-h-[280px] items-center justify-center gap-2 text-slate-400">
+                <Loader2 size={20} className="animate-spin" />
+                <span className="text-sm font-medium">Loading calendar...</span>
+              </div>
+            ) : (
+              <div
+                className={`premium-calendar-grid ${view === 'month' ? 'is-month' : 'is-week'} grid h-full min-w-0 grid-cols-7`}
+                style={
+                  view === 'month'
+                    ? ({ ['--premium-month-rows' as string]: premiumMonthRowCount } as React.CSSProperties)
+                    : undefined
+                }
+              >
+                {premiumCells.map((d) => {
+                  const dk = dateKey(d);
+                  const info = dayMap.get(dk);
+                  return (
+                    <PremiumDayCell
+                      key={dk}
+                      date={d}
+                      info={info}
+                      bookings={premiumBookingsByDate.get(dk) || []}
+                      isToday={isSameDay(d, today)}
+                      isSelected={selectedDate ? isSameDay(d, selectedDate) : false}
+                      isCurrentMonth={d.getFullYear() === year && d.getMonth() === month}
+                      maxVisibleEvents={view === 'month' ? PREMIUM_MONTH_VISIBLE_EVENTS : 6}
+                      onClick={() => selectDate(d)}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+      <>
 
       {/* KPI strip */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -571,7 +986,7 @@ export default function SalesSmartCalendar() {
 
         <button
           type="button"
-          onClick={refresh}
+          onClick={handleRefreshAll}
           disabled={slotsLoading}
           className="inline-flex items-center gap-2 rounded-2xl bg-white px-3.5 py-2 text-xs font-bold text-slate-600 shadow-[0_8px_28px_-8px_rgba(15,23,42,0.1),0_2px_8px_rgba(15,23,42,0.05)] transition-colors hover:bg-slate-50 disabled:opacity-60"
         >
@@ -618,7 +1033,7 @@ export default function SalesSmartCalendar() {
                     isToday={isSameDay(d, today)}
                     isPast={d < today && !isSameDay(d, today)}
                     isSelected={selectedDate ? isSameDay(d, selectedDate) : false}
-                    onClick={() => setSelectedDate(d)}
+                    onClick={() => selectDate(d)}
                   />
                 );
               })}
@@ -651,6 +1066,8 @@ export default function SalesSmartCalendar() {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* Day panel */}
       {selectedDate && (

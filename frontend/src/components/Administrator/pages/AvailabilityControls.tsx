@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
-import { clearCalendarSlotsCache } from '@/components/sales/calendar/useCalendarSlots';
+import { ensureAvailabilityRealtimeSync, syncAvailabilityCaches } from '@/lib/availabilitySync';
 
 type ClosureReason = 'Holiday' | 'Renovation' | 'Emergency' | 'Staff Leave' | 'Custom';
 
@@ -217,6 +217,7 @@ export default function AvailabilityControls() {
       }
     };
 
+    ensureAvailabilityRealtimeSync();
     load();
     return () => { active = false; };
   }, []);
@@ -306,7 +307,7 @@ export default function AvailabilityControls() {
   };
 
   const bumpCalendarCache = () => {
-    clearCalendarSlotsCache();
+    syncAvailabilityCaches();
   };
 
   const toggleRecurringDay = (dow: number) => {

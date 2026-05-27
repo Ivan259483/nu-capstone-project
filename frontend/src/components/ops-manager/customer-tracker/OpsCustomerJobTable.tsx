@@ -79,16 +79,16 @@ function ProgressTracker({ job }: { job: OpsJob }) {
           const isLast = i === LIVE_TRACKER_PROGRESS_LABELS.length - 1;
           const dotColor = isCancelled ? 'bg-slate-200'
             : isDelayed && isActive ? 'bg-red-500'
-            : isComplete || isActive ? 'bg-slate-800' : 'bg-slate-200';
-          const lineColor = isComplete ? 'bg-slate-800' : 'bg-slate-200';
+            : isComplete ? 'bg-slate-500'
+            : isActive ? 'bg-blue-500'
+            : 'bg-slate-200';
+          const lineColor = isComplete ? 'bg-slate-300' : 'bg-slate-200';
 
           return (
             <React.Fragment key={`prog-${step}`}>
               <div className="group/step relative flex-shrink-0">
                 <div
-                  className={`h-2 w-2 rounded-full transition-all duration-300 ${dotColor} ${
-                    isActive && !isCancelled ? 'ring-2 ring-slate-300 ring-offset-1' : ''
-                  }`}
+                  className={`h-2 w-2 rounded-full transition-all duration-300 ${dotColor}`}
                 />
                 <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/step:opacity-100">
                   {step}{isActive && isDelayed ? ' (delayed)' : ''}
@@ -105,7 +105,7 @@ function ProgressTracker({ job }: { job: OpsJob }) {
         <p className="truncate text-[10.5px] font-medium text-slate-500">
           {isCancelled ? 'Cancelled' : `Now: ${activeStepLabel}`}
         </p>
-        <span className="text-[10.5px] font-semibold tabular-nums text-slate-600">
+        <span className="text-[10.5px] font-medium tabular-nums text-slate-600">
           {isCancelled ? '0%' : `${percent}%`}
         </span>
       </div>
@@ -196,17 +196,17 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
   };
 
   return (
-      <div className="ct-job-shell ops-card overflow-hidden rounded-[28px]">
+      <div className="ct-job-shell ops-card overflow-hidden rounded-2xl">
       {/* Toolbar */}
-      <div className="bg-gradient-to-b from-slate-50/90 to-white px-4 py-4 shadow-[inset_0_-1px_0_0_rgba(15,23,42,0.04)] sm:px-5">
+      <div className="ct-job-toolbar px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-50/95 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-700 shadow-[0_4px_14px_-4px_rgba(37,99,235,0.22)]">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-blue-700">
               <Users size={12} />
               Customer live board
             </div>
             <h3 className="mt-2 text-[16px] font-semibold tracking-tight text-slate-900">Customer job tracker</h3>
-            <p className="mt-0.5 text-[12px] text-slate-500">
+            <p className="mt-0.5 text-[12px] text-slate-600">
               <span className="font-medium tabular-nums text-slate-700">{filtered.length}</span> jobs across all customer users
             </p>
           </div>
@@ -217,7 +217,7 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
               placeholder="Search customer, job ID, service, or phone..."
               value={search}
               onChange={e => { setSearch(e.target.value); setPage(1); }}
-              className="ct-search-input h-10 w-full rounded-xl border-0 bg-slate-50/90 pl-10 pr-9 text-[13px] text-slate-800 shadow-[0_4px_16px_-6px_rgba(15,23,42,0.08),0_1px_4px_rgba(15,23,42,0.04)] outline-none transition placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-slate-900/10"
+              className="ct-search-input h-10 w-full rounded-lg pl-10 pr-9 text-[13px] text-slate-800 outline-none transition placeholder:text-slate-400"
               autoComplete="off"
             />
             {search && (
@@ -234,7 +234,7 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
         </div>
 
         <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
-          <div className="flex flex-wrap gap-1.5 rounded-xl bg-slate-100/80 p-1.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.65)] sm:gap-1">
+          <div className="ct-status-filters flex flex-wrap gap-1.5 rounded-lg p-1.5 sm:gap-1">
             {STATUS_FILTERS.map(s => {
               const count = s === 'All' ? jobs.length : jobs.filter(j => j.status === s).length;
               const active = statusFilter === s;
@@ -242,17 +242,18 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
                 <button
                   key={`ctf-${s}`}
                   type="button"
+                  aria-pressed={active}
                   onClick={() => { setStatusFilter(s); setPage(1); }}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11.5px] font-medium transition-all ${
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11.5px] font-medium transition-all ${
                     active
-                      ? 'bg-white text-slate-900 shadow-[0_6px_20px_-6px_rgba(15,23,42,0.12),0_2px_6px_rgba(15,23,42,0.05)]'
-                      : 'text-slate-600 hover:bg-white/80 hover:text-slate-900'
+                      ? 'ct-filter-active bg-white text-slate-800'
+                      : 'text-slate-600 hover:bg-white/60 hover:text-slate-800'
                   }`}
                 >
                   {s}
                   <span
-                    className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
-                      active ? 'bg-slate-100 text-slate-700' : 'bg-slate-200/60 text-slate-600'
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
+                      active ? 'bg-slate-100 text-slate-600' : 'bg-transparent text-slate-500'
                     }`}
                   >
                     {count}
@@ -298,7 +299,7 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
       <div className="overflow-x-auto ops-scrollbar-thin">
         <table className="w-full min-w-[980px] border-collapse">
           <thead>
-            <tr className="bg-slate-50/85 shadow-[inset_0_-1px_0_0_rgba(15,23,42,0.05)]">
+            <tr className="ct-table-head">
               {[
                 { key: 'jobNumber' as SortKey, label: 'Job ID' },
                 { key: 'customer' as SortKey, label: 'Customer' },
@@ -329,10 +330,10 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
               </th>
             </tr>
             <tr>
-              <th colSpan={11} className="bg-blue-50/35 px-3 py-2 text-left text-[11px] font-medium text-slate-600">
-                Tip: Click <span className="font-semibold text-slate-800">Job ID</span> to open full details. Use
-                <span className="font-semibold text-slate-800"> Status</span> to update phase and
-                <span className="font-semibold text-slate-800"> Progress</span> to track the live workflow step.
+              <th colSpan={11} className="ct-table-tip px-3 py-2 text-left text-[11px]">
+                Tip: Click <span className="font-medium text-slate-700">Job ID</span> to open full details. Use
+                <span className="font-medium text-slate-700"> Status</span> to update phase and
+                <span className="font-medium text-slate-700"> Progress</span> to track the live workflow step.
               </th>
             </tr>
           </thead>
@@ -374,19 +375,19 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
               return (
                 <tr
                   key={job.id}
-                  className={`transition-colors ${
+                  className={`ct-table-row transition-colors ${
                     isBreached
-                      ? 'bg-red-50/40 hover:bg-red-50/65'
+                      ? 'ct-row-alert bg-red-50/50 hover:bg-red-50/80'
                       : isDelayed
-                        ? 'bg-amber-50/25 hover:bg-amber-50/50'
-                        : 'even:bg-slate-50/30 hover:bg-slate-50/75'
+                        ? 'ct-row-alert bg-amber-50/40 hover:bg-amber-50/65'
+                        : ''
                   }`}
                 >
                   <td className="px-3 py-2.5 align-middle">
                     <button
                       type="button"
                       onClick={() => onJobClick(job)}
-                      className="inline-flex rounded-lg bg-slate-100/90 px-2 py-1 font-mono text-[11px] font-semibold text-slate-800 shadow-[0_2px_8px_-2px_rgba(15,23,42,0.08)] transition hover:bg-slate-200/70 hover:shadow-[0_4px_12px_-2px_rgba(15,23,42,0.1)]"
+                      className="ct-job-id-btn inline-flex rounded-md px-2 py-1 font-mono text-[11px] transition"
                     >
                       {job.jobNumber}
                     </button>
@@ -524,8 +525,8 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
         </table>
       </div>
 
-      <div className="flex flex-col gap-3 bg-slate-50/45 px-4 py-3 shadow-[inset_0_1px_0_0_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <span className="text-[12px] text-slate-500">
+      <div className="ct-table-footer flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <span className="text-[12px] font-medium text-slate-600">
           Showing{' '}
           <span className="font-medium text-slate-700 tabular-nums">
             {Math.min((page - 1) * perPage + 1, filtered.length)}–{Math.min(page * perPage, filtered.length)}
@@ -548,8 +549,8 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
               onClick={() => setPage(p)}
               className={`h-8 min-w-[2rem] rounded-xl text-[12px] font-medium transition ${
                 page === p
-                  ? 'bg-slate-900 text-white shadow-[0_8px_24px_-6px_rgba(15,23,42,0.35)]'
-                  : 'text-slate-600 hover:bg-white hover:shadow-[0_6px_16px_-6px_rgba(15,23,42,0.1)]'
+                  ? 'bg-slate-700 text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-white/80'
               }`}
             >
               {p}

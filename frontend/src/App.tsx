@@ -258,6 +258,7 @@ function AppRoutes() {
                             </ProtectedRoute>
                         }
                     />
+                    <Route path="/admin/appointments" element={<Navigate to="/admin/dashboard?tab=scheduling" replace />} />
                     <Route path="/ops/dashboard" element={<OpsDashboardRedirect />} />
                     {/* Backward compatibility for old routes */}
                     <Route path="/customer" element={<Navigate to="/customer/dashboard" replace />} />

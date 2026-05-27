@@ -2,8 +2,26 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './administrator.css';
 import { UserService } from '@/lib/user-service';
 import { ActivityService } from '@/lib/activity-service-api';
-import { NotificationService } from '@/lib/notification-service';
-import { LayoutDashboard, Users, ShieldCheck, ScrollText, ChevronLeft, ChevronRight, ArrowLeft, Bell, X, LogOut, Radio, PhilippinePeso, Calendar, Package } from 'lucide-react';
+import { OrderService } from '@/lib/order-service';
+import {
+  LayoutDashboard,
+  Users,
+  ShieldCheck,
+  ScrollText,
+  ChevronLeft,
+  ChevronRight,
+  ArrowLeft,
+  X,
+  Radio,
+  PhilippinePeso,
+  Calendar,
+  Package,
+  Search,
+  type LucideIcon,
+} from 'lucide-react';
+import AdminSidebarProfileMenu from './AdminSidebarProfileMenu';
+import AdminAccountProfileSheet from './AdminAccountProfileSheet';
+import AdminAccountSettingsSheet from './AdminAccountSettingsSheet';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import AdminUserManagement from './pages/AdminUserManagement';
 import AdminActivityLogs from './pages/AdminActivityLogs';
@@ -44,31 +62,154 @@ interface Props {
   directoryBulkLoaded?: boolean;
 }
 
-const NAV_MAIN_MENU = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'Main Menu' },
-];
-
-const NAV_OPERATIONS = [
-  { id: 'scheduling', label: 'Appointments', icon: Calendar, section: 'Operations' },
-  { id: 'live_tracking', label: 'Live Tracking', icon: Radio, section: 'Operations' },
-];
-
-const NAV_QC_OPERATIONS = [
-  { id: 'live_tracking', label: 'Live Tracking', icon: Radio, section: 'Operations' },
-];
-
-const NAV_CATALOG = [
-  { id: 'pricing', label: 'Services', icon: PhilippinePeso, section: 'Catalog' },
-  { id: 'inventory', label: 'Inventory', icon: Package, section: 'Catalog' },
-];
-
-const NAV_MANAGEMENT = [
-  { id: 'users', label: 'User Management', icon: Users, section: 'Management' },
-  { id: 'roles', label: 'Role Management', icon: ShieldCheck, section: 'Management' },
-  { id: 'logs', label: 'Activity Logs', icon: ScrollText, section: 'Management' },
-];
-
 const ROUTABLE_TAB_IDS = new Set(['live_tracking', 'pricing', 'scheduling', 'inventory']);
+
+const SIDEBAR_WIDTH_EXPANDED = 292;
+const SIDEBAR_WIDTH_COLLAPSED = 72;
+const SIDEBAR_MAIN_OFFSET = 24;
+
+type NavChild = { id: string; label: string };
+
+type NavLeaf = {
+  type: 'leaf';
+  id: string;
+  label: string;
+  icon: LucideIcon;
+};
+
+type NavGroup = {
+  type: 'group';
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  children: NavChild[];
+};
+
+type NavEntry = NavLeaf | NavGroup;
+
+const MANAGEMENT_CHILDREN: NavChild[] = [
+  { id: 'users', label: 'All users' },
+  { id: 'roles', label: 'Permissions' },
+  { id: 'logs', label: 'Activity logs' },
+];
+
+const NAV_SECTION_LABELS: Record<string, string> = {
+  dashboard: 'GENERAL',
+  operations: 'OPERATIONS',
+  catalog: 'CATALOG',
+  management: 'USERS',
+};
+
+const PAGE_ICONS: Record<string, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  scheduling: Calendar,
+  live_tracking: Radio,
+  pricing: PhilippinePeso,
+  inventory: Package,
+  users: Users,
+  roles: ShieldCheck,
+  logs: ScrollText,
+};
+
+function buildNavTree(role: string): NavEntry[] {
+  if (role === 'staff_quality_checker') {
+    return [
+      {
+        type: 'group',
+        id: 'operations',
+        label: 'Operations',
+        icon: Radio,
+        children: [{ id: 'live_tracking', label: 'Live Tracking' }],
+      },
+    ];
+  }
+
+  const managementGroup: NavGroup = {
+    type: 'group',
+    id: 'management',
+    label: 'Users',
+    icon: Users,
+    children: MANAGEMENT_CHILDREN,
+  };
+
+  const dashboardGroup: NavGroup = {
+    type: 'group',
+    id: 'dashboard',
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    children: [{ id: 'dashboard', label: 'Dashboard' }],
+  };
+
+  if (role === 'administrator' || role === 'office_admin') {
+    return [
+      dashboardGroup,
+      {
+        type: 'group',
+        id: 'operations',
+        label: 'Operations',
+        icon: Calendar,
+        children: [
+          { id: 'scheduling', label: 'Appointments' },
+          { id: 'live_tracking', label: 'Live Tracking' },
+        ],
+      },
+      {
+        type: 'group',
+        id: 'catalog',
+        label: 'Catalog',
+        icon: Package,
+        children: [
+          { id: 'pricing', label: 'Services' },
+          { id: 'inventory', label: 'Inventory' },
+        ],
+      },
+      managementGroup,
+    ];
+  }
+
+  return [dashboardGroup, managementGroup];
+}
+
+function filterNavTree(tree: NavEntry[], query: string): NavEntry[] {
+  if (!query) return tree;
+
+  return tree.flatMap((entry): NavEntry[] => {
+    if (entry.type === 'leaf') {
+      return entry.label.toLowerCase().includes(query) ? [entry] : [];
+    }
+
+    const matchingChildren = entry.children.filter((child) =>
+      child.label.toLowerCase().includes(query),
+    );
+    const parentMatches = entry.label.toLowerCase().includes(query);
+
+    if (parentMatches) return [entry];
+    if (matchingChildren.length > 0) {
+      return [{ ...entry, children: matchingChildren }];
+    }
+    return [];
+  });
+}
+
+function flattenNavPages(tree: NavEntry[]): Array<{ id: string; label: string; icon: LucideIcon }> {
+  const pages: Array<{ id: string; label: string; icon: LucideIcon }> = [];
+
+  for (const entry of tree) {
+    if (entry.type === 'leaf') {
+      pages.push({ id: entry.id, label: entry.label, icon: entry.icon });
+      continue;
+    }
+    for (const child of entry.children) {
+      pages.push({
+        id: child.id,
+        label: child.label,
+        icon: PAGE_ICONS[child.id] || entry.icon,
+      });
+    }
+  }
+
+  return pages;
+}
 
 function AdminHubPanelInner({
   currentUser, onClose,
@@ -102,8 +243,10 @@ function AdminHubPanelInner({
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [isUsersLoading, setIsUsersLoading] = useState(true);
   const [isLogsLoading, setIsLogsLoading] = useState(false);
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [accountSheet, setAccountSheet] = useState<null | 'profile' | 'settings'>(null);
+  const [navSearch, setNavSearch] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const { logout } = useAuth();
   const navigate = useNavigate();
@@ -200,17 +343,6 @@ function AdminHubPanelInner({
     !isQualityChecker &&
     users.length === 0;
 
-  const fetchNotifications = useCallback(async () => {
-    try {
-      const res = await NotificationService.getNotifications();
-      if (res?.success) setNotifications(res.data || []);
-    } catch { /* silent */ }
-  }, []);
-
-  useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
-
   useEffect(() => {
     if (isQualityChecker) {
       fetchUsers();
@@ -299,42 +431,96 @@ function AdminHubPanelInner({
     [activePage, isQualityChecker, syncTabSearchParam],
   );
 
-  // Office Admin inherits operational manager duties — surface live customer tracking here
-  const navItems = useMemo(() => {
-    if (currentRole === 'administrator') {
-      return [...NAV_MAIN_MENU, ...NAV_OPERATIONS, ...NAV_CATALOG, ...NAV_MANAGEMENT];
-    }
-    if (currentRole === 'office_admin') {
-      return [...NAV_MAIN_MENU, ...NAV_OPERATIONS, ...NAV_CATALOG, ...NAV_MANAGEMENT];
-    }
-    if (currentRole === 'staff_quality_checker') {
-      return NAV_QC_OPERATIONS;
-    }
-    return [...NAV_MAIN_MENU, ...NAV_MANAGEMENT];
-  }, [currentRole]);
+  const navTree = useMemo(() => buildNavTree(currentRole), [currentRole]);
 
-  const sidebarW = collapsed ? 64 : 240;
+  const sidebarW = collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED;
   const { isDraggingSchedule } = useCalendarScheduleDnD();
   const sidebarWEffective = sidebarW;
+
+  const openSidebarSearch = useCallback(() => {
+    if (collapsed) setCollapsed(false);
+    setIsSearchOpen(true);
+  }, [collapsed]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        openSidebarSearch();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [openSidebarSearch]);
+
+  useEffect(() => {
+    if (!isSearchOpen || collapsed) return;
+    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [collapsed, isSearchOpen]);
+
   const prefetchCustomerTracker =
     currentRole === 'office_admin' ||
     currentRole === 'administrator' ||
     currentRole === 'staff_quality_checker';
 
-  const handleLogout = () => {
-    logout();
+  const navSearchQuery = navSearch.trim().toLowerCase();
+
+  const openAccountSheet = useCallback((sheet: 'profile' | 'settings') => {
+    setAccountSheet(sheet);
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
+    await logout();
     navigate('/');
-  };
+  }, [logout, navigate]);
 
-  // Group nav items by section
-  const sections = navItems.reduce<Record<string, typeof navItems>>((acc, item) => {
-    const sec = item.section || 'Main Menu';
-    if (!acc[sec]) acc[sec] = [];
-    acc[sec].push(item);
-    return acc;
-  }, {});
+  const filteredNavTree = useMemo(
+    () => filterNavTree(navTree, navSearchQuery),
+    [navTree, navSearchQuery],
+  );
 
-  const safeBookings = Array.isArray(bookings) ? bookings : [];
+  const collapsedNavPages = useMemo(() => flattenNavPages(navTree), [navTree]);
+
+  const incomingBookings = useMemo(() => (Array.isArray(bookings) ? bookings : []), [bookings]);
+  const [dashboardBookings, setDashboardBookings] = useState<any[]>(incomingBookings);
+  const dashboardBookingsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (incomingBookings.length > 0) {
+      setDashboardBookings(incomingBookings);
+      dashboardBookingsLoadedRef.current = true;
+    }
+  }, [incomingBookings]);
+
+  useEffect(() => {
+    if (activePage !== 'dashboard' || dashboardBookingsLoadedRef.current) return;
+
+    let cancelled = false;
+    dashboardBookingsLoadedRef.current = true;
+
+    OrderService.getAllOrders({
+      limit: 100,
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+      suppressErrorToast: true,
+    })
+      .then((res) => {
+        if (!cancelled && res.success && Array.isArray(res.data)) {
+          setDashboardBookings(res.data);
+        }
+      })
+      .catch((error) => {
+        console.error('[AdminHubPanel] Failed to load dashboard appointments:', error);
+        if (!cancelled) setDashboardBookings([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activePage]);
+
+  const safeBookings = dashboardBookings;
 
   const renderTabPanel = useCallback(
     (id: string, children: React.ReactNode, options?: { forceMount?: boolean }) => {
@@ -366,94 +552,169 @@ function AdminHubPanelInner({
         minHeight: '100dvh',
       }}
     >
-      {/* ── Sidebar ── */}
+      {/* ── Sidebar (premium layout) ── */}
       <aside
-        className="ah-sidebar"
+        className={`ah-sidebar${collapsed ? ' is-collapsed' : ''}`}
         style={{
           width: sidebarWEffective,
-          transition: 'width 0.22s cubic-bezier(0.16,1,0.3,1)',
-          overflow: 'hidden',
+          transition: 'width 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
+        aria-label="Admin navigation"
       >
-        {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', height: 64, padding: '0 12px', borderBottom: '1px solid #f1f5f9', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
-              {(sidebarDisplayName || currentUser?.email || '?').charAt(0).toUpperCase()}
+        <div className="ah-sidebar-header">
+          <div className="ah-sidebar-brand">
+            <div className="ah-sidebar-brand-mark" aria-hidden>
+              <img src="/images/autospf-logo.png" alt="" />
             </div>
-            {!collapsed && (
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {sidebarDisplayName}
-                </div>
-                <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {currentUser?.email || ''}
-                </div>
-                {showSidebarRoleRow ? (
-                  <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', marginTop: 2 }}>{sidebarRoleLabel}</div>
-                ) : null}
-              </div>
-            )}
+            {!collapsed && <span className="ah-sidebar-brand-name">AutoSPF+</span>}
           </div>
+
+          {!collapsed ? (
+            <button
+              type="button"
+              className={`ah-sidebar-search-action${isSearchOpen ? ' is-active' : ''}`}
+              onClick={openSidebarSearch}
+              aria-label="Search navigation"
+            >
+              <Search size={18} strokeWidth={1.8} aria-hidden />
+            </button>
+          ) : null}
         </div>
 
-        {/* Nav */}
-        <nav style={{ flex: 1, padding: '16px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
-          {Object.entries(sections).map(([sectionName, items]) => (
-            <React.Fragment key={sectionName}>
-              {!collapsed && <p style={{ padding: '12px 12px 8px', fontSize: 11, fontWeight: 600, color: '#64748B', letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>{sectionName}</p>}
-              {items.map(item => {
-                const Icon = item.icon;
-                const isActive = activePage === item.id;
+        {!collapsed && isSearchOpen ? (
+          <div className="ah-sidebar-search-wrap">
+            <label className="ah-sidebar-search">
+              <Search size={16} aria-hidden />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={navSearch}
+                onChange={(e) => setNavSearch(e.target.value)}
+                placeholder="Search"
+                aria-label="Search navigation"
+              />
+              <kbd>⌘K</kbd>
+            </label>
+            <button
+              type="button"
+              className="ah-sidebar-search-close"
+              onClick={() => {
+                setNavSearch('');
+                setIsSearchOpen(false);
+              }}
+              aria-label="Close search"
+            >
+              <X size={14} strokeWidth={2} aria-hidden />
+            </button>
+          </div>
+        ) : null}
 
+        <nav className="ah-sidebar-nav">
+          {filteredNavTree.length === 0 && !collapsed ? (
+            <p className="ah-sidebar-empty">No matches</p>
+          ) : null}
+
+          {collapsed ? (
+            collapsedNavPages.map((page) => {
+              const Icon = page.icon;
+              return (
+                <button
+                  key={page.id}
+                  type="button"
+                  className={`ah-nav-item${activePage === page.id ? ' active' : ''}`}
+                  onClick={() => selectNavPage(page.id)}
+                  title={page.label}
+                >
+                  <Icon size={20} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
+                </button>
+              );
+            })
+          ) : (
+            filteredNavTree.map((entry) => {
+              if (entry.type === 'leaf') {
+                const isActive = activePage === entry.id;
+                const Icon = entry.icon;
                 return (
                   <button
-                    key={item.id}
+                    key={entry.id}
                     type="button"
-                    className={`ah-nav-item ${isActive ? 'active' : ''}`}
-                    onClick={() => selectNavPage(item.id)}
-                    title={collapsed ? item.label : undefined}
-                    style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : undefined}
+                    className={`ah-nav-item ah-nav-leaf${isActive ? ' active' : ''}`}
+                    onClick={() => selectNavPage(entry.id)}
                   >
-                    <Icon size={18} style={{ flexShrink: 0 }} />
-                    {!collapsed && <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>}
+                    <Icon size={20} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
+                    <span className="ah-nav-label">{entry.label}</span>
                   </button>
                 );
-              })}
-            </React.Fragment>
-          ))}
+              }
+
+              return (
+                <div key={entry.id} className="ah-nav-section">
+                  <p className="ah-nav-section-title">
+                    {NAV_SECTION_LABELS[entry.id] || entry.label}
+                  </p>
+                  <div className="ah-nav-section-items">
+                    {entry.children.map((child) => {
+                      const isActive = activePage === child.id;
+                      const ChildIcon = PAGE_ICONS[child.id] || entry.icon;
+                      return (
+                        <button
+                          key={child.id}
+                          type="button"
+                          className={`ah-nav-item ah-nav-row${isActive ? ' active' : ''}`}
+                          onClick={() => selectNavPage(child.id)}
+                        >
+                          <ChildIcon size={20} strokeWidth={1.7} className="ah-nav-icon" aria-hidden />
+                          <span className="ah-nav-label">{child.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })
+          )}
         </nav>
 
-        {/* Bottom */}
-        <div style={{ borderTop: '1px solid #f1f5f9', padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {/* Notifications */}
-          <button type="button" className="ah-nav-item" onClick={() => setShowNotifPanel(p => !p)} style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : undefined}>
-            <div style={{ position: 'relative', flexShrink: 0 }}>
-              <Bell size={18} />
-              {notifications.length > 0 && <span style={{ position: 'absolute', top: -2, right: -2, width: 8, height: 8, background: '#ef4444', borderRadius: '50%' }} />}
+        <div className="ah-sidebar-footer">
+          {!fullMode && onClose ? (
+            <div className="ah-sidebar-secondary">
+              <button
+                type="button"
+                className="ah-nav-item is-utility"
+                onClick={onClose}
+                title={collapsed ? 'Back' : undefined}
+              >
+                <ArrowLeft size={20} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
+                {!collapsed && <span className="ah-nav-label">Back</span>}
+              </button>
             </div>
-            {!collapsed && <span style={{ fontSize: 14 }}>Notifications</span>}
-          </button>
+          ) : null}
 
-          {/* Logout button (full mode) */}
-          {fullMode && (
-            <button type="button" className="ah-nav-item" onClick={handleLogout} style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : { color: '#dc2626' }}>
-              <LogOut size={18} style={{ flexShrink: 0 }} />
-              {!collapsed && <span style={{ fontSize: 14 }}>Log Out</span>}
-            </button>
-          )}
+          <AdminSidebarProfileMenu
+            displayName={sidebarDisplayName}
+            email={currentUser?.email || ''}
+            roleLabel={sidebarRoleLabel}
+            showRoleRow={showSidebarRoleRow}
+            avatar={currentUser?.avatar}
+            collapsed={collapsed}
+            onViewProfile={() => openAccountSheet('profile')}
+            onAccountSettings={() => openAccountSheet('settings')}
+            onSignOut={handleSignOut}
+          />
 
-          {/* Back button (overlay mode only) */}
-          {!fullMode && onClose && (
-            <button type="button" className="ah-nav-item" onClick={onClose} style={collapsed ? { justifyContent: 'center', padding: '10px 0' } : undefined}>
-              <ArrowLeft size={18} style={{ flexShrink: 0 }} />
-              {!collapsed && <span style={{ fontSize: 14 }}>Back</span>}
-            </button>
-          )}
-
-          {/* Collapse */}
-          <button type="button" onClick={() => setCollapsed(c => !c)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '8px 12px', fontSize: 12, color: '#64748b', background: 'transparent', border: 'none', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s' }}>
-            {collapsed ? <ChevronRight size={16} /> : <><ChevronLeft size={16} /><span>Collapse</span></>}
+          <button
+            type="button"
+            className="ah-sidebar-collapse-btn"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <ChevronRight size={16} /> : (
+              <>
+                <ChevronLeft size={16} />
+                <span>Collapse</span>
+              </>
+            )}
           </button>
         </div>
       </aside>
@@ -464,7 +725,7 @@ function AdminHubPanelInner({
         style={{
           overflow: 'auto',
           transition: 'margin-left 0.22s cubic-bezier(0.16,1,0.3,1)',
-          marginLeft: sidebarWEffective,
+          marginLeft: sidebarWEffective + SIDEBAR_MAIN_OFFSET,
           background: '#f8fafc',
         }}
       >
@@ -480,10 +741,15 @@ function AdminHubPanelInner({
         >
           <div className="ah-tab-stack">
             {renderTabPanel('dashboard', (
-            <AdminDashboardPage users={users} activityLogs={activityLogs} loading={blockingHubLoad} onNavigate={selectNavPage} />
+              <AdminDashboardPage
+                users={users}
+                activityLogs={activityLogs}
+                bookings={safeBookings}
+                loading={blockingHubLoad}
+              />
             ))}
             {renderTabPanel('scheduling', (
-            <AdminAppointmentsPage onNavigate={selectNavPage} currentUserRole={currentUser?.role} />
+            <AdminAppointmentsPage currentUserRole={currentUser?.role} />
             ))}
             {renderTabPanel('users', (
             <AdminUserManagement
@@ -509,26 +775,13 @@ function AdminHubPanelInner({
         </div>
       </main>
 
-      {/* ── Notification Panel ── */}
-      {showNotifPanel && (
-        <div className="ah-fade-in" style={{ position: 'fixed', top: 0, right: 0, width: 380, height: '100vh', background: '#fff', borderLeft: '1px solid #e2e8f0', boxShadow: '-4px 0 24px rgba(0,0,0,.08)', zIndex: 40, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
-            <h3 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', margin: 0 }}>Notifications</h3>
-            <button onClick={() => setShowNotifPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}><X size={18} /></button>
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
-            {notifications.length === 0 ? (
-              <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 14, padding: 40 }}>No notifications</p>
-            ) : notifications.slice(0, 20).map((n: any, i: number) => (
-              <div key={n._id || i} style={{ padding: '12px 8px', borderBottom: '1px solid #f8fafc', borderRadius: 8 }}>
-                <p style={{ fontSize: 13, fontWeight: 500, color: '#1e293b', margin: 0 }}>{n.title || 'Notification'}</p>
-                <p style={{ fontSize: 12, color: '#64748b', margin: '4px 0 0' }}>{n.message || ''}</p>
-                <p style={{ fontSize: 10, color: '#94a3b8', margin: '4px 0 0' }}>{n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {accountSheet === 'profile' ? (
+        <AdminAccountProfileSheet currentUser={currentUser} onClose={() => setAccountSheet(null)} />
+      ) : null}
+
+      {accountSheet === 'settings' ? (
+        <AdminAccountSettingsSheet currentUser={currentUser} onClose={() => setAccountSheet(null)} />
+      ) : null}
     </div>
   );
 }
