@@ -31,6 +31,23 @@ const VEHICLE_TYPE_ALIASES = [
   { apiKey: 'highend', label: 'Highend Sedan', patterns: [/\bhigh[\s-]?end\b/i, /\bluxury\s*sedan\b/i, /\bpremium\s*sedan\b/i] },
 ];
 
+const VEHICLE_MODEL_ALIASES = [
+  { make: 'Honda', model: 'Civic', label: 'Honda Civic', vehicleType: 'sedan', patterns: [/\bhonda\s+civic\b/i, /\bcivic\b/i] },
+  { make: 'Honda', model: 'City', label: 'Honda City', vehicleType: 'sedan', patterns: [/\bhonda\s+city\b/i] },
+  { make: 'Honda', model: 'Brio', label: 'Honda Brio', vehicleType: 'hatchback', patterns: [/\bhonda\s+brio\b/i, /\bbrio\b/i] },
+  { make: 'Toyota', model: 'Vios', label: 'Toyota Vios', vehicleType: 'sedan', patterns: [/\btoyota\s+vios\b/i, /\bvios\b/i] },
+  { make: 'Toyota', model: 'Corolla Altis', label: 'Toyota Corolla Altis', vehicleType: 'sedan', patterns: [/\b(corolla\s+)?altis\b/i] },
+  { make: 'Toyota', model: 'Fortuner', label: 'Toyota Fortuner', vehicleType: 'suv', patterns: [/\btoyota\s+fortuner\b/i, /\bfortuner\b/i] },
+  { make: 'Toyota', model: 'Innova', label: 'Toyota Innova', vehicleType: 'midsized', patterns: [/\btoyota\s+innova\b/i, /\binnova\b/i] },
+  { make: 'Toyota', model: 'Hilux', label: 'Toyota Hilux', vehicleType: 'pickup', patterns: [/\btoyota\s+hilux\b/i, /\bhilux\b/i] },
+  { make: 'Mitsubishi', model: 'Montero', label: 'Mitsubishi Montero', vehicleType: 'suv', patterns: [/\bmitsubishi\s+montero\b/i, /\bmontero\b/i] },
+  { make: 'Mitsubishi', model: 'Mirage', label: 'Mitsubishi Mirage', vehicleType: 'hatchback', patterns: [/\bmitsubishi\s+mirage\b/i, /\bmirage\b/i] },
+  { make: 'Nissan', model: 'Terra', label: 'Nissan Terra', vehicleType: 'suv', patterns: [/\bnissan\s+terra\b/i, /\bterra\b/i] },
+  { make: 'Nissan', model: 'Navara', label: 'Nissan Navara', vehicleType: 'pickup', patterns: [/\bnissan\s+navara\b/i, /\bnavara\b/i] },
+  { make: 'Ford', model: 'Everest', label: 'Ford Everest', vehicleType: 'suv', patterns: [/\bford\s+everest\b/i, /\beverest\b/i] },
+  { make: 'Ford', model: 'Ranger', label: 'Ford Ranger', vehicleType: 'pickup', patterns: [/\bford\s+ranger\b/i, /\branger\b/i] },
+];
+
 const PPF_PRICE_ROWS = [
   { vehicle: 'Sedan / Hatch', prices: ['₱75,000', '₱80,000', '₱90,000', '₱120,000'] },
   { vehicle: 'Crossover', prices: ['₱80,000', '₱85,000', '₱95,000', '₱135,000'] },
@@ -123,6 +140,36 @@ export const detectVehicleTypeFromMessage = (message = '') => {
     const specific = hits.find((entry) => entry.apiKey === 'midsized') || hits[0];
     return specific;
   }
+  return null;
+};
+
+export const detectVehicleProfileFromMessage = (message = '') => {
+  const text = String(message || '').trim();
+  if (!text) return null;
+
+  const modelMatch = VEHICLE_MODEL_ALIASES.find((entry) =>
+    entry.patterns.some((pattern) => pattern.test(text))
+  );
+  const typeMatch = detectVehicleTypeFromMessage(text);
+
+  if (modelMatch) {
+    return {
+      make: modelMatch.make,
+      model: modelMatch.model,
+      label: modelMatch.label,
+      vehicleType: typeMatch?.apiKey || modelMatch.vehicleType,
+      confidence: 0.9,
+    };
+  }
+
+  if (typeMatch) {
+    return {
+      label: typeMatch.label,
+      vehicleType: typeMatch.apiKey,
+      confidence: 0.72,
+    };
+  }
+
   return null;
 };
 
@@ -276,21 +323,21 @@ export const buildOtherServicesSummary = async () => {
 const SHOP_TOPIC_PATTERNS = [
   /\bautospf\b/i,
   /\bauto\s*spf\b/i,
-  /\b(price|pric|price\s*list|pricelist|rate|rates|cost|quote|estimate|magkano|presyo|pricing)\b/i,
-  /\b(book|booking|schedule|appointment|reserve|paano.*book|mag[\s-]?book)\b/i,
+  /\b(price|pric|price\s*list|pricelist|rate|rates|cost|quote|estimate|magkano|presyo|pricing|hm\b|how\s+much)\b/i,
+  /\b(book|booking|schedule|appointment|reserve|slot|paano.*book|mag[\s-]?book|pa\s*book|pa\s*schedule)\b/i,
   /\b(login|log[\s-]?in|sign[\s-]?in|register|sign[\s-]?up|account|password|dashboard)\b/i,
   /\b(gawan|gawa|gumawa|igawa|iregister|i-register|pa\s*register|signup\s+ako|create\s+acc|gawa\s+acc)\b/i,
   /\b(spf|ppf|ceramic|coating|detailing|detail|tint|undercoat|graphene|wax|wash|sonax)\b/i,
-  /\b(sedan|suv|hatchback|midsized|pickup|vehicle|vihicle|vechicle|kotse|sasakyan|car)\b/i,
-  /\b(service|package|menu|offer|promo|website|site)\b/i,
-  /\b(location|address|hours|open|contact|phone|las\s*piñas|piñas|marcos)\b/i,
-  /\b(track|repair|order|status|waiver)\b/i,
+  /\b(sedan|suv|hatchback|midsized|pickup|vehicle|vihicle|vechicle|kotse|sasakyan|car|civic|city|vios|altis|fortuner|montero|terra|everest|innova|hilux|ranger|navara|brio|mirage)\b/i,
+  /\b(service|package|packages|menu|offer|promo|recommend|compare|comparison|website|site)\b/i,
+  /\b(location|loc\s*(nyo|niyo)?|address|hours|open|contact|phone|las\s*piñas|piñas|marcos)\b/i,
+  /\b(track|tracker|repair|order|status|waiver)\b/i,
   /\b(payment|pay|gcash|installment|down[\s-]?payment)\b/i,
   /\b(wrong|incorrect|mistake|correction|correct|mali|palitan|change|update)\b[\s\S]{0,80}\b(email|mail|phone|mobile|number|name|reference|appointment|booking)\b/i,
   /\b(scan|damage|ai\b)/i,
   /\b(gallery|about|contact|services)\b/i,
   /\b(warranty|protection|years?)\b/i,
-  /\b(included|include|features?|kasama)\b/i,
+  /\b(included|include|features?|kasama|maintenance|aftercare|alagaan|linis|wash\s+after)\b/i,
   /\b(how\s+(to|do)|paano|what\s+is\s+(spf|ppf|ceramic))\b/i,
   /\b(hello|hi|hey|good\s*(morning|afternoon|evening)|kamusta|musta)\b/i,
   /\b(salamat|thank|thanks)\b/i,

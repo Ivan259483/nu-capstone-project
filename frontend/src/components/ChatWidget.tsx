@@ -3,22 +3,8 @@ import { ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import api, { BACKEND_API_URL, getStoredAuthToken } from '@/lib/api';
 import {
-    buildCorrectionConfirmedReply,
-    buildCorrectionNeedsValueReply,
-    buildUnresolvedCorrectionReply,
-    clearRegistrationFieldsAfter,
     hasCorrectionIntent,
-    parseRegistrationCorrection,
 } from '@/lib/chat-onboarding-correction';
-import {
-    buildRegistrationInterruptionReply,
-    isRegistrationContextualQuestion,
-} from '@/lib/chat-onboarding-interruption';
-import {
-    buildRegistrationSkipCompletionReply,
-    isSkipOptionalRegistrationFieldIntent,
-    markRegistrationFieldSkipped,
-} from '@/lib/chat-onboarding-skip';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { chatWindowClass } from '@/components/chat/chat-theme';
@@ -56,10 +42,8 @@ const REFERENCE_CONFUSION_REGEX = /\b(what(\s+is|'?s)?\s+(that|this|it|ref|refer
 const LOGIN_PROBLEM_REGEX = /\b(without\s+log[\s-]?in|no\s+log[\s-]?in|can'?t\s+log[\s-]?in|cannot\s+log[\s-]?in|cant\s+log[\s-]?in|unable\s+to\s+log[\s-]?in|di\s+makalogin|hindi\s+makalogin)\b/i;
 const NO_LOGIN_TRACKER_REGEX = /\b(track|tracker|tracking|status)\b[\s\S]{0,80}\b(without\s+log[\s-]?in|no\s+log[\s-]?in|can'?t\s+log[\s-]?in|cannot\s+log[\s-]?in|cant\s+log[\s-]?in|unable\s+to\s+log[\s-]?in|di\s+makalogin|hindi\s+makalogin)\b|\b(without\s+log[\s-]?in|no\s+log[\s-]?in|can'?t\s+log[\s-]?in|cannot\s+log[\s-]?in|cant\s+log[\s-]?in|unable\s+to\s+log[\s-]?in|di\s+makalogin|hindi\s+makalogin)\b[\s\S]{0,80}\b(track|tracker|tracking|status)\b/i;
 const PHONE_NUMBER_REGEX = /(?:\+?63|0)?9\d{9}\b/;
-const EMAIL_CANDIDATE_REGEX = /[^\s@]+@[^\s@]+\.[^\s@]+/i;
 const SIGNUP_INTENT_REGEX =
     /\b(create|make|open|start|set\s*up|setup|register|sign\s*up|signup)\b[\s\S]{0,60}\b(account|acct|acc|profile)\b|\b(register\s+me|sign\s+me\s+up|signup\s+ako|pa\s*register)\b|\b(gawan|gawa|gumawa|igawa|iregister|i-register)\b[\s\S]{0,60}\b(ako|mo|account|acct|acc|profile)\b|\b(gawa|create)\s+(acc|acct|account)\b/i;
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TRACKER_REFERENCE_PROMPT = 'Sure! Please enter your Appointment Reference Number to pull up your status.\nIt looks like this: ASPF-XXXXXX-XXXX\nYou can find it in your booking confirmation screen or email.';
 const TRACKER_REFERENCE_EXPLANATION_REPLY = "Your Appointment Reference Number is a unique code we gave you\nwhen you completed your booking.\n\nYou can find it in:\n📧 Your confirmation email from AutoSPF+\n📱 Your booking confirmation screen in the app\n📋 Any SMS we sent after booking\n\nIt looks like: ASPF-260526-EC78\n\nCan't find it? No worries — just share your registered\nmobile number and our team will look it up for you! 🙌";
 const TRACKER_LINK_REPLY = 'Got it! Tap below to view your live tracker 👇\nLog in with your registered account and it loads automatically.';
@@ -73,7 +57,6 @@ interface RegistrationDraft {
     lastName: string;
     email: string;
     phone: string;
-    phoneSkipped?: boolean;
 }
 
 type TrackerStep = 'idle' | 'reference' | 'phoneLookup' | 'fallbackReference' | 'fallbackPhone';
@@ -97,6 +80,10 @@ const wait = (ms: number) => new Promise(resolve => window.setTimeout(resolve, m
 interface StreamCallbacks {
     onStart: () => void;
     onDelta: (text: string) => void;
+}
+
+interface SendMessageOptions {
+    applyActions?: boolean;
 }
 
 const parseSseBlock = (block: string): { event: string; data: any } | null => {
@@ -166,9 +153,6 @@ const streamChatResponse = async (
     throw new Error('Stream ended before completion');
 };
 
-const normalizePhoneForRegistration = (value: string) =>
-    value.trim().replace(/[()\-\s]/g, '');
-
 const extractBookingReference = (value: string) => {
     const match = value.match(ASPF_REFERENCE_REGEX);
     return (match?.[0] || '').toUpperCase();
@@ -180,8 +164,6 @@ const extractPhoneNumber = (value: string) => {
     const normalized = normalizePhoneCandidate(value);
     return normalized.match(PHONE_NUMBER_REGEX)?.[0] || '';
 };
-
-const extractEmailAddress = (value: string) => value.match(EMAIL_CANDIDATE_REGEX)?.[0]?.toLowerCase() || '';
 
 const looksLikePhoneNumber = (value: string) => Boolean(extractPhoneNumber(value));
 
@@ -197,19 +179,6 @@ const looksLikeReferenceAttempt = (value: string) => {
 const buildTrackerLoginUrl = (reference: string) =>
     `/login?redirect=/customer/dashboard?ref=${encodeURIComponent(reference)}`;
 
-const isValidRegistrationPhone = (value: string) => {
-    const phone = normalizePhoneForRegistration(value);
-    return /^09\d{9}$/.test(phone) || /^\+639\d{9}$/.test(phone) || /^639\d{9}$/.test(phone) || /^\+[1-9]\d{7,14}$/.test(phone);
-};
-
-const getNextRegistrationStep = (draft: RegistrationDraft): RegistrationStep => {
-    if (!draft.firstName.trim()) return 'firstName';
-    if (!draft.lastName.trim()) return 'lastName';
-    if (!draft.email.trim()) return 'email';
-    if (!draft.phone.trim() && !draft.phoneSkipped) return 'phone';
-    return 'submitting';
-};
-
 const getRegistrationPromptForStep = (step: RegistrationStep, draft: RegistrationDraft) => {
     if (step === 'firstName') return 'May I have your first name?';
     if (step === 'lastName') return draft.firstName
@@ -217,9 +186,16 @@ const getRegistrationPromptForStep = (step: RegistrationStep, draft: Registratio
         : 'What is your last name?';
     if (step === 'email') return 'What email address should we use for your secure setup link?';
     if (step === 'phone') {
-        return 'Optional: what mobile number should we place on your account? You can say skip if you prefer.';
+        return 'What mobile number should we place on your account?';
     }
     return '';
+};
+
+const getRegistrationResumePrompt = (step: RegistrationStep, draft: RegistrationDraft) => {
+    if (step === 'lastName' && draft.firstName) {
+        return `Now, thanks ${draft.firstName} — what is your last name?`;
+    }
+    return `Now, ${getRegistrationPromptForStep(step, draft)}`;
 };
 
 const parseTrackerCorrection = (content: string) => {
@@ -348,6 +324,7 @@ export default function ChatWidget({
                 const session = res.data?.session || {};
                 if (session.leadName) setLeadName(session.leadName);
                 if (session.leadPhone) setLeadPhone(session.leadPhone);
+                syncRegistrationFromBackend({ session });
 
                 const hydratedMessages = (res.data?.messages || []).map((m: any) => ({
                     id: m.id || m._id || createMessageId('history'),
@@ -399,6 +376,33 @@ export default function ChatWidget({
         setUnread(prev => (isOpen && screen === 'chat' ? 0 : prev + 1));
     };
 
+    const syncRegistrationFromBackend = (payload: any = {}) => {
+        const metadata = payload?.metadata || payload || {};
+        const onboarding = payload?.onboarding || payload?.session?.onboarding || null;
+        const status = metadata.onboardingStatus || onboarding?.status;
+        const step = metadata.onboardingStep || onboarding?.step;
+        const draft = onboarding?.draft;
+
+        if (draft) {
+            setRegistrationDraft({
+                firstName: draft.firstName || '',
+                lastName: draft.lastName || '',
+                email: draft.email || '',
+                phone: draft.phone || '',
+            });
+        }
+
+        if (status === 'sent' || metadata.type === 'account_onboarding_complete') {
+            setRegistrationStep('sent');
+            if (metadata.email) setRegistrationEmailSent(metadata.email);
+            return;
+        }
+
+        if (status === 'collecting' && ['firstName', 'lastName', 'email', 'phone'].includes(step)) {
+            setRegistrationStep(step as RegistrationStep);
+        }
+    };
+
     const upsertAssistantMessage = (id: string, message: string) => {
         setMessages(prev => {
             const exists = prev.some(msg => msg.id === id);
@@ -427,7 +431,7 @@ export default function ChatWidget({
         }
     };
 
-    const beginRegistration = (options?: { includeUserMessage?: boolean }) => {
+    const beginRegistration = async (options?: { includeUserMessage?: boolean; triggerMessage?: string }) => {
         setIsOpen(true);
         openChat('home');
         setLeadRequired(false);
@@ -436,12 +440,20 @@ export default function ChatWidget({
         setTrackerDraft({ bookingReference: '' });
         setRegistrationDraft(emptyRegistrationDraft());
         setRegistrationEmailSent('');
-        setRegistrationStep('firstName');
+        setRegistrationStep('idle');
         if (options?.includeUserMessage) {
-            appendMessage({ id: createMessageId('user'), sender: 'user', message: 'Create an account' });
+            appendMessage({ id: createMessageId('user'), sender: 'user', message: options.triggerMessage || 'Create an account' });
         }
-        appendAssistant("I'll help you create your AutoSPF+ account.", { type: 'registration' });
-        appendAssistant('May I have your first name?', { type: 'registration' });
+        setIsSending(true);
+        try {
+            await sendMessage(options?.triggerMessage || 'Create an account');
+        } catch {
+            setRegistrationStep('firstName');
+            appendAssistant("I'll help you create your AutoSPF+ account.", { type: 'registration' });
+            appendAssistant('May I have your first name?', { type: 'registration' });
+        } finally {
+            setIsSending(false);
+        }
         window.setTimeout(() => inputRef.current?.focus(), 120);
     };
 
@@ -449,7 +461,7 @@ export default function ChatWidget({
         const openRegistration = () => {
             setIsOpen(true);
             if (registrationStep === 'idle' || registrationStep === 'sent') {
-                beginRegistration({ includeUserMessage: true });
+                void beginRegistration({ includeUserMessage: true });
             } else {
                 openChat('home');
                 window.setTimeout(() => inputRef.current?.focus(), 120);
@@ -461,187 +473,17 @@ export default function ChatWidget({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [registrationStep]);
 
-    const submitChatRegistration = async (draft: RegistrationDraft) => {
-        setRegistrationStep('submitting');
+    const handleRegistrationInput = async (content: string) => {
         setIsSending(true);
         try {
-            const res = await api.post('/auth/chat-registration/start', draft, {
-                meta: { suppressErrorToast: true },
-            } as any);
-
-            const email = res.data?.data?.email || draft.email;
-            setRegistrationEmailSent(email);
-            setRegistrationStep('sent');
-            const successReply = draft.phoneSkipped
-                ? `${buildRegistrationSkipCompletionReply(draft)}\n\nPlease check your inbox for the secure setup link.`
-                : "We've sent a secure setup link to your email address. Please open your inbox and continue setting up your password.";
-            appendAssistant(successReply, { type: 'registration' });
-            toast.success('Verification email sent');
-        } catch (error: any) {
-            const message = error?.response?.data?.message || 'I could not send the setup email yet. Please try again.';
-            appendAssistant(message, { type: 'registration' });
-            if (error?.response?.status === 409) {
-                setRegistrationStep('idle');
-            } else {
-                setRegistrationStep('phone');
-            }
+            await sendMessage(content);
+        } catch {
+            appendAssistant(
+                `I could not reach the secure onboarding service right now.\n\n${getRegistrationResumePrompt(registrationStep, registrationDraft)}`,
+                { type: 'registration' }
+            );
         } finally {
             setIsSending(false);
-        }
-    };
-
-    const handleRegistrationInput = async (content: string) => {
-        const correction = parseRegistrationCorrection(content, {
-            step: registrationStep,
-            draft: registrationDraft,
-        });
-
-        if (correction) {
-            if (correction.needsValue) {
-                setRegistrationStep(correction.field);
-                appendAssistant(buildCorrectionNeedsValueReply(correction.field), { type: 'registration' });
-                return;
-            }
-
-            const value = correction.value || '';
-            let updatedDraft = clearRegistrationFieldsAfter(registrationDraft, correction.field);
-            updatedDraft = { ...updatedDraft, [correction.field]: value };
-
-            if (correction.field === 'email' && !EMAIL_REGEX.test(value)) {
-                appendAssistant('Got it, but that email does not look quite right. Please send the correct email address again.', { type: 'registration' });
-                return;
-            }
-
-            if (correction.field === 'phone' && !isValidRegistrationPhone(normalizePhoneForRegistration(value))) {
-                appendAssistant('Got it, but that mobile number does not look quite right. Please send it like 09171234567 or +639171234567.', { type: 'registration' });
-                return;
-            }
-
-            if ((correction.field === 'firstName' || correction.field === 'lastName') && (value.length < 1 || value.length > 40)) {
-                appendAssistant(`Please send a valid ${correction.label}.`, { type: 'registration' });
-                return;
-            }
-
-            if (correction.field === 'phone') {
-                updatedDraft = { ...updatedDraft, phone: normalizePhoneForRegistration(value) };
-            }
-
-            setRegistrationDraft(updatedDraft);
-            setRegistrationEmailSent('');
-
-            const nextStep = getNextRegistrationStep(updatedDraft);
-
-            if (nextStep === 'submitting') {
-                appendAssistant(
-                    buildCorrectionConfirmedReply({
-                        field: correction.field,
-                        value: updatedDraft[correction.field],
-                        nextPrompt: 'Perfect. I am preparing your secure password setup link now.',
-                    }),
-                    { type: 'registration' }
-                );
-                await submitChatRegistration(updatedDraft);
-                return;
-            }
-
-            setRegistrationStep(nextStep);
-            appendAssistant(
-                buildCorrectionConfirmedReply({
-                    field: correction.field,
-                    value: updatedDraft[correction.field],
-                    nextPrompt: getRegistrationPromptForStep(nextStep, updatedDraft),
-                }),
-                { type: 'registration' }
-            );
-            return;
-        }
-
-        if (hasCorrectionIntent(content)) {
-            appendAssistant(buildUnresolvedCorrectionReply(), { type: 'registration' });
-            return;
-        }
-
-        if (
-            registrationStep !== 'idle' &&
-            registrationStep !== 'sent' &&
-            registrationStep !== 'submitting' &&
-            isRegistrationContextualQuestion(content, registrationStep)
-        ) {
-            const resumePrompt =
-                registrationStep === 'lastName' && registrationDraft.firstName
-                    ? `Now, thanks ${registrationDraft.firstName} — what is your last name?`
-                    : `Now, ${getRegistrationPromptForStep(registrationStep, registrationDraft)}`;
-            appendAssistant(
-                buildRegistrationInterruptionReply({
-                    message: content,
-                    step: registrationStep,
-                    draft: registrationDraft,
-                    resumePrompt,
-                }),
-                { type: 'registration' }
-            );
-            return;
-        }
-
-        if (registrationStep === 'firstName') {
-            const firstName = content.trim().replace(/\s+/g, ' ');
-            if (firstName.length < 1 || firstName.length > 40) {
-                appendAssistant('Please enter just your first name.', { type: 'registration' });
-                return;
-            }
-            setRegistrationDraft(prev => ({ ...prev, firstName }));
-            setRegistrationStep('lastName');
-            appendAssistant(`Thanks, ${firstName}. What is your last name?`, { type: 'registration' });
-            return;
-        }
-
-        if (registrationStep === 'lastName') {
-            const lastName = content.trim().replace(/\s+/g, ' ');
-            if (lastName.length < 1 || lastName.length > 40) {
-                appendAssistant('Please enter just your last name.', { type: 'registration' });
-                return;
-            }
-            setRegistrationDraft(prev => ({ ...prev, lastName }));
-            setRegistrationStep('email');
-            appendAssistant('What email address should we use for your secure setup link?', { type: 'registration' });
-            return;
-        }
-
-        if (registrationStep === 'email') {
-            const email = content.trim().toLowerCase();
-            if (!EMAIL_REGEX.test(email)) {
-                appendAssistant('That email does not look quite right. Please enter a valid email address.', { type: 'registration' });
-                return;
-            }
-            setRegistrationDraft(prev => ({ ...prev, email }));
-            setRegistrationStep('phone');
-            appendAssistant(
-                'Optional: what mobile number should we place on your account? You can say skip if you prefer.',
-                { type: 'registration' }
-            );
-            return;
-        }
-
-        if (registrationStep === 'phone') {
-            if (isSkipOptionalRegistrationFieldIntent(content, 'phone')) {
-                const skippedDraft = markRegistrationFieldSkipped(registrationDraft, 'phone');
-                setRegistrationDraft(skippedDraft);
-                await submitChatRegistration(skippedDraft);
-                return;
-            }
-
-            const phone = normalizePhoneForRegistration(content);
-            if (!isValidRegistrationPhone(phone)) {
-                appendAssistant(
-                    'That does not look like a mobile number. Send a valid number like 09171234567, or say skip if you prefer not to add one.',
-                    { type: 'registration' }
-                );
-                return;
-            }
-            const finalDraft = { ...registrationDraft, phone, phoneSkipped: false };
-            setRegistrationDraft(finalDraft);
-            appendAssistant('Perfect. I am preparing your secure password setup link now.', { type: 'registration' });
-            await submitChatRegistration(finalDraft);
         }
     };
 
@@ -859,7 +701,8 @@ export default function ChatWidget({
         }
     };
 
-    const sendMessage = async (content: string) => {
+    const sendMessage = async (content: string, options: SendMessageOptions = {}) => {
+        const applyActions = options.applyActions !== false;
         let data: any;
         let streamStarted = false;
         let streamedReply = '';
@@ -887,22 +730,32 @@ export default function ChatWidget({
         } catch (networkErr) {
             if (streamStarted) {
                 console.error('[ChatWidget] Stream error:', networkErr);
-                throw new Error('Network error');
-            }
-
-            try {
-                const res = await api.post('/chat/message', {
-                    sessionId,
-                    message: content,
-                });
-                data = res.data;
-            } catch (fallbackErr) {
-                console.error('[ChatWidget] Network error:', fallbackErr);
-                throw new Error('Network error');
+                try {
+                    const res = await api.post('/chat/message', {
+                        sessionId,
+                        message: content,
+                    });
+                    data = res.data;
+                } catch (fallbackErr) {
+                    console.error('[ChatWidget] Fallback message error:', fallbackErr);
+                    throw new Error('Network error');
+                }
+            } else {
+                try {
+                    const res = await api.post('/chat/message', {
+                        sessionId,
+                        message: content,
+                    });
+                    data = res.data;
+                } catch (fallbackErr) {
+                    console.error('[ChatWidget] Network error:', fallbackErr);
+                    throw new Error('Network error');
+                }
             }
         }
 
         const reply = data?.reply || streamedReply || 'Sorry, I could not generate a response.';
+        syncRegistrationFromBackend(data);
 
         if (streamStarted) {
             upsertAssistantMessage(assistantId, reply);
@@ -911,14 +764,14 @@ export default function ChatWidget({
         }
         setUnread(prev => (isOpen && screen === 'chat' ? 0 : prev + 1));
 
-        if (data?.action?.type === 'open_booking' && onOpenBooking) {
+        if (applyActions && data?.action?.type === 'open_booking' && onOpenBooking) {
             onOpenBooking({ name: data.action.name, serviceName: data.action.serviceName });
         }
-        if (data?.action?.type === 'tracker_prompt') {
+        if (applyActions && data?.action?.type === 'tracker_prompt') {
             setTrackerStep('reference');
             setTrackerDraft({ bookingReference: '' });
         }
-        if (data?.leadRequired) {
+        if (applyActions && data?.leadRequired) {
             setLeadRequired(true);
             setPendingMessage(content);
         }
@@ -966,7 +819,14 @@ export default function ChatWidget({
         }
 
         if (!authed && SIGNUP_INTENT_REGEX.test(trimmed)) {
-            beginRegistration();
+            setIsSending(true);
+            try {
+                await sendMessage(trimmed);
+            } catch {
+                await beginRegistration({ triggerMessage: trimmed });
+            } finally {
+                setIsSending(false);
+            }
             return;
         }
 

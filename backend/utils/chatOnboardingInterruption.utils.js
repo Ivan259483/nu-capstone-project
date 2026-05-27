@@ -196,7 +196,7 @@ export const buildOnboardingContextualAnswer = (message = '', { step = '', draft
 
   if (/\b(phone|mobile|number|contact)\b/i.test(text) && RECALL_INTENT_REGEX.test(text)) {
     if (/\b(skip|optional|required|need)\b/i.test(text) && step === 'phone') {
-      return 'Yes — mobile number is optional. You can share one now, or say skip, none, or no number to continue without it.';
+      return 'For account creation, I do need a valid mobile number before I can send the secure setup link.';
     }
     return describeFieldValue('phone', draft);
   }

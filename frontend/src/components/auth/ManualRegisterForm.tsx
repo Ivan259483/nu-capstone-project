@@ -12,6 +12,12 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { FloatingLabelField } from "@/components/auth/FloatingLabelField";
+import {
+    PpfTermsAcceptanceDialog,
+    REGISTER_LEGAL_TOAST_MESSAGE,
+    RegisterLegalCheckboxes,
+    useRegisterLegalAcknowledgement,
+} from "@/components/auth/RegisterLegalAcknowledgement";
 import { RegisterPhoneField } from "@/components/auth/RegisterPhoneField";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -73,6 +79,7 @@ export function ManualRegisterForm({ onBack, onSignIn }: ManualRegisterFormProps
     const [successPop, setSuccessPop] = useState(false);
     const [isResending, setIsResending] = useState(false);
     const [resendCooldown, setResendCooldown] = useState(0);
+    const legal = useRegisterLegalAcknowledgement();
 
     const dial = useMemo(
         () => REGISTER_COUNTRY_DIALS.find((c) => c.iso === phoneCountryIso)?.dial ?? "63",
@@ -137,6 +144,10 @@ export function ManualRegisterForm({ onBack, onSignIn }: ManualRegisterFormProps
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!validateAll()) return;
+        if (!legal.legalAcknowledged) {
+            toast.error(REGISTER_LEGAL_TOAST_MESSAGE);
+            return;
+        }
 
         const emailNorm = email.trim().toLowerCase();
         const phoneE164 = buildRegisterE164(dial, phoneNational);
@@ -389,9 +400,19 @@ export function ManualRegisterForm({ onBack, onSignIn }: ManualRegisterFormProps
                 ) : null}
             </div>
 
+            <RegisterLegalCheckboxes
+                idPrefix="manual-reg"
+                submitActionLabel="Continue"
+                ppfTermsAgreed={legal.ppfTermsAgreed}
+                setPpfTermsAgreed={legal.setPpfTermsAgreed}
+                registerWebsiteTermsAgreed={legal.registerWebsiteTermsAgreed}
+                setRegisterWebsiteTermsAgreed={legal.setRegisterWebsiteTermsAgreed}
+                onOpenPpfTermsModal={legal.openPpfTermsModal}
+            />
+
             <Button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !legal.legalAcknowledged}
                 className="h-12 w-full rounded-2xl bg-orange-600 text-sm font-bold text-white shadow-md shadow-orange-600/25 hover:bg-orange-500 disabled:opacity-70"
             >
                 {isSubmitting ? (
@@ -411,6 +432,16 @@ export function ManualRegisterForm({ onBack, onSignIn }: ManualRegisterFormProps
                 <Mail className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-400/80" />
                 You will set your password only from the secure email link — never on this form.
             </p>
+
+            <PpfTermsAcceptanceDialog
+                open={legal.ppfTermsModalOpen}
+                onOpenChange={legal.setPpfTermsModalOpen}
+                modalBodyKey={legal.ppfTermsModalBodyKey}
+                scrolledToEnd={legal.ppfTermsModalScrolledToEnd}
+                scrollRef={legal.ppfTermsModalScrollRef}
+                onScroll={legal.checkPpfModalTermsScrollEnd}
+                onAccept={() => legal.setPpfTermsAgreed(true)}
+            />
         </form>
     );
 }

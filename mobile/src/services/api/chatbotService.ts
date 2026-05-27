@@ -70,8 +70,33 @@ export interface ChatSessionResponse {
   leadName?: string;
   leadPhone?: string;
   preferredLanguage?: 'english' | 'tagalog' | 'taglish';
+  lastDetectedLanguage?: 'english' | 'tagalog' | 'taglish';
   lastIntent?: string;
   lastTopic?: string;
+  lastAnsweredIntent?: string;
+  lastVehicleType?: string;
+  lastVehicleLabel?: string;
+  lastServiceInterest?: string;
+  lastPackageInterest?: string;
+  lastProtectionGoal?: string;
+  conversationContinuityScore?: number;
+  onboarding?: {
+    status?: 'collecting' | 'submitting' | 'sent' | 'failed';
+    step?: 'firstName' | 'lastName' | 'email' | 'phone';
+    draft?: {
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      phone?: string;
+    };
+    missingRequiredFields?: Array<'first_name' | 'last_name' | 'phone' | 'email'>;
+    nextRequiredField?: 'first_name' | 'last_name' | 'phone' | 'email' | null;
+    lastError?: string;
+    lastSuccessfulStep?: 'firstName' | 'lastName' | 'email' | 'phone' | '';
+    lastSubmittedField?: 'firstName' | 'lastName' | 'email' | 'phone' | '';
+    lastSubmittedValue?: string;
+    lastSubmittedAt?: string;
+  } | null;
   messages: ChatMessageRecord[];
 }
 
@@ -112,8 +137,17 @@ export const chatbotService = {
       leadName: data.session?.leadName,
       leadPhone: data.session?.leadPhone,
       preferredLanguage: data.session?.preferredLanguage,
+      lastDetectedLanguage: data.session?.lastDetectedLanguage,
       lastIntent: data.session?.lastIntent,
       lastTopic: data.session?.lastTopic,
+      lastAnsweredIntent: data.session?.lastAnsweredIntent,
+      lastVehicleType: data.session?.lastVehicleType,
+      lastVehicleLabel: data.session?.lastVehicleLabel,
+      lastServiceInterest: data.session?.lastServiceInterest,
+      lastPackageInterest: data.session?.lastPackageInterest,
+      lastProtectionGoal: data.session?.lastProtectionGoal,
+      conversationContinuityScore: data.session?.conversationContinuityScore,
+      onboarding: data.session?.onboarding || null,
       messages: (data.messages || []).map((m: any) => ({
         id: m.id || m._id || String(Math.random()),
         sender: m.sender,

@@ -10,7 +10,7 @@ const TAGALOG_MARKER_REGEX =
   /\b(ano|saan|nasaan|nyo|ninyo|natin|kami|kayo|ako|ko|mo|ka|po|opo|ba|naman|lang|paano|pwede|puwede|gusto|magkano|presyo|salamat|marunong|mag|kana|kasi|lokasyon|oras|bukas|sarado|taga|dito|dyan|iyan|yan)\b/i;
 
 const ENGLISH_MARKER_REGEX =
-  /\b(location|address|price|pricing|quote|service|services|package|packages|book|booking|schedule|hours|contact|phone|open|where|how|what|you|your|can|do|does|is|are|the|my)\b/i;
+  /\b(location|loc|address|price|pricing|quote|service|services|package|packages|book|booking|schedule|hours|contact|phone|open|where|how|what|you|your|can|do|does|is|are|the|my)\b/i;
 
 const LANGUAGE_SWITCH_PATTERNS = [
   {
@@ -52,14 +52,14 @@ const DIRECT_INTENT_PATTERNS = [
     topic: 'location',
     confidence: 0.98,
     pattern:
-      /\b(location|address|where\s+(are\s+you|is\s+(the\s+)?(shop|studio|branch)|located)|saan|nasaan|lokasyon|map|directions?|marcos|las\s*pi(?:ñ|n)as)\b/i,
+      /\b(location|loc(?:ation)?\s*(nyo|niyo|mo)?|address|where\s+(are\s+you|is\s+(the\s+)?(shop|studio|branch)|located)|saan|san\s+(kayo|shop|branch)|nasaan|lokasyon|map|directions?|marcos|las\s*pi(?:ñ|n)as)\b/i,
   },
   {
     intent: 'hours',
     topic: 'hours',
     confidence: 0.94,
     pattern:
-      /\b(hours?|business\s+hours?|operating\s+hours?|opening|closing|oras|bukas|sarado|anong\s+oras|what\s+time|are\s+you\s+open|shop\s+open|open\s+ba|bukas\s+ba)\b/i,
+      /\b(hours?|business\s+hours?|operating\s+hours?|opening|closing|oras|bukas|sarado|anong\s+oras|what\s+time|are\s+you\s+open|shop\s+open|open\s+(kayo|ba|today)?|bukas\s+ba|open\s+today)\b/i,
   },
   {
     intent: 'contact',
@@ -80,23 +80,136 @@ const DIRECT_INTENT_PATTERNS = [
     topic: 'booking',
     confidence: 0.9,
     pattern:
-      /\b(book|booking|schedule|appointment|reserve|book\s+now|paano\s+mag[\s-]*book|pa[\s-]*book|mag[\s-]*book|appointment)\b/i,
+      /\b(book|booking|schedule|appointment|reserve|slot|book\s+now|paano\s+mag[\s-]*book|pa[\s-]*book|mag[\s-]*book|appointment|pa\s*schedule)\b/i,
   },
   {
     intent: 'pricing',
     topic: 'pricing',
     confidence: 0.9,
     pattern:
-      /\b(price|price\s*list|pricelist|rate|rates|cost|quote|quotation|estimate|pricing|magkano|presyo|how\s+much)\b/i,
+      /\b(price|price\s*list|pricelist|rate|rates|cost|quote|quotation|estimate|pricing|magkano|presyo|how\s+much|hm\b|how\s+much\s+(is|for)?|price\s+(ceramic|coating|ppf|spf|tint|detail))\b/i,
+  },
+  {
+    intent: 'service_comparison',
+    topic: 'services',
+    confidence: 0.88,
+    pattern:
+      /\b(ppf|paint\s+protection)\b[\s\S]{0,50}\b(ceramic|coating)\b|\b(ceramic|coating)\b[\s\S]{0,50}\b(ppf|paint\s+protection)\b|\b(compare|comparison|difference|versus|vs\.?)\b[\s\S]{0,50}\b(ppf|ceramic|coating)\b/i,
+  },
+  {
+    intent: 'package_comparison',
+    topic: 'packages',
+    confidence: 0.88,
+    pattern:
+      /\b(compare|comparison|difference)\b[\s\S]{0,50}\b(packages?|spf\s*(80|89|99|101))\b|\b(packages?|spf\s*(80|89|99|101))\b[\s\S]{0,50}\b(compare|comparison|difference|versus|vs\.?)\b|\b(ano\s+(pinagkaiba|difference)|which\s+is\s+better|spf\s*80[\s\S]{0,40}spf\s*(89|99|101)|spf\s*(89|99)[\s\S]{0,40}spf\s*101)\b/i,
+  },
+  {
+    intent: 'package_recommendation',
+    topic: 'packages',
+    confidence: 0.88,
+    pattern:
+      /\b(recommend|recommendation|best\s+(package|fit|option)|which\s+package|what\s+package|package\s+(fits?|bagay|recommended)|anong\s+(package|bagay|best)|ano\s+best|fit\s+best|suggest)\b/i,
+  },
+  {
+    intent: 'maintenance',
+    topic: 'maintenance',
+    confidence: 0.84,
+    pattern:
+      /\b(maintenance|maintain|aftercare|care\s+tips|wash\s+after|car\s+wash|paano\s+alagaan|alaga|linis|cleaning|cure|curing|warranty)\b/i,
+  },
+  {
+    intent: 'payment_issue',
+    topic: 'support',
+    confidence: 0.84,
+    pattern:
+      /\b(payment|paid|gcash|receipt|charge|deposit|down[\s-]?payment)\b[\s\S]{0,50}\b(issue|problem|wrong|failed|missing|error|not\s+(showing|received))\b/i,
+  },
+  {
+    intent: 'vehicle_context',
+    topic: 'vehicle',
+    confidence: 0.82,
+    pattern:
+      /\b(my\s+(car|vehicle|ride|unit)\s+(is|=)|car\s+ko|kotse\s+ko|sasakyan\s+ko|i\s+have\s+(a|an)?|vehicle\s*[:=]|civic|vios|altis|fortuner|montero|terra|everest|innova|hilux|ranger|navara|brio|mirage)\b/i,
+  },
+  {
+    intent: 'service_info',
+    topic: 'services',
+    confidence: 0.86,
+    pattern:
+      /\b(spf|ppf|paint\s+protection|ceramic|coating|detailing|detail|tint|undercoat|undercoating|graphene|sonax|protection\s+film|nano\s+ceramic)\b/i,
   },
   {
     intent: 'services',
     topic: 'services',
     confidence: 0.88,
     pattern:
-      /\b(services?|packages?|menu|offer|ano\s+(ang\s+)?services?|ano\s+(offer|package)|ceramic|coating|ppf|paint\s+protection|detailing|detail|tint|undercoat|undercoating)\b/i,
+      /\b(services?|packages?|menu|offer|promo|ano\s+(ang\s+)?services?|ano\s+(offer|package)|package\s+(nyo|niyo|mo)|services\s+(nyo|niyo))\b/i,
   },
 ];
+
+const BUSINESS_INTENT_PATTERNS = [
+  {
+    intent: 'account_registration',
+    topic: 'account',
+    confidence: 0.92,
+    pattern:
+      /\b(create|make|open|start|set\s*up|setup|register|sign\s*up|signup)\b[\s\S]{0,60}\b(account|acct|acc|profile)\b|\b(register\s+me|sign\s+me\s+up|signup\s+ako|pa\s*register)\b|\b(gawan|gawa|gumawa|igawa|iregister|i-register)\b[\s\S]{0,60}\b(ako|mo|account|acct|acc|profile)\b|\b(gawa|create)\s+(acc|acct|account)\b/i,
+  },
+  {
+    intent: 'human_handoff',
+    topic: 'support',
+    confidence: 0.9,
+    pattern:
+      /\b(talk\s+to\s+(a\s+)?(human|person|agent|representative|specialist|staff)|speak\s+to\s+(a\s+)?(human|person|agent|representative)|live\s+(agent|support|person|help)|connect\s+me\s+(to|with)\s+(a\s+)?(human|agent|specialist|person|representative)|kausapin\s+ang\s+(tao|agent))\b/i,
+  },
+  ...DIRECT_INTENT_PATTERNS,
+];
+
+const SERVICE_INTEREST_PATTERNS = [
+  { service: 'SPF Ceramic Coating', topic: 'ceramic coating', pattern: /\b(spf|ceramic|coating|graphene|sonax)\b/i },
+  { service: 'Paint Protection Film (PPF)', topic: 'ppf', pattern: /\b(ppf|paint\s+protection\s+film|protection\s+film|clear\s+bra)\b/i },
+  { service: 'Nano Ceramic Window Tint', topic: 'tint', pattern: /\b(tint|window\s+tint|nano\s+ceramic\s+tint)\b/i },
+  { service: 'Detailing', topic: 'detailing', pattern: /\b(detailing|detail|interior\s+detailing|engine\s+(wash|detailing)|wash)\b/i },
+  { service: 'Undercoating', topic: 'undercoating', pattern: /\b(undercoat|undercoating)\b/i },
+  { service: 'Paintless Dent Repair', topic: 'pdr', pattern: /\b(pdr|paintless\s+dent|dent\s+repair)\b/i },
+];
+
+const PACKAGE_INTEREST_PATTERNS = [
+  { packageKey: 'spf101', label: 'SPF 101', pattern: /\bspf\s*[-_ ]?101\b|\ball[\s-]?in\b|\bflagship\b/i },
+  { packageKey: 'spf99', label: 'SPF 99', pattern: /\bspf\s*[-_ ]?99\b|\bpremium\b/i },
+  { packageKey: 'spf89', label: 'SPF 89', pattern: /\bspf\s*[-_ ]?89\b|\badvanced\b/i },
+  { packageKey: 'spf80', label: 'SPF 80', pattern: /\bspf\s*[-_ ]?80\b|\bessential\b/i },
+];
+
+const PROTECTION_GOAL_PATTERNS = [
+  { goal: 'maximum protection', pattern: /\b(max(?:imum)?\s+protection|long[\s-]?term|10\s*years?|best\s+protection|ultimate|all[\s-]?in)\b/i },
+  { goal: 'daily gloss and hydrophobic protection', pattern: /\b(gloss|shine|kintab|hydrophobic|daily|everyday)\b/i },
+  { goal: 'scratch and chip protection', pattern: /\b(scratch|scratches|chips?|stone\s+chip|gasgas|road\s+debris)\b/i },
+  { goal: 'heat and privacy tint', pattern: /\b(heat|privacy|init|tint)\b/i },
+  { goal: 'interior refresh', pattern: /\b(interior|amoy|odor|linis\s+loob|seats?)\b/i },
+];
+
+const ONBOARDING_BUSINESS_SIDE_INTENTS = new Set([
+  'location',
+  'hours',
+  'contact',
+  'tracker',
+  'booking',
+  'pricing',
+  'services',
+  'service_info',
+  'service_comparison',
+  'package_recommendation',
+  'package_comparison',
+  'maintenance',
+  'payment_issue',
+]);
+
+const ONBOARDING_ACCOUNT_FIELD_QUESTION_REGEX =
+  /\b(my|ko|use|provide|enter|send|should\s+i|should\s+we|for\s+setup|setup\s+link|secure\s+link)\b[\s\S]{0,60}\b(email|e-?mail|phone|mobile|number|contact|name|pangalan)\b|\b(email|e-?mail|phone|mobile|number|contact|name|pangalan)\b[\s\S]{0,60}\b(my|ko|use|provide|enter|send|should\s+i|should\s+we|for\s+setup|setup\s+link|secure\s+link)\b/i;
+
+const SHOP_CONTACT_QUESTION_REGEX =
+  /\b(nyo|niyo|ninyo|your|shop|studio|branch|autospf|contact\s+number|phone\s+number\s+nyo|number\s+nyo)\b/i;
 
 export const normalizeLanguagePreference = (language) => {
   const normalized = String(language || '').trim().toLowerCase();
@@ -151,6 +264,43 @@ export const detectDirectAnswerIntent = (message = '') => {
   return match ? { intent: match.intent, topic: match.topic, confidence: match.confidence } : null;
 };
 
+export const detectBusinessConversationIntent = (message = '') => {
+  const text = String(message || '').trim();
+  if (!text) return null;
+
+  const match = BUSINESS_INTENT_PATTERNS.find((entry) => entry.pattern.test(text));
+  return match ? { intent: match.intent, topic: match.topic, confidence: match.confidence } : null;
+};
+
+export const isBusinessSideQuestionForOnboarding = (message = '') => {
+  const intent = detectDirectAnswerIntent(message);
+  if (intent?.intent === 'contact' && ONBOARDING_ACCOUNT_FIELD_QUESTION_REGEX.test(message) && !SHOP_CONTACT_QUESTION_REGEX.test(message)) {
+    return false;
+  }
+  return Boolean(intent && ONBOARDING_BUSINESS_SIDE_INTENTS.has(intent.intent));
+};
+
+export const detectServiceInterestFromMessage = (message = '') => {
+  const text = String(message || '').trim();
+  if (!text) return null;
+  const match = SERVICE_INTEREST_PATTERNS.find((entry) => entry.pattern.test(text));
+  return match ? { service: match.service, topic: match.topic } : null;
+};
+
+export const detectPackageInterestFromMessage = (message = '') => {
+  const text = String(message || '').trim();
+  if (!text) return null;
+  const match = PACKAGE_INTEREST_PATTERNS.find((entry) => entry.pattern.test(text));
+  return match ? { packageKey: match.packageKey, label: match.label } : null;
+};
+
+export const detectProtectionGoalFromMessage = (message = '') => {
+  const text = String(message || '').trim();
+  if (!text) return null;
+  const match = PROTECTION_GOAL_PATTERNS.find((entry) => entry.pattern.test(text));
+  return match ? match.goal : null;
+};
+
 export const isFallbackRecentlyUsed = (session = {}, cooldownMs = 2 * 60 * 1000) => {
   if (!session?.lastFallbackAt) return false;
   const lastAt = new Date(session.lastFallbackAt).getTime();
@@ -175,6 +325,29 @@ export const buildUnsupportedLanguageReply = (preferredLanguage = CHAT_LANGUAGES
     taglish:
       'English and Tagalog ang best supported ko ngayon, pero I can still help you with AutoSPF+ services.',
   });
+
+export const buildBusinessScopeRedirectReply = ({
+  language = CHAT_LANGUAGES.ENGLISH,
+  lastTopic = '',
+  fallbackRecentlyUsed = false,
+} = {}) => {
+  if (fallbackRecentlyUsed) {
+    return t(language, {
+      english:
+        'Let us keep this focused on AutoSPF+. I can help with services, pricing, bookings, packages, tracker, location, or vehicle protection.',
+      tagalog:
+        'I-focus natin sa AutoSPF+. Matutulungan kita sa services, pricing, booking, packages, tracker, location, o vehicle protection.',
+      taglish:
+        'Let us keep this focused on AutoSPF+. I can help with services, pricing, booking, packages, tracker, location, or vehicle protection.',
+    });
+  }
+
+  return t(language, {
+    english: `I'm focused on helping with AutoSPF+ services, bookings, coatings, detailing, pricing, and vehicle protection.${lastTopic ? ` We can continue with ${lastTopic}, or I can recommend a package for your vehicle.` : ' I can recommend the best package for your vehicle.'}`,
+    tagalog: `Nakatuon ako sa AutoSPF+ services, bookings, coatings, detailing, pricing, at vehicle protection.${lastTopic ? ` Pwede nating ituloy ang ${lastTopic}, o mag-recommend ako ng package para sa vehicle mo.` : ' Pwede kitang tulungan pumili ng best package para sa vehicle mo.'}`,
+    taglish: `I'm focused on AutoSPF+ services, bookings, coatings, detailing, pricing, and vehicle protection.${lastTopic ? ` We can continue with ${lastTopic}, or I can recommend a package for your vehicle.` : ' I can recommend the best package for your vehicle.'}`,
+  });
+};
 
 export const buildContextualFallbackReply = ({
   language = CHAT_LANGUAGES.ENGLISH,

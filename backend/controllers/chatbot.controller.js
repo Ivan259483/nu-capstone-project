@@ -15,6 +15,7 @@ import {
   buildCompleteServicePriceListReply,
   buildOtherServicesSummary,
   buildSpfPricingKnowledge,
+  detectVehicleProfileFromMessage,
   detectVehicleTypeFromMessage,
   getVehicleLabel,
   isAutoSpfScopeMessage,
@@ -22,25 +23,33 @@ import {
 } from '../services/chatbotKnowledge.service.js';
 import {
   applyReplyDeduplication,
-  buildContextualFallbackReply,
+  buildBusinessScopeRedirectReply,
   buildLanguageSwitchReply,
   buildUnsupportedLanguageReply,
+  detectBusinessConversationIntent,
   detectDirectAnswerIntent,
   detectLanguageSwitch,
   detectMessageLanguage,
+  detectPackageInterestFromMessage,
+  detectProtectionGoalFromMessage,
+  detectServiceInterestFromMessage,
   detectUnsupportedLanguageRequest,
   isFallbackRecentlyUsed,
   resolveConversationLanguage,
   updateConversationMemoryForReply,
 } from '../services/chatbotIntelligence.service.js';
 import {
-  normalizeChatRegistrationEmail,
-  normalizeNamePart,
   startChatRegistrationForCustomer,
   validateChatRegistrationEmail,
   validateChatRegistrationPhone,
   validateNamePart,
 } from '../services/chatRegistration.service.js';
+import {
+  buildCollectedOnboardingFields,
+  getMissingRequiredOnboardingFields,
+  ONBOARDING_SEMANTIC_CONFIDENCE_THRESHOLD,
+  analyzeOnboardingMessage,
+} from '../services/chatOnboardingSemantic.service.js';
 import { extractActionChipsFromReply, sanitizeChatReply } from '../utils/chatReplyFormat.utils.js';
 import {
   buildChatAiFallbackReply,
@@ -58,24 +67,12 @@ import {
 import {
   buildCorrectionConfirmedReply,
   buildCorrectionNeedsValueReply,
-  buildUnresolvedCorrectionReply,
-  clearOnboardingFieldsAfter,
   CORRECTION_INTENT_REGEX,
-  extractEmailCandidate,
-  extractPhoneCandidate,
-  hasCorrectionIntent,
   normalizeLeadPhone,
-  parseOnboardingCorrection,
 } from '../utils/chatOnboardingCorrection.utils.js';
 import {
   buildOnboardingInterruptionReply,
-  isOnboardingContextualQuestion,
 } from '../utils/chatOnboardingInterruption.utils.js';
-import {
-  buildOnboardingSkipCompletionReply,
-  isSkipOptionalFieldIntent,
-  markOnboardingFieldSkipped,
-} from '../utils/chatOnboardingSkip.utils.js';
 
 const GROQ_MODEL = GROQ_CHAT_MODEL;
 const GROQ_MAX_COMPLETION_TOKENS = Number(process.env.GROQ_CHAT_MAX_TOKENS || 190);
@@ -97,6 +94,7 @@ const ACCOUNT_CREATE_INTENT_REGEX = /\b(create|make|open|start|set\s*up|setup|re
 const TRACKER_INTENT_REGEX = /\b(track|tracker|tracking|status|where\s+is\s+my\s+(car|vehicle)|live\s+tracker|order\s+status|repair\s+status)\b/i;
 const CORRECTION_EMAIL_REGEX = /[^\s@]+@[^\s@]+\.[^\s@]+/i;
 const CORRECTION_PHONE_REGEX = /(?:\+?63|0)?9\d{9}\b/;
+const PASSWORD_IN_CHAT_REGEX = /\b(password|passcode|pwd|set\s+my\s+pass|temporary\s+password|new\s+password|confirm\s+password)\b/i;
 const TRACKER_REFERENCE_PROMPT = 'Sure! Please enter your Appointment Reference Number to pull up your status.\nIt looks like this: ASPF-XXXXXX-XXXX\nYou can find it in your booking confirmation screen or email.';
 const TRACKER_TOKEN_PURPOSE = 'public_tracker';
 const TRACKER_TOKEN_EXPIRES_IN = '1h';
@@ -292,7 +290,13 @@ const persistSessionLater = (session, label = 'persist chat session') => {
       'source',
       'lastIntent',
       'lastVehicleType',
+      'lastVehicleMake',
+      'lastVehicleModel',
+      'lastVehicleLabel',
       'lastServiceInterest',
+      'lastPackageInterest',
+      'lastProtectionGoal',
+      'lastBookingIntentAt',
       'preferredLanguage',
       'lastDetectedLanguage',
       'lastTopic',
@@ -326,6 +330,8 @@ const persistSessionLater = (session, label = 'persist chat session') => {
 };
 
 const inferIntent = (message = '') => {
+  const businessIntent = detectBusinessConversationIntent(message);
+  if (businessIntent?.intent) return businessIntent.intent;
   if (TRACKER_INTENT_REGEX.test(message)) return 'tracker';
   if (BOOKING_INTENT_REGEX.test(message)) return 'booking';
   if (QUOTE_INTENT_REGEX.test(message)) return 'quote';
@@ -336,7 +342,19 @@ const inferIntent = (message = '') => {
 
 const updateSessionMemory = (
   session,
-  { intent, vehicleType, serviceInterest, preferredLanguage, detectedLanguage, topic, answeredIntent } = {}
+  {
+    intent,
+    vehicleType,
+    vehicleProfile,
+    serviceInterest,
+    packageInterest,
+    protectionGoal,
+    bookingIntentAt,
+    preferredLanguage,
+    detectedLanguage,
+    topic,
+    answeredIntent,
+  } = {}
 ) => {
   let changed = false;
   if (intent && session.lastIntent !== intent) {
@@ -347,8 +365,36 @@ const updateSessionMemory = (
     session.lastVehicleType = vehicleType;
     changed = true;
   }
+  if (vehicleProfile?.vehicleType && session.lastVehicleType !== vehicleProfile.vehicleType) {
+    session.lastVehicleType = vehicleProfile.vehicleType;
+    changed = true;
+  }
+  if (vehicleProfile?.make && session.lastVehicleMake !== vehicleProfile.make) {
+    session.lastVehicleMake = vehicleProfile.make;
+    changed = true;
+  }
+  if (vehicleProfile?.model && session.lastVehicleModel !== vehicleProfile.model) {
+    session.lastVehicleModel = vehicleProfile.model;
+    changed = true;
+  }
+  if (vehicleProfile?.label && session.lastVehicleLabel !== vehicleProfile.label) {
+    session.lastVehicleLabel = vehicleProfile.label;
+    changed = true;
+  }
   if (serviceInterest && session.lastServiceInterest !== serviceInterest) {
     session.lastServiceInterest = serviceInterest;
+    changed = true;
+  }
+  if (packageInterest && session.lastPackageInterest !== packageInterest) {
+    session.lastPackageInterest = packageInterest;
+    changed = true;
+  }
+  if (protectionGoal && session.lastProtectionGoal !== protectionGoal) {
+    session.lastProtectionGoal = protectionGoal;
+    changed = true;
+  }
+  if (bookingIntentAt && String(session.lastBookingIntentAt || '') !== String(bookingIntentAt)) {
+    session.lastBookingIntentAt = bookingIntentAt;
     changed = true;
   }
   if (preferredLanguage && session.preferredLanguage !== preferredLanguage) {
@@ -419,40 +465,50 @@ const buildCorrectionReply = (correction, session) => {
 };
 
 const isActiveOnboardingSession = (session) =>
-  session?.onboarding?.status === 'collecting' && !!session?.onboarding?.step;
+  ['collecting', 'failed'].includes(session?.onboarding?.status) && !!session?.onboarding?.step;
 
 const getOnboardingDraft = (session) => ({
   firstName: session?.onboarding?.draft?.firstName || '',
   lastName: session?.onboarding?.draft?.lastName || '',
   email: session?.onboarding?.draft?.email || '',
   phone: session?.onboarding?.draft?.phone || '',
-  phoneSkipped: Boolean(session?.onboarding?.draft?.phoneSkipped),
 });
 
-const getNextOnboardingStep = (draft = {}) => {
-  if (!draft.firstName) return 'firstName';
-  if (!draft.lastName) return 'lastName';
-  if (!draft.email) return 'email';
-  if (!draft.phone && !draft.phoneSkipped) return 'phone';
-  return null;
+const SEMANTIC_FIELD_TO_STEP = {
+  first_name: 'firstName',
+  last_name: 'lastName',
+  email: 'email',
+  phone: 'phone',
 };
 
-const extractNameCandidate = (message = '') =>
-  normalizeNamePart(
-    String(message || '')
-      .replace(/^(my\s+name\s+is|name\s+is|i'?m|im|ako\s+si|si)\s+/i, '')
-  );
+const STEP_TO_SEMANTIC_FIELD = {
+  firstName: 'first_name',
+  lastName: 'last_name',
+  email: 'email',
+  phone: 'phone',
+};
+
+const getOnboardingStepFromSemanticField = (field) => SEMANTIC_FIELD_TO_STEP[field] || null;
+
+const getOnboardingMissingFields = (draft = {}) => getMissingRequiredOnboardingFields(draft);
+
+const getNextOnboardingStep = (draft = {}) => {
+  const [firstMissingField] = getOnboardingMissingFields(draft);
+  return getOnboardingStepFromSemanticField(firstMissingField);
+};
 
 const ONBOARDING_PROMPTS = {
   firstName: "To get started, what's your first name?",
   lastName: "Thanks. What's your last name?",
+  phone: 'What mobile number should we place on your account?',
   email: 'What email address should we use for your secure setup link?',
-  phone: 'Optional: what mobile number should we place on your account? You can say skip if you prefer.',
 };
 
-const beginAccountOnboarding = async (session, { intentSource = 'deterministic' } = {}) => {
+const beginAccountOnboarding = async (session, { intentSource = 'groq', analysis = null } = {}) => {
   const draft = getOnboardingDraft(session);
-  const step = getNextOnboardingStep(draft) || 'firstName';
+  const missingRequiredFields = getOnboardingMissingFields(draft);
+  const groqStep = getOnboardingStepFromSemanticField(analysis?.nextRequiredField);
+  const step = groqStep || getNextOnboardingStep(draft) || 'firstName';
 
   session.onboarding = {
     status: 'collecting',
@@ -464,21 +520,44 @@ const beginAccountOnboarding = async (session, { intentSource = 'deterministic' 
   };
   await session.save();
 
+  const canUseGroqReply =
+    analysis?.reply
+    && analysis?.nextRequiredField
+    && STEP_TO_SEMANTIC_FIELD[step] === analysis.nextRequiredField;
+  const reply = canUseGroqReply
+    ? analysis.reply
+    : `Absolutely — I'll help you create your AutoSPF+ account.\n\n${ONBOARDING_PROMPTS[step]}`;
+
   return {
-    reply: sanitizeChatReply(
-      `Absolutely — I'll help you create your AutoSPF+ account.\n\n${ONBOARDING_PROMPTS[step]}`
-    ),
-    metadata: { type: 'account_onboarding_started', intentSource },
+    reply: sanitizeChatReply(reply),
+    metadata: {
+      type: 'account_onboarding_started',
+      intentSource,
+      onboardingStep: step,
+      onboardingStatus: 'collecting',
+      missingRequiredFields,
+      nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+      semanticIntent: analysis?.intent,
+      semanticConfidence: analysis?.confidence,
+      semanticSource: analysis?.source,
+    },
   };
 };
 
-const completeAccountOnboarding = async (session, draft, { skippedField } = {}) => {
+const completeAccountOnboarding = async (session, draft, { submittedField = '', submittedValue = '' } = {}) => {
+  const finalSubmittedField = submittedField || session.onboarding?.lastSubmittedField || 'email';
+  const finalSubmittedValue = submittedValue || draft[finalSubmittedField] || '';
+  const submittedAt = new Date();
   session.onboarding = {
     ...session.onboarding,
     status: 'submitting',
     step: undefined,
     draft,
     lastError: undefined,
+    lastSuccessfulStep: finalSubmittedField,
+    lastSubmittedField: finalSubmittedField,
+    lastSubmittedValue: finalSubmittedValue,
+    lastSubmittedAt: submittedAt,
   };
   await session.save();
 
@@ -492,6 +571,10 @@ const completeAccountOnboarding = async (session, draft, { skippedField } = {}) 
       step: 'email',
       lastError: error?.message || 'Account setup failed.',
       draft,
+      lastSuccessfulStep: finalSubmittedField,
+      lastSubmittedField: finalSubmittedField,
+      lastSubmittedValue: finalSubmittedValue,
+      lastSubmittedAt: submittedAt,
     };
     await session.save();
 
@@ -499,7 +582,7 @@ const completeAccountOnboarding = async (session, draft, { skippedField } = {}) 
       reply: error?.emailError
         ? 'I saved the account details, but the secure setup email could not be sent right now. Please send your email again in a moment and I will retry it here.'
         : 'I could not complete the account setup yet. Please check the details and try again.',
-      metadata: { type: 'account_onboarding_failed' },
+      metadata: { type: 'account_onboarding_failed', onboardingStep: 'email', onboardingStatus: session.onboarding.status },
     };
   }
 
@@ -510,12 +593,16 @@ const completeAccountOnboarding = async (session, draft, { skippedField } = {}) 
       step: 'email',
       lastError: result.message,
       draft,
+      lastSuccessfulStep: finalSubmittedField,
+      lastSubmittedField: finalSubmittedField,
+      lastSubmittedValue: finalSubmittedValue,
+      lastSubmittedAt: submittedAt,
     };
     await session.save();
 
     return {
       reply: result.message || 'I could not complete the account setup yet. Please check the details and try again.',
-      metadata: { type: 'account_onboarding_failed' },
+      metadata: { type: 'account_onboarding_failed', onboardingStep: 'email', onboardingStatus: 'failed' },
     };
   }
 
@@ -533,138 +620,32 @@ const completeAccountOnboarding = async (session, draft, { skippedField } = {}) 
     },
     completedAt: new Date(),
     lastError: undefined,
+    lastSuccessfulStep: finalSubmittedField,
+    lastSubmittedField: finalSubmittedField,
+    lastSubmittedValue: finalSubmittedValue,
+    lastSubmittedAt: submittedAt,
   };
   await session.save();
 
-  const usedSkipReply = skippedField === 'phone' || draft.phoneSkipped;
-  const reply = usedSkipReply
-    ? buildOnboardingSkipCompletionReply(
-        { ...draft, email: result.data?.email || draft.email },
-        { skippedField: 'phone' }
-      )
-    : "We've sent a secure setup link to your email address. Please check your inbox to continue creating your password and activate your AutoSPF+ account.";
+  const reply = "We've sent a secure setup link to your email address. Please check your inbox to continue creating your password and activate your AutoSPF+ account.";
 
   return {
     reply: sanitizeChatReply(reply),
     metadata: {
       type: 'account_onboarding_complete',
+      onboardingStatus: 'sent',
       email: result.data?.email || draft.email,
-      skippedField: usedSkipReply ? 'phone' : undefined,
+      missingRequiredFields: [],
+      nextRequiredField: null,
     },
-  };
-};
-
-const applyOnboardingCorrection = async (session, message, { draft, step }) => {
-  const correction = parseOnboardingCorrection(message, { step, draft });
-  if (!correction) {
-    if (hasCorrectionIntent(message)) {
-      return {
-        reply: buildUnresolvedCorrectionReply(),
-        metadata: { type: 'account_onboarding_correction_unresolved' },
-      };
-    }
-    return null;
-  }
-
-  if (correction.needsValue) {
-    session.onboarding = {
-      status: 'collecting',
-      step: correction.field,
-      intent: 'CREATE_ACCOUNT',
-      draft,
-      startedAt: session.onboarding?.startedAt || new Date(),
-      lastError: undefined,
-    };
-    await session.save();
-
-    return {
-      reply: buildCorrectionNeedsValueReply(correction.field),
-      metadata: { type: 'account_onboarding_correction_prompt', field: correction.field },
-    };
-  }
-
-  let nextDraft = clearOnboardingFieldsAfter(draft, correction.field);
-
-  if (correction.field === 'firstName' || correction.field === 'lastName') {
-    const result = validateNamePart(
-      correction.value,
-      correction.field === 'firstName' ? 'first name' : 'last name'
-    );
-    if (!result.ok) {
-      return {
-        reply: result.message,
-        metadata: { type: 'account_onboarding_correction', field: correction.field },
-      };
-    }
-    nextDraft[correction.field] = result.value;
-  }
-
-  if (correction.field === 'email') {
-    const result = validateChatRegistrationEmail(correction.value);
-    if (!result.ok) {
-      return {
-        reply: 'Got it, but that email does not look quite right. Please send the correct email address again.',
-        metadata: { type: 'account_onboarding_correction', field: 'email' },
-      };
-    }
-    nextDraft.email = result.value;
-  }
-
-  if (correction.field === 'phone') {
-    const result = validateChatRegistrationPhone(correction.value);
-    if (!result.ok) {
-      return {
-        reply: 'Got it, but that mobile number does not look quite right. Please send it like 09171234567 or +639171234567.',
-        metadata: { type: 'account_onboarding_correction', field: 'phone' },
-      };
-    }
-    nextDraft.phone = result.value;
-  }
-
-  const nextStep = getNextOnboardingStep(nextDraft);
-  if (!nextStep) {
-    const completion = await completeAccountOnboarding(session, nextDraft);
-    const confirmedValue = nextDraft[correction.field];
-    return {
-      ...completion,
-      reply: buildCorrectionConfirmedReply({
-        field: correction.field,
-        value: confirmedValue,
-        nextPrompt: completion.reply,
-      }),
-    };
-  }
-
-  const nextPrompt =
-    nextStep === 'lastName' && nextDraft.firstName
-      ? `Thanks, ${nextDraft.firstName}. ${ONBOARDING_PROMPTS.lastName}`
-      : ONBOARDING_PROMPTS[nextStep];
-
-  session.onboarding = {
-    status: 'collecting',
-    step: nextStep,
-    intent: 'CREATE_ACCOUNT',
-    draft: nextDraft,
-    startedAt: session.onboarding?.startedAt || new Date(),
-    lastError: undefined,
-  };
-  await session.save();
-
-  return {
-    reply: buildCorrectionConfirmedReply({
-      field: correction.field,
-      value: nextDraft[correction.field],
-      nextPrompt,
-    }),
-    metadata: { type: 'account_onboarding_correction', field: correction.field, step: nextStep },
   };
 };
 
 const ONBOARDING_RESUME_PROMPTS = {
   firstName: "what's your first name?",
   lastName: "what's your last name?",
+  phone: 'what mobile number should we place on your account?',
   email: 'what email address should we use for your secure setup link?',
-  phone: 'what mobile number should we place on your account? (Optional — say skip if you prefer.)',
 };
 
 const buildOnboardingResumePrompt = (step, draft = {}) => {
@@ -676,123 +657,586 @@ const buildOnboardingResumePrompt = (step, draft = {}) => {
   return `Now, ${text}`;
 };
 
-const handleOnboardingInterruption = (message, { draft, step }) => {
-  if (!isOnboardingContextualQuestion(message, { step })) {
-    return null;
+const handleOnboardingBusinessInterruption = async (
+  session,
+  message,
+  { draft, step, sessionId, language, wantsPriceList, semanticIntent, semanticConfidence } = {}
+) => {
+  const semanticDirectIntent = {
+    ASK_LOCATION: { intent: 'location', topic: 'location' },
+    ASK_PRICING: { intent: 'pricing', topic: 'pricing' },
+    ASK_SERVICES: { intent: 'services', topic: 'services' },
+    ASK_HOURS: { intent: 'hours', topic: 'hours' },
+  }[semanticIntent];
+  const intentInfo = semanticDirectIntent
+    ? { ...semanticDirectIntent, confidence: semanticConfidence || 0.9 }
+    : detectDirectAnswerIntent(message);
+  if (!intentInfo) return null;
+
+  const vehicleProfile = detectVehicleProfileFromMessage(message);
+  const vehicleContextKey = await resolveVehicleContext(sessionId, message, session);
+
+  if (vehicleProfile || vehicleContextKey) {
+    updateSessionMemory(session, {
+      vehicleProfile,
+      vehicleType: vehicleContextKey,
+    });
   }
 
-  const reply = buildOnboardingInterruptionReply({
-    message,
+  const directAnswer = await buildDirectAnswerReply({
+    intentInfo,
+    language,
+    vehicleContextKey,
+    wantsPriceList,
+    session,
+    vehicleProfile,
+  });
+
+  if (!directAnswer?.reply) return null;
+
+  return {
+    reply: sanitizeChatReply(`${directAnswer.reply}\n\n${buildOnboardingResumePrompt(step, draft)}`),
+    metadata: {
+      type: 'account_onboarding_business_interruption',
+      intent: directAnswer.metadata.intent,
+      topic: directAnswer.metadata.topic,
+      confidence: directAnswer.metadata.confidence,
+      step,
+      resumeStep: step,
+    },
+    action: null,
+  };
+};
+
+const SEMANTIC_FIELD_TO_DRAFT_FIELD = {
+  first_name: 'firstName',
+  last_name: 'lastName',
+  email: 'email',
+  phone: 'phone',
+};
+
+const SEMANTIC_FIELD_LABELS = {
+  first_name: 'first name',
+  last_name: 'last name',
+  email: 'email address',
+  phone: 'mobile number',
+};
+
+const SEMANTIC_UPDATE_INTENTS = new Set([
+  'UPDATE_FIRST_NAME',
+  'UPDATE_LAST_NAME',
+  'UPDATE_EMAIL',
+  'UPDATE_PHONE',
+]);
+
+const SEMANTIC_CONFIRM_INTENTS = new Set([
+  'CONFIRM_PREVIOUS_FIRST_NAME',
+  'CONFIRM_PREVIOUS_LAST_NAME',
+  'CONFIRM_PREVIOUS_EMAIL',
+  'CONFIRM_PREVIOUS_PHONE',
+]);
+
+const SEMANTIC_BUSINESS_INTENTS = new Set([
+  'ASK_LOCATION',
+  'ASK_PRICING',
+  'ASK_SERVICES',
+  'ASK_HOURS',
+]);
+
+const buildSemanticMetadata = (analysis = {}, extra = {}) => ({
+  semanticIntent: analysis.intent,
+  semanticConfidence: analysis.confidence,
+  semanticField: analysis.field || undefined,
+  semanticSource: analysis.source,
+  semanticLanguage: analysis.language,
+  semanticRecommendedAction: analysis.recommendedAction || undefined,
+  nextRequiredField: analysis.nextRequiredField || undefined,
+  duplicate: Boolean(analysis.duplicate) || undefined,
+  clarificationRequired: false,
+  ...extra,
+});
+
+const buildLowConfidenceOnboardingReply = (analysis = {}, { step = '', draft = {} } = {}) => {
+  if (analysis.reply) return sanitizeChatReply(analysis.reply);
+  if (analysis.clarificationQuestion) return sanitizeChatReply(analysis.clarificationQuestion);
+  if (analysis.field) {
+    const label = SEMANTIC_FIELD_LABELS[analysis.field] || 'detail';
+    return `I want to get that right. What should I update your ${label} to?`;
+  }
+  if (analysis.intent === 'CLARIFICATION') {
+    return 'What would you like me to correct?';
+  }
+  return buildOnboardingResumePrompt(step, draft);
+};
+
+const buildOnboardingStatusReply = ({ message = '', step = '', draft = {} } = {}) =>
+  buildOnboardingInterruptionReply({
+    message: message || 'what information do you have so far?',
     step,
     draft,
     resumePrompt: buildOnboardingResumePrompt(step, draft),
   });
 
-  return {
-    reply: sanitizeChatReply(reply),
-    metadata: { type: 'account_onboarding_interruption', step },
-  };
+const semanticFieldMatchesCurrentStep = (field, step) => SEMANTIC_FIELD_TO_DRAFT_FIELD[field] === step;
+
+const shouldUseCorrectionTone = ({ field, step, draft = {}, pendingCorrection } = {}) => {
+  const draftField = SEMANTIC_FIELD_TO_DRAFT_FIELD[field];
+  if (!draftField) return false;
+  if (pendingCorrection?.field === draftField) return true;
+  if (!semanticFieldMatchesCurrentStep(field, step)) return true;
+  return Boolean(String(draft[draftField] || '').trim());
 };
 
-const handleAccountOnboardingInput = async (session, message) => {
-  const draft = getOnboardingDraft(session);
-  const step = session.onboarding?.step || getNextOnboardingStep(draft) || 'firstName';
-  let nextDraft = { ...draft };
+const validateSemanticFieldValue = (field, value) => {
+  if (field === 'first_name' || field === 'last_name') {
+    return validateNamePart(value, field === 'first_name' ? 'first name' : 'last name');
+  }
+  if (field === 'email') {
+    return validateChatRegistrationEmail(value);
+  }
+  if (field === 'phone') {
+    return validateChatRegistrationPhone(value);
+  }
+  return { ok: false, message: 'I need one more detail before I can update that.' };
+};
 
-  const correctionResult = await applyOnboardingCorrection(session, message, { draft, step });
-  if (correctionResult) {
-    return correctionResult;
+const applySemanticFieldUpdate = async (session, analysis, { draft, step, pendingCorrection } = {}) => {
+  const field = analysis.field;
+  const draftField = SEMANTIC_FIELD_TO_DRAFT_FIELD[field];
+  const currentMissingRequiredFields = getOnboardingMissingFields(draft);
+  if (!draftField) {
+    return {
+      reply: 'What would you like me to correct?',
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'account_onboarding_clarification',
+        onboardingStep: step,
+        onboardingStatus: session.onboarding?.status,
+        clarificationRequired: true,
+        missingRequiredFields: currentMissingRequiredFields,
+        nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+      }),
+    };
   }
 
-  const interruptionResult = handleOnboardingInterruption(message, { draft, step });
-  if (interruptionResult) {
-    return interruptionResult;
+  if (!analysis.value) {
+    session.onboarding = {
+      ...session.onboarding,
+      status: 'collecting',
+      step: draftField,
+      intent: 'CREATE_ACCOUNT',
+      draft,
+      correction: {
+        field: draftField,
+        returnStep: ['firstName', 'lastName', 'email', 'phone'].includes(step) ? step : draftField,
+        requestedAt: new Date(),
+      },
+      startedAt: session.onboarding?.startedAt || new Date(),
+      lastError: session.onboarding?.lastError,
+    };
+    await session.save();
+
+    return {
+      reply: buildCorrectionNeedsValueReply(draftField),
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'account_onboarding_correction_prompt',
+        field: draftField,
+        onboardingStep: draftField,
+        onboardingStatus: 'collecting',
+        clarificationRequired: true,
+        missingRequiredFields: currentMissingRequiredFields,
+        nextRequiredField: field,
+      }),
+    };
   }
 
-  if (isSkipOptionalFieldIntent(message, step)) {
-    nextDraft = markOnboardingFieldSkipped(nextDraft, step);
-    return completeAccountOnboarding(session, nextDraft, { skippedField: step });
+  const validation = validateSemanticFieldValue(field, analysis.value);
+  if (!validation.ok) {
+    return {
+      reply: field === 'email'
+        ? 'That email does not look quite right. Please send the email address for your secure setup link.'
+        : field === 'phone'
+          ? 'That does not look like a mobile number. Send a valid number like 09171234567 or +639171234567.'
+          : validation.message,
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'account_onboarding_validation',
+        field: draftField,
+        onboardingStep: step,
+        onboardingStatus: session.onboarding?.status,
+        missingRequiredFields: currentMissingRequiredFields,
+        nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+      }),
+    };
   }
 
-  if (step === 'firstName') {
-    const firstName = extractNameCandidate(message);
-    const result = validateNamePart(firstName, 'first name');
-    if (!result.ok) {
-      return {
-        reply: 'Please send just your first name so I can set up your AutoSPF+ profile.',
-        metadata: { type: 'account_onboarding_validation', field: 'firstName' },
-      };
-    }
-    nextDraft.firstName = result.value;
-  }
+  const nextDraft = {
+    ...draft,
+    [draftField]: validation.value,
+  };
+  const missingRequiredFields = getOnboardingMissingFields(nextDraft);
+  const groqNextStep = getOnboardingStepFromSemanticField(analysis.nextRequiredField);
+  const nextStep = groqNextStep && missingRequiredFields.includes(analysis.nextRequiredField)
+    ? groqNextStep
+    : getNextOnboardingStep(nextDraft);
+  const canUseGroqReply =
+    Boolean(analysis.reply)
+    && (!nextStep || STEP_TO_SEMANTIC_FIELD[nextStep] === analysis.nextRequiredField);
+  const correctionTone = shouldUseCorrectionTone({ field, step, draft, pendingCorrection });
 
-  if (step === 'lastName') {
-    const lastName = extractNameCandidate(message);
-    const result = validateNamePart(lastName, 'last name');
-    if (!result.ok) {
-      return {
-        reply: 'Please send just your last name.',
-        metadata: { type: 'account_onboarding_validation', field: 'lastName' },
-      };
-    }
-    nextDraft.lastName = result.value;
-  }
-
-  if (step === 'email') {
-    const email = extractEmailCandidate(message) || normalizeChatRegistrationEmail(message);
-    const result = validateChatRegistrationEmail(email);
-    if (!result.ok) {
-      return {
-        reply: 'That email does not look quite right. Please send the email address for your secure setup link.',
-        metadata: { type: 'account_onboarding_validation', field: 'email' },
-      };
-    }
-    nextDraft.email = result.value;
-  }
-
-  if (step === 'phone') {
-    const phone = extractPhoneCandidate(message) || message;
-    const result = validateChatRegistrationPhone(phone);
-    if (!result.ok) {
-      return {
-        reply:
-          'That does not look like a mobile number. Send a valid number like 09171234567 or +639171234567, or say skip if you prefer not to add one.',
-        metadata: { type: 'account_onboarding_validation', field: 'phone' },
-      };
-    }
-    nextDraft.phone = result.value;
-  }
-
-  const nextStep = getNextOnboardingStep(nextDraft);
   if (!nextStep) {
-    return completeAccountOnboarding(session, nextDraft);
+    const completion = await completeAccountOnboarding(session, nextDraft, {
+      submittedField: draftField,
+      submittedValue: validation.value,
+    });
+    return {
+      ...completion,
+      reply: correctionTone
+        ? buildCorrectionConfirmedReply({
+            field: draftField,
+            value: nextDraft[draftField],
+            nextPrompt: completion.reply,
+          })
+        : completion.reply,
+      metadata: {
+        ...(completion.metadata || {}),
+        ...buildSemanticMetadata(analysis, {
+          type: completion.metadata?.type || 'account_onboarding_complete',
+          field: draftField,
+          onboardingStatus: 'sent',
+          missingRequiredFields: [],
+          nextRequiredField: null,
+        }),
+      },
+    };
   }
 
   session.onboarding = {
+    ...session.onboarding,
     status: 'collecting',
     step: nextStep,
     intent: 'CREATE_ACCOUNT',
     draft: nextDraft,
+    correction: undefined,
     startedAt: session.onboarding?.startedAt || new Date(),
     lastError: undefined,
+    lastSuccessfulStep: draftField,
+    lastSubmittedField: draftField,
+    lastSubmittedValue: validation.value,
+    lastSubmittedAt: new Date(),
   };
   await session.save();
 
-  const reply = step === 'firstName'
+  const defaultNextPrompt = step === 'firstName' && nextDraft.firstName
     ? `Thank you, ${nextDraft.firstName}. ${ONBOARDING_PROMPTS[nextStep]}`
     : ONBOARDING_PROMPTS[nextStep];
+  const nextPrompt = canUseGroqReply ? analysis.reply : defaultNextPrompt;
+
+  const reply = canUseGroqReply
+    ? analysis.reply
+    : correctionTone
+    ? buildCorrectionConfirmedReply({
+        field: draftField,
+        value: nextDraft[draftField],
+        nextPrompt,
+      })
+    : nextPrompt;
 
   return {
     reply: sanitizeChatReply(reply),
-    metadata: { type: 'account_onboarding_step', step: nextStep },
+    metadata: buildSemanticMetadata(analysis, {
+      type: correctionTone ? 'account_onboarding_correction' : 'account_onboarding_step',
+      field: draftField,
+      onboardingStep: nextStep,
+      onboardingStatus: 'collecting',
+      missingRequiredFields,
+      nextRequiredField: STEP_TO_SEMANTIC_FIELD[nextStep] || undefined,
+    }),
   };
 };
 
-const detectAccountCreateIntent = (message = '') => {
-  if (ACCOUNT_CREATE_INTENT_REGEX.test(message)) {
-    return { matched: true, source: 'deterministic' };
+const shouldRetryOnboardingBackendProcess = (analysis = {}, session = {}) =>
+  analysis.recommendedAction === 'RETRY_BACKEND_PROCESS'
+  || analysis.intent === 'RETRY_ONBOARDING_SUBMISSION'
+  || (SEMANTIC_CONFIRM_INTENTS.has(analysis.intent) && Boolean(session.onboarding?.lastError));
+
+const buildOnboardingBusinessContext = async (session = {}) => {
+  const facts = await loadChatBusinessFacts().catch(() => null);
+  return {
+    brand: 'AutoSPF+',
+    passwordPolicy: 'Passwords are created only through secure email setup links sent by Resend.',
+    phone: facts?.phone || '',
+    email: facts?.email || '',
+    address: facts?.address || '',
+    hoursSummary: facts?.hoursSummary || '',
+    lastTopic: session.lastTopic || '',
+    lastVehicleLabel: session.lastVehicleLabel || '',
+    lastServiceInterest: session.lastServiceInterest || '',
+  };
+};
+
+const retryOnboardingBackendProcess = async (session, analysis, { draft, step } = {}) => {
+  let nextDraft = { ...draft };
+  const draftField = SEMANTIC_FIELD_TO_DRAFT_FIELD[analysis.field];
+
+  if (draftField && analysis.value) {
+    const validation = validateSemanticFieldValue(analysis.field, analysis.value);
+    if (!validation.ok) {
+      return {
+        reply: validation.message || buildOnboardingResumePrompt(step, draft),
+        metadata: buildSemanticMetadata(analysis, {
+          type: 'account_onboarding_retry_validation',
+          field: draftField,
+          onboardingStep: step,
+          onboardingStatus: session.onboarding?.status,
+          recoveryAction: 'retry_backend_process',
+        }),
+      };
+    }
+
+    nextDraft = {
+      ...nextDraft,
+      [draftField]: validation.value,
+    };
   }
-  return { matched: false, source: 'none' };
+
+  const missingRequiredFields = getOnboardingMissingFields(nextDraft);
+  const groqMissingStep = getOnboardingStepFromSemanticField(analysis.nextRequiredField);
+  const missingStep = groqMissingStep && missingRequiredFields.includes(analysis.nextRequiredField)
+    ? groqMissingStep
+    : getNextOnboardingStep(nextDraft);
+  if (missingStep) {
+    session.onboarding = {
+      ...session.onboarding,
+      status: 'collecting',
+      step: missingStep,
+      intent: 'CREATE_ACCOUNT',
+      draft: nextDraft,
+      correction: undefined,
+      startedAt: session.onboarding?.startedAt || new Date(),
+    };
+    await session.save();
+
+    return {
+      reply: sanitizeChatReply(
+        analysis.reply || `${analysis.replySuggestion || 'Got it — I have that noted.'}\n\n${buildOnboardingResumePrompt(missingStep, nextDraft)}`
+      ),
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'account_onboarding_retry_incomplete',
+        field: draftField,
+        onboardingStep: missingStep,
+        onboardingStatus: 'collecting',
+        recoveryAction: 'retry_backend_process',
+        missingRequiredFields,
+        nextRequiredField: STEP_TO_SEMANTIC_FIELD[missingStep] || undefined,
+      }),
+    };
+  }
+
+  const completion = await completeAccountOnboarding(session, nextDraft, {
+    submittedField: draftField || session.onboarding?.lastSubmittedField,
+    submittedValue: draftField ? nextDraft[draftField] : session.onboarding?.lastSubmittedValue,
+  });
+  return {
+    ...completion,
+    metadata: {
+      ...(completion.metadata || {}),
+      ...buildSemanticMetadata(analysis, {
+        type: completion.metadata?.type === 'account_onboarding_complete'
+          ? 'account_onboarding_retry_complete'
+          : 'account_onboarding_retry_failed',
+        field: draftField,
+        onboardingStatus: completion.metadata?.onboardingStatus || session.onboarding?.status,
+        recoveryAction: 'retry_backend_process',
+      }),
+    },
+  };
+};
+
+const handleAccountOnboardingInput = async (
+  session,
+  message,
+  { sessionId, language, wantsPriceList, recentMessages = [] } = {}
+) => {
+  const draft = getOnboardingDraft(session);
+  const step = session.onboarding?.step || getNextOnboardingStep(draft) || 'firstName';
+  const missingRequiredFields = getOnboardingMissingFields(draft);
+  const collectedFields = buildCollectedOnboardingFields(draft);
+  const businessContext = await buildOnboardingBusinessContext(session);
+  const pendingCorrection = session.onboarding?.correction;
+  const analysis = await analyzeOnboardingMessage({
+    message,
+    step,
+    draft,
+    collectedFields,
+    missingRequiredFields,
+    businessContext,
+    pendingCorrection,
+    preferredLanguage: language || session.preferredLanguage || session.lastDetectedLanguage || 'english',
+    lastTopic: session.lastTopic,
+    lastIntent: session.lastIntent,
+    recentMessages,
+    onboardingStatus: session.onboarding?.status || 'collecting',
+    lastBackendError: session.onboarding?.lastError || '',
+    lastSuccessfulStep: session.onboarding?.lastSuccessfulStep || '',
+    lastSubmittedField: session.onboarding?.lastSubmittedField || '',
+    lastSubmittedValue: session.onboarding?.lastSubmittedValue || '',
+    lastSubmittedAt: session.onboarding?.lastSubmittedAt || '',
+  });
+
+  if (analysis.confidence < ONBOARDING_SEMANTIC_CONFIDENCE_THRESHOLD) {
+    return {
+      reply: buildLowConfidenceOnboardingReply(analysis, { step, draft }),
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'account_onboarding_clarification',
+        onboardingStep: step,
+        onboardingStatus: session.onboarding?.status,
+        clarificationRequired: true,
+        missingRequiredFields,
+        nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+      }),
+    };
+  }
+
+  if (analysis.intent === 'LANGUAGE_SWITCH') {
+    session.preferredLanguage = analysis.language || session.preferredLanguage;
+    session.lastDetectedLanguage = analysis.language || session.lastDetectedLanguage;
+    session.memoryUpdatedAt = new Date();
+    await session.save();
+
+    return {
+      reply: `${buildLanguageSwitchReply(session.preferredLanguage)}\n\n${buildOnboardingResumePrompt(step, draft)}`,
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'language_switch',
+        intent: 'language_switch',
+        topic: 'language',
+        onboardingStep: step,
+        onboardingStatus: session.onboarding?.status,
+        missingRequiredFields,
+        nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+      }),
+    };
+  }
+
+  if (analysis.intent === 'PASSWORD_IN_CHAT' || PASSWORD_IN_CHAT_REGEX.test(message)) {
+    return {
+      reply: sanitizeChatReply(
+        analysis.reply ||
+        'For your security, I cannot collect passwords here. I will send a secure setup link to your email after we finish your account details.'
+      ),
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'account_onboarding_password_rejected',
+        onboardingStep: step,
+        onboardingStatus: session.onboarding?.status,
+        missingRequiredFields,
+        nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+      }),
+    };
+  }
+
+  if (SEMANTIC_BUSINESS_INTENTS.has(analysis.intent)) {
+    const businessInterruption = await handleOnboardingBusinessInterruption(session, message, {
+      draft,
+      step,
+      sessionId,
+      language,
+      wantsPriceList,
+      semanticIntent: analysis.intent,
+      semanticConfidence: analysis.confidence,
+    });
+    if (businessInterruption) {
+      return {
+        ...businessInterruption,
+        metadata: {
+          ...(businessInterruption.metadata || {}),
+          ...buildSemanticMetadata(analysis, {
+            type: businessInterruption.metadata?.type || 'account_onboarding_business_interruption',
+            onboardingStep: step,
+            onboardingStatus: session.onboarding?.status,
+            missingRequiredFields,
+            nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+          }),
+        },
+      };
+    }
+  }
+
+  if (analysis.intent === 'ASK_ONBOARDING_STATUS') {
+    return {
+      reply: sanitizeChatReply(buildOnboardingStatusReply({ message, step, draft })),
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'account_onboarding_interruption',
+        onboardingStep: step,
+        onboardingStatus: session.onboarding?.status,
+        missingRequiredFields,
+        nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+      }),
+    };
+  }
+
+  if (shouldRetryOnboardingBackendProcess(analysis, session)) {
+    return retryOnboardingBackendProcess(session, analysis, { draft, step });
+  }
+
+  if (SEMANTIC_UPDATE_INTENTS.has(analysis.intent) || SEMANTIC_CONFIRM_INTENTS.has(analysis.intent) || analysis.field) {
+    return applySemanticFieldUpdate(session, analysis, { draft, step, pendingCorrection });
+  }
+
+  if (analysis.intent === 'SMALL_TALK' || analysis.intent === 'INTERRUPTION' || analysis.intent === 'USER_FRUSTRATION') {
+    const body = analysis.reply || analysis.replySuggestion || 'Of course — I am here to help with your AutoSPF+ account setup.';
+    return {
+      reply: sanitizeChatReply(`${body}\n\n${buildOnboardingResumePrompt(step, draft)}`),
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'account_onboarding_interruption',
+        onboardingStep: step,
+        onboardingStatus: session.onboarding?.status,
+        missingRequiredFields,
+        nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+      }),
+    };
+  }
+
+  return {
+    reply: buildLowConfidenceOnboardingReply(
+      { ...analysis, clarificationQuestion: analysis.clarificationQuestion || 'What would you like me to correct?' },
+      { step, draft }
+    ),
+    metadata: buildSemanticMetadata(analysis, {
+      type: 'account_onboarding_clarification',
+      onboardingStep: step,
+      onboardingStatus: session.onboarding?.status,
+      clarificationRequired: true,
+      missingRequiredFields,
+      nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+    }),
+  };
+};
+
+const analyzeAccountCreateIntent = async (session, message, {
+  language = 'english',
+  recentMessages = [],
+} = {}) => {
+  const draft = getOnboardingDraft(session);
+  const missingRequiredFields = getOnboardingMissingFields(draft);
+  const analysis = await analyzeOnboardingMessage({
+    message,
+    step: getNextOnboardingStep(draft) || 'firstName',
+    draft,
+    collectedFields: buildCollectedOnboardingFields(draft),
+    missingRequiredFields,
+    businessContext: await buildOnboardingBusinessContext(session),
+    preferredLanguage: language || session.preferredLanguage || session.lastDetectedLanguage || 'english',
+    lastTopic: session.lastTopic,
+    lastIntent: session.lastIntent,
+    recentMessages,
+    onboardingStatus: 'idle',
+    lastBackendError: '',
+  });
+
+  return {
+    matched: analysis.intent === 'CREATE_ACCOUNT'
+      && analysis.confidence >= ONBOARDING_SEMANTIC_CONFIDENCE_THRESHOLD,
+    source: analysis.source || 'groq',
+    analysis,
+  };
 };
 
 const trackerPhoneMatches = (providedPhone, order) => {
@@ -1100,18 +1544,24 @@ const loadChatBusinessFacts = async () => {
   };
 };
 
-const buildPricingDirectReply = async ({ language, vehicleContextKey, wantsPriceList }) => {
+const resolveVehicleDisplayLabel = ({ session = {}, vehicleContextKey = null, vehicleProfile = null } = {}) =>
+  vehicleProfile?.label ||
+  session?.lastVehicleLabel ||
+  (vehicleContextKey ? getVehicleLabel(vehicleContextKey) : '');
+
+const buildPricingDirectReply = async ({ language, vehicleContextKey, wantsPriceList, session, vehicleProfile }) => {
   if (wantsPriceList) {
     return buildCachedCompletePriceListReply();
   }
 
   if (vehicleContextKey) {
     const pricing = await buildSpfPricingKnowledge(vehicleContextKey);
+    const displayLabel = resolveVehicleDisplayLabel({ session, vehicleContextKey, vehicleProfile }) || getVehicleLabel(vehicleContextKey);
     return [
       byLanguage(language, {
-        english: `Here are the current SPF package prices for ${getVehicleLabel(vehicleContextKey)}:`,
-        tagalog: `Ito ang current SPF package prices for ${getVehicleLabel(vehicleContextKey)}:`,
-        taglish: `Here are the current SPF package prices for ${getVehicleLabel(vehicleContextKey)}:`,
+        english: `Here are the current SPF package prices for ${displayLabel}:`,
+        tagalog: `Ito ang current SPF package prices for ${displayLabel}:`,
+        taglish: `Here are the current SPF package prices for ${displayLabel}:`,
       }),
       pricing,
       '',
@@ -1133,11 +1583,154 @@ const buildPricingDirectReply = async ({ language, vehicleContextKey, wantsPrice
   });
 };
 
+const buildPackageRecommendationReply = ({ language, vehicleContextKey, session }) => {
+  const vehicleLabel = resolveVehicleDisplayLabel({ session, vehicleContextKey });
+  const goal = session?.lastProtectionGoal || '';
+  const serviceInterest = session?.lastServiceInterest || '';
+
+  if (!vehicleContextKey && !vehicleLabel) {
+    return byLanguage(language, {
+      english:
+        'I can recommend the right AutoSPF+ package. What vehicle do you have, and is your priority daily gloss, scratch protection, tint, or maximum long-term protection?',
+      tagalog:
+        'Pwede kitang marecommendan ng tamang AutoSPF+ package. Anong vehicle mo, at priority mo ba daily gloss, scratch protection, tint, o maximum long-term protection?',
+      taglish:
+        'I can recommend the right AutoSPF+ package. Anong vehicle mo, and priority mo ba daily gloss, scratch protection, tint, or maximum long-term protection?',
+    });
+  }
+
+  const target = vehicleLabel || getVehicleLabel(vehicleContextKey);
+  const contextLine = [serviceInterest, goal].filter(Boolean).join(' / ');
+
+  return byLanguage(language, {
+    english:
+      `For your ${target}, I would shortlist these AutoSPF+ packages:\n` +
+      '• SPF 89 if you want strong daily gloss and 5-year protection.\n' +
+      '• SPF 99 if you want a more premium 10-year coating finish.\n' +
+      '• SPF 101 if you want the all-in setup with PPF, ceramic coating, tint, and undercoating.\n' +
+      `${contextLine ? `Based on your interest in ${contextLine}, SPF 99 or SPF 101 is the stronger fit.` : 'Tell me your budget and protection goal and I will narrow it to one package.'}`,
+    tagalog:
+      `For your ${target}, ito ang shortlist ko:\n` +
+      '• SPF 89 kung daily gloss at 5-year protection ang goal.\n' +
+      '• SPF 99 kung mas premium 10-year coating finish ang gusto mo.\n' +
+      '• SPF 101 kung all-in setup ang hanap: PPF, ceramic coating, tint, at undercoating.\n' +
+      `${contextLine ? `Dahil interested ka sa ${contextLine}, mas bagay ang SPF 99 or SPF 101.` : 'Sabihin mo budget at protection goal mo para ma-narrow ko sa isang package.'}`,
+    taglish:
+      `For your ${target}, ito ang shortlist ko:\n` +
+      '• SPF 89 for strong daily gloss and 5-year protection.\n' +
+      '• SPF 99 for a more premium 10-year coating finish.\n' +
+      '• SPF 101 for the all-in setup with PPF, ceramic coating, tint, and undercoating.\n' +
+      `${contextLine ? `Based sa interest mo in ${contextLine}, SPF 99 or SPF 101 ang stronger fit.` : 'Tell me your budget and protection goal para ma-narrow ko to one package.'}`,
+  });
+};
+
+const buildPackageComparisonReply = ({ language }) =>
+  byLanguage(language, {
+    english:
+      'Quick AutoSPF+ package comparison:\n' +
+      '• SPF 80: essential graphene ceramic protection, 3 years.\n' +
+      '• SPF 89: stronger daily package, 5 years, with maintenance value.\n' +
+      '• SPF 99: premium SONAX coating finish, 10 years.\n' +
+      '• SPF 101: flagship all-in package with PPF, SONAX coating, nano ceramic tint, and undercoating.\n' +
+      'Tell me your vehicle type and I can price the best fit.',
+    tagalog:
+      'Quick AutoSPF+ package comparison:\n' +
+      '• SPF 80: essential graphene ceramic protection, 3 years.\n' +
+      '• SPF 89: stronger daily package, 5 years, with maintenance value.\n' +
+      '• SPF 99: premium SONAX coating finish, 10 years.\n' +
+      '• SPF 101: flagship all-in with PPF, SONAX coating, nano ceramic tint, at undercoating.\n' +
+      'Sabihin mo vehicle type mo para ma-price ko ang best fit.',
+    taglish:
+      'Quick AutoSPF+ package comparison:\n' +
+      '• SPF 80: essential graphene ceramic protection, 3 years.\n' +
+      '• SPF 89: stronger daily package, 5 years, with maintenance value.\n' +
+      '• SPF 99: premium SONAX coating finish, 10 years.\n' +
+      '• SPF 101: flagship all-in with PPF, SONAX coating, nano ceramic tint, and undercoating.\n' +
+      'Tell me your vehicle type para ma-price ko ang best fit.',
+  });
+
+const buildServiceInfoReply = ({ language, session }) => {
+  const interest = String(session?.lastServiceInterest || '').toLowerCase();
+
+  if (interest.includes('ppf')) {
+    return byLanguage(language, {
+      english:
+        'PPF is the strongest option for physical paint protection against road debris, scratches, and high-impact areas. AutoSPF+ offers full-body PPF options, and SPF 101 includes PPF with coating, tint, and undercoating.',
+      tagalog:
+        'PPF ang strongest option para sa physical paint protection laban sa road debris, scratches, at high-impact areas. May full-body PPF options ang AutoSPF+, at kasama ito sa SPF 101 all-in package.',
+      taglish:
+        'PPF is the strongest option for physical paint protection against road debris, scratches, and high-impact areas. May full-body PPF options ang AutoSPF+, and SPF 101 includes PPF with coating, tint, and undercoating.',
+    });
+  }
+
+  if (interest.includes('tint')) {
+    return byLanguage(language, {
+      english:
+        'Nano Ceramic Window Tint helps with heat rejection, privacy, and cabin comfort. It can be paired with SPF packages where available, or included in the SPF 101 all-in setup.',
+      tagalog:
+        'Nano Ceramic Window Tint helps sa heat rejection, privacy, at cabin comfort. Pwede itong i-pair sa SPF packages where available, or kasama sa SPF 101 all-in setup.',
+      taglish:
+        'Nano Ceramic Window Tint helps with heat rejection, privacy, and cabin comfort. Pwede siya with SPF packages where available, or included sa SPF 101 all-in setup.',
+    });
+  }
+
+  if (interest.includes('detail')) {
+    return byLanguage(language, {
+      english:
+        'Detailing refreshes the vehicle inside and out, while coating/PPF adds longer-term protection. If the paint has swirls or oxidation, detailing or paint correction before coating gives a cleaner finish.',
+      tagalog:
+        'Detailing refreshes the vehicle inside and out, habang coating/PPF ang long-term protection. Kung may swirls or oxidation, mas maganda ang detailing or paint correction before coating.',
+      taglish:
+        'Detailing refreshes the vehicle inside and out, while coating/PPF adds longer-term protection. If may swirls or oxidation, detailing or paint correction before coating gives a cleaner finish.',
+    });
+  }
+
+  return byLanguage(language, {
+    english:
+      'For vehicle protection, AutoSPF+ focuses on ceramic coating, PPF, tint, detailing, and SPF packages. Ceramic adds gloss and hydrophobic protection; PPF adds stronger physical impact protection.',
+    tagalog:
+      'For vehicle protection, focus ng AutoSPF+ ang ceramic coating, PPF, tint, detailing, at SPF packages. Ceramic adds gloss and hydrophobic protection; PPF adds stronger physical impact protection.',
+    taglish:
+      'For vehicle protection, AutoSPF+ focuses on ceramic coating, PPF, tint, detailing, and SPF packages. Ceramic adds gloss and hydrophobic protection; PPF adds stronger physical impact protection.',
+  });
+};
+
+const buildServiceComparisonReply = ({ language }) =>
+  byLanguage(language, {
+    english:
+      'Ceramic coating and PPF protect in different ways: ceramic coating gives gloss, hydrophobic behavior, and easier maintenance; PPF adds stronger physical protection against scratches, chips, and road debris. For maximum protection, SPF 101 combines PPF with coating, tint, and undercoating.',
+    tagalog:
+      'Magkaiba ang protection ng ceramic coating at PPF: ceramic gives gloss, hydrophobic behavior, at easier maintenance; PPF adds stronger physical protection against scratches, chips, at road debris. For maximum protection, SPF 101 combines PPF with coating, tint, at undercoating.',
+    taglish:
+      'Ceramic coating and PPF protect differently: ceramic gives gloss, hydrophobic behavior, and easier maintenance; PPF adds stronger physical protection against scratches, chips, and road debris. For maximum protection, SPF 101 combines PPF with coating, tint, and undercoating.',
+  });
+
+const buildMaintenanceReply = ({ language }) =>
+  byLanguage(language, {
+    english:
+      'For coating aftercare: avoid harsh chemicals, use pH-neutral shampoo, do not scrub aggressively, and keep up with maintenance visits when recommended. If your vehicle was newly coated, ask the studio for the curing window before the first wash.',
+    tagalog:
+      'For coating aftercare: iwasan ang harsh chemicals, gumamit ng pH-neutral shampoo, huwag mag-scrub aggressively, at sundin ang recommended maintenance visits. Kung bagong coated, ask the studio muna about curing window before first wash.',
+    taglish:
+      'For coating aftercare: avoid harsh chemicals, use pH-neutral shampoo, huwag mag-scrub aggressively, and keep up with maintenance visits when recommended. If bagong coated, ask the studio about the curing window before first wash.',
+  });
+
+const buildVehicleContextReply = ({ language, vehicleProfile }) => {
+  const label = vehicleProfile?.label || 'your vehicle';
+  return byLanguage(language, {
+    english: `Got it — I will remember ${label}. I can recommend SPF packages, ceramic coating, PPF, tint, or detailing based on your protection goal.`,
+    tagalog: `Got it — tatandaan ko ang ${label}. Pwede kitang marecommendan ng SPF packages, ceramic coating, PPF, tint, or detailing based sa protection goal mo.`,
+    taglish: `Got it — I will remember ${label}. I can recommend SPF packages, ceramic coating, PPF, tint, or detailing based sa protection goal mo.`,
+  });
+};
+
 const buildDirectAnswerReply = async ({
   intentInfo,
   language,
   vehicleContextKey,
   wantsPriceList,
+  session,
+  vehicleProfile,
 }) => {
   if (!intentInfo) return null;
 
@@ -1192,6 +1785,62 @@ const buildDirectAnswerReply = async ({
     };
   }
 
+  if (intentInfo.intent === 'service_info') {
+    return {
+      reply: buildServiceInfoReply({ language, session }),
+      metadata: intentInfo,
+    };
+  }
+
+  if (intentInfo.intent === 'service_comparison') {
+    return {
+      reply: buildServiceComparisonReply({ language }),
+      metadata: intentInfo,
+    };
+  }
+
+  if (intentInfo.intent === 'maintenance') {
+    return {
+      reply: buildMaintenanceReply({ language }),
+      metadata: intentInfo,
+    };
+  }
+
+  if (intentInfo.intent === 'package_comparison') {
+    return {
+      reply: buildPackageComparisonReply({ language }),
+      metadata: intentInfo,
+    };
+  }
+
+  if (intentInfo.intent === 'package_recommendation') {
+    return {
+      reply: buildPackageRecommendationReply({ language, vehicleContextKey, session }),
+      metadata: intentInfo,
+    };
+  }
+
+  if (intentInfo.intent === 'vehicle_context' && vehicleProfile) {
+    return {
+      reply: buildVehicleContextReply({ language, vehicleProfile }),
+      metadata: intentInfo,
+    };
+  }
+
+  if (intentInfo.intent === 'payment_issue') {
+    return {
+      reply: byLanguage(language, {
+        english:
+          'I can help with AutoSPF+ payment concerns. Please share your booking reference, payment method, and what went wrong so we can trace it properly.',
+        tagalog:
+          'Tutulungan kita sa AutoSPF+ payment concern. Send mo booking reference, payment method, at kung ano ang naging issue para ma-trace natin nang maayos.',
+        taglish:
+          'I can help with AutoSPF+ payment concerns. Send your booking reference, payment method, and what went wrong para ma-trace natin properly.',
+      }),
+      metadata: intentInfo,
+    };
+  }
+
   if (intentInfo.intent === 'booking') {
     return {
       reply: byLanguage(language, {
@@ -1216,7 +1865,7 @@ const buildDirectAnswerReply = async ({
 
   if (intentInfo.intent === 'pricing') {
     return {
-      reply: await buildPricingDirectReply({ language, vehicleContextKey, wantsPriceList }),
+      reply: await buildPricingDirectReply({ language, vehicleContextKey, wantsPriceList, session, vehicleProfile }),
       metadata: intentInfo,
     };
   }
@@ -1225,12 +1874,17 @@ const buildDirectAnswerReply = async ({
 };
 
 const resolveVehicleContext = async (sessionId, currentMessage, session = null) => {
+  const fromProfile = detectVehicleProfileFromMessage(currentMessage);
+  if (fromProfile?.vehicleType) return fromProfile.vehicleType;
+
   const fromCurrent = detectVehicleTypeFromMessage(currentMessage);
   if (fromCurrent) return fromCurrent.apiKey;
   if (session?.lastVehicleType) return session.lastVehicleType;
 
   const recentUserMessages = await getRecentUserMessagesFast(sessionId, 4);
   for (const message of recentUserMessages) {
+    const profile = detectVehicleProfileFromMessage(message);
+    if (profile?.vehicleType) return profile.vehicleType;
     const detected = detectVehicleTypeFromMessage(message);
     if (detected) return detected.apiKey;
   }
@@ -1356,7 +2010,10 @@ const buildCompactSystemPrompt = ({
   const memory = [
     session?.lastIntent ? `lastIntent=${session.lastIntent}` : '',
     session?.lastVehicleType ? `lastVehicle=${getVehicleLabel(session.lastVehicleType)}` : '',
+    session?.lastVehicleLabel ? `vehicleLabel=${session.lastVehicleLabel}` : '',
     session?.lastServiceInterest ? `lastService=${session.lastServiceInterest}` : '',
+    session?.lastPackageInterest ? `lastPackage=${session.lastPackageInterest}` : '',
+    session?.lastProtectionGoal ? `lastProtectionGoal=${session.lastProtectionGoal}` : '',
     session?.lastTopic ? `lastTopic=${session.lastTopic}` : '',
     session?.lastAnsweredIntent ? `lastAnswered=${session.lastAnsweredIntent}` : '',
     session?.consecutiveFallbackCount ? `fallbackCount=${session.consecutiveFallbackCount}` : '',
@@ -1366,11 +2023,13 @@ const buildCompactSystemPrompt = ({
   ].filter(Boolean).join(', ') || 'none';
 
   return [
-    'You are AutoSPF+ Concierge. Answer only AutoSPF+ services, SPF/PPF, ceramic coating, detailing, tint, booking, account, tracker, location, payments, warranty, and shop support.',
-    'For unrelated topics, do not repeat canned fallback lines. Ask one concise clarifying question that points back to AutoSPF+ pricing, booking, tracker, location, hours, or services.',
+    'You are AutoSPF+ Concierge, a premium automotive business assistant. Stay strictly inside the AutoSPF+ ecosystem.',
+    'Allowed topics: AutoSPF+ services, SPF/PPF, ceramic coating, detailing, tint, vehicle protection, maintenance, pricing, packages, package comparison, booking, account creation, tracker, location, payments, warranty, and shop support.',
+    'For unrelated topics, do not answer deeply. Redirect naturally back to AutoSPF+ services, bookings, packages, pricing, vehicle protection, or shop assistance.',
     'Never say "Let me connect you with a specialist" unless the customer explicitly asks to speak with a human, agent, or live person.',
+    'During onboarding, respect corrections, side questions, and then continue the account setup step. Mobile number is required for account creation.',
     'Treat short replies (okay, yes, hmm, wait, thinking, location kasi) as normal conversation — stay helpful and confident.',
-    'Style: plain text only, no markdown, no emojis, short premium SaaS tone, max 70 words unless listing prices. Use • for lists. End with one clear next step.',
+    'Style: plain text only, no markdown, no emojis, calm premium SaaS tone, automotive-focused, max 70 words unless listing prices. Use • for lists. End with one clear next step.',
     `Language: respond in ${session?.preferredLanguage || session?.lastDetectedLanguage || 'english'} until the customer explicitly switches language. English, Tagalog, and Taglish are supported.`,
     vehicleDirective,
     'Never invent prices. Use PHP format like ₱15,000.',
@@ -1403,8 +2062,21 @@ const processMessage = async ({
   const detectedLanguage = detectMessageLanguage(trimmed);
   const activeLanguage = resolveConversationLanguage(session, trimmed);
   const currentIntent = inferIntent(trimmed);
+  const vehicleProfile = detectVehicleProfileFromMessage(trimmed);
+  const serviceSignal = detectServiceInterestFromMessage(trimmed);
+  const packageSignal = detectPackageInterestFromMessage(trimmed);
+  const protectionGoal = detectProtectionGoalFromMessage(trimmed);
+  const wantsPriceList = isPriceListRequest(trimmed);
+  const isGuest = !user?.id;
+  const hasLead = !!session.leadName && !!session.leadPhone;
   updateSessionMemory(session, {
     intent: currentIntent,
+    vehicleProfile,
+    serviceInterest: serviceSignal?.service,
+    packageInterest: packageSignal?.label,
+    protectionGoal,
+    bookingIntentAt: currentIntent === 'booking' ? new Date() : undefined,
+    topic: serviceSignal?.topic || packageSignal?.label,
     preferredLanguage: languageSwitch?.language || session.preferredLanguage || activeLanguage,
     detectedLanguage,
   });
@@ -1511,12 +2183,56 @@ const processMessage = async ({
     );
   }
 
+  if (isExplicitHumanHandoffRequest(trimmed)) {
+    markSpecialistEscalationOffered(session);
+    persistSessionLater(session, 'record explicit handoff prompt');
+
+    runChatSideEffect('create handoff notification', async () => {
+      const handoffNotification = await Notification.create({
+        title: 'Chatbot Handoff Requested',
+        message: SPECIALIST_ESCALATION_REPLY,
+        type: 'chat',
+        recipientRole: 'admin_family',
+        metadata: { sessionId },
+      });
+      emitAdminChatNotification({
+        id: handoffNotification._id,
+        title: handoffNotification.title,
+        message: handoffNotification.message,
+        type: handoffNotification.type,
+        isRead: handoffNotification.isRead,
+        createdAt: handoffNotification.createdAt,
+        metadata: handoffNotification.metadata,
+      });
+    });
+
+    return completeAssistantReply(
+      SPECIALIST_ESCALATION_REPLY,
+      {
+        type: 'handoff',
+        intent: 'handoff',
+        topic: 'support',
+        reason: 'explicit_human_request',
+      },
+      {
+        action: { type: 'handoff' },
+        leadRequired: isGuest && !hasLead,
+      }
+    );
+  }
+
   if (isActiveOnboardingSession(session)) {
-    const onboardingResult = await handleAccountOnboardingInput(session, trimmed);
+    const recentMessages = await getRecentMessages(sessionId, 6);
+    const onboardingResult = await handleAccountOnboardingInput(session, trimmed, {
+      sessionId,
+      language: activeLanguage,
+      wantsPriceList,
+      recentMessages,
+    });
     return completeAssistantReply(
       onboardingResult.reply,
       onboardingResult.metadata || { type: 'account_onboarding', topic: 'account' },
-      { leadRequired: false }
+      { action: onboardingResult.action || null, leadRequired: false }
     );
   }
 
@@ -1536,13 +2252,10 @@ const processMessage = async ({
     );
   }
 
-  const isGuest = !user?.id;
-  const hasLead = !!session.leadName && !!session.leadPhone;
   const isQuoteRequest = QUOTE_INTENT_REGEX.test(trimmed);
-  const wantsPriceList = isPriceListRequest(trimmed);
   const recentUserMessages = await getRecentUserMessagesFast(sessionId, 4);
   const directIntent = detectDirectAnswerIntent(trimmed);
-  const directVehicleContextKey = directIntent?.intent === 'pricing'
+  const directVehicleContextKey = directIntent && ['pricing', 'package_recommendation', 'vehicle_context'].includes(directIntent.intent)
     ? await resolveVehicleContext(sessionId, trimmed, session)
     : null;
   const directAnswer = await buildDirectAnswerReply({
@@ -1550,10 +2263,12 @@ const processMessage = async ({
     language: activeLanguage,
     vehicleContextKey: directVehicleContextKey,
     wantsPriceList,
+    session,
+    vehicleProfile,
   });
 
-  if (directVehicleContextKey) {
-    updateSessionMemory(session, { vehicleType: directVehicleContextKey });
+  if (directVehicleContextKey || vehicleProfile) {
+    updateSessionMemory(session, { vehicleType: directVehicleContextKey, vehicleProfile });
   }
 
   if (directAnswer) {
@@ -1564,6 +2279,10 @@ const processMessage = async ({
         intent: directAnswer.metadata.intent,
         topic: directAnswer.metadata.topic,
         confidence: directAnswer.metadata.confidence,
+        vehicleType: directVehicleContextKey || undefined,
+        vehicleLabel: vehicleProfile?.label || session.lastVehicleLabel || undefined,
+        serviceInterest: session.lastServiceInterest || undefined,
+        packageInterest: session.lastPackageInterest || undefined,
       },
       {
         action: directAnswer.action || null,
@@ -1572,14 +2291,20 @@ const processMessage = async ({
     );
   }
 
-  const accountIntent = detectAccountCreateIntent(trimmed);
+  const accountIntent = await analyzeAccountCreateIntent(session, trimmed, {
+    language: activeLanguage,
+    recentMessages: await getRecentMessages(sessionId, 6),
+  });
   if (accountIntent.matched) {
     const onboardingResult = user?.id
       ? {
           reply: 'You are already signed in to an AutoSPF+ account. I can help you book a service, check your tracker, or manage your vehicle garage from here.',
           metadata: { type: 'account_onboarding_authenticated' },
         }
-      : await beginAccountOnboarding(session, { intentSource: accountIntent.source });
+      : await beginAccountOnboarding(session, {
+          intentSource: accountIntent.source,
+          analysis: accountIntent.analysis,
+        });
 
     return completeAssistantReply(
       onboardingResult.reply,
@@ -1654,11 +2379,10 @@ const processMessage = async ({
   if (!isAutoSpfScopeMessage(trimmed, recentUserMessages)) {
     const fallbackRecentlyUsed = isFallbackRecentlyUsed(session);
     return completeAssistantReply(
-      buildContextualFallbackReply({
+      buildBusinessScopeRedirectReply({
         language: activeLanguage,
         lastTopic: session.lastTopic,
         fallbackRecentlyUsed,
-        recentUserMessages,
       }),
       {
         type: fallbackRecentlyUsed ? 'low_confidence' : 'fallback',
@@ -1781,6 +2505,10 @@ const processMessage = async ({
       type: 'ai_conversation',
       intent: currentIntent,
       topic: matchedService?.name || session.lastServiceInterest || session.lastTopic || currentIntent,
+      vehicleType: vehicleContextKey || session.lastVehicleType || undefined,
+      vehicleLabel: session.lastVehicleLabel || undefined,
+      serviceInterest: session.lastServiceInterest || undefined,
+      packageInterest: session.lastPackageInterest || undefined,
       confidence: 0.65,
     },
     { action, actionChips, leadRequired: false }
@@ -1821,7 +2549,35 @@ export const startSession = async (req, res, next) => {
         lastIntent: session.lastIntent,
         lastTopic: session.lastTopic,
         lastAnsweredIntent: session.lastAnsweredIntent,
+        lastVehicleType: session.lastVehicleType,
+        lastVehicleMake: session.lastVehicleMake,
+        lastVehicleModel: session.lastVehicleModel,
+        lastVehicleLabel: session.lastVehicleLabel,
+        lastServiceInterest: session.lastServiceInterest,
+        lastPackageInterest: session.lastPackageInterest,
+        lastProtectionGoal: session.lastProtectionGoal,
+        lastBookingIntentAt: session.lastBookingIntentAt,
         conversationContinuityScore: session.conversationContinuityScore,
+        onboarding: session.onboarding?.status ? {
+          status: session.onboarding.status,
+          step: session.onboarding.step,
+          draft: {
+            firstName: session.onboarding.draft?.firstName || '',
+            lastName: session.onboarding.draft?.lastName || '',
+            email: session.onboarding.draft?.email || '',
+            phone: session.onboarding.draft?.phone || '',
+          },
+          missingRequiredFields: getOnboardingMissingFields(getOnboardingDraft(session)),
+          nextRequiredField: STEP_TO_SEMANTIC_FIELD[session.onboarding.step] || undefined,
+          correction: session.onboarding.correction || null,
+          startedAt: session.onboarding.startedAt,
+          completedAt: session.onboarding.completedAt,
+          lastError: session.onboarding.lastError || '',
+          lastSuccessfulStep: session.onboarding.lastSuccessfulStep || '',
+          lastSubmittedField: session.onboarding.lastSubmittedField || '',
+          lastSubmittedValue: session.onboarding.lastSubmittedValue || '',
+          lastSubmittedAt: session.onboarding.lastSubmittedAt,
+        } : null,
       },
       messages: messages.map((m) => ({
         id: m._id,

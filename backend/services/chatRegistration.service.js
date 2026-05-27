@@ -82,14 +82,13 @@ export const parseChatRegistrationBody = (body = {}) => {
     return { ok: false, status: 400, message: 'Name must be between 2 and 80 characters.' };
   }
 
-  let phone;
-  const phoneInput = body.phone;
-  if (phoneInput != null && String(phoneInput).trim() !== '') {
-    const phoneResult = validateChatRegistrationPhone(phoneInput);
-    if (!phoneResult.ok) {
-      return { ok: false, status: 400, message: phoneResult.message };
-    }
-    phone = phoneResult.value;
+  const phoneResult = validateChatRegistrationPhone(body.phone);
+  if (!phoneResult.ok) {
+    return {
+      ok: false,
+      status: 400,
+      message: phoneResult.message || 'Please enter a valid mobile number.',
+    };
   }
 
   return {
@@ -98,7 +97,7 @@ export const parseChatRegistrationBody = (body = {}) => {
     lastName: lastNameResult.value,
     fullName,
     email: emailResult.value,
-    phone: phone || '',
+    phone: phoneResult.value,
   };
 };
 
