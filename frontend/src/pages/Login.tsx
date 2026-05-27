@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, type KeyboardEvent, type ClipboardEvent } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
     Eye,
@@ -107,7 +107,7 @@ export default function Login() {
     const { t } = useLanguage();
     const navigate = useNavigate();
     const location = useLocation();
-    const { login, resetPassword, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser, prepareForLogin } = useAuth();
+    const { login, user, isLoading: isAuthLoading, isFirebaseAuthReady, setAuthUser, prepareForLogin } = useAuth();
     const redirectParamTo = useMemo(() => {
         const params = new URLSearchParams(window.location.search);
         return getSafeLoginRedirect(params.get("redirect") || params.get("next"));
@@ -143,10 +143,28 @@ export default function Login() {
     const [loginOtpError, setLoginOtpError] = useState("");
     const loginOtpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-    /* ── Forgot password ── */
+    /* ── Forgot password (backend OTP via Resend — same as mobile) ── */
     const [showForgotModal, setShowForgotModal] = useState(false);
+    const [forgotStep, setForgotStep] = useState<"email" | "otp" | "password">("email");
     const [forgotEmail, setForgotEmail] = useState("");
     const [forgotLoading, setForgotLoading] = useState(false);
+    const [forgotOtpDigits, setForgotOtpDigits] = useState(["", "", "", "", "", ""]);
+    const [forgotOtpError, setForgotOtpError] = useState("");
+    const [forgotOtpShake, setForgotOtpShake] = useState(false);
+    const [forgotNewPassword, setForgotNewPassword] = useState("");
+    const [forgotConfirmPassword, setForgotConfirmPassword] = useState("");
+    const [forgotShowPassword, setForgotShowPassword] = useState(false);
+    const forgotOtpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+    const resetForgotModal = useCallback(() => {
+        setForgotStep("email");
+        setForgotEmail("");
+        setForgotOtpDigits(["", "", "", "", "", ""]);
+        setForgotOtpError("");
+        setForgotNewPassword("");
+        setForgotConfirmPassword("");
+        setForgotShowPassword(false);
+    }, []);
 
     /* ── Tab ── */
     const [tab, setTab] = useState<"login" | "register">("login");
@@ -576,24 +594,130 @@ export default function Login() {
 
 
 
-    /* ── Forgot password ── */
-    const handleForgotPassword = async () => {
-        if (!forgotEmail) {
+    /* ── Forgot password: send OTP (Resend) ── */
+    const handleForgotSendOtp = async () => {
+        const emailNorm = forgotEmail.trim().toLowerCase();
+        if (!emailNorm) {
             toast.error("Enter your email address");
             return;
         }
         setForgotLoading(true);
+        setForgotOtpError("");
         try {
-            const result = await resetPassword(forgotEmail);
-            if (result.success) {
-                toast.success("Password reset email sent! Check your inbox.");
-                setShowForgotModal(false);
-                setForgotEmail("");
-            } else {
-                toast.error(result.message || "Failed to request reset");
+            const resp = await fetch(`${getBaseApiUrl()}/auth/forgot-password`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: emailNorm }),
+                signal: AbortSignal.timeout(15000),
+            });
+            const json = await resp.json();
+            if (!resp.ok || !json.success) {
+                toast.error(json.message || "Failed to send reset code");
+                return;
             }
+            setForgotEmail(emailNorm);
+            setForgotStep("otp");
+            setForgotOtpDigits(["", "", "", "", "", ""]);
+            toast.success("Reset code sent! Check your inbox (and spam).");
+            setTimeout(() => forgotOtpInputRefs.current[0]?.focus(), 120);
         } catch {
-            toast.error("Failed to request reset");
+            toast.error("Failed to send reset code. Please try again.");
+        } finally {
+            setForgotLoading(false);
+        }
+    };
+
+    const handleForgotOtpChange = (index: number, value: string) => {
+        if (!/^\d*$/.test(value)) return;
+        const updated = [...forgotOtpDigits];
+        updated[index] = value.slice(-1);
+        setForgotOtpDigits(updated);
+        setForgotOtpError("");
+        if (value && index < 5) forgotOtpInputRefs.current[index + 1]?.focus();
+    };
+
+    const handleForgotOtpKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "Backspace" && !forgotOtpDigits[index] && index > 0) {
+            forgotOtpInputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handleForgotOtpPaste = (e: ClipboardEvent) => {
+        const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+        if (!pasted) return;
+        e.preventDefault();
+        const updated = ["", "", "", "", "", ""];
+        for (let i = 0; i < pasted.length; i++) updated[i] = pasted[i];
+        setForgotOtpDigits(updated);
+        forgotOtpInputRefs.current[Math.min(pasted.length, 5)]?.focus();
+    };
+
+    /* ── Forgot password: verify OTP ── */
+    const handleForgotVerifyOtp = async () => {
+        const code = forgotOtpDigits.join("");
+        if (code.length !== 6) {
+            setForgotOtpError("Please enter the complete 6-digit code.");
+            return;
+        }
+        setForgotLoading(true);
+        setForgotOtpError("");
+        try {
+            const resp = await fetch(`${getBaseApiUrl()}/auth/verify-otp`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: forgotEmail, otp: code }),
+                signal: AbortSignal.timeout(12000),
+            });
+            const json = await resp.json();
+            if (!resp.ok || !json.success) {
+                setForgotOtpShake(true);
+                setTimeout(() => setForgotOtpShake(false), 600);
+                setForgotOtpDigits(["", "", "", "", "", ""]);
+                setForgotOtpError(json.message || "Invalid code. Please try again.");
+                setTimeout(() => forgotOtpInputRefs.current[0]?.focus(), 50);
+                return;
+            }
+            setForgotStep("password");
+        } catch {
+            setForgotOtpError("Verification failed. Please try again.");
+        } finally {
+            setForgotLoading(false);
+        }
+    };
+
+    /* ── Forgot password: set new password ── */
+    const handleForgotResetPassword = async () => {
+        const policyError = registerPasswordPolicyError(forgotNewPassword);
+        if (policyError) {
+            toast.error(policyError);
+            return;
+        }
+        if (forgotNewPassword !== forgotConfirmPassword) {
+            toast.error("Passwords do not match.");
+            return;
+        }
+        setForgotLoading(true);
+        try {
+            const resp = await fetch(`${getBaseApiUrl()}/auth/reset-password`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    email: forgotEmail,
+                    otp: forgotOtpDigits.join(""),
+                    newPassword: forgotNewPassword,
+                }),
+                signal: AbortSignal.timeout(12000),
+            });
+            const json = await resp.json();
+            if (!resp.ok || !json.success) {
+                toast.error(json.message || "Failed to reset password");
+                return;
+            }
+            toast.success("Password updated. You can sign in now.");
+            setShowForgotModal(false);
+            resetForgotModal();
+        } catch {
+            toast.error("Failed to reset password. Please try again.");
         } finally {
             setForgotLoading(false);
         }
@@ -1269,40 +1393,152 @@ export default function Login() {
                 onAccept={() => legal.setPpfTermsAgreed(true)}
             />
 
-            {/* ═══════════════ Forgot Password Modal ═══════════════ */}
-            <Dialog open={showForgotModal} onOpenChange={setShowForgotModal}>
+            {/* ═══════════════ Forgot Password Modal (backend OTP) ═══════════════ */}
+            <Dialog
+                open={showForgotModal}
+                onOpenChange={(open) => {
+                    setShowForgotModal(open);
+                    if (!open) resetForgotModal();
+                }}
+            >
                 <DialogContent className="glass border-orange-500/15 sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle className="text-foreground">Reset Password</DialogTitle>
                         <DialogDescription className="text-muted-foreground">
-                            Enter your email address and we'll send you a link to reset your password.
+                            {forgotStep === "email" &&
+                                "Enter your email and we'll send a 6-digit reset code (valid 10 minutes)."}
+                            {forgotStep === "otp" &&
+                                `Enter the code we sent to ${forgotEmail}. Check spam if you don't see it.`}
+                            {forgotStep === "password" && "Choose a new password for your account."}
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4 mt-2">
-                        <div className="relative">
-                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <Input
-                                type="email"
-                                value={forgotEmail}
-                                onChange={(e) => setForgotEmail(e.target.value)}
-                                placeholder="your@email.com"
-                                className="pl-9 bg-muted/40 border-border focus:border-primary"
-                                onKeyDown={(e) => e.key === "Enter" && handleForgotPassword()}
-                            />
+
+                    {forgotStep === "email" && (
+                        <div className="space-y-4 mt-2">
+                            <div className="relative">
+                                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                <Input
+                                    type="email"
+                                    value={forgotEmail}
+                                    onChange={(e) => setForgotEmail(e.target.value)}
+                                    placeholder="your@email.com"
+                                    className="pl-9 bg-muted/40 border-border focus:border-primary"
+                                    onKeyDown={(e) => e.key === "Enter" && handleForgotSendOtp()}
+                                />
+                            </div>
+                            <Button
+                                onClick={handleForgotSendOtp}
+                                className="w-full bg-orange-600 text-white hover:bg-orange-700 shadow-md shadow-orange-600/20 font-semibold"
+                                disabled={!forgotEmail.trim() || forgotLoading}
+                            >
+                                {forgotLoading ? (
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                    <Mail className="w-4 h-4 mr-2" />
+                                )}
+                                {forgotLoading ? "Sending..." : "Send reset code"}
+                            </Button>
                         </div>
-                        <Button
-                            onClick={handleForgotPassword}
-                            className="w-full bg-orange-600 text-white hover:bg-orange-700 shadow-md shadow-orange-600/20 font-semibold"
-                            disabled={!forgotEmail || forgotLoading}
-                        >
-                            {forgotLoading ? (
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            ) : (
-                                <Mail className="w-4 h-4 mr-2" />
+                    )}
+
+                    {forgotStep === "otp" && (
+                        <div className="space-y-4 mt-2">
+                            <div
+                                className={cn(
+                                    "flex gap-2 justify-center",
+                                    forgotOtpShake && "animate-[shake_0.4s_ease-in-out]"
+                                )}
+                            >
+                                {forgotOtpDigits.map((digit, idx) => (
+                                    <input
+                                        key={idx}
+                                        ref={(el) => {
+                                            forgotOtpInputRefs.current[idx] = el;
+                                        }}
+                                        type="text"
+                                        inputMode="numeric"
+                                        maxLength={1}
+                                        value={digit}
+                                        onChange={(e) => handleForgotOtpChange(idx, e.target.value)}
+                                        onKeyDown={(e) => handleForgotOtpKeyDown(idx, e)}
+                                        onPaste={idx === 0 ? handleForgotOtpPaste : undefined}
+                                        className="w-10 h-12 text-center text-lg font-semibold rounded-lg border border-border bg-muted/40 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500/40"
+                                    />
+                                ))}
+                            </div>
+                            {forgotOtpError && (
+                                <p className="text-center text-xs text-red-400">{forgotOtpError}</p>
                             )}
-                            {forgotLoading ? "Sending..." : "Send Reset Link"}
-                        </Button>
-                    </div>
+                            <Button
+                                onClick={handleForgotVerifyOtp}
+                                className="w-full bg-orange-600 text-white hover:bg-orange-700 font-semibold"
+                                disabled={forgotOtpDigits.join("").length !== 6 || forgotLoading}
+                            >
+                                {forgotLoading ? (
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : null}
+                                {forgotLoading ? "Verifying..." : "Verify code"}
+                            </Button>
+                            <button
+                                type="button"
+                                className="w-full text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() => {
+                                    setForgotStep("email");
+                                    setForgotOtpDigits(["", "", "", "", "", ""]);
+                                    setForgotOtpError("");
+                                }}
+                            >
+                                Use a different email
+                            </button>
+                        </div>
+                    )}
+
+                    {forgotStep === "password" && (
+                        <div className="space-y-4 mt-2">
+                            <div className="relative">
+                                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                <Input
+                                    type={forgotShowPassword ? "text" : "password"}
+                                    value={forgotNewPassword}
+                                    onChange={(e) => setForgotNewPassword(e.target.value)}
+                                    placeholder="New password"
+                                    className="pl-9 pr-9 bg-muted/40 border-border"
+                                />
+                                <button
+                                    type="button"
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                                    onClick={() => setForgotShowPassword((v) => !v)}
+                                >
+                                    {forgotShowPassword ? (
+                                        <EyeOff className="w-4 h-4" />
+                                    ) : (
+                                        <Eye className="w-4 h-4" />
+                                    )}
+                                </button>
+                            </div>
+                            <div className="relative">
+                                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                <Input
+                                    type={forgotShowPassword ? "text" : "password"}
+                                    value={forgotConfirmPassword}
+                                    onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                                    placeholder="Confirm new password"
+                                    className="pl-9 bg-muted/40 border-border"
+                                    onKeyDown={(e) => e.key === "Enter" && handleForgotResetPassword()}
+                                />
+                            </div>
+                            <Button
+                                onClick={handleForgotResetPassword}
+                                className="w-full bg-orange-600 text-white hover:bg-orange-700 font-semibold"
+                                disabled={!forgotNewPassword || !forgotConfirmPassword || forgotLoading}
+                            >
+                                {forgotLoading ? (
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : null}
+                                {forgotLoading ? "Updating..." : "Update password"}
+                            </Button>
+                        </div>
+                    )}
                 </DialogContent>
             </Dialog>
         </div>
