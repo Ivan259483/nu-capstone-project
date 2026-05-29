@@ -2,6 +2,9 @@ import express from 'express';
 import { optionalAuthenticate } from '../middleware/auth.middleware.js';
 import {
   startSession,
+  listConversations,
+  createConversation,
+  getConversation,
   saveLead,
   sendMessage,
   sendMessageStream,
@@ -14,6 +17,9 @@ const router = express.Router();
 
 router.use(optionalAuthenticate);
 
+router.get('/conversations', listConversations);
+router.post('/conversations', createConversation);
+router.get('/conversations/:conversationId', getConversation);
 router.post('/session', startSession);
 router.post('/lead', saveLead);
 router.post('/tracker/verify', verifyPublicTracker);

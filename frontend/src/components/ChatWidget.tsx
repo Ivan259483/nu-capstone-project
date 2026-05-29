@@ -9,14 +9,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { chatWindowClass } from '@/components/chat/chat-theme';
 import {
+    getChatGuestKey,
+    getLegacyChatSessionId,
+    setStoredActiveConversationId,
+} from '@/lib/chat-threads';
+import {
+    type ChatConversationThread,
     type ChatMessage,
     type ChatScreen,
     type PublicTrackerSummary,
     type RegistrationStep,
-    formatRelativeTime,
-    getConversationPreview,
-    getHomeCardPreview,
-    getLastActivityTime,
+    getThreadPreview,
+    getThreadRelativeTime,
 } from '@/components/chat/chat-utils';
 import { LauncherBubbleIcon } from '@/components/chat/ChatIcons';
 import ChatHomeScreen from '@/components/chat/ChatHomeScreen';
@@ -42,8 +46,10 @@ const REFERENCE_CONFUSION_REGEX = /\b(what(\s+is|'?s)?\s+(that|this|it|ref|refer
 const LOGIN_PROBLEM_REGEX = /\b(without\s+log[\s-]?in|no\s+log[\s-]?in|can'?t\s+log[\s-]?in|cannot\s+log[\s-]?in|cant\s+log[\s-]?in|unable\s+to\s+log[\s-]?in|di\s+makalogin|hindi\s+makalogin)\b/i;
 const NO_LOGIN_TRACKER_REGEX = /\b(track|tracker|tracking|status)\b[\s\S]{0,80}\b(without\s+log[\s-]?in|no\s+log[\s-]?in|can'?t\s+log[\s-]?in|cannot\s+log[\s-]?in|cant\s+log[\s-]?in|unable\s+to\s+log[\s-]?in|di\s+makalogin|hindi\s+makalogin)\b|\b(without\s+log[\s-]?in|no\s+log[\s-]?in|can'?t\s+log[\s-]?in|cannot\s+log[\s-]?in|cant\s+log[\s-]?in|unable\s+to\s+log[\s-]?in|di\s+makalogin|hindi\s+makalogin)\b[\s\S]{0,80}\b(track|tracker|tracking|status)\b/i;
 const PHONE_NUMBER_REGEX = /(?:\+?63|0)?9\d{9}\b/;
+const GREETING_ONLY_REGEX =
+    /^(?:hi|hello|hey|heya|good\s+(?:morning|afternoon|evening)|kamusta|kumusta)(?:\s+(?:there|po)?)?[\s!.?,]*$/i;
 const SIGNUP_INTENT_REGEX =
-    /\b(create|make|open|start|set\s*up|setup|register|sign\s*up|signup)\b[\s\S]{0,60}\b(account|acct|acc|profile)\b|\b(register\s+me|sign\s+me\s+up|signup\s+ako|pa\s*register)\b|\b(gawan|gawa|gumawa|igawa|iregister|i-register)\b[\s\S]{0,60}\b(ako|mo|account|acct|acc|profile)\b|\b(gawa|create)\s+(acc|acct|account)\b/i;
+    /^(?:sign\s*up|signup|register)\s*[\s!.?,]*$|\b(create|make|open|start|set\s*up|setup|register|sign\s*up|signup)\b[\s\S]{0,60}\b(account|acct|acc|profile)\b|\b(register\s+me|sign\s+me\s+up|signup\s+ako|pa\s*register|pa[\s-]*register)\b|\b(gawan|gawa|gumawa|igawa|iregister|i-register)\b[\s\S]{0,60}\b(ako|mo|account|acct|acc|profile)\b|\b(gawa|create|make)\s+(an?\s+)?(acc|acct|account)\b|\b(want|need|gusto|gusto\s+ko|i\s+want|i\s+need)\b[\s\S]{0,40}\b(an?\s+)?(account|acct|acc|profile)\b|\b(mag|gusto)\s*[\s-]*register\b/i;
 const TRACKER_REFERENCE_PROMPT = 'Sure! Please enter your Appointment Reference Number to pull up your status.\nIt looks like this: ASPF-XXXXXX-XXXX\nYou can find it in your booking confirmation screen or email.';
 const TRACKER_REFERENCE_EXPLANATION_REPLY = "Your Appointment Reference Number is a unique code we gave you\nwhen you completed your booking.\n\nYou can find it in:\n📧 Your confirmation email from AutoSPF+\n📱 Your booking confirmation screen in the app\n📋 Any SMS we sent after booking\n\nIt looks like: ASPF-260526-EC78\n\nCan't find it? No worries — just share your registered\nmobile number and our team will look it up for you! 🙌";
 const TRACKER_LINK_REPLY = 'Got it! Tap below to view your live tracker 👇\nLog in with your registered account and it loads automatically.';
@@ -107,7 +113,7 @@ const parseSseBlock = (block: string): { event: string; data: any } | null => {
 };
 
 const streamChatResponse = async (
-    sessionId: string,
+    conversationId: string,
     message: string,
     callbacks: StreamCallbacks
 ) => {
@@ -121,7 +127,7 @@ const streamChatResponse = async (
     const response = await fetch(`${BACKEND_API_URL}/chat/message/stream`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ sessionId, message }),
+        body: JSON.stringify({ conversationId, sessionId: conversationId, message }),
     });
 
     if (!response.ok || !response.body) {
@@ -214,16 +220,14 @@ const parseTrackerCorrection = (content: string) => {
     return null;
 };
 
-const getSessionId = () => {
-    if (typeof window === 'undefined') return 'server-session';
-    const existing = localStorage.getItem('autospf_chat_session');
-    if (existing) return existing;
-    const newId = (window.crypto && 'randomUUID' in window.crypto)
-        ? window.crypto.randomUUID()
-        : `chat_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    localStorage.setItem('autospf_chat_session', newId);
-    return newId;
-};
+const mapApiMessages = (rows: any[] = []): ChatMessage[] =>
+    rows.map((m: any) => ({
+        id: m.id || m._id || createMessageId('history'),
+        sender: m.sender,
+        message: m.message,
+        createdAt: m.createdAt,
+        meta: m.metadata,
+    }));
 
 const windowVariants: Variants = {
     hidden: { opacity: 0, scale: 0.94, y: 16, originX: 1, originY: 1 },
@@ -261,34 +265,130 @@ export default function ChatWidget({
     const [isResendingSetupEmail, setIsResendingSetupEmail] = useState(false);
     const [trackerStep, setTrackerStep] = useState<TrackerStep>('idle');
     const [trackerDraft, setTrackerDraft] = useState<TrackerDraft>({ bookingReference: '' });
+    const [conversations, setConversations] = useState<ChatConversationThread[]>([]);
+    const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
     const endRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
-    const sessionHydratedRef = useRef(false);
+    const inboxHydratedRef = useRef(false);
 
-    const sessionId = useMemo(() => getSessionId(), []);
+    const latestThread = conversations[0] ?? null;
     const authed = typeof isAuthenticated === 'boolean'
         ? isAuthenticated
         : typeof window !== 'undefined' && !!localStorage.getItem('autospf_token');
 
-    const conversationPreview = useMemo(
-        () => getConversationPreview(messages, registrationStep),
-        [messages, registrationStep]
+    const activeThread = useMemo(
+        () => conversations.find((thread) => thread.conversationId === activeConversationId) || null,
+        [conversations, activeConversationId]
     );
 
-    const homeCardPreview = useMemo(
-        () => getHomeCardPreview(messages, registrationStep),
-        [messages, registrationStep]
+    const inboxPreview = useMemo(
+        () => getThreadPreview(latestThread, registrationStep),
+        [latestThread, registrationStep]
     );
 
-    const relativeTime = useMemo(
-        () => formatRelativeTime(getLastActivityTime(messages)),
-        [messages]
+    const inboxRelativeTime = useMemo(
+        () => getThreadRelativeTime(latestThread),
+        [latestThread]
     );
+
+    const resetThreadLocalState = () => {
+        setRegistrationStep('idle');
+        setRegistrationDraft(emptyRegistrationDraft());
+        setRegistrationEmailSent('');
+        setTrackerStep('idle');
+        setTrackerDraft({ bookingReference: '' });
+        setLeadRequired(false);
+        setPendingMessage(null);
+    };
+
+    const loadConversationsList = async () => {
+        const guestKey = getChatGuestKey();
+        const legacySessionId = getLegacyChatSessionId();
+        const res = await api.get('/chat/conversations', {
+            params: {
+                guestKey,
+                ...(legacySessionId ? { legacySessionId } : {}),
+            },
+        });
+        const list = (res.data?.conversations || []) as ChatConversationThread[];
+        setConversations(list);
+        return list;
+    };
+
+    const openConversation = async (
+        conversationId: string,
+        returnTo: 'home' | 'messages' = 'messages'
+    ) => {
+        setIsSending(true);
+        try {
+            resetThreadLocalState();
+            const res = await api.get(`/chat/conversations/${conversationId}`, {
+                params: { guestKey: getChatGuestKey() },
+            });
+            const hydrated = mapApiMessages(res.data?.messages || []);
+            setActiveConversationId(conversationId);
+            setStoredActiveConversationId(conversationId);
+            setMessages(hydrated);
+            syncRegistrationFromBackend({ session: res.data?.session });
+            setChatReturnTo(returnTo);
+            setScreen('chat');
+            setIsOpen(true);
+        } catch (error) {
+            console.warn('[ChatWidget] Unable to open conversation:', error);
+            toast.error('Unable to open this conversation.');
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const createNewConversation = async (returnTo: 'home' | 'messages' = 'home') => {
+        setIsSending(true);
+        try {
+            resetThreadLocalState();
+            const res = await api.post('/chat/conversations', {
+                guestKey: getChatGuestKey(),
+                source: 'web',
+            });
+            const conversation = res.data?.conversation as ChatConversationThread;
+            const hydrated = mapApiMessages(res.data?.messages || []);
+            if (!conversation?.conversationId) {
+                throw new Error('Missing conversationId');
+            }
+            setConversations((prev) => [
+                conversation,
+                ...prev.filter((item) => item.conversationId !== conversation.conversationId),
+            ]);
+            setActiveConversationId(conversation.conversationId);
+            setStoredActiveConversationId(conversation.conversationId);
+            setMessages(hydrated);
+            syncRegistrationFromBackend({ session: res.data?.session });
+            setChatReturnTo(returnTo);
+            setScreen('chat');
+            setIsOpen(true);
+        } catch (error) {
+            console.warn('[ChatWidget] Unable to create conversation:', error);
+            toast.error('Unable to start a new conversation.');
+        } finally {
+            setIsSending(false);
+        }
+    };
 
     const openChat = (returnTo: 'home' | 'messages' = 'home') => {
         setChatReturnTo(returnTo);
         setScreen('chat');
+    };
+
+    const handleOpenRecent = () => {
+        if (latestThread) {
+            void openConversation(latestThread.conversationId, 'home');
+            return;
+        }
+        void createNewConversation('home');
+    };
+
+    const handleAskQuestion = () => {
+        void createNewConversation(screen === 'messages' ? 'messages' : 'home');
     };
 
     const handleOpenWidget = () => {
@@ -314,38 +414,26 @@ export default function ChatWidget({
     }, []);
 
     useEffect(() => {
-        if (!isOpen || sessionHydratedRef.current) return;
-        sessionHydratedRef.current = true;
+        if (!isOpen || inboxHydratedRef.current) return;
+        inboxHydratedRef.current = true;
         let cancelled = false;
 
-        api.post('/chat/session', { sessionId, source: 'web' })
-            .then(res => {
+        loadConversationsList()
+            .then((list) => {
                 if (cancelled) return;
-                const session = res.data?.session || {};
-                if (session.leadName) setLeadName(session.leadName);
-                if (session.leadPhone) setLeadPhone(session.leadPhone);
-                syncRegistrationFromBackend({ session });
-
-                const hydratedMessages = (res.data?.messages || []).map((m: any) => ({
-                    id: m.id || m._id || createMessageId('history'),
-                    sender: m.sender,
-                    message: m.message,
-                    createdAt: m.createdAt,
-                    meta: m.metadata,
-                }));
-
-                if (hydratedMessages.length) {
-                    setMessages(prev => (prev.length ? prev : hydratedMessages));
+                const storedActive = getLegacyChatSessionId();
+                if (storedActive && list.some((thread) => thread.conversationId === storedActive)) {
+                    setActiveConversationId(storedActive);
                 }
             })
-            .catch(error => {
-                console.warn('[ChatWidget] Unable to hydrate chat session:', error);
+            .catch((error) => {
+                console.warn('[ChatWidget] Unable to load conversations:', error);
             });
 
         return () => {
             cancelled = true;
         };
-    }, [isOpen, sessionId]);
+    }, [isOpen]);
 
     useEffect(() => {
         if (!isOpen || screen !== 'chat' || (messages.length === 0 && !isSending)) return;
@@ -362,6 +450,61 @@ export default function ChatWidget({
             }
         }
     }, [isOpen, screen]);
+
+    useEffect(() => {
+        if (registrationStep !== 'submitting' || !activeConversationId) return undefined;
+
+        let cancelled = false;
+        const poll = async () => {
+            if (cancelled) return;
+            try {
+                const res = await api.get(`/chat/conversations/${activeConversationId}`, {
+                    params: { guestKey: getChatGuestKey() },
+                    meta: { suppressErrorToast: true },
+                } as any);
+                if (cancelled) return;
+
+                syncRegistrationFromBackend({ session: res.data?.session });
+                const status = res.data?.session?.onboarding?.status;
+                if (status !== 'sent' && status !== 'failed') return;
+
+                const assistantMessages = [...(res.data?.messages || [])]
+                    .filter((entry: any) => entry.sender === 'assistant');
+                const outcomeMessage = [...assistantMessages]
+                    .reverse()
+                    .find((entry: any) =>
+                        ['account_onboarding_complete', 'account_onboarding_failed', 'account_onboarding_outcome']
+                            .includes(entry?.metadata?.type)
+                    ) || assistantMessages[assistantMessages.length - 1];
+                if (!outcomeMessage?.message) return;
+
+                const normalized = String(outcomeMessage.message).trim();
+                setMessages((prev) => {
+                    if (prev.some((msg) => msg.sender === 'assistant' && msg.message.trim() === normalized)) {
+                        return prev;
+                    }
+                    return [...prev, ...mapApiMessages([outcomeMessage])];
+                });
+
+                const email = res.data?.session?.onboarding?.draft?.email;
+                if (status === 'sent' && email) {
+                    setRegistrationEmailSent(email);
+                }
+            } catch {
+                // ignore polling errors
+            }
+        };
+
+        void poll();
+        const intervalId = window.setInterval(() => {
+            void poll();
+        }, 2500);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+        };
+    }, [registrationStep, activeConversationId]);
 
     const appendMessage = (msg: ChatMessage) =>
         setMessages(prev => [...prev, { ...msg, createdAt: msg.createdAt ?? new Date().toISOString() }]);
@@ -395,12 +538,54 @@ export default function ChatWidget({
         if (status === 'sent' || metadata.type === 'account_onboarding_complete') {
             setRegistrationStep('sent');
             if (metadata.email) setRegistrationEmailSent(metadata.email);
+            if (draft?.email) setRegistrationEmailSent(draft.email);
+            return;
+        }
+
+        if (status === 'submitting') {
+            setRegistrationStep('submitting');
+            return;
+        }
+
+        if (status === 'failed') {
+            setRegistrationStep(
+                ['firstName', 'lastName', 'email', 'phone'].includes(step) ? (step as RegistrationStep) : 'email'
+            );
             return;
         }
 
         if (status === 'collecting' && ['firstName', 'lastName', 'email', 'phone'].includes(step)) {
             setRegistrationStep(step as RegistrationStep);
         }
+    };
+
+    const recoverRegistrationStateAfterError = async () => {
+        const conversationId = activeConversationId || await ensureActiveConversationId().catch(() => null);
+        if (!conversationId) return false;
+
+        const res = await api.get(`/chat/conversations/${conversationId}`, {
+            params: { guestKey: getChatGuestKey() },
+            meta: { suppressErrorToast: true },
+        } as any);
+
+        syncRegistrationFromBackend({ session: res.data?.session, metadata: res.data?.messages?.at(-1)?.metadata });
+        const lastAssistant = [...(res.data?.messages || [])]
+            .reverse()
+            .find((entry: any) => entry.sender === 'assistant');
+        if (lastAssistant?.message) {
+            const normalized = String(lastAssistant.message).trim();
+            setMessages((prev) => {
+                if (prev.some((msg) => msg.sender === 'assistant' && msg.message.trim() === normalized)) {
+                    return prev;
+                }
+                return [
+                    ...prev,
+                    ...mapApiMessages([lastAssistant]),
+                ];
+            });
+            return true;
+        }
+        return false;
     };
 
     const upsertAssistantMessage = (id: string, message: string) => {
@@ -432,20 +617,16 @@ export default function ChatWidget({
     };
 
     const beginRegistration = async (options?: { includeUserMessage?: boolean; triggerMessage?: string }) => {
-        setIsOpen(true);
-        openChat('home');
-        setLeadRequired(false);
-        setPendingMessage(null);
-        setTrackerStep('idle');
-        setTrackerDraft({ bookingReference: '' });
-        setRegistrationDraft(emptyRegistrationDraft());
-        setRegistrationEmailSent('');
-        setRegistrationStep('idle');
-        if (options?.includeUserMessage) {
-            appendMessage({ id: createMessageId('user'), sender: 'user', message: options.triggerMessage || 'Create an account' });
-        }
         setIsSending(true);
         try {
+            await createNewConversation('home');
+            if (options?.includeUserMessage) {
+                appendMessage({
+                    id: createMessageId('user'),
+                    sender: 'user',
+                    message: options.triggerMessage || 'Create an account',
+                });
+            }
             await sendMessage(options?.triggerMessage || 'Create an account');
         } catch {
             setRegistrationStep('firstName');
@@ -478,10 +659,14 @@ export default function ChatWidget({
         try {
             await sendMessage(content);
         } catch {
-            appendAssistant(
-                `I could not reach the secure onboarding service right now.\n\n${getRegistrationResumePrompt(registrationStep, registrationDraft)}`,
-                { type: 'registration' }
-            );
+            const recovered = await recoverRegistrationStateAfterError().catch(() => false);
+            if (!recovered) {
+                const resumeStep = registrationStep === 'submitting' ? 'email' : registrationStep;
+                appendAssistant(
+                    `I could not reach the secure onboarding service right now.\n\n${getRegistrationResumePrompt(resumeStep, registrationDraft)}`,
+                    { type: 'registration' }
+                );
+            }
         } finally {
             setIsSending(false);
         }
@@ -576,8 +761,10 @@ export default function ChatWidget({
 
         setIsSending(true);
         try {
+            const conversationId = await ensureActiveConversationId();
             const res = await api.post('/chat/tracker/verify', {
-                sessionId,
+                conversationId,
+                sessionId: conversationId,
                 bookingReference,
                 phone,
             }, {
@@ -701,30 +888,49 @@ export default function ChatWidget({
         }
     };
 
+    const ensureActiveConversationId = async (): Promise<string> => {
+        if (activeConversationId) return activeConversationId;
+        const res = await api.post('/chat/conversations', {
+            guestKey: getChatGuestKey(),
+            source: 'web',
+        });
+        const conversation = res.data?.conversation as ChatConversationThread;
+        const hydrated = mapApiMessages(res.data?.messages || []);
+        if (!conversation?.conversationId) {
+            throw new Error('Missing conversationId');
+        }
+        setConversations((prev) => [
+            conversation,
+            ...prev.filter((item) => item.conversationId !== conversation.conversationId),
+        ]);
+        setActiveConversationId(conversation.conversationId);
+        setStoredActiveConversationId(conversation.conversationId);
+        setMessages(hydrated);
+        syncRegistrationFromBackend({ session: res.data?.session });
+        return conversation.conversationId;
+    };
+
     const sendMessage = async (content: string, options: SendMessageOptions = {}) => {
         const applyActions = options.applyActions !== false;
+        const conversationId = await ensureActiveConversationId();
         let data: any;
         let streamStarted = false;
         let streamedReply = '';
         const assistantId = createMessageId('assistant-stream');
 
         try {
-            data = await streamChatResponse(sessionId, content, {
+            data = await streamChatResponse(conversationId, content, {
                 onStart: () => {
-                    if (!streamStarted) {
-                        streamStarted = true;
-                        setIsSending(false);
-                        upsertAssistantMessage(assistantId, '');
-                    }
+                    streamStarted = true;
                 },
                 onDelta: (text: string) => {
                     if (!text) return;
-                    if (!streamStarted) {
-                        streamStarted = true;
-                        setIsSending(false);
-                    }
+                    streamStarted = true;
                     streamedReply += text;
                     upsertAssistantMessage(assistantId, streamedReply);
+                    if (streamedReply.trim()) {
+                        setIsSending(false);
+                    }
                 },
             });
         } catch (networkErr) {
@@ -732,7 +938,8 @@ export default function ChatWidget({
                 console.error('[ChatWidget] Stream error:', networkErr);
                 try {
                     const res = await api.post('/chat/message', {
-                        sessionId,
+                        conversationId,
+                        sessionId: conversationId,
                         message: content,
                     });
                     data = res.data;
@@ -743,7 +950,8 @@ export default function ChatWidget({
             } else {
                 try {
                     const res = await api.post('/chat/message', {
-                        sessionId,
+                        conversationId,
+                        sessionId: conversationId,
                         message: content,
                     });
                     data = res.data;
@@ -755,13 +963,28 @@ export default function ChatWidget({
         }
 
         const reply = data?.reply || streamedReply || 'Sorry, I could not generate a response.';
-        syncRegistrationFromBackend(data);
+        syncRegistrationFromBackend({ ...data, metadata: data?.metadata || data });
 
         if (streamStarted) {
             upsertAssistantMessage(assistantId, reply);
         } else {
             appendMessage({ id: createMessageId('assistant'), sender: 'assistant', message: reply });
         }
+        setConversations((prev) => {
+            const preview = content.trim() || reply.trim();
+            const next = prev.map((thread) =>
+                thread.conversationId === conversationId
+                    ? {
+                        ...thread,
+                        lastMessagePreview: preview.slice(0, 120),
+                        lastMessageAt: new Date().toISOString(),
+                    }
+                    : thread
+            );
+            const current = next.find((thread) => thread.conversationId === conversationId);
+            if (!current) return prev;
+            return [current, ...next.filter((thread) => thread.conversationId !== conversationId)];
+        });
         setUnread(prev => (isOpen && screen === 'chat' ? 0 : prev + 1));
 
         if (applyActions && data?.action?.type === 'open_booking' && onOpenBooking) {
@@ -789,7 +1012,10 @@ export default function ChatWidget({
         setInput('');
 
         if (registrationStep === 'submitting') {
-            appendAssistant('I am still securing your account setup. One moment please.', { type: 'registration' });
+            if (/\b(try\s+again|retry|resend|ulitin|subukan\s+muli)\b/i.test(trimmed)) {
+                await handleRegistrationInput(trimmed);
+                return;
+            }
             return;
         }
 
@@ -818,12 +1044,14 @@ export default function ChatWidget({
             return;
         }
 
-        if (!authed && SIGNUP_INTENT_REGEX.test(trimmed)) {
+        if (!authed && !GREETING_ONLY_REGEX.test(trimmed) && SIGNUP_INTENT_REGEX.test(trimmed)) {
             setIsSending(true);
             try {
                 await sendMessage(trimmed);
             } catch {
-                await beginRegistration({ triggerMessage: trimmed });
+                if (SIGNUP_INTENT_REGEX.test(trimmed)) {
+                    await beginRegistration({ triggerMessage: trimmed });
+                }
             } finally {
                 setIsSending(false);
             }
@@ -864,8 +1092,10 @@ export default function ChatWidget({
             return;
         }
         try {
+            const conversationId = await ensureActiveConversationId();
             const res = await api.post('/chat/lead', {
-                sessionId,
+                conversationId,
+                sessionId: conversationId,
                 name: leadName.trim(),
                 phone: leadPhone.trim(),
             });
@@ -888,7 +1118,12 @@ export default function ChatWidget({
     const handleHandoff = async () => {
         const lastUserMessage = [...messages].reverse().find(m => m.sender === 'user')?.message;
         try {
-            const res = await api.post('/chat/handoff', { sessionId, lastMessage: lastUserMessage });
+            const conversationId = await ensureActiveConversationId();
+            const res = await api.post('/chat/handoff', {
+                conversationId,
+                sessionId: conversationId,
+                lastMessage: lastUserMessage,
+            });
             if (res.data?.success) {
                 appendMessage({
                     id: createMessageId('assistant'),
@@ -938,21 +1173,24 @@ export default function ChatWidget({
                     >
                         {screen === 'home' && (
                             <ChatHomeScreen
-                                preview={homeCardPreview}
-                                relativeTime={relativeTime}
+                                preview={inboxPreview}
+                                relativeTime={inboxRelativeTime}
+                                hasRecentThread={Boolean(latestThread)}
                                 currentUserName={currentUserName}
                                 onClose={() => setIsOpen(false)}
-                                onOpenChat={() => openChat('home')}
+                                onOpenRecent={handleOpenRecent}
+                                onAskQuestion={handleAskQuestion}
                                 onOpenMessages={() => setScreen('messages')}
                             />
                         )}
 
                         {screen === 'messages' && (
                             <ChatMessagesScreen
-                                preview={conversationPreview}
-                                relativeTime={relativeTime}
+                                conversations={conversations}
+                                registrationStep={registrationStep}
                                 onClose={() => setIsOpen(false)}
-                                onOpenChat={() => openChat('messages')}
+                                onSelectConversation={(id) => void openConversation(id, 'messages')}
+                                onAskQuestion={handleAskQuestion}
                                 onOpenHome={() => setScreen('home')}
                             />
                         )}

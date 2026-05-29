@@ -1,3 +1,5 @@
+import { EXPLICIT_REGISTRATION_INTENT_REGEX } from '../utils/chatConciergeRouting.utils.js';
+
 export const CHAT_LANGUAGES = Object.freeze({
   ENGLISH: 'english',
   TAGALOG: 'tagalog',
@@ -152,8 +154,7 @@ const BUSINESS_INTENT_PATTERNS = [
     intent: 'account_registration',
     topic: 'account',
     confidence: 0.92,
-    pattern:
-      /\b(create|make|open|start|set\s*up|setup|register|sign\s*up|signup)\b[\s\S]{0,60}\b(account|acct|acc|profile)\b|\b(register\s+me|sign\s+me\s+up|signup\s+ako|pa\s*register)\b|\b(gawan|gawa|gumawa|igawa|iregister|i-register)\b[\s\S]{0,60}\b(ako|mo|account|acct|acc|profile)\b|\b(gawa|create)\s+(acc|acct|account)\b/i,
+    pattern: EXPLICIT_REGISTRATION_INTENT_REGEX,
   },
   {
     intent: 'human_handoff',

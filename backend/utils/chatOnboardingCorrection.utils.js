@@ -3,7 +3,10 @@ const CORRECTION_PHONE_REGEX = /(?:\+?63|0)?9\d{9}\b/;
 const NAME_PART_REGEX = /^[a-zA-ZÀ-ÿ\s.\-']+$/;
 
 export const CORRECTION_INTENT_REGEX =
-  /\b(wrong|incorrect|not\s+correct|mistake|correction|correct\s+(?:is|to)|should\s+be|change\s+(?:my\s+)?(?:it\s+)?(?:name)?(?:\s+to)?|update\s+(?:my\s+)?(?:that|it|name)(?:\s+to)?|replace\s+it|palitan|mali|hindi\s+(?:yan|iyon|yun)|di\s+(?:yan|iyon|yun)|wait|not\s+that|not\s+[a-zA-ZÀ-ÿ.'-]+|iba\s+pala|ay\s+mali|actually|i\s+meant|my\s+name\s+is|name\s+is)\b/i;
+  /\b(wrong|incorrect|not\s+correct|mistake|correction|correct\s+(?:is|to)|correct\s+(?:my\s+)?(?:first\s+name|last\s+name|fname|lname|name)\s+to|should\s+be|change\s+(?:my\s+)?(?:it\s+)?(?:name)?(?:\s+to)?|change\s+(?:my\s+)?(?:first\s+name|last\s+name|fname|lname)\s+to|update\s+(?:my\s+)?(?:that|it|name)(?:\s+to)?|update\s+(?:my\s+)?(?:first\s+name|last\s+name|fname|lname)\s+to|replace\s+it|palitan|mali|hindi\s+(?:yan|iyon|yun)|di\s+(?:yan|iyon|yun)|wait|not\s+that|not\s+[a-zA-ZÀ-ÿ.'-]+|iba\s+pala|ay\s+mali|actually|i\s+meant|my\s+name\s+is|name\s+is)\b/i;
+
+const EXPLICIT_FIELD_CORRECT_TO_REGEX = /\b(?:correct|change|update|fix)\s+(?:my\s+)?(first\s+name|last\s+name|fname|lname)\s+to\s+(.+)$/i;
+const CORRECTION_NOISE_WORDS_REGEX = /\b(correct|change|update|fix|first|last|name|fname|lname|to|my|the|is|it)\b/i;
 
 const FIRST_NAME_HINT_REGEX = /\b(first\s*name|given\s*name|pangalan|unang\s*pangalan|fname)\b/i;
 const LAST_NAME_HINT_REGEX = /\b(last\s*name|surname|apelyido|family\s*name|lname)\b/i;
@@ -43,6 +46,13 @@ const EMPTY_CORRECTION_WORDS = new Set([
 ]);
 
 const ONBOARDING_FIELD_ORDER = ['firstName', 'lastName', 'email', 'phone'];
+
+const FIELD_LABELS = {
+  firstName: 'first name',
+  lastName: 'last name',
+  email: 'email',
+  phone: 'mobile number',
+};
 
 export const hasCorrectionIntent = (message = '') => {
   const text = String(message || '').trim();
@@ -101,8 +111,47 @@ const looksLikeBareName = (text = '') => {
   if (!value || value.length > 40) return false;
   if (extractEmailCandidate(value) || extractPhoneCandidate(value)) return false;
   if (isEmptyCorrectionValue(value)) return false;
+  if (CORRECTION_NOISE_WORDS_REGEX.test(value)) return false;
   return NAME_PART_REGEX.test(value);
 };
+
+const normalizeCorrectionNameValue = (value = '') => {
+  const parts = String(value || '')
+    .trim()
+    .replace(/[.!,]+$/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((part) => !EMPTY_CORRECTION_WORDS.has(part.toLowerCase()));
+  if (!parts.length) return '';
+  const normalized = parts.join(' ');
+  if (!looksLikeBareName(normalized)) return '';
+  return parts
+    .map((part) => `${part[0].toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(' ');
+};
+
+/**
+ * Parses phrases like "correct first name to kevin" into a target field and value.
+ */
+export const parseExplicitFieldCorrection = (message = '') => {
+  const text = String(message || '').trim();
+  const match = text.match(EXPLICIT_FIELD_CORRECT_TO_REGEX);
+  if (!match) return null;
+
+  const fieldLabel = String(match[1] || '').toLowerCase();
+  const field = /^(last\s+name|lname|surname|apelyido)$/.test(fieldLabel) ? 'lastName' : 'firstName';
+  const value = normalizeCorrectionNameValue(match[2]);
+  if (!value) {
+    return { field, label: FIELD_LABELS[field], needsValue: true };
+  }
+
+  return { field, label: FIELD_LABELS[field], value };
+};
+
+const isExplicitFieldCorrectionMessage = (message = '') =>
+  Boolean(parseExplicitFieldCorrection(message))
+  || (/\b(?:correct|change|update|fix)\b/i.test(message)
+    && (FIRST_NAME_HINT_REGEX.test(message) || LAST_NAME_HINT_REGEX.test(message)));
 
 const isNegatingExistingNameOnly = (message = '', draft = {}) => {
   const text = String(message || '').trim().toLowerCase();
@@ -163,6 +212,10 @@ export const inferCorrectionTarget = ({ message = '', step = '', draft = {} } = 
   const bareName = looksLikeBareName(stripped);
   const mentionsGenericName = GENERIC_NAME_HINT_REGEX.test(text) || NAME_INTRO_REGEX.test(text);
 
+  if (isNegatingExistingNameOnly(text, draft)) {
+    return { field: 'firstName', confidence: 0.88, reason: 'negated_existing_name' };
+  }
+
   if (mentionsGenericName) {
     if (step === 'lastName' && draft.firstName) {
       return { field: 'firstName', confidence: 0.9, reason: 'generic_name_previous_step' };
@@ -177,8 +230,13 @@ export const inferCorrectionTarget = ({ message = '', step = '', draft = {} } = 
     return { field: 'firstName', confidence: 0.84, reason: 'current_first_name_correction_value' };
   }
 
-  if (step === 'lastName' && draft.firstName && bareName) {
-    return { field: 'firstName', confidence: 0.82, reason: 'bare_name_after_first_name' };
+  if (step === 'lastName' && bareName) {
+    if (!String(draft.lastName || '').trim()) {
+      return { field: 'lastName', confidence: 0.9, reason: 'current_step_last_name' };
+    }
+    if (draft.firstName) {
+      return { field: 'firstName', confidence: 0.82, reason: 'bare_name_after_first_name' };
+    }
   }
 
   if (step === 'email' && draft.firstName && bareName) {
@@ -201,6 +259,93 @@ export const inferCorrectionTarget = ({ message = '', step = '', draft = {} } = 
 
 export const inferCorrectionField = (options = {}) => inferCorrectionTarget(options)?.field || null;
 
+const STEP_TO_SEMANTIC_FIELD = {
+  firstName: 'first_name',
+  lastName: 'last_name',
+  email: 'email',
+  phone: 'phone',
+};
+
+const SEMANTIC_FIELD_TO_UPDATE_INTENT = {
+  first_name: 'UPDATE_FIRST_NAME',
+  last_name: 'UPDATE_LAST_NAME',
+  email: 'UPDATE_EMAIL',
+  phone: 'UPDATE_PHONE',
+};
+
+const NEXT_SEMANTIC_FIELD_AFTER = {
+  first_name: 'last_name',
+  last_name: 'phone',
+  phone: 'email',
+  email: null,
+};
+
+/**
+ * When Groq mis-targets a bare answer for the active collecting step, align field/value
+ * so onboarding advances (e.g. "tadena" at lastName step should update last_name, not first_name).
+ */
+const getNextRequiredSemanticField = (draft = {}) => {
+  const missing = ONBOARDING_FIELD_ORDER.filter((key) => !String(draft[key] || '').trim());
+  return STEP_TO_SEMANTIC_FIELD[missing[0]] || null;
+};
+
+/**
+ * Overrides Groq/step-alignment when the user names the field explicitly ("correct first name to kevin").
+ */
+export const applyExplicitFieldCorrectionToAnalysis = (analysis = {}, { message = '', draft = {} } = {}) => {
+  const parsed = parseExplicitFieldCorrection(message);
+  if (!parsed || parsed.needsValue) return analysis;
+
+  const semanticField = parsed.field === 'lastName' ? 'last_name' : 'first_name';
+  const nextDraft = { ...draft, [parsed.field]: parsed.value };
+  const nextRequiredField = getNextRequiredSemanticField(nextDraft);
+
+  return {
+    ...analysis,
+    intent: SEMANTIC_FIELD_TO_UPDATE_INTENT[semanticField] || analysis.intent,
+    field: semanticField,
+    value: parsed.value,
+    nextRequiredField,
+    reply: '',
+    replySuggestion: '',
+    source: 'explicit_field_correction',
+  };
+};
+
+export const alignOnboardingAnalysisToCollectingStep = (analysis = {}, { message = '', step = '', draft = {} } = {}) => {
+  const messageText = String(message || '').trim();
+  const stepSemanticField = STEP_TO_SEMANTIC_FIELD[step];
+  if (!messageText || !stepSemanticField || hasCorrectionIntent(messageText) || isExplicitFieldCorrectionMessage(messageText)) {
+    return analysis;
+  }
+
+  const draftKey = step;
+  const allNameFieldsCollected = ['firstName', 'lastName', 'email', 'phone']
+    .every((key) => String(draft[key] || '').trim());
+  if (allNameFieldsCollected) return analysis;
+
+  if (String(draft[draftKey] || '').trim()) return analysis;
+
+  const extracted = extractNameValue(messageText, draftKey, draft);
+  if (!extracted || !looksLikeBareName(extracted)) return analysis;
+
+  if (stepSemanticField !== 'first_name' && stepSemanticField !== 'last_name') return analysis;
+  if (analysis.field === stepSemanticField && analysis.value) return analysis;
+
+  const nextRequiredField = NEXT_SEMANTIC_FIELD_AFTER[stepSemanticField] ?? analysis.nextRequiredField;
+
+  return {
+    ...analysis,
+    intent: SEMANTIC_FIELD_TO_UPDATE_INTENT[stepSemanticField] || analysis.intent,
+    field: stepSemanticField,
+    value: extracted,
+    nextRequiredField,
+    reply: '',
+    replySuggestion: '',
+    source: analysis.source === 'groq' ? 'groq_step_aligned' : analysis.source,
+  };
+};
+
 export const clearOnboardingFieldsAfter = (draft = {}, field = '') => {
   const next = { ...draft };
   const index = ONBOARDING_FIELD_ORDER.indexOf(field);
@@ -211,13 +356,6 @@ export const clearOnboardingFieldsAfter = (draft = {}, field = '') => {
   }
 
   return next;
-};
-
-const FIELD_LABELS = {
-  firstName: 'first name',
-  lastName: 'last name',
-  email: 'email',
-  phone: 'mobile number',
 };
 
 export const buildCorrectionNeedsValueReply = (field = '') => {

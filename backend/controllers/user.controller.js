@@ -7,6 +7,7 @@ import Customer from '../models/customer.model.js';
 import Vehicle from '../models/vehicle.model.js';
 import ChatSession from '../models/chatSession.model.js';
 import ChatMessage from '../models/chatMessage.model.js';
+import ChatConversation from '../models/chatConversation.model.js';
 import ActivityLog from '../models/activityLog.model.js';
 import Payment from '../models/payment.model.js';
 import mongoose from 'mongoose';
@@ -455,7 +456,7 @@ export const deleteUser = async (req, res, next) => {
 
     const cleanupLabels = [
       'Orders (customer)', 'Orders (assignedDetailer)', 'Customers',
-      'Vehicles', 'ChatSessions', 'ChatMessages',
+      'Vehicles', 'ChatConversations', 'ChatSessions', 'ChatMessages',
       'ActivityLogs', 'Payments', 'Stores (unset manager)', 'OTPs',
     ];
 
@@ -464,6 +465,7 @@ export const deleteUser = async (req, res, next) => {
       Order.updateMany({ assignedDetailer: userId }, { $unset: { assignedDetailer: '' } }),
       Customer.deleteMany({ user: userId }),
       Vehicle.deleteMany({ customer: userId }),
+      ChatConversation.deleteMany({ userId: userId }),
       ChatSession.deleteMany({ userId: userId }),
       ChatMessage.deleteMany({ userId: userId }),
       ActivityLog.deleteMany({ userId: userId }),

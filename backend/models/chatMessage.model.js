@@ -7,6 +7,10 @@ const chatMessageSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    conversationId: {
+      type: String,
+      index: true,
+    },
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -26,5 +30,6 @@ const chatMessageSchema = new mongoose.Schema(
 );
 
 chatMessageSchema.index({ createdAt: -1 });
+chatMessageSchema.index({ conversationId: 1, createdAt: 1 });
 
 export default mongoose.model('ChatMessage', chatMessageSchema);

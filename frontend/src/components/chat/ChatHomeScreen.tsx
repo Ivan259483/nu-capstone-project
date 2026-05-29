@@ -7,9 +7,11 @@ import { PaperPlaneIcon } from './ChatIcons';
 interface ChatHomeScreenProps {
     preview: string;
     relativeTime: string;
+    hasRecentThread: boolean;
     currentUserName?: string;
     onClose: () => void;
-    onOpenChat: () => void;
+    onOpenRecent: () => void;
+    onAskQuestion: () => void;
     onOpenMessages: () => void;
 }
 
@@ -18,10 +20,12 @@ export default function ChatHomeScreen({
     relativeTime,
     currentUserName,
     onClose,
-    onOpenChat,
+    hasRecentThread,
+    onOpenRecent,
+    onAskQuestion,
     onOpenMessages,
 }: ChatHomeScreenProps) {
-    const previewText = preview.trim() || 'We typically reply in minutes';
+    const previewText = preview.trim() || (hasRecentThread ? 'Tap to continue' : 'We typically reply in minutes');
     const avatarLabel = currentUserName ? currentUserName.charAt(0).toUpperCase() : null;
 
     return (
@@ -88,8 +92,9 @@ export default function ChatHomeScreen({
                 <div className="-mt-[54px] flex flex-col gap-4">
                     <button
                         type="button"
-                        onClick={onOpenChat}
-                        className={`${chatCardClass} min-h-[120px] w-full px-5 py-5`}
+                        onClick={onOpenRecent}
+                        disabled={!hasRecentThread}
+                        className={`${chatCardClass} min-h-[120px] w-full px-5 py-5 disabled:opacity-60`}
                     >
                         <p className="text-[16px] font-semibold leading-none text-[#15171C] sm:text-[17px]">
                             Recent message
@@ -114,7 +119,7 @@ export default function ChatHomeScreen({
 
                     <button
                         type="button"
-                        onClick={onOpenChat}
+                        onClick={onAskQuestion}
                         className={`${chatCardClass} flex min-h-[74px] w-full items-center justify-between gap-4 px-5 py-4`}
                     >
                         <span className="text-[17px] font-semibold text-[#15171C]">Ask a question</span>

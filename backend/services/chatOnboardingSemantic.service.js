@@ -5,6 +5,10 @@ import {
 import {
   normalizeLeadPhone,
 } from '../utils/chatOnboardingCorrection.utils.js';
+import {
+  mapOnboardingStateLabel,
+  resolveConversationMode,
+} from './chatConciergeReasoning.service.js';
 
 export const ONBOARDING_SEMANTIC_CONFIDENCE_THRESHOLD = 0.85;
 export const GROQ_ONBOARDING_MODEL = (process.env.GROQ_ONBOARDING_MODEL || 'llama-3.1-8b-instant').trim();
@@ -285,6 +289,10 @@ const buildSystemPrompt = () => [
   'If the user asks to try again after a backend failure and the draft is complete, use RETRY_ONBOARDING_SUBMISSION with recommended_action "RETRY_BACKEND_PROCESS".',
   'If the user is frustrated but still trying to finish onboarding, use USER_FRUSTRATION with a helpful replySuggestion and recommended_action "RESUME_ONBOARDING" or "RETRY_BACKEND_PROCESS" when appropriate.',
   'If the user only says "mali" or an unclear correction, use CLARIFICATION with confidence below 0.85.',
+  'Pure greetings (hi, hello, hey, good morning) are SMALL_TALK with confidence below 0.85 — never CREATE_ACCOUNT.',
+  'Use CREATE_ACCOUNT only when the user clearly asks to register, sign up, or create an account — not for casual hellos.',
+  'When onboardingStatus is sent, the secure setup email was already sent. Questions like "does that mean it is already created?" should use ASK_ONBOARDING_STATUS with a natural reply explaining the account is created but password activation via the secure email is still required.',
+  'Always populate reply with a natural customer-facing response when you understand the message, even for CLARIFICATION or SMALL_TALK.',
   `Allowed intents: ${ONBOARDING_SEMANTIC_INTENTS.join(', ')}.`,
   'Allowed fields: first_name, last_name, email, phone, null.',
   'Allowed next_required_field values: first_name, last_name, phone, email, null.',
@@ -310,7 +318,9 @@ const buildUserPrompt = ({
   lastSubmittedField,
   lastSubmittedValue,
   lastSubmittedAt,
-} = {}) => JSON.stringify({
+} = {}, session = {}) => JSON.stringify({
+  conversation_mode: resolveConversationMode(session),
+  onboarding_state: mapOnboardingStateLabel(session),
   currentStepCompatibilityHint: step,
   onboardingStatus: onboardingStatus || 'collecting',
   requiredFields: REQUIRED_ONBOARDING_FIELDS,
@@ -363,10 +373,23 @@ export const analyzeOnboardingMessage = async ({
   lastSubmittedField = '',
   lastSubmittedValue = '',
   lastSubmittedAt = '',
+  session = null,
 } = {}, {
   groqCaller = callGroqChatCompletions,
   allowFallback = true,
 } = {}) => {
+  const sessionForState = session || {
+    onboarding: {
+      status: onboardingStatus,
+      step,
+      draft,
+      lastError: lastBackendError,
+      lastSuccessfulStep,
+      lastSubmittedField,
+      lastSubmittedValue,
+      lastSubmittedAt,
+    },
+  };
   const fallbackLanguage = normalizeLanguage(preferredLanguage, 'english');
   const resolvedCollectedFields = collectedFields || buildCollectedOnboardingFields(draft);
   const resolvedMissingRequiredFields = normalizeRequiredFieldList(missingRequiredFields).length
@@ -402,6 +425,7 @@ export const analyzeOnboardingMessage = async ({
               lastSubmittedField,
               lastSubmittedValue,
               lastSubmittedAt,
+              session: sessionForState,
             }),
           },
         ],

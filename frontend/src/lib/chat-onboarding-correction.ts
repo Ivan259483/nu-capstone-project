@@ -194,8 +194,13 @@ const inferCorrectionTarget = ({
         return { field: 'firstName', confidence: 0.84, reason: 'current_first_name_correction_value' };
     }
 
-    if (step === 'lastName' && draft.firstName && bareName) {
-        return { field: 'firstName', confidence: 0.82, reason: 'bare_name_after_first_name' };
+    if (step === 'lastName' && bareName) {
+        if (!String(draft.lastName || '').trim()) {
+            return { field: 'lastName', confidence: 0.9, reason: 'current_step_last_name' };
+        }
+        if (draft.firstName) {
+            return { field: 'firstName', confidence: 0.82, reason: 'bare_name_after_first_name' };
+        }
     }
 
     if (step === 'email' && draft.firstName && bareName) {

@@ -47,6 +47,7 @@ import {
 } from '../components/customer/CustomerSkeleton';
 import { compressImageForBookingProof } from '../lib/compress-image-for-upload';
 import VehicleGarageForm from '@/components/shared/VehicleGarageForm';
+import { CustomerSidebarAnimatedIcon } from '@/components/customer/CustomerSidebarAnimatedIcon';
 import {
   ADD_VEHICLE_TYPE_LABELS,
   BOOKING_YEAR_OPTIONS,
@@ -2624,8 +2625,7 @@ export default function CustomerDashboard() {
           <div className="flex h-16 shrink-0 items-center border-b border-slate-100 px-3 overflow-hidden">
             <div className="customer-sidebar-user-header min-w-0 flex-1">
               <div
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white shadow-sm"
-                style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-700 text-sm font-bold text-white shadow-sm"
                 aria-hidden
               >
                 {(sidebarDisplayName || sidebarUserEmail || '?').charAt(0).toUpperCase()}
@@ -2648,7 +2648,7 @@ export default function CustomerDashboard() {
               aria-label="Dashboard"
               title={sidebarCollapsed ? 'Dashboard' : undefined}
             >
-              <iconify-icon icon="solar:widget-linear" width="20" className="shrink-0"></iconify-icon>
+              <CustomerSidebarAnimatedIcon name="dashboard" />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Dashboard</span>
             </button>
             <button
@@ -2659,7 +2659,7 @@ export default function CustomerDashboard() {
               aria-label="AI Inspection History"
               className={`customer-sidebar-item ${AI_INSPECTION_HISTORY_ENABLED && activeSection === 'scan' ? 'is-active' : ''}`}
             >
-              <iconify-icon icon="solar:scanner-linear" width="20" className="shrink-0"></iconify-icon>
+              <CustomerSidebarAnimatedIcon name="scan" />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left leading-snug">AI Inspection History</span>
               <span className={`customer-sidebar-extra shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${AI_INSPECTION_HISTORY_ENABLED ? 'uppercase tracking-wider bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>
                 {AI_INSPECTION_HISTORY_ENABLED ? 'AI Lab' : 'Soon'}
@@ -2672,10 +2672,10 @@ export default function CustomerDashboard() {
               aria-label="My Bookings"
               title={sidebarCollapsed ? 'My Bookings' : undefined}
             >
-              <iconify-icon icon="solar:calendar-linear" width="20" className="shrink-0"></iconify-icon>
+              <CustomerSidebarAnimatedIcon name="bookings" />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">My Bookings</span>
               {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length > 0 && (
-                <span className="customer-sidebar-extra ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600">
+                <span className="customer-sidebar-extra ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
                   {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length}
                 </span>
               )}
@@ -2687,7 +2687,7 @@ export default function CustomerDashboard() {
               aria-label="Services"
               title={sidebarCollapsed ? 'Services' : undefined}
             >
-              <iconify-icon icon="solar:tag-price-linear" width="20" className="shrink-0"></iconify-icon>
+              <CustomerSidebarAnimatedIcon name="services" />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Services</span>
             </button>
             {hasActiveTrackerBooking && (
@@ -2698,7 +2698,7 @@ export default function CustomerDashboard() {
               aria-label="Live Tracker"
               title={sidebarCollapsed ? 'Live Tracker' : undefined}
             >
-              <iconify-icon icon="solar:routing-2-linear" width="20" className="shrink-0"></iconify-icon>
+              <CustomerSidebarAnimatedIcon name="tracker" />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Live Tracker</span>
             </button>
             )}
@@ -2710,7 +2710,7 @@ export default function CustomerDashboard() {
               aria-label="Documents"
               title={sidebarCollapsed ? 'Documents' : undefined}
             >
-              <iconify-icon icon="solar:document-text-linear" width="20" className="shrink-0"></iconify-icon>
+              <CustomerSidebarAnimatedIcon name="documents" />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Documents</span>
             </button>
 
@@ -2721,7 +2721,7 @@ export default function CustomerDashboard() {
               aria-label="Payment History"
               title={sidebarCollapsed ? 'Payment History' : undefined}
             >
-              <iconify-icon icon="solar:card-2-linear" width="20" className="shrink-0"></iconify-icon>
+              <CustomerSidebarAnimatedIcon name="payments" />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Payment History</span>
             </button>
 
@@ -2732,7 +2732,7 @@ export default function CustomerDashboard() {
               aria-label="Rewards"
               title={sidebarCollapsed ? 'Rewards' : undefined}
             >
-              <iconify-icon icon="solar:star-linear" width="20" className="shrink-0"></iconify-icon>
+              <CustomerSidebarAnimatedIcon name="rewards" />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Rewards</span>
             </button>
           </nav>
@@ -2748,7 +2748,7 @@ export default function CustomerDashboard() {
               aria-label="Log out"
               title={sidebarCollapsed ? 'Log out' : undefined}
             >
-              <iconify-icon icon="solar:logout-2-linear" width="20" className="shrink-0"></iconify-icon>
+              <CustomerSidebarAnimatedIcon name="logout" />
               {!sidebarCollapsed && <span className="customer-sidebar-label">Log Out</span>}
             </button>
             <button
@@ -2758,11 +2758,7 @@ export default function CustomerDashboard() {
               aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
-              <iconify-icon
-                icon="solar:alt-arrow-left-linear"
-                width="16"
-                className="customer-sidebar-collapse-chevron shrink-0"
-              ></iconify-icon>
+              <CustomerSidebarAnimatedIcon name="collapse" size={16} className="customer-sidebar-collapse-chevron shrink-0" />
               {!sidebarCollapsed && <span className="customer-sidebar-label font-medium">Collapse</span>}
             </button>
           </div>

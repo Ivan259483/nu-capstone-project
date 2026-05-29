@@ -1,18 +1,10 @@
 import React, { useState } from 'react';
-import {
-    LayoutDashboard,
-    Calendar,
-    Navigation,
-    CreditCard,
-    Bell,
-    Settings,
-    LogOut,
-    FileText,
-    Sparkles,
-    ChevronLeft,
-} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+    CustomerSidebarAnimatedIcon,
+    type CustomerSidebarIconName,
+} from '@/components/customer/CustomerSidebarAnimatedIcon';
 
 type TabType = 'dashboard' | 'ai-estimator' | 'bookings' | 'tracking' | 'payments' | 'notifications' | 'settings' | 'book' | 'documents' | 'scan-book';
 
@@ -27,16 +19,16 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
     const { logout, user } = useAuth();
     const [collapsed, setCollapsed] = useState(false);
 
-    const navItems = [
-        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'ai-estimator', label: 'AI Damage Scan', icon: Sparkles },
-        { id: 'bookings', label: 'My Bookings', icon: Calendar },
-        { id: 'tracking', label: 'Live Tracking', icon: Navigation },
-        { id: 'payments', label: 'Payments', icon: CreditCard },
-        { id: 'documents', label: 'Documents & Waivers', icon: FileText },
-        { id: 'notifications', label: 'Notifications', icon: Bell },
-        { id: 'settings', label: 'Settings', icon: Settings },
-    ] as const;
+    const navItems: { id: TabType; label: string; icon: CustomerSidebarIconName }[] = [
+        { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+        { id: 'ai-estimator', label: 'AI Damage Scan', icon: 'sparkles' },
+        { id: 'bookings', label: 'My Bookings', icon: 'bookings' },
+        { id: 'tracking', label: 'Live Tracking', icon: 'tracker' },
+        { id: 'payments', label: 'Payments', icon: 'payments' },
+        { id: 'documents', label: 'Documents & Waivers', icon: 'documents' },
+        { id: 'notifications', label: 'Notifications', icon: 'notifications' },
+        { id: 'settings', label: 'Settings', icon: 'settings' },
+    ];
 
     const displayName = (user?.name || 'Customer').trim() || 'Customer';
     const email = (user?.email || '').trim();
@@ -53,8 +45,7 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
             <div className="flex h-16 shrink-0 items-center border-b border-slate-100 px-3 overflow-hidden">
                 <div className="customer-sidebar-user-header min-w-0 flex-1">
                     <div
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white shadow-sm"
-                        style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-700 text-sm font-bold text-white shadow-sm"
                         aria-hidden
                     >
                         {(displayName || email || '?').charAt(0).toUpperCase()}
@@ -71,16 +62,15 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
             <nav className="customer-sidebar-nav">
                 {!collapsed && <p className="customer-sidebar-section-heading">Main Menu</p>}
                 {navItems.map((item) => {
-                    const Icon = item.icon;
                     const isActive = activeTab === item.id;
                     return (
                         <button
                             key={item.id}
                             type="button"
                             className={cn('customer-sidebar-item', isActive && 'is-active')}
-                            onClick={() => onTabChange(item.id as TabType)}
+                            onClick={() => onTabChange(item.id)}
                         >
-                            <Icon className="h-5 w-5 shrink-0" strokeWidth={2} />
+                            <CustomerSidebarAnimatedIcon name={item.icon} />
                             <span className="customer-sidebar-label flex-1 min-w-0 text-left">{item.label}</span>
                         </button>
                     );
@@ -93,7 +83,7 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
                     className="customer-sidebar-item customer-sidebar-item--danger"
                     onClick={() => logout()}
                 >
-                    <LogOut className="h-5 w-5 shrink-0" strokeWidth={2} />
+                    <CustomerSidebarAnimatedIcon name="logout" />
                     {!collapsed && <span className="customer-sidebar-label">Log Out</span>}
                 </button>
                 <button
@@ -102,7 +92,7 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
                     onClick={() => setCollapsed((c) => !c)}
                     aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                 >
-                    <ChevronLeft className="h-4 w-4 customer-sidebar-collapse-chevron shrink-0 text-slate-500" strokeWidth={2} />
+                    <CustomerSidebarAnimatedIcon name="collapse" size={16} className="customer-sidebar-collapse-chevron shrink-0 text-slate-500" />
                     {!collapsed && <span className="customer-sidebar-label font-medium">Collapse</span>}
                 </button>
             </div>

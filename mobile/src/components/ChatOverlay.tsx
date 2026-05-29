@@ -100,7 +100,7 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
             id: 'welcome',
             sender: 'assistant',
             message:
-              'Hi — how can I help you today?',
+              'Welcome to AutoSPF+ 👋\n\nI can help with account setup, bookings, ceramic coating, SPF & PPF packages, detailing, and pricing.\n\nHow can I assist you today?',
           },
         ]);
       }

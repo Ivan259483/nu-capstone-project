@@ -46,6 +46,33 @@ export type RegistrationStep =
 
 export type ChatScreen = 'home' | 'messages' | 'chat';
 
+export interface ChatConversationThread {
+    conversationId: string;
+    title: string;
+    mode: string;
+    status?: string;
+    lastMessagePreview?: string;
+    lastMessageAt?: string;
+    createdAt?: string;
+    updatedAt?: string;
+}
+
+export function getThreadPreview(
+    thread: ChatConversationThread | null | undefined,
+    registrationStep: RegistrationStep
+): string {
+    if (registrationStep !== 'idle' && registrationStep !== 'sent') {
+        return getConversationPreview([], registrationStep);
+    }
+    const preview = String(thread?.lastMessagePreview || '').trim();
+    if (preview) return preview.length <= 56 ? preview : `${preview.slice(0, 53)}...`;
+    return '';
+}
+
+export function getThreadRelativeTime(thread: ChatConversationThread | null | undefined): string {
+    return formatRelativeTime(thread?.lastMessageAt);
+}
+
 const ACTION_CHIP_ARRAY_REGEX = /\[\s*(?:"[^"]+"\s*(?:,\s*"[^"]+"\s*)*)\]/g;
 
 /** Plain-text display for bot/user bubbles (no markdown or JSON chip leaks). */

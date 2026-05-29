@@ -181,6 +181,31 @@ function TrackerLinkCard({
     );
 }
 
+function TypingIndicator() {
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            className="flex items-end gap-2"
+            aria-live="polite"
+            aria-label="AutoSPF+ is typing"
+        >
+            <ChatBrandAvatar size="sm" />
+            <div className="flex items-center gap-1.5 rounded-[22px] rounded-tl-[10px] bg-[#F4F4F5] px-4 py-3.5">
+                {[0, 0.18, 0.36].map((delay, i) => (
+                    <motion.span
+                        key={i}
+                        className="h-2 w-2 rounded-full bg-[#94A3B8]"
+                        animate={{ opacity: [0.35, 1, 0.35], y: [0, -2, 0] }}
+                        transition={{ duration: 0.9, repeat: Infinity, delay, ease: 'easeInOut' }}
+                    />
+                ))}
+            </div>
+        </motion.div>
+    );
+}
+
 export default function ChatConversationScreen({
     messages,
     input,
@@ -210,6 +235,7 @@ export default function ChatConversationScreen({
     onChangeRegistrationEmail,
 }: ChatConversationScreenProps) {
     const canSend = !isSending && input.trim().length > 0 && registrationStep !== 'submitting';
+    const showTypingIndicator = isSending || registrationStep === 'submitting';
 
     return (
         <div className="flex min-h-0 flex-1 flex-col bg-white">
@@ -256,7 +282,9 @@ export default function ChatConversationScreen({
                     </p>
                 )}
 
-                {messages.map(msg => (
+                {messages.map(msg => {
+                    if (!msg.message.trim() && !msg.meta?.type) return null;
+                    return (
                     <motion.div
                         key={msg.id}
                         variants={msgVariants}
@@ -285,7 +313,16 @@ export default function ChatConversationScreen({
                             </div>
                         )}
                     </motion.div>
-                ))}
+                    );
+                })}
+
+                <AnimatePresence>
+                    {showTypingIndicator && (
+                        <div className="flex justify-start">
+                            <TypingIndicator />
+                        </div>
+                    )}
+                </AnimatePresence>
 
                 {registrationStep === 'sent' && registrationEmailSent && (
                     <motion.div
@@ -341,25 +378,6 @@ export default function ChatConversationScreen({
                         </div>
                     </motion.div>
                 )}
-
-                {isSending && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="flex justify-start"
-                    >
-                        <div className="flex items-center gap-2 rounded-[22px] rounded-tl-[10px] bg-[#F4F4F5] px-4 py-3">
-                            {[0, 0.15, 0.3].map((delay, i) => (
-                                <motion.span
-                                    key={i}
-                                    className="h-1.5 w-1.5 rounded-full bg-gray-400"
-                                    animate={{ opacity: [0.3, 1, 0.3] }}
-                                    transition={{ duration: 0.9, repeat: Infinity, delay }}
-                                />
-                            ))}
-                        </div>
-                    </motion.div>
-                )}
                 <div ref={endRef} />
             </div>
 
@@ -410,7 +428,7 @@ export default function ChatConversationScreen({
             </AnimatePresence>
 
             <div className="shrink-0 px-6 pb-5 pt-3">
-                {messages.length === 0 && !isSending && (
+                {messages.length === 0 && !showTypingIndicator && (
                     <div className="mb-3 flex items-center justify-center gap-2 text-[13px] text-[#6B7280]">
                         <ChatBrandAvatar size="sm" />
                         AutoSPF+ studio team is on standby

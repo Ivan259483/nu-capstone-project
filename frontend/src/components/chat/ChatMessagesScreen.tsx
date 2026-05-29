@@ -1,22 +1,30 @@
 import { X } from 'lucide-react';
 import ChatBottomNav from './ChatBottomNav';
-import { ChatInboxRow } from './ChatConversationPreview';
+import ChatConversationPreview from './ChatConversationPreview';
 import { chatPillButtonClass, chatScreenHeaderClass } from './chat-theme';
 import { PillChevronIcon } from './ChatIcons';
+import {
+    formatRelativeTime,
+    getThreadPreview,
+    type ChatConversationThread,
+    type RegistrationStep,
+} from './chat-utils';
 
 interface ChatMessagesScreenProps {
-    preview: string;
-    relativeTime: string;
+    conversations: ChatConversationThread[];
+    registrationStep: RegistrationStep;
     onClose: () => void;
-    onOpenChat: () => void;
+    onSelectConversation: (conversationId: string) => void;
+    onAskQuestion: () => void;
     onOpenHome: () => void;
 }
 
 export default function ChatMessagesScreen({
-    preview,
-    relativeTime,
+    conversations,
+    registrationStep,
     onClose,
-    onOpenChat,
+    onSelectConversation,
+    onAskQuestion,
     onOpenHome,
 }: ChatMessagesScreenProps) {
     return (
@@ -35,14 +43,33 @@ export default function ChatMessagesScreen({
                 </h2>
             </header>
 
-            <div className="flex min-h-0 flex-1 flex-col">
-                <ChatInboxRow preview={preview} relativeTime={relativeTime} onClick={onOpenChat} />
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                {conversations.length > 0 ? (
+                    <div className="shrink-0">
+                        {conversations.map((thread) => (
+                            <ChatConversationPreview
+                                key={thread.conversationId}
+                                variant="inbox"
+                                preview={getThreadPreview(thread, registrationStep)}
+                                relativeTime={formatRelativeTime(thread.lastMessageAt)}
+                                onClick={() => onSelectConversation(thread.conversationId)}
+                                className="cursor-pointer border-b !border-gray-200 px-6 py-5 transition-colors hover:bg-[#FAFAFA]"
+                            />
+                        ))}
+                    </div>
+                ) : (
+                    <div className="flex flex-1 flex-col items-center justify-center px-6 py-10">
+                        <p className="max-w-[280px] text-center text-[14px] leading-relaxed text-[#9CA3AF]">
+                            No conversations yet. Start a fresh thread with AutoSPF+ Concierge.
+                        </p>
+                    </div>
+                )}
 
-                <div className="flex flex-1 flex-col items-center justify-end px-6 pb-10 pt-6">
+                <div className="mt-auto flex flex-col items-center px-6 pb-10 pt-6">
                     <p className="mb-5 max-w-[280px] text-center text-[13px] leading-relaxed text-[#9CA3AF]">
-                        Pick up your AutoSPF+ conversation anytime, or start a fresh quote request.
+                        Each question opens a new support thread so your context stays clean and focused.
                     </p>
-                    <button type="button" onClick={onOpenChat} className={chatPillButtonClass}>
+                    <button type="button" onClick={onAskQuestion} className={chatPillButtonClass}>
                         Ask a question
                         <PillChevronIcon className="h-4 w-4 text-white" />
                     </button>

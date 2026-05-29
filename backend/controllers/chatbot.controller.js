@@ -65,6 +65,8 @@ import {
   SPECIALIST_ESCALATION_REPLY,
 } from '../utils/chatEscalation.utils.js';
 import {
+  alignOnboardingAnalysisToCollectingStep,
+  applyExplicitFieldCorrectionToAnalysis,
   buildCorrectionConfirmedReply,
   buildCorrectionNeedsValueReply,
   CORRECTION_INTENT_REGEX,
@@ -73,6 +75,32 @@ import {
 import {
   buildOnboardingInterruptionReply,
 } from '../utils/chatOnboardingInterruption.utils.js';
+import {
+  hasExplicitRegistrationIntent,
+  isGreetingMessage,
+} from '../utils/chatConciergeRouting.utils.js';
+import {
+  adoptLegacySessionAsConversation,
+  createFreshConversation,
+  findConversationForAccess,
+  listConversationsForCustomer,
+  maybeTitleConversationFromFirstUserMessage,
+  serializeChatMessages,
+  serializeConversation,
+  touchConversationActivity,
+} from '../services/chatConversation.service.js';
+import {
+  buildConversationalState,
+  buildGreetingConversationalState,
+  buildGreetingGroqMessages,
+  buildMinimalGreetingFallback,
+  buildPostSentOnboardingReply,
+  generateGroqGreetingReply,
+  generatePrimaryConciergeReply,
+  isOnboardingContext,
+  looksLikeFullWelcomeMessage,
+  shouldPreferGroqReply,
+} from '../services/chatConciergeReasoning.service.js';
 
 const GROQ_MODEL = GROQ_CHAT_MODEL;
 const GROQ_MAX_COMPLETION_TOKENS = Number(process.env.GROQ_CHAT_MAX_TOKENS || 190);
@@ -90,7 +118,6 @@ let priceListCache = null;
 
 const QUOTE_INTENT_REGEX = /(quote|price|price\s*list|pricelist|cost|how much|pricing|rate|rates|estimate|presyo|magkano)/i;
 const BOOKING_INTENT_REGEX = /(book|schedule|appointment|reserve|book now)/i;
-const ACCOUNT_CREATE_INTENT_REGEX = /\b(create|make|open|start|set\s*up|setup|register|sign\s*up|signup)\b[\s\S]{0,60}\b(account|acct|acc|profile)\b|\b(register\s+me|sign\s+me\s+up|signup\s+ako|pa\s*register)\b|\b(gawan|gawa|gumawa|igawa|iregister|i-register)\b[\s\S]{0,60}\b(ako|mo|account|acct|acc|profile)\b|\b(gawa|create)\s+(acc|acct|account)\b/i;
 const TRACKER_INTENT_REGEX = /\b(track|tracker|tracking|status|where\s+is\s+my\s+(car|vehicle)|live\s+tracker|order\s+status|repair\s+status)\b/i;
 const CORRECTION_EMAIL_REGEX = /[^\s@]+@[^\s@]+\.[^\s@]+/i;
 const CORRECTION_PHONE_REGEX = /(?:\+?63|0)?9\d{9}\b/;
@@ -271,8 +298,25 @@ const getRecentUserMessagesFast = async (sessionId, limit = 4) => {
   return recentUserLines.map((row) => row.message);
 };
 
-const saveChatMessageLater = (payload) => {
-  runChatSideEffect('save chat message', () => ChatMessage.create(payload));
+const resolveThreadId = (body = {}) =>
+  String(body?.conversationId || body?.sessionId || '').trim();
+
+const saveChatMessageLater = (payload = {}) => {
+  const conversationId = payload.conversationId || payload.sessionId;
+  const doc = {
+    ...payload,
+    conversationId,
+    sessionId: payload.sessionId || conversationId,
+  };
+
+  runChatSideEffect('save chat message', async () => {
+    await ChatMessage.create(doc);
+    if (!conversationId || !payload.message) return;
+    await touchConversationActivity(conversationId, { preview: payload.message });
+    if (payload.sender === 'user') {
+      await maybeTitleConversationFromFirstUserMessage(conversationId, payload.message);
+    }
+  });
 };
 
 const persistSessionLater = (session, label = 'persist chat session') => {
@@ -313,6 +357,10 @@ const persistSessionLater = (session, label = 'persist chat session') => {
     const $set = {};
     const $unset = {};
     fields.forEach((field) => {
+      // Background registration owns onboarding while submitting — do not clobber sent/failed.
+      if (field === 'onboarding' && session.onboarding?.status === 'submitting') {
+        return;
+      }
       if (session[field] === undefined) {
         $unset[field] = '';
       } else {
@@ -335,7 +383,7 @@ const inferIntent = (message = '') => {
   if (TRACKER_INTENT_REGEX.test(message)) return 'tracker';
   if (BOOKING_INTENT_REGEX.test(message)) return 'booking';
   if (QUOTE_INTENT_REGEX.test(message)) return 'quote';
-  if (ACCOUNT_CREATE_INTENT_REGEX.test(message)) return 'account';
+  if (hasExplicitRegistrationIntent(message)) return 'account';
   if (isExplicitHumanHandoffRequest(message)) return 'handoff';
   return 'general';
 };
@@ -467,6 +515,31 @@ const buildCorrectionReply = (correction, session) => {
 const isActiveOnboardingSession = (session) =>
   ['collecting', 'failed'].includes(session?.onboarding?.status) && !!session?.onboarding?.step;
 
+const isFieldMutationIntent = (analysis = {}) =>
+  SEMANTIC_UPDATE_INTENTS.has(analysis.intent)
+  || SEMANTIC_CONFIRM_INTENTS.has(analysis.intent)
+  || Boolean(analysis.field);
+
+const appendOnboardingResumeIfNeeded = (body, { session, step, draft } = {}) => {
+  const text = String(body || '').trim();
+  if (!text) return text;
+  if (session?.onboarding?.status === 'sent') return text;
+  if (!['collecting', 'failed'].includes(session?.onboarding?.status) || !step) return text;
+  return `${text}\n\n${buildOnboardingResumePrompt(step, draft)}`;
+};
+
+const resolveGroqOnboardingReply = (analysis = {}, { session, step, draft } = {}) => {
+  if (!shouldPreferGroqReply(analysis)) {
+    if (session?.onboarding?.status === 'sent') {
+      return sanitizeChatReply(buildPostSentOnboardingReply(draft));
+    }
+    return null;
+  }
+
+  const body = analysis.reply || analysis.replySuggestion;
+  return sanitizeChatReply(appendOnboardingResumeIfNeeded(body, { session, step, draft }));
+};
+
 const getOnboardingDraft = (session) => ({
   firstName: session?.onboarding?.draft?.firstName || '',
   lastName: session?.onboarding?.draft?.lastName || '',
@@ -497,8 +570,26 @@ const getNextOnboardingStep = (draft = {}) => {
   return getOnboardingStepFromSemanticField(firstMissingField);
 };
 
+const resolveOnboardingCollectingStep = (session, draft = {}) => {
+  const explicit = session?.onboarding?.step;
+  if (explicit && ['firstName', 'lastName', 'email', 'phone'].includes(explicit)) {
+    return explicit;
+  }
+
+  const status = session?.onboarding?.status;
+  if (status === 'failed' || status === 'submitting') {
+    const lastField = session?.onboarding?.lastSubmittedField;
+    if (lastField && ['firstName', 'lastName', 'email', 'phone'].includes(lastField)) {
+      return lastField;
+    }
+    return 'email';
+  }
+
+  return getNextOnboardingStep(draft) || 'firstName';
+};
+
 const ONBOARDING_PROMPTS = {
-  firstName: "To get started, what's your first name?",
+  firstName: "What's your first name?",
   lastName: "Thanks. What's your last name?",
   phone: 'What mobile number should we place on your account?',
   email: 'What email address should we use for your secure setup link?',
@@ -544,22 +635,53 @@ const beginAccountOnboarding = async (session, { intentSource = 'groq', analysis
   };
 };
 
-const completeAccountOnboarding = async (session, draft, { submittedField = '', submittedValue = '' } = {}) => {
+const ONBOARDING_SUBMITTING_STALE_MS = 25_000;
+
+const getOnboardingSubmittingAgeMs = (session = {}) => {
+  const submittedAt = session?.onboarding?.lastSubmittedAt;
+  if (!submittedAt) return Number.POSITIVE_INFINITY;
+  return Date.now() - new Date(submittedAt).getTime();
+};
+
+const isOnboardingSubmittingStale = (session = {}) =>
+  session?.onboarding?.status === 'submitting'
+  && getOnboardingSubmittingAgeMs(session) > ONBOARDING_SUBMITTING_STALE_MS;
+
+const isOnboardingRetryMessage = (message = '') =>
+  /\b(try\s+again|retry|resend|ulitin|subukan\s+muli)\b/i.test(String(message || '').trim());
+
+const buildOnboardingSubmittingAckReply = (draft = {}) => {
+  const firstName = String(draft.firstName || '').trim();
+  const email = String(draft.email || '').trim();
+  const greeting = firstName ? `Thanks, ${firstName}!` : 'Thanks!';
+  const destination = email ? ` to ${email}` : '';
+  return sanitizeChatReply(
+    `${greeting} I'm sending your secure setup link${destination} now. You'll see a confirmation here in a few seconds.`
+  );
+};
+
+const appendOnboardingOutcomeMessage = (sessionId, reply, metadata = {}) => {
+  if (!sessionId || !reply) return;
+  saveChatMessageLater({
+    sessionId,
+    conversationId: sessionId,
+    sender: 'assistant',
+    message: sanitizeChatReply(reply),
+    metadata: {
+      ...metadata,
+      type: metadata.type || 'account_onboarding_outcome',
+    },
+  });
+};
+
+const runAccountOnboardingSubmission = async (
+  session,
+  draft,
+  { submittedField = '', submittedValue = '' } = {}
+) => {
   const finalSubmittedField = submittedField || session.onboarding?.lastSubmittedField || 'email';
   const finalSubmittedValue = submittedValue || draft[finalSubmittedField] || '';
-  const submittedAt = new Date();
-  session.onboarding = {
-    ...session.onboarding,
-    status: 'submitting',
-    step: undefined,
-    draft,
-    lastError: undefined,
-    lastSuccessfulStep: finalSubmittedField,
-    lastSubmittedField: finalSubmittedField,
-    lastSubmittedValue: finalSubmittedValue,
-    lastSubmittedAt: submittedAt,
-  };
-  await session.save();
+  const submittedAt = session.onboarding?.lastSubmittedAt || new Date();
 
   let result;
   try {
@@ -577,11 +699,12 @@ const completeAccountOnboarding = async (session, draft, { submittedField = '', 
       lastSubmittedAt: submittedAt,
     };
     await session.save();
+    cacheSession(session);
 
     return {
       reply: error?.emailError
         ? 'I saved the account details, but the secure setup email could not be sent right now. Please send your email again in a moment and I will retry it here.'
-        : 'I could not complete the account setup yet. Please check the details and try again.',
+        : 'I could not complete the account setup yet. Please say "try again" and I will resend your secure setup link.',
       metadata: { type: 'account_onboarding_failed', onboardingStep: 'email', onboardingStatus: session.onboarding.status },
     };
   }
@@ -599,9 +722,10 @@ const completeAccountOnboarding = async (session, draft, { submittedField = '', 
       lastSubmittedAt: submittedAt,
     };
     await session.save();
+    cacheSession(session);
 
     return {
-      reply: result.message || 'I could not complete the account setup yet. Please check the details and try again.',
+      reply: result.message || 'I could not complete the account setup yet. Please say "try again" and I will resend your secure setup link.',
       metadata: { type: 'account_onboarding_failed', onboardingStep: 'email', onboardingStatus: 'failed' },
     };
   }
@@ -626,6 +750,7 @@ const completeAccountOnboarding = async (session, draft, { submittedField = '', 
     lastSubmittedAt: submittedAt,
   };
   await session.save();
+  cacheSession(session);
 
   const reply = "We've sent a secure setup link to your email address. Please check your inbox to continue creating your password and activate your AutoSPF+ account.";
 
@@ -635,6 +760,60 @@ const completeAccountOnboarding = async (session, draft, { submittedField = '', 
       type: 'account_onboarding_complete',
       onboardingStatus: 'sent',
       email: result.data?.email || draft.email,
+      missingRequiredFields: [],
+      nextRequiredField: null,
+    },
+  };
+};
+
+const completeAccountOnboarding = async (
+  session,
+  draft,
+  { submittedField = '', submittedValue = '' } = {},
+  { background = true } = {}
+) => {
+  const finalSubmittedField = submittedField || session.onboarding?.lastSubmittedField || 'email';
+  const finalSubmittedValue = submittedValue || draft[finalSubmittedField] || '';
+  const submittedAt = new Date();
+  session.onboarding = {
+    ...session.onboarding,
+    status: 'submitting',
+    step: undefined,
+    draft,
+    lastError: undefined,
+    lastSuccessfulStep: finalSubmittedField,
+    lastSubmittedField: finalSubmittedField,
+    lastSubmittedValue: finalSubmittedValue,
+    lastSubmittedAt: submittedAt,
+  };
+  await session.save();
+  cacheSession(session);
+
+  const useBackground = background && process.env.CHAT_ONBOARDING_SYNC_SUBMIT !== 'true';
+  if (!useBackground) {
+    return runAccountOnboardingSubmission(session, draft, { submittedField, submittedValue });
+  }
+
+  const sessionId = session.sessionId;
+  const draftSnapshot = { ...draft };
+  runChatSideEffect('chat account registration', async () => {
+    const freshSession = await ChatSession.findOne({ sessionId });
+    if (!freshSession || freshSession.onboarding?.status !== 'submitting') {
+      return;
+    }
+    const outcome = await runAccountOnboardingSubmission(freshSession, draftSnapshot, {
+      submittedField,
+      submittedValue,
+    });
+    appendOnboardingOutcomeMessage(sessionId, outcome.reply, outcome.metadata || {});
+  });
+
+  return {
+    reply: buildOnboardingSubmittingAckReply(draft),
+    metadata: {
+      type: 'account_onboarding_submitting',
+      onboardingStep: 'email',
+      onboardingStatus: 'submitting',
       missingRequiredFields: [],
       nextRequiredField: null,
     },
@@ -877,9 +1056,11 @@ const applySemanticFieldUpdate = async (session, analysis, { draft, step, pendin
   const nextStep = groqNextStep && missingRequiredFields.includes(analysis.nextRequiredField)
     ? groqNextStep
     : getNextOnboardingStep(nextDraft);
+  const expectedNextField = nextStep ? STEP_TO_SEMANTIC_FIELD[nextStep] : null;
   const canUseGroqReply =
     Boolean(analysis.reply)
-    && (!nextStep || STEP_TO_SEMANTIC_FIELD[nextStep] === analysis.nextRequiredField);
+    && (!expectedNextField || analysis.nextRequiredField === expectedNextField)
+    && (!expectedNextField || field === expectedNextField || semanticFieldMatchesCurrentStep(field, step));
   const correctionTone = shouldUseCorrectionTone({ field, step, draft, pendingCorrection });
 
   if (!nextStep) {
@@ -925,9 +1106,13 @@ const applySemanticFieldUpdate = async (session, analysis, { draft, step, pendin
   };
   await session.save();
 
-  const defaultNextPrompt = step === 'firstName' && nextDraft.firstName
-    ? `Thank you, ${nextDraft.firstName}. ${ONBOARDING_PROMPTS[nextStep]}`
-    : ONBOARDING_PROMPTS[nextStep];
+  const defaultNextPrompt = nextStep === 'phone' && nextDraft.firstName && nextDraft.lastName
+    ? `Great, ${nextDraft.firstName} ${nextDraft.lastName}. ${ONBOARDING_PROMPTS[nextStep]}`
+    : nextStep === 'lastName' && nextDraft.firstName && correctionTone
+      ? `Great, ${nextDraft.firstName}. ${ONBOARDING_PROMPTS[nextStep]}`
+      : step === 'firstName' && nextDraft.firstName
+        ? `Thank you, ${nextDraft.firstName}. ${ONBOARDING_PROMPTS[nextStep]}`
+        : ONBOARDING_PROMPTS[nextStep];
   const nextPrompt = canUseGroqReply ? analysis.reply : defaultNextPrompt;
 
   const reply = canUseGroqReply
@@ -1034,7 +1219,7 @@ const retryOnboardingBackendProcess = async (session, analysis, { draft, step } 
   const completion = await completeAccountOnboarding(session, nextDraft, {
     submittedField: draftField || session.onboarding?.lastSubmittedField,
     submittedValue: draftField ? nextDraft[draftField] : session.onboarding?.lastSubmittedValue,
-  });
+  }, { background: false });
   return {
     ...completion,
     metadata: {
@@ -1057,8 +1242,55 @@ const handleAccountOnboardingInput = async (
   { sessionId, language, wantsPriceList, recentMessages = [] } = {}
 ) => {
   const draft = getOnboardingDraft(session);
-  const step = session.onboarding?.step || getNextOnboardingStep(draft) || 'firstName';
   const missingRequiredFields = getOnboardingMissingFields(draft);
+  const onboardingStatus = session.onboarding?.status || 'collecting';
+
+  if (!missingRequiredFields.length) {
+    if (onboardingStatus === 'submitting') {
+      if (isOnboardingSubmittingStale(session) || isOnboardingRetryMessage(message)) {
+        return completeAccountOnboarding(session, draft, {
+          submittedField: session.onboarding?.lastSubmittedField || 'email',
+          submittedValue: draft[session.onboarding?.lastSubmittedField || 'email'] || draft.email,
+        }, { background: false });
+      }
+
+      return {
+        reply: sanitizeChatReply(
+          `I'm still sending your secure setup link${draft.email ? ` to ${draft.email}` : ''}. Say "try again" if this takes more than a minute.`
+        ),
+        metadata: {
+          type: 'account_onboarding_submitting',
+          onboardingStep: session.onboarding?.lastSubmittedField || 'email',
+          onboardingStatus: 'submitting',
+          missingRequiredFields: [],
+          nextRequiredField: null,
+        },
+      };
+    }
+
+    if (onboardingStatus === 'failed') {
+      return retryOnboardingBackendProcess(session, {
+        intent: 'RETRY_ONBOARDING_SUBMISSION',
+        field: null,
+        value: null,
+        confidence: 0.95,
+        recommendedAction: 'RETRY_BACKEND_PROCESS',
+        reply: '',
+      }, {
+        draft,
+        step: resolveOnboardingCollectingStep(session, draft),
+      });
+    }
+
+    if (onboardingStatus === 'collecting') {
+      return completeAccountOnboarding(session, draft, {
+        submittedField: session.onboarding?.lastSubmittedField || 'email',
+        submittedValue: draft[session.onboarding?.lastSubmittedField || 'email'] || draft.email,
+      }, { background: true });
+    }
+  }
+
+  const step = resolveOnboardingCollectingStep(session, draft);
   const collectedFields = buildCollectedOnboardingFields(draft);
   const businessContext = await buildOnboardingBusinessContext(session);
   const pendingCorrection = session.onboarding?.correction;
@@ -1080,9 +1312,62 @@ const handleAccountOnboardingInput = async (
     lastSubmittedField: session.onboarding?.lastSubmittedField || '',
     lastSubmittedValue: session.onboarding?.lastSubmittedValue || '',
     lastSubmittedAt: session.onboarding?.lastSubmittedAt || '',
+    session,
   });
 
-  if (analysis.confidence < ONBOARDING_SEMANTIC_CONFIDENCE_THRESHOLD) {
+  const explicitCorrectedAnalysis = applyExplicitFieldCorrectionToAnalysis(analysis, { message, draft });
+  const alignedAnalysis = alignOnboardingAnalysisToCollectingStep(explicitCorrectedAnalysis, { message, step, draft });
+
+  if (session.onboarding?.status === 'sent') {
+    if (isFieldMutationIntent(alignedAnalysis)) {
+      return applySemanticFieldUpdate(session, alignedAnalysis, { draft, step, pendingCorrection });
+    }
+
+    const reply = resolveGroqOnboardingReply(analysis, { session, step, draft })
+      || buildPostSentOnboardingReply(draft);
+
+    return {
+      reply,
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'account_onboarding_post_sent',
+        intent: analysis.intent || 'ASK_ONBOARDING_STATUS',
+        onboardingStep: step,
+        onboardingStatus: 'sent',
+        missingRequiredFields,
+        nextRequiredField: null,
+        replySource: shouldPreferGroqReply(analysis) ? 'groq' : 'deterministic_post_sent',
+      }),
+    };
+  }
+
+  const conversationalGroqReply = resolveGroqOnboardingReply(analysis, { session, step, draft });
+  const isConversationalIntent = [
+    'CLARIFICATION',
+    'SMALL_TALK',
+    'INTERRUPTION',
+    'USER_FRUSTRATION',
+    'ASK_ONBOARDING_STATUS',
+  ].includes(analysis.intent);
+
+  if (conversationalGroqReply && isConversationalIntent && !isFieldMutationIntent(analysis)) {
+    return {
+      reply: conversationalGroqReply,
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'account_onboarding_conversational',
+        onboardingStep: step,
+        onboardingStatus: session.onboarding?.status,
+        missingRequiredFields,
+        nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+        replySource: 'groq',
+      }),
+    };
+  }
+
+  if (
+    !shouldPreferGroqReply(analysis)
+    && analysis.confidence < ONBOARDING_SEMANTIC_CONFIDENCE_THRESHOLD
+    && !isFieldMutationIntent(analysis)
+  ) {
     return {
       reply: buildLowConfidenceOnboardingReply(analysis, { step, draft }),
       metadata: buildSemanticMetadata(analysis, {
@@ -1160,14 +1445,18 @@ const handleAccountOnboardingInput = async (
   }
 
   if (analysis.intent === 'ASK_ONBOARDING_STATUS') {
+    const reply = resolveGroqOnboardingReply(analysis, { session, step, draft })
+      || sanitizeChatReply(buildOnboardingStatusReply({ message, step, draft }));
+
     return {
-      reply: sanitizeChatReply(buildOnboardingStatusReply({ message, step, draft })),
+      reply,
       metadata: buildSemanticMetadata(analysis, {
         type: 'account_onboarding_interruption',
         onboardingStep: step,
         onboardingStatus: session.onboarding?.status,
         missingRequiredFields,
         nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+        replySource: shouldPreferGroqReply(analysis) ? 'groq' : 'deterministic',
       }),
     };
   }
@@ -1176,20 +1465,42 @@ const handleAccountOnboardingInput = async (
     return retryOnboardingBackendProcess(session, analysis, { draft, step });
   }
 
-  if (SEMANTIC_UPDATE_INTENTS.has(analysis.intent) || SEMANTIC_CONFIRM_INTENTS.has(analysis.intent) || analysis.field) {
-    return applySemanticFieldUpdate(session, analysis, { draft, step, pendingCorrection });
+  if (SEMANTIC_UPDATE_INTENTS.has(alignedAnalysis.intent) || SEMANTIC_CONFIRM_INTENTS.has(alignedAnalysis.intent) || alignedAnalysis.field) {
+    return applySemanticFieldUpdate(session, alignedAnalysis, { draft, step, pendingCorrection });
   }
 
   if (analysis.intent === 'SMALL_TALK' || analysis.intent === 'INTERRUPTION' || analysis.intent === 'USER_FRUSTRATION') {
-    const body = analysis.reply || analysis.replySuggestion || 'Of course — I am here to help with your AutoSPF+ account setup.';
+    const reply = resolveGroqOnboardingReply(analysis, { session, step, draft })
+      || sanitizeChatReply(
+        appendOnboardingResumeIfNeeded(
+          analysis.reply || analysis.replySuggestion || 'Of course — I am here to help with your AutoSPF+ account setup.',
+          { session, step, draft }
+        )
+      );
+
     return {
-      reply: sanitizeChatReply(`${body}\n\n${buildOnboardingResumePrompt(step, draft)}`),
+      reply,
       metadata: buildSemanticMetadata(analysis, {
         type: 'account_onboarding_interruption',
         onboardingStep: step,
         onboardingStatus: session.onboarding?.status,
         missingRequiredFields,
         nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+        replySource: shouldPreferGroqReply(analysis) ? 'groq' : 'deterministic',
+      }),
+    };
+  }
+
+  if (shouldPreferGroqReply(analysis) && !isFieldMutationIntent(analysis)) {
+    return {
+      reply: resolveGroqOnboardingReply(analysis, { session, step, draft }),
+      metadata: buildSemanticMetadata(analysis, {
+        type: 'account_onboarding_conversational',
+        onboardingStep: step,
+        onboardingStatus: session.onboarding?.status,
+        missingRequiredFields,
+        nextRequiredField: STEP_TO_SEMANTIC_FIELD[step] || undefined,
+        replySource: 'groq',
       }),
     };
   }
@@ -1214,6 +1525,10 @@ const analyzeAccountCreateIntent = async (session, message, {
   language = 'english',
   recentMessages = [],
 } = {}) => {
+  if (isGreetingMessage(message) || !hasExplicitRegistrationIntent(message)) {
+    return { matched: false, source: 'intent_gate', analysis: null };
+  }
+
   const draft = getOnboardingDraft(session);
   const missingRequiredFields = getOnboardingMissingFields(draft);
   const analysis = await analyzeOnboardingMessage({
@@ -2221,7 +2536,7 @@ const processMessage = async ({
     );
   }
 
-  if (isActiveOnboardingSession(session)) {
+  if (isOnboardingContext(session)) {
     const recentMessages = await getRecentMessages(sessionId, 6);
     const onboardingResult = await handleAccountOnboardingInput(session, trimmed, {
       sessionId,
@@ -2254,40 +2569,38 @@ const processMessage = async ({
 
   const isQuoteRequest = QUOTE_INTENT_REGEX.test(trimmed);
   const recentUserMessages = await getRecentUserMessagesFast(sessionId, 4);
-  const directIntent = detectDirectAnswerIntent(trimmed);
-  const directVehicleContextKey = directIntent && ['pricing', 'package_recommendation', 'vehicle_context'].includes(directIntent.intent)
-    ? await resolveVehicleContext(sessionId, trimmed, session)
-    : null;
-  const directAnswer = await buildDirectAnswerReply({
-    intentInfo: directIntent,
-    language: activeLanguage,
-    vehicleContextKey: directVehicleContextKey,
-    wantsPriceList,
-    session,
-    vehicleProfile,
-  });
 
-  if (directVehicleContextKey || vehicleProfile) {
-    updateSessionMemory(session, { vehicleType: directVehicleContextKey, vehicleProfile });
+  if (wantsPriceList) {
+    return completeAssistantReply(
+      await buildCachedCompletePriceListReply(),
+      { type: 'direct_answer', intent: 'pricing', topic: 'pricing', confidence: 0.95 },
+      { leadRequired: false }
+    );
   }
 
-  if (directAnswer) {
+  if (TRACKER_INTENT_REGEX.test(trimmed)) {
     return completeAssistantReply(
-      directAnswer.reply,
-      {
-        type: 'direct_answer',
-        intent: directAnswer.metadata.intent,
-        topic: directAnswer.metadata.topic,
-        confidence: directAnswer.metadata.confidence,
-        vehicleType: directVehicleContextKey || undefined,
-        vehicleLabel: vehicleProfile?.label || session.lastVehicleLabel || undefined,
-        serviceInterest: session.lastServiceInterest || undefined,
-        packageInterest: session.lastPackageInterest || undefined,
-      },
-      {
-        action: directAnswer.action || null,
-        leadRequired: false,
-      }
+      TRACKER_REFERENCE_PROMPT,
+      { type: 'direct_answer', intent: 'tracker', topic: 'tracker', confidence: 0.92 },
+      { action: { type: 'tracker_prompt' }, leadRequired: false }
+    );
+  }
+
+  const isCustomQuoteRequest =
+    isQuoteRequest &&
+    /\b(custom|personalized|send|share|prepare|quotation|formal|for\s+my\s+(car|vehicle)|pa[\s-]*quote|quote\s+for)\b/i.test(trimmed);
+
+  if (isGuest && !hasLead && isCustomQuoteRequest && !allowQuote) {
+    const leadPrompt = 'To send a custom quote, please share your name and mobile number.';
+    session.pendingMessage = trimmed;
+    session.pendingAt = new Date();
+    await session.save();
+    cacheSession(session);
+
+    return completeAssistantReply(
+      leadPrompt,
+      { type: 'lead_required', intent: 'quote', topic: 'pricing' },
+      { leadRequired: true }
     );
   }
 
@@ -2309,15 +2622,6 @@ const processMessage = async ({
     return completeAssistantReply(
       onboardingResult.reply,
       onboardingResult.metadata || { type: 'account_onboarding_started', topic: 'account' },
-      { leadRequired: false }
-    );
-  }
-
-  const casualReply = buildCasualConciergeReply(trimmed, { session, recentUserMessages });
-  if (casualReply) {
-    return completeAssistantReply(
-      casualReply,
-      { type: 'casual_conversation', topic: session.lastTopic || currentIntent, dedupable: true },
       { leadRequired: false }
     );
   }
@@ -2376,60 +2680,6 @@ const processMessage = async ({
     );
   }
 
-  if (!isAutoSpfScopeMessage(trimmed, recentUserMessages)) {
-    const fallbackRecentlyUsed = isFallbackRecentlyUsed(session);
-    return completeAssistantReply(
-      buildBusinessScopeRedirectReply({
-        language: activeLanguage,
-        lastTopic: session.lastTopic,
-        fallbackRecentlyUsed,
-      }),
-      {
-        type: fallbackRecentlyUsed ? 'low_confidence' : 'fallback',
-        intent: 'off_topic',
-        topic: session.lastTopic || 'general',
-        confidence: 0.2,
-        fallbackSuppressed: fallbackRecentlyUsed,
-        dedupable: true,
-      },
-      { leadRequired: false }
-    );
-  }
-
-  if (wantsPriceList) {
-    return completeAssistantReply(
-      await buildCachedCompletePriceListReply(),
-      { type: 'direct_answer', intent: 'pricing', topic: 'pricing', confidence: 0.95 },
-      { leadRequired: false }
-    );
-  }
-
-  if (TRACKER_INTENT_REGEX.test(trimmed)) {
-    return completeAssistantReply(
-      TRACKER_REFERENCE_PROMPT,
-      { type: 'direct_answer', intent: 'tracker', topic: 'tracker', confidence: 0.92 },
-      { action: { type: 'tracker_prompt' }, leadRequired: false }
-    );
-  }
-
-  const isCustomQuoteRequest =
-    isQuoteRequest &&
-    /\b(custom|personalized|send|share|prepare|quotation|formal|for\s+my\s+(car|vehicle)|pa[\s-]*quote|quote\s+for)\b/i.test(trimmed);
-
-  if (isGuest && !hasLead && isCustomQuoteRequest && !allowQuote) {
-    const leadPrompt = 'To send a custom quote, please share your name and mobile number.';
-    session.pendingMessage = trimmed;
-    session.pendingAt = new Date();
-    await session.save();
-    cacheSession(session);
-
-    return completeAssistantReply(
-      leadPrompt,
-      { type: 'lead_required', intent: 'quote', topic: 'pricing' },
-      { leadRequired: true }
-    );
-  }
-
   const includeInventory = shouldIncludeInventoryData(trimmed);
   const vehicleContextKey = await resolveVehicleContext(sessionId, trimmed, session);
   if (vehicleContextKey) {
@@ -2445,17 +2695,89 @@ const processMessage = async ({
     updateSessionMemory(session, { serviceInterest: matchedServiceInterest.name });
   }
 
-  const systemPrompt = buildCompactSystemPrompt({
+  const history = await getRecentMessages(sessionId);
+  const greetingIntent = isGreetingMessage(trimmed);
+  const businessContext = await buildOnboardingBusinessContext(session).catch(() => ({}));
+  const conversationalState = buildConversationalState({
     session,
+    message: trimmed,
+    recentMessages: history,
+    user,
+    language: activeLanguage,
+    knowledge: { serviceSummary, faqSummary, businessContext },
     context,
-    serviceSummary,
-    inventorySummary,
-    availabilityHints,
-    faqSummary,
-    vehicleContextKey,
   });
 
-  const history = await getRecentMessages(sessionId);
+  if (greetingIntent) {
+    const greetingState = buildGreetingConversationalState(conversationalState, {
+      recentMessages: history,
+    });
+
+    let greetingReply = '';
+    let greetingSource = 'groq_greeting';
+
+    try {
+      if (onToken) {
+        const greetingMessages = buildGreetingGroqMessages(greetingState);
+        greetingReply = await callGroq(greetingMessages, { onToken });
+        greetingSource = 'groq_greeting_stream';
+      } else {
+        const greetingAi = await generateGroqGreetingReply(greetingState);
+        if (greetingAi.success && greetingAi.reply) {
+          greetingReply = greetingAi.reply;
+          greetingSource = greetingAi.source;
+        }
+      }
+    } catch (error) {
+      console.error('Chatbot greeting Groq error:', error?.message || error);
+      greetingReply = '';
+      greetingSource = 'groq_greeting_error';
+    }
+
+    if (
+      greetingReply
+      && greetingState.welcome_already_sent
+      && looksLikeFullWelcomeMessage(greetingReply)
+    ) {
+      greetingReply = buildMinimalGreetingFallback(greetingState);
+      greetingSource = 'greeting_cooldown_guard';
+    }
+
+    if (!greetingReply) {
+      greetingReply = buildMinimalGreetingFallback(greetingState);
+      greetingSource = 'greeting_safe_fallback';
+    }
+
+    const { reply: cleanedGreeting, actionChips: greetingChips } = extractActionChipsFromReply(greetingReply);
+
+    return completeAssistantReply(
+      cleanedGreeting,
+      {
+        type: 'ai_greeting',
+        intent: 'greeting',
+        topic: 'general',
+        confidence: 0.9,
+        source: greetingSource,
+        welcomeAlreadySent: Boolean(greetingState.welcome_already_sent),
+        conversationMode: greetingState.conversation_mode,
+      },
+      { actionChips: greetingChips, leadRequired: false }
+    );
+  }
+
+  const systemPrompt = [
+    buildCompactSystemPrompt({
+      session,
+      context,
+      serviceSummary,
+      inventorySummary,
+      availabilityHints,
+      faqSummary,
+      vehicleContextKey,
+    }),
+    `Structured conversation state (authoritative):\n${compactJson(conversationalState, PROMPT_CONTEXT_CHAR_LIMIT)}`,
+    'Use the structured state for contextual reasoning before generic templates. Reply in natural plain text only.',
+  ].join('\n\n');
 
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -2466,17 +2788,104 @@ const processMessage = async ({
     messages.push({ role: 'user', content: trimmed });
   }
 
-  let reply;
+  let reply = '';
+  let replySource = 'groq_primary';
+
   try {
-    reply = await callGroq(messages, { onToken });
+    if (onToken) {
+      reply = await callGroq(messages, { onToken });
+    } else {
+      const primaryAi = await generatePrimaryConciergeReply(conversationalState);
+      if (primaryAi.success && primaryAi.reply) {
+        reply = primaryAi.reply;
+        replySource = primaryAi.source;
+      } else {
+        reply = await callGroq(messages);
+        replySource = primaryAi.source === 'not_configured' ? 'groq_legacy' : 'groq_legacy_retry';
+      }
+    }
   } catch (error) {
     const status = error?.status || error?.response?.status;
+    replySource = 'groq_error';
     if (status === 429) {
       reply = 'Hello! This is a demo mode. I will be fully active once credits are added.';
     } else {
       console.error('Chatbot Groq error:', error?.message || error);
-      reply = buildChatAiFallbackReply(error);
+      reply = '';
     }
+  }
+
+  if (!reply) {
+    const directIntent = detectDirectAnswerIntent(trimmed);
+    const directVehicleContextKey = directIntent && ['pricing', 'package_recommendation', 'vehicle_context'].includes(directIntent.intent)
+      ? await resolveVehicleContext(sessionId, trimmed, session)
+      : null;
+    const directAnswer = await buildDirectAnswerReply({
+      intentInfo: directIntent,
+      language: activeLanguage,
+      vehicleContextKey: directVehicleContextKey,
+      wantsPriceList,
+      session,
+      vehicleProfile,
+    });
+
+    if (directVehicleContextKey || vehicleProfile) {
+      updateSessionMemory(session, { vehicleType: directVehicleContextKey, vehicleProfile });
+    }
+
+    if (directAnswer?.reply) {
+      return completeAssistantReply(
+        directAnswer.reply,
+        {
+          type: 'direct_answer',
+          intent: directAnswer.metadata.intent,
+          topic: directAnswer.metadata.topic,
+          confidence: directAnswer.metadata.confidence,
+          source: 'deterministic_fallback',
+          vehicleType: directVehicleContextKey || undefined,
+          vehicleLabel: vehicleProfile?.label || session.lastVehicleLabel || undefined,
+          serviceInterest: session.lastServiceInterest || undefined,
+          packageInterest: session.lastPackageInterest || undefined,
+        },
+        {
+          action: directAnswer.action || null,
+          leadRequired: false,
+        }
+      );
+    }
+
+    const casualReply = buildCasualConciergeReply(trimmed, { session, recentUserMessages });
+    if (casualReply) {
+      return completeAssistantReply(
+        casualReply,
+        { type: 'casual_conversation', topic: session.lastTopic || currentIntent, source: 'deterministic_fallback', dedupable: true },
+        { leadRequired: false }
+      );
+    }
+
+    if (!isAutoSpfScopeMessage(trimmed, recentUserMessages)) {
+      const fallbackRecentlyUsed = isFallbackRecentlyUsed(session);
+      return completeAssistantReply(
+        buildBusinessScopeRedirectReply({
+          language: activeLanguage,
+          lastTopic: session.lastTopic,
+          fallbackRecentlyUsed,
+        }),
+        {
+          type: fallbackRecentlyUsed ? 'low_confidence' : 'fallback',
+          intent: 'off_topic',
+          topic: session.lastTopic || 'general',
+          confidence: 0.2,
+          source: 'deterministic_fallback',
+          fallbackSuppressed: fallbackRecentlyUsed,
+          dedupable: true,
+        },
+        { leadRequired: false }
+      );
+    }
+
+    reply = buildChatAiFallbackReply();
+    replySource = 'safe_fallback';
   }
 
   const { reply: cleanedReply, actionChips } = extractActionChipsFromReply(reply);
@@ -2509,22 +2918,179 @@ const processMessage = async ({
       vehicleLabel: session.lastVehicleLabel || undefined,
       serviceInterest: session.lastServiceInterest || undefined,
       packageInterest: session.lastPackageInterest || undefined,
-      confidence: 0.65,
+      confidence: replySource === 'groq_primary' ? 0.88 : 0.65,
+      source: replySource,
+      conversationMode: conversationalState.conversation_mode,
     },
     { action, actionChips, leadRequired: false }
   );
 };
 
+const buildSessionPayload = (session) => ({
+  sessionId: session.sessionId,
+  conversationId: session.sessionId,
+  leadName: session.leadName,
+  leadEmail: session.leadEmail,
+  leadPhone: session.leadPhone,
+  preferredLanguage: session.preferredLanguage,
+  lastDetectedLanguage: session.lastDetectedLanguage,
+  lastIntent: session.lastIntent,
+  lastTopic: session.lastTopic,
+  lastAnsweredIntent: session.lastAnsweredIntent,
+  lastVehicleType: session.lastVehicleType,
+  lastVehicleMake: session.lastVehicleMake,
+  lastVehicleModel: session.lastVehicleModel,
+  lastVehicleLabel: session.lastVehicleLabel,
+  lastServiceInterest: session.lastServiceInterest,
+  lastPackageInterest: session.lastPackageInterest,
+  lastProtectionGoal: session.lastProtectionGoal,
+  lastBookingIntentAt: session.lastBookingIntentAt,
+  conversationContinuityScore: session.conversationContinuityScore,
+  onboarding: session.onboarding?.status ? {
+    status: session.onboarding.status,
+    step: session.onboarding.step,
+    draft: {
+      firstName: session.onboarding.draft?.firstName || '',
+      lastName: session.onboarding.draft?.lastName || '',
+      email: session.onboarding.draft?.email || '',
+      phone: session.onboarding.draft?.phone || '',
+    },
+    missingRequiredFields: getOnboardingMissingFields(getOnboardingDraft(session)),
+    nextRequiredField: session.onboarding.step
+      ? STEP_TO_SEMANTIC_FIELD[session.onboarding.step]
+      : getOnboardingMissingFields(getOnboardingDraft(session))[0] || undefined,
+    correction: session.onboarding.correction || null,
+    startedAt: session.onboarding.startedAt,
+    completedAt: session.onboarding.completedAt,
+    lastError: session.onboarding.lastError || '',
+    lastSuccessfulStep: session.onboarding.lastSuccessfulStep || '',
+    lastSubmittedField: session.onboarding.lastSubmittedField || '',
+    lastSubmittedValue: session.onboarding.lastSubmittedValue || '',
+    lastSubmittedAt: session.onboarding.lastSubmittedAt,
+  } : null,
+});
+
+export const listConversations = async (req, res, next) => {
+  try {
+    const guestKey = String(req.query.guestKey || '').trim();
+    const legacySessionId = String(req.query.legacySessionId || '').trim();
+    const userId = req.user?.id;
+
+    if (!userId && !guestKey) {
+      return res.status(400).json({ success: false, message: 'Missing guestKey' });
+    }
+
+    let conversations = await listConversationsForCustomer({ userId, guestKey });
+
+    if (!conversations.length && legacySessionId) {
+      const adopted = await adoptLegacySessionAsConversation({
+        legacySessionId,
+        userId,
+        guestKey,
+        source: 'web',
+      });
+      if (adopted) {
+        conversations = [adopted];
+      }
+    }
+
+    res.json({
+      success: true,
+      conversations: conversations.map(serializeConversation),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createConversation = async (req, res, next) => {
+  try {
+    const guestKey = String(req.body?.guestKey || '').trim();
+    const source = String(req.body?.source || 'web').trim();
+    const language = String(req.body?.language || 'english').trim().toLowerCase();
+    const userId = req.user?.id;
+
+    if (!userId && !guestKey) {
+      return res.status(400).json({ success: false, message: 'Missing guestKey' });
+    }
+
+    const { conversation, welcomeMessage } = await createFreshConversation({
+      userId,
+      guestKey,
+      source,
+      language,
+    });
+
+    const session = await getCachedSession(conversation.conversationId, req.user, source);
+
+    res.status(201).json({
+      success: true,
+      conversation: serializeConversation(conversation),
+      session: buildSessionPayload(session),
+      messages: serializeChatMessages([welcomeMessage]),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getConversation = async (req, res, next) => {
+  try {
+    const conversationId = String(req.params.conversationId || '').trim();
+    const guestKey = String(req.query.guestKey || '').trim();
+    const userId = req.user?.id;
+
+    if (!conversationId) {
+      return res.status(400).json({ success: false, message: 'Missing conversationId' });
+    }
+
+    const conversation = await findConversationForAccess({ conversationId, userId, guestKey });
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: 'Conversation not found' });
+    }
+
+    const session = await getCachedSession(conversationId, req.user, conversation.source);
+
+    const messages = await ChatMessage.find({
+      $or: [{ conversationId }, { sessionId: conversationId }],
+    })
+      .sort({ createdAt: 1 })
+      .limit(100)
+      .lean();
+
+    chatHistoryCache.set(conversationId, {
+      messages: messages.slice(-8).map((m) => ({
+        role: m.sender === 'user' ? 'user' : 'assistant',
+        content: truncateText(m.message, 600),
+        createdAt: m.createdAt,
+      })),
+      expiresAt: Date.now() + CHAT_SESSION_CACHE_TTL_MS,
+    });
+
+    res.json({
+      success: true,
+      conversation: serializeConversation(conversation),
+      session: buildSessionPayload(session),
+      messages: serializeChatMessages(messages),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const startSession = async (req, res, next) => {
   try {
-    const { sessionId, source } = req.body || {};
+    const sessionId = resolveThreadId(req.body || {});
+    const { source } = req.body || {};
     if (!sessionId) {
-      return res.status(400).json({ success: false, message: 'Missing sessionId' });
+      return res.status(400).json({ success: false, message: 'Missing sessionId or conversationId' });
     }
 
     const session = await getCachedSession(sessionId, req.user, source);
 
-    const messages = await ChatMessage.find({ sessionId })
+    const messages = await ChatMessage.find({
+      $or: [{ conversationId: sessionId }, { sessionId }],
+    })
       .sort({ createdAt: 1 })
       .limit(50)
       .lean();
@@ -2539,52 +3105,8 @@ export const startSession = async (req, res, next) => {
 
     res.json({
       success: true,
-      session: {
-        sessionId: session.sessionId,
-        leadName: session.leadName,
-        leadEmail: session.leadEmail,
-        leadPhone: session.leadPhone,
-        preferredLanguage: session.preferredLanguage,
-        lastDetectedLanguage: session.lastDetectedLanguage,
-        lastIntent: session.lastIntent,
-        lastTopic: session.lastTopic,
-        lastAnsweredIntent: session.lastAnsweredIntent,
-        lastVehicleType: session.lastVehicleType,
-        lastVehicleMake: session.lastVehicleMake,
-        lastVehicleModel: session.lastVehicleModel,
-        lastVehicleLabel: session.lastVehicleLabel,
-        lastServiceInterest: session.lastServiceInterest,
-        lastPackageInterest: session.lastPackageInterest,
-        lastProtectionGoal: session.lastProtectionGoal,
-        lastBookingIntentAt: session.lastBookingIntentAt,
-        conversationContinuityScore: session.conversationContinuityScore,
-        onboarding: session.onboarding?.status ? {
-          status: session.onboarding.status,
-          step: session.onboarding.step,
-          draft: {
-            firstName: session.onboarding.draft?.firstName || '',
-            lastName: session.onboarding.draft?.lastName || '',
-            email: session.onboarding.draft?.email || '',
-            phone: session.onboarding.draft?.phone || '',
-          },
-          missingRequiredFields: getOnboardingMissingFields(getOnboardingDraft(session)),
-          nextRequiredField: STEP_TO_SEMANTIC_FIELD[session.onboarding.step] || undefined,
-          correction: session.onboarding.correction || null,
-          startedAt: session.onboarding.startedAt,
-          completedAt: session.onboarding.completedAt,
-          lastError: session.onboarding.lastError || '',
-          lastSuccessfulStep: session.onboarding.lastSuccessfulStep || '',
-          lastSubmittedField: session.onboarding.lastSubmittedField || '',
-          lastSubmittedValue: session.onboarding.lastSubmittedValue || '',
-          lastSubmittedAt: session.onboarding.lastSubmittedAt,
-        } : null,
-      },
-      messages: messages.map((m) => ({
-        id: m._id,
-        sender: m.sender,
-        message: m.message,
-        createdAt: m.createdAt,
-      })),
+      session: buildSessionPayload(session),
+      messages: serializeChatMessages(messages),
     });
   } catch (error) {
     next(error);
@@ -2593,9 +3115,10 @@ export const startSession = async (req, res, next) => {
 
 export const saveLead = async (req, res, next) => {
   try {
-    const { sessionId, name, phone } = req.body || {};
+    const sessionId = resolveThreadId(req.body || {});
+    const { name, phone } = req.body || {};
     if (!sessionId || !name || !phone) {
-      return res.status(400).json({ success: false, message: 'Missing sessionId, name, or phone' });
+      return res.status(400).json({ success: false, message: 'Missing conversationId, name, or phone' });
     }
 
     const session = await ChatSession.findOneAndUpdate(
@@ -2761,9 +3284,15 @@ export const getPublicTracker = async (req, res, next) => {
 
 export const sendMessage = async (req, res, next) => {
   try {
-    const { sessionId, message, context } = req.body || {};
+    const sessionId = resolveThreadId(req.body || {});
+    const { message, context } = req.body || {};
     const result = await processMessage({ sessionId, message, user: req.user, context });
-    res.json({ success: true, ...result });
+    const session = await ChatSession.findOne({ sessionId }).lean();
+    res.json({
+      success: true,
+      ...result,
+      ...(session ? { session: buildSessionPayload(session) } : {}),
+    });
   } catch (error) {
     next(error);
   }
@@ -2784,7 +3313,8 @@ export const sendMessageStream = async (req, res, next) => {
   let sentDelta = false;
 
   try {
-    const { sessionId, message, context } = req.body || {};
+    const sessionId = resolveThreadId(req.body || {});
+    const { message, context } = req.body || {};
 
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -2794,7 +3324,7 @@ export const sendMessageStream = async (req, res, next) => {
     res.flushHeaders?.();
 
     started = true;
-    writeSse(res, 'start', { sessionId, messageId });
+    writeSse(res, 'start', { sessionId, conversationId: sessionId, messageId });
 
     const result = await processMessage({
       sessionId,
@@ -2811,12 +3341,14 @@ export const sendMessageStream = async (req, res, next) => {
       writeSse(res, 'delta', { text: result.reply });
     }
 
+    const session = await ChatSession.findOne({ sessionId }).lean();
     writeSse(res, 'done', {
       reply: result.reply,
       action: result.action || null,
       actionChips: result.actionChips || [],
       leadRequired: Boolean(result.leadRequired),
       metadata: result.metadata || null,
+      ...(session ? { session: buildSessionPayload(session) } : {}),
     });
     res.end();
   } catch (error) {
@@ -2832,9 +3364,10 @@ export const sendMessageStream = async (req, res, next) => {
 
 export const requestHandoff = async (req, res, next) => {
   try {
-    const { sessionId, lastMessage } = req.body || {};
+    const sessionId = resolveThreadId(req.body || {});
+    const { lastMessage } = req.body || {};
     if (!sessionId) {
-      return res.status(400).json({ success: false, message: 'Missing sessionId' });
+      return res.status(400).json({ success: false, message: 'Missing conversationId' });
     }
 
     const session = await ChatSession.findOne({ sessionId });
