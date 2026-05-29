@@ -49,6 +49,10 @@ import { compressImageForBookingProof } from '../lib/compress-image-for-upload';
 import VehicleGarageForm from '@/components/shared/VehicleGarageForm';
 import { CustomerSidebarAnimatedIcon } from '@/components/customer/CustomerSidebarAnimatedIcon';
 import {
+  CUSTOMER_LIVE_TRACKER_HORIZONTAL_STEPS,
+  CustomerLiveTrackerHorizontalStepper,
+} from '@/components/customer/CustomerLiveTrackerHorizontalStepper';
+import {
   ADD_VEHICLE_TYPE_LABELS,
   BOOKING_YEAR_OPTIONS,
   CAR_BRANDS,
@@ -4498,13 +4502,7 @@ export default function CustomerDashboard() {
               /* ═══ Live Tracker ═══ */
               (() => {
                 const activeBooking = displayedTrackerBooking;
-                const TRACKER_STEPS = [
-                  { id: 'confirmed', label: 'Appointment Confirmed', icon: 'solar:calendar-bold' },
-                  { id: 'received', label: 'Vehicle Arrive', icon: 'solar:garage-bold' },
-                  { id: 'in_progress', label: 'Service In Progress', icon: 'solar:wrench-bold' },
-                  { id: 'completed', label: 'Quality Check', icon: 'solar:shield-check-bold' },
-                  { id: 'paid', label: 'Ready for Pickup', icon: 'solar:car-bold' },
-                ];
+                const TRACKER_STEPS = CUSTOMER_LIVE_TRACKER_HORIZONTAL_STEPS;
                 // Match premium dashboard tracker: QC `serviceTrackingStage` drives substeps; status is fallback.
                 const trackingStage = (activeBooking as any)?.serviceTrackingStage;
                 const tsKey = normTrackerStr(trackingStage);
@@ -4553,7 +4551,7 @@ export default function CustomerDashboard() {
                 currentStep = bumpCustomerTrackerIndexForInProgressGateComplete(activeBooking, currentStep, 'dashboard5');
 
                 return (
-                  <div className="max-w-3xl mx-auto pb-12 space-y-6">
+                  <div className="max-w-5xl mx-auto pb-12 space-y-6">
                     <div>
                       <h2 className="text-xl font-semibold text-slate-900 mb-1">Live Tracker</h2>
                       <p className="text-sm text-slate-500">Track your vehicle service in real time.</p>
@@ -4601,78 +4599,59 @@ export default function CustomerDashboard() {
                             </div>
                           </div>
 
-                          {/* Progress Steps */}
-                          <div className="px-6 py-5">
-                            <div className="space-y-0">
-                              {TRACKER_STEPS.map((step, idx) => {
-                                const isDone = idx < currentStep;
-                                const isActive = idx === currentStep;
-                                const isPending = idx > currentStep;
-                                return (
-                                  <div key={step.id} className="flex items-start gap-4">
-                                    {/* Vertical line + dot */}
-                                    <div className="flex flex-col items-center">
-                                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${isDone ? 'bg-emerald-500 text-white' : isActive ? 'bg-slate-900 text-white ring-4 ring-slate-200' : 'bg-slate-100 text-slate-400'}`}>
-                                        {isDone ? (
-                                          <iconify-icon icon="solar:check-read-bold" width="16"></iconify-icon>
-                                        ) : (
-                                          <iconify-icon icon={step.icon} width="16"></iconify-icon>
-                                        )}
-                                      </div>
-                                      {idx < TRACKER_STEPS.length - 1 && (
-                                        <div className={`w-0.5 h-8 ${isDone ? 'bg-emerald-300' : 'bg-slate-200'}`}></div>
-                                      )}
-                                    </div>
-                                    {/* Text */}
-                                    <div className="pt-1 pb-4 min-w-0 flex-1">
-                                      <p className={`text-sm font-semibold ${isDone ? 'text-emerald-700' : isActive ? 'text-slate-900' : 'text-slate-400'}`}>{step.label}</p>
-                                      {(() => {
-                                        const apiStage = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[step.id];
-                                        const desc = resolveTrackerStageDescription(activeBooking as any, apiStage);
-                                        const shots = apiStage ? getCustomerStageSlotPhotos(activeBooking as any, apiStage) : [];
-                                        const thumbDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-                                        const qcEvidenceGrid =
-                                          apiStage === 'quality_check' ? 'mt-2 grid max-w-xs grid-cols-1 gap-2' : 'mt-2 grid grid-cols-2 gap-2 max-w-xs';
-                                        return (
-                                          <>
-                                            <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">{desc}</p>
-                                            {shots.length > 0 && (isDone || isActive) ? (
-                                              <div className={qcEvidenceGrid}>
-                                                {shots.map((s, shotIdx) => (
-                                                  <div key={s.label} className="min-w-0">
-                                                    <p className="text-[10px] font-semibold text-slate-500 truncate mb-0.5">{s.label}</p>
-                                                    <button
-                                                      type="button"
-                                                      className="block w-full cursor-zoom-in rounded-lg border border-slate-200 overflow-hidden focus:outline-none focus:ring-2 focus:ring-orange-200"
-                                                      aria-label={`${step.label} — ${s.label} — enlarge`}
-                                                      onClick={() =>
-                                                        setTrackerEvidenceLightbox({
-                                                          stepTitle: step.label,
-                                                          items: shots.map((x) => ({ url: x.url, label: x.label })),
-                                                          index: shotIdx,
-                                                        })
-                                                      }
-                                                    >
-                                                      <img src={toCloudinaryEvidenceThumbUrl(s.url, thumbDpr)} alt="" className="w-full h-24 object-cover" />
-                                                    </button>
-                                                  </div>
-                                                ))}
-                                              </div>
-                                            ) : isActive && apiStage === 'quality_check' && shots.length === 0 ? (
-                                              <p className="text-xs text-amber-700 mt-2 font-medium leading-snug">
-                                                Upload pending — awaiting QC form photo from the shop.
-                                              </p>
-                                            ) : null}
-                                          </>
-                                        );
-                                      })()}
-                                      {isActive && <p className="text-xs text-amber-600 mt-0.5 font-medium">● Current stage</p>}
-                                      {isDone && <p className="text-xs text-slate-400 mt-0.5">Completed</p>}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
+                          {/* Progress Steps — horizontal stepper */}
+                          <div className="px-4 py-5 sm:px-6">
+                            <CustomerLiveTrackerHorizontalStepper currentStep={currentStep} />
+
+                            {currentStep >= 0 && TRACKER_STEPS[currentStep] ? (
+                              <div className="customer-h-tracker-stepper-detail">
+                                {(() => {
+                                  const step = TRACKER_STEPS[currentStep];
+                                  const apiStage = DASHBOARD_TRACKER_STEP_MEDIA_STAGE[step.id];
+                                  const desc = resolveTrackerStageDescription(activeBooking as any, apiStage);
+                                  const shots = apiStage ? getCustomerStageSlotPhotos(activeBooking as any, apiStage) : [];
+                                  const thumbDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+                                  const qcEvidenceGrid =
+                                    apiStage === 'quality_check' ? 'mt-3 grid max-w-md grid-cols-1 gap-2' : 'mt-3 grid grid-cols-2 gap-2 max-w-md';
+
+                                  return (
+                                    <>
+                                      <p className="customer-h-tracker-stepper-detail__eyebrow">Right now</p>
+                                      <p className="customer-h-tracker-stepper-detail__title">{step.label}</p>
+                                      <p className="customer-h-tracker-stepper-detail__lede">{step.subtitle}</p>
+                                      <p className="customer-h-tracker-stepper-detail__body">{desc}</p>
+                                      {shots.length > 0 ? (
+                                        <div className={qcEvidenceGrid}>
+                                          {shots.map((s, shotIdx) => (
+                                            <div key={s.label} className="min-w-0">
+                                              <p className="text-[10px] font-semibold text-slate-500 truncate mb-0.5">{s.label}</p>
+                                              <button
+                                                type="button"
+                                                className="block w-full cursor-zoom-in rounded-lg border border-slate-200 overflow-hidden focus:outline-none focus:ring-2 focus:ring-orange-200"
+                                                aria-label={`${step.label} — ${s.label} — enlarge`}
+                                                onClick={() =>
+                                                  setTrackerEvidenceLightbox({
+                                                    stepTitle: step.label,
+                                                    items: shots.map((x) => ({ url: x.url, label: x.label })),
+                                                    index: shotIdx,
+                                                  })
+                                                }
+                                              >
+                                                <img src={toCloudinaryEvidenceThumbUrl(s.url, thumbDpr)} alt="" className="w-full h-24 object-cover" />
+                                              </button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : apiStage === 'quality_check' && shots.length === 0 ? (
+                                        <p className="text-xs text-slate-500 mt-2 font-medium leading-snug">
+                                          QC report is being prepared — verification photos will appear here shortly.
+                                        </p>
+                                      ) : null}
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            ) : null}
                           </div>
                         </div>
 

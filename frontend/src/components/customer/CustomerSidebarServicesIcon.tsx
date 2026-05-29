@@ -10,7 +10,7 @@ type Props = {
     size?: number;
 };
 
-/** Services price tag — premium swing, shimmer, fold detail & catalog lines on hover. */
+/** Services price tag — visible monochrome sweep, swing, rows, and service accents on hover. */
 export function CustomerSidebarServicesIcon({ className, size = 20 }: Props) {
     const { ref, hovered } = useCustomerSidebarItemHover<HTMLSpanElement>();
     const clipId = useId().replace(/:/g, '');
@@ -53,6 +53,12 @@ export function CustomerSidebarServicesIcon({ className, size = 20 }: Props) {
                     style={{ transformOrigin: '8px 8px' }}
                 >
                     <path
+                        className="customer-sidebar-services-shadow"
+                        d={TAG_PATH}
+                        stroke="none"
+                        fill="currentColor"
+                    />
+                    <path
                         className="customer-sidebar-services-body"
                         d={TAG_PATH}
                         strokeWidth={2.25}
@@ -82,45 +88,76 @@ export function CustomerSidebarServicesIcon({ className, size = 20 }: Props) {
                         d="M7.5 6.2V3.8M6.1 4.1l1.4-.9"
                         strokeWidth={1.35}
                     />
+                    <g className={cn('customer-sidebar-services-trails', hovered && 'is-active')}>
+                        <path
+                            className="customer-sidebar-services-trail customer-sidebar-services-trail--1"
+                            d="M2.15 15.15H5.3"
+                            strokeWidth={1.3}
+                        />
+                        <path
+                            className="customer-sidebar-services-trail customer-sidebar-services-trail--2"
+                            d="M3 17.65H6.2"
+                            strokeWidth={1.3}
+                        />
+                    </g>
                     <g clipPath={`url(#${clipId})`}>
                         <rect
                             className={cn('customer-sidebar-services-shine', hovered && 'is-active')}
-                            x="-2"
+                            x="-4"
                             y="2"
-                            width="6"
+                            width="7"
                             height="22"
                             fill="currentColor"
                             stroke="none"
                         />
                     </g>
-                    <path
-                        className="customer-sidebar-services-sparkle"
-                        d="M20.2 5.2 20.55 6.1 21.45 6.45 20.55 6.8 20.2 7.7 19.85 6.8 19 6.45 19.85 6.1Z"
-                        strokeWidth={1.25}
-                    />
+                    <g className={cn('customer-sidebar-services-sparkles', hovered && 'is-active')}>
+                        <path
+                            className="customer-sidebar-services-sparkle customer-sidebar-services-sparkle--1"
+                            d="M20.2 5.2 20.55 6.1 21.45 6.45 20.55 6.8 20.2 7.7 19.85 6.8 19 6.45 19.85 6.1Z"
+                            strokeWidth={1.25}
+                        />
+                        <path
+                            className="customer-sidebar-services-sparkle customer-sidebar-services-sparkle--2"
+                            d="M16.95 3.35 17.18 3.95 17.78 4.18 17.18 4.42 16.95 5.02 16.72 4.42 16.12 4.18 16.72 3.95Z"
+                            strokeWidth={1}
+                        />
+                    </g>
                     <line
                         className="customer-sidebar-services-line customer-sidebar-services-line--1"
-                        x1="9"
+                        x1="8.8"
                         y1="12"
-                        x2="14.5"
+                        x2="15.7"
                         y2="12"
-                        strokeWidth={1.85}
+                        strokeWidth={1.95}
                     />
                     <line
                         className="customer-sidebar-services-line customer-sidebar-services-line--2"
                         x1="9.5"
                         y1="14.5"
-                        x2="13.5"
+                        x2="15"
                         y2="14.5"
-                        strokeWidth={1.85}
+                        strokeWidth={1.95}
                     />
                     <line
                         className="customer-sidebar-services-line customer-sidebar-services-line--3"
                         x1="10"
                         y1="17"
-                        x2="12.5"
+                        x2="13.6"
                         y2="17"
-                        strokeWidth={1.85}
+                        strokeWidth={1.95}
+                    />
+                    <circle
+                        className="customer-sidebar-services-dot customer-sidebar-services-dot--1"
+                        cx="17.2"
+                        cy="12"
+                        r="0.72"
+                    />
+                    <circle
+                        className="customer-sidebar-services-dot customer-sidebar-services-dot--2"
+                        cx="16.7"
+                        cy="14.5"
+                        r="0.58"
                     />
                 </g>
             </svg>

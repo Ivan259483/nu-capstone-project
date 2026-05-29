@@ -51,19 +51,19 @@ export const DASHBOARD_TRACKER_STEP_MEDIA_STAGE: Record<string, TrackerMediaStag
 /** Default customer-facing copy when staff has not overridden `description`. */
 export const DEFAULT_TRACKER_STAGE_DESCRIPTION: Record<TrackerMediaStage, string> = {
   confirmed:
-    'Your appointment has been confirmed. Please arrive on time.',
+    'Your appointment is confirmed. Arrive at your scheduled time and we will take it from there.',
   received:
-    'Your vehicle has arrived at our shop. Our team is preparing for service.',
+    'Your vehicle is with us. Our team is preparing your bay and service plan.',
   in_progress:
-    'Our certified technicians are now working on your vehicle.',
+    'Certified technicians are applying your package. Live updates will appear here as work progresses.',
   quality_check:
-    'Your vehicle is undergoing final quality inspection by our QC team.',
+    'Our QC team is running a final inspection before handoff.',
   ready_pickup:
-    'Your vehicle is ready! Please proceed to our shop for pickup.',
+    'Your vehicle passed inspection and is ready for collection at the shop.',
 };
 
 export const QC_COMPLETE_TRACKER_STAGE_DESCRIPTION =
-  "Your vehicle has passed final quality inspection. We're preparing it for pickup.";
+  'Your vehicle passed final quality inspection. We are preparing it for a smooth pickup.';
 
 export type TrackerStageMediaEntry = {
   stage: string;

@@ -1,8 +1,6 @@
 import {
     ScanLine,
-    Calendar,
     FileText,
-    Star,
     LogOut,
     ChevronLeft,
     Sparkles,
@@ -15,6 +13,8 @@ import { CustomerSidebarDashboardIcon } from '@/components/customer/CustomerSide
 import { CustomerSidebarPaymentsIcon } from '@/components/customer/CustomerSidebarPaymentsIcon';
 import { CustomerSidebarServicesIcon } from '@/components/customer/CustomerSidebarServicesIcon';
 import { CustomerSidebarTrackerIcon } from '@/components/customer/CustomerSidebarTrackerIcon';
+import { CustomerSidebarRewardsIcon } from '@/components/customer/CustomerSidebarRewardsIcon';
+import { CustomerSidebarBookingsIcon } from '@/components/customer/CustomerSidebarBookingsIcon';
 
 export type CustomerSidebarIconName =
     | 'dashboard'
@@ -31,11 +31,9 @@ export type CustomerSidebarIconName =
     | 'notifications'
     | 'settings';
 
-const ICONS: Record<Exclude<CustomerSidebarIconName, 'dashboard' | 'tracker' | 'payments' | 'services'>, LucideIcon> = {
+const ICONS: Record<Exclude<CustomerSidebarIconName, 'dashboard' | 'tracker' | 'payments' | 'services' | 'rewards' | 'bookings'>, LucideIcon> = {
     scan: ScanLine,
-    bookings: Calendar,
     documents: FileText,
-    rewards: Star,
     logout: LogOut,
     collapse: ChevronLeft,
     sparkles: Sparkles,
@@ -62,6 +60,12 @@ export function CustomerSidebarAnimatedIcon({ name, className, size = 20 }: Prop
     }
     if (name === 'services') {
         return <CustomerSidebarServicesIcon className={className} size={size} />;
+    }
+    if (name === 'bookings') {
+        return <CustomerSidebarBookingsIcon className={className} size={size} />;
+    }
+    if (name === 'rewards') {
+        return <CustomerSidebarRewardsIcon className={className} size={size} />;
     }
 
     const Icon = ICONS[name];
