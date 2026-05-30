@@ -30,6 +30,8 @@ import { getSharedSocket } from '@/hooks/useRealtimeSync';
 import { OrderService, normalizeBooking } from '@/lib/order-service';
 import { isEncryptedPlateToken } from '@/lib/salesData';
 import { isLikelyInternalVehiclePlate } from '@/lib/vehicle-display';
+import SalesStatCard from '@/components/sales/ui/SalesStatCard';
+import { SALES_ACCENTS } from '@/components/sales/ui/salesTheme';
 
 const DOWNPAYMENT = 500;
 const moneyFormatter = new Intl.NumberFormat('en-PH', {
@@ -1116,42 +1118,51 @@ export default function BookingApprovalsPage({
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="booking-approval-stat rounded-2xl border-0 bg-amber-50/90 px-4 py-3 shadow-[0_2px_8px_rgba(245,158,11,0.1),0_12px_28px_-10px_rgba(245,158,11,0.15)]">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-amber-700">Pending Review</span>
-              <Clock size={16} className="text-amber-500" />
-            </div>
-            <p className="mt-2 text-2xl font-black text-amber-700 tabular-nums">{pending.length}</p>
-          </div>
-          <div className="booking-approval-stat rounded-2xl border-0 bg-emerald-50/90 px-4 py-3 shadow-[0_2px_8px_rgba(16,185,129,0.1),0_12px_28px_-10px_rgba(16,185,129,0.14)]">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-emerald-700">Approved</span>
-              <TrendingUp size={16} className="text-emerald-500" />
-            </div>
-            <p className="mt-2 text-2xl font-black text-emerald-700 tabular-nums">{approved.length}</p>
-          </div>
-          <div className="booking-approval-stat rounded-2xl border-0 bg-rose-50/90 px-4 py-3 shadow-[0_2px_8px_rgba(244,63,94,0.1),0_12px_28px_-10px_rgba(244,63,94,0.14)]">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-rose-700">Rejected</span>
-              <XCircle size={16} className="text-rose-500" />
-            </div>
-            <p className="mt-2 text-2xl font-black text-rose-700 tabular-nums">{rejected.length}</p>
-          </div>
+          <SalesStatCard
+            title="Pending Review"
+            metric={String(pending.length)}
+            label="Awaiting payment proof review"
+            icon={<Clock size={17} className="text-amber-600" />}
+            accent={SALES_ACCENTS.amber}
+            className="booking-approval-stat bg-amber-50/80 ring-amber-100/90"
+            metricClassName="text-amber-700"
+            labelClassName="text-amber-700/70"
+          />
+          <SalesStatCard
+            title="Approved"
+            metric={String(approved.length)}
+            label="Reservations cleared"
+            icon={<TrendingUp size={17} className="text-green-600" />}
+            accent={SALES_ACCENTS.green}
+            className="booking-approval-stat bg-green-50/80 ring-green-100/90"
+            metricClassName="text-green-700"
+            labelClassName="text-green-700/70"
+          />
+          <SalesStatCard
+            title="Rejected"
+            metric={String(rejected.length)}
+            label="Proofs declined"
+            icon={<XCircle size={17} className="text-red-600" />}
+            accent={SALES_ACCENTS.red}
+            className="booking-approval-stat bg-red-50/80 ring-red-100/90"
+            metricClassName="text-red-700"
+            labelClassName="text-red-700/70"
+          />
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="booking-approvals-tabs flex max-w-full shrink-0 gap-2 overflow-x-auto rounded-[18px] border-0 bg-white p-1.5 shadow-[0_2px_10px_rgba(15,23,42,0.05),0_12px_32px_-12px_rgba(15,23,42,0.08)] scrollbar-thin">
+      <div className="booking-approvals-tabs flex max-w-full shrink-0 gap-1.5 overflow-x-auto rounded-full bg-slate-100/70 p-1.5 shadow-[inset_0_1px_3px_rgba(15,23,42,0.05)] scrollbar-thin">
         {TABS.map(t => {
           const active = tab === t.key;
           return (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`flex h-11 min-w-[150px] items-center justify-center gap-2 rounded-xl px-4 text-sm transition-all duration-200 ${
+              className={`flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-full px-4 text-sm transition-all duration-200 ${
                 active
-                  ? 'bg-slate-950 text-white font-bold shadow-[0_10px_22px_rgba(15,23,42,0.15)]'
-                  : 'text-slate-500 font-semibold hover:text-slate-800 hover:bg-slate-50'
+                  ? 'bg-gray-900 text-white font-bold shadow-[0_10px_22px_rgba(15,23,42,0.15)]'
+                  : 'text-slate-500 font-semibold hover:bg-white hover:text-slate-800'
               }`}
             >
               {t.label}

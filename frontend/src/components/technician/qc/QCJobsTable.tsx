@@ -19,6 +19,7 @@ import { getTrackerPipelineProgressPct, TRACKER_PIPELINE_GATE_STAGES } from '@/l
 import { requiredSlotsCountForGate } from '@/lib/tracker-gate-photo-slots';
 import QCStatusBadge, { type QCStatus } from './QCStatusBadge';
 import type { QCJob } from '@/hooks/useQCData';
+import { filterQCJobsBySearch } from '@/lib/qc-job-search';
 
 type JobStatus = 'pending-review' | 'in-review' | 'approved' | 'needs-fix' | 'resubmitted';
 type ReviewState = 'Ready for Sign-off' | 'Needs Evidence' | 'AI Flagged' | 'Returned' | 'In Progress';
@@ -49,7 +50,6 @@ const TOTAL_TRACKER_REQUIRED_PHOTOS = TRACKER_PIPELINE_GATE_STAGES.reduce(
 );
 
 const toText = (value: unknown) => String(value ?? '').trim();
-const toSearch = (value: unknown) => toText(value).toLowerCase();
 
 function FilterSelect({
   label,
@@ -299,10 +299,21 @@ interface Props {
   jobs: QCJob[];
   loading: boolean;
   onSelectJob?: (jobId: string) => void;
+  searchQuery?: string;
+  onSearchQueryChange?: (value: string) => void;
 }
 
-export default function QCJobsTable({ jobs, loading, onSelectJob }: Props) {
-  const [search, setSearch] = useState('');
+export default function QCJobsTable({
+  jobs,
+  loading,
+  onSelectJob,
+  searchQuery: searchQueryProp,
+  onSearchQueryChange,
+}: Props) {
+  const [localSearch, setLocalSearch] = useState('');
+  const searchControlled = onSearchQueryChange !== undefined;
+  const search = searchControlled ? (searchQueryProp ?? '') : localSearch;
+  const setSearch = searchControlled ? onSearchQueryChange : setLocalSearch;
   const [reviewStateFilter, setReviewStateFilter] = useState('All States');
   const [statusFilter, setStatusFilter] = useState('All Statuses');
   const [serviceFilter, setServiceFilter] = useState('All Services');
@@ -338,20 +349,7 @@ export default function QCJobsTable({ jobs, loading, onSelectJob }: Props) {
     aiOnly;
 
   const filtered = useMemo(() => {
-    let data = jobs;
-    if (search.trim()) {
-      const q = search.toLowerCase().trim();
-      data = data.filter((j) => [
-        j.jobId,
-        j.customer,
-        j.vehicle,
-        j.make,
-        j.plate,
-        j.service,
-        j.serviceType,
-        j.technician,
-      ].some((value) => toSearch(value).includes(q)));
-    }
+    let data = filterQCJobsBySearch(jobs, search);
     if (reviewStateFilter !== 'All States') data = data.filter((j) => getReviewState(j) === reviewStateFilter);
     if (statusFilter !== 'All Statuses') {
       const mappedStatus = statusMap[statusFilter];
@@ -406,25 +404,27 @@ export default function QCJobsTable({ jobs, loading, onSelectJob }: Props) {
         </div>
 
         <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center">
-          <div className="group relative min-w-[220px] flex-1">
-            <Search
-              size={16}
-              strokeWidth={2.25}
-              className="pointer-events-none absolute left-4 top-1/2 z-[1] -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-500"
-            />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Search by job ID, customer, vehicle, technician..."
-              className="qc-review-control h-11 w-full rounded-xl bg-slate-50/80 pl-11 pr-4 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
-            />
-          </div>
+          {!searchControlled ? (
+            <div className="group relative min-w-[220px] flex-1">
+              <Search
+                size={16}
+                strokeWidth={2.25}
+                className="pointer-events-none absolute left-4 top-1/2 z-[1] -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-500"
+              />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search by job ID, customer, vehicle, technician..."
+                className="qc-review-control h-11 w-full rounded-xl bg-slate-50/80 pl-11 pr-4 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+              />
+            </div>
+          ) : null}
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className={`flex flex-wrap items-center gap-2.5 ${searchControlled ? 'w-full' : ''}`}>
             <label className="qc-review-control inline-flex h-11 items-center gap-2 rounded-xl bg-white px-3">
               <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Sort</span>
               <select

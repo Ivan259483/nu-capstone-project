@@ -152,7 +152,7 @@ export function formatTransactionStatusLabel(
     released: 'Released',
     rejected: 'Rejected',
     pending_confirmation: 'Pending review',
-    in_progress: 'In progress',
+    in_progress: 'In Progress',
     pending: 'Pending',
     approved: 'Approved',
     confirmed: 'Confirmed',

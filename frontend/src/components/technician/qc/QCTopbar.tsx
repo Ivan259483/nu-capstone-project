@@ -1,20 +1,80 @@
-import React, { useState } from 'react';
-import { Bell, ChevronDown, Search, ShieldCheck } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Bell, ChevronDown, Search } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import type { QCJob } from '@/hooks/useQCData';
+import { filterQCJobsBySearch, formatQCJobSearchResult } from '@/lib/qc-job-search';
 
 // Backend integration point: GET /api/qc/notifications
 const notifications: { id: string; title: string; time: string; unread: boolean }[] = [];
 
-interface Props { sidebarCollapsed: boolean; }
+interface Props {
+  sidebarCollapsed: boolean;
+  jobs: QCJob[];
+  searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
+  onSelectJob: (jobId: string) => void;
+}
 
-export default function QCTopbar({ sidebarCollapsed }: Props) {
+export default function QCTopbar({
+  sidebarCollapsed,
+  jobs,
+  searchQuery,
+  onSearchQueryChange,
+  onSelectJob,
+}: Props) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const commandListRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
   const unread = notifications.filter((item) => item.unread).length;
   const initials = user?.name
     ? user.name.split(' ').map((word: string) => word[0]).join('').slice(0, 2).toUpperCase()
     : 'QC';
+
+  const commandResults = useMemo(
+    () => filterQCJobsBySearch(jobs, searchQuery).slice(0, 8),
+    [jobs, searchQuery],
+  );
+
+  const showCommandPanel = commandOpen && (searchQuery.trim().length > 0 || commandResults.length > 0);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandOpen(true);
+        window.requestAnimationFrame(() => searchInputRef.current?.focus());
+      }
+      if (e.key === 'Escape') {
+        setCommandOpen(false);
+        searchInputRef.current?.blur();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!commandOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (commandListRef.current?.contains(target) || searchInputRef.current?.contains(target)) {
+        return;
+      }
+      setCommandOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [commandOpen]);
+
+  const pickJob = (jobId: string) => {
+    onSelectJob(jobId);
+    onSearchQueryChange('');
+    setCommandOpen(false);
+    searchInputRef.current?.blur();
+  };
 
   return (
     <header
@@ -22,25 +82,68 @@ export default function QCTopbar({ sidebarCollapsed }: Props) {
       className="qc-dash-topbar z-20 flex h-16 flex-shrink-0 items-center justify-between gap-4 bg-white/92 px-6 backdrop-blur-xl"
     >
       <div className="flex min-w-0 flex-1 items-center gap-4">
-        <div className="hidden items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-blue-700 ring-1 ring-blue-100 lg:flex">
-          <ShieldCheck size={16} />
-          <span className="text-xs font-black uppercase tracking-[0.12em]">QC Ops</span>
-        </div>
-
-        <div className="group relative hidden w-full max-w-xl md:block">
+        <div className="group relative w-full max-w-xl">
           <Search
             size={16}
             strokeWidth={2.25}
             className="pointer-events-none absolute left-4 top-1/2 z-[1] -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-600"
           />
           <input
-            type="text"
+            ref={searchInputRef}
+            type="search"
+            value={searchQuery}
+            onChange={(e) => {
+              onSearchQueryChange(e.target.value);
+              setCommandOpen(true);
+            }}
+            onFocus={() => setCommandOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && commandResults[0]) {
+                e.preventDefault();
+                pickJob(commandResults[0].id);
+              }
+            }}
             placeholder="Search jobs, vehicles, customers"
+            aria-label="Search jobs, vehicles, and customers"
+            aria-expanded={showCommandPanel}
+            aria-controls="qc-topbar-command-list"
+            autoComplete="off"
             className="h-11 w-full rounded-xl border border-slate-200/55 bg-white pl-11 pr-20 text-sm font-semibold text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_10px_28px_-24px_rgba(15,23,42,0.4)] outline-none transition placeholder:font-medium placeholder:text-slate-400 hover:border-slate-300/70 focus:border-blue-300 focus:ring-4 focus:ring-blue-500/10"
           />
-          <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[10px] font-black leading-none text-slate-500">
-            Ctrl K
+          <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[10px] font-black leading-none text-slate-500 sm:inline">
+            {typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) ? '⌘K' : 'Ctrl K'}
           </kbd>
+
+          {showCommandPanel ? (
+            <div
+              id="qc-topbar-command-list"
+              ref={commandListRef}
+              className="qc-drop-panel absolute left-0 right-0 top-[calc(100%+8px)] z-50 max-h-80 overflow-y-auto p-1.5"
+              role="listbox"
+            >
+              {commandResults.length > 0 ? (
+                commandResults.map((job) => {
+                  const { title, subtitle } = formatQCJobSearchResult(job);
+                  return (
+                    <button
+                      key={job.id}
+                      type="button"
+                      role="option"
+                      className="flex w-full flex-col rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50"
+                      onClick={() => pickJob(job.id)}
+                    >
+                      <span className="text-sm font-bold text-slate-900">{title}</span>
+                      <span className="mt-0.5 truncate text-xs font-medium text-slate-500">{subtitle}</span>
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="px-3 py-4 text-center text-sm font-medium text-slate-500">
+                  No jobs match &ldquo;{searchQuery.trim()}&rdquo;
+                </p>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -81,7 +184,7 @@ export default function QCTopbar({ sidebarCollapsed }: Props) {
                       <Bell size={15} />
                     </div>
                     <p className="text-sm font-bold text-slate-600">No notifications</p>
-                    <p className="mt-1 text-xs text-slate-400">You're all caught up</p>
+                    <p className="mt-1 text-xs text-slate-400">You&apos;re all caught up</p>
                   </div>
                 )}
               </div>

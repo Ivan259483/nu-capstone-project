@@ -20,7 +20,7 @@ function TransactionsView() {
   return (
     <div className="space-y-4 page-enter">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Transactions</h1>
+        <h1 className="text-3xl font-bold text-slate-950">Transactions</h1>
         <p className="text-sm text-slate-500 mt-0.5">All service transactions — {new Date().toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })}</p>
       </div>
       <TransactionsTable />
@@ -66,7 +66,7 @@ function CalendarView() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 page-enter">
       <div className="shrink-0">
-        <h1 className="text-2xl font-bold text-slate-900">Appointment</h1>
+        <h1 className="text-3xl font-bold text-slate-950">Appointment</h1>
         <p className="mt-0.5 text-sm text-slate-500">
           View all bookings, adjust schedules manually, and avoid double booking with server-side slot validation.
         </p>

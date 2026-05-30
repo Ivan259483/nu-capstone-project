@@ -193,32 +193,29 @@ export function PpfTermsAcceptanceDialog({
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
+                data-ppf-terms-dialog
                 className={cn(
-                    "max-h-[min(92vh,880px)] w-[min(680px,calc(100vw-1rem))] max-w-[min(680px,calc(100vw-1rem))]",
-                    "gap-0 overflow-hidden border-orange-400/25 bg-stone-50 p-0 shadow-2xl shadow-black/40 sm:max-w-[min(680px,calc(100vw-1rem))]",
-                    "[&>button]:right-4 [&>button]:top-4 [&>button]:rounded-full [&>button]:bg-white/10 [&>button]:p-1.5 [&>button]:text-white/75 [&>button]:opacity-100 [&>button]:ring-offset-transparent hover:[&>button]:bg-white/15 hover:[&>button]:text-white"
+                    "ppf-terms-dialog",
+                    "max-h-[min(92vh,880px)] w-[min(700px,calc(100vw-1.25rem))] max-w-[min(700px,calc(100vw-1.25rem))]",
+                    "gap-0 overflow-hidden rounded-[32px] border-0 bg-[var(--ppf-canvas)] p-0",
+                    "shadow-[0_40px_100px_-32px_rgba(0,0,0,0.5)] sm:max-w-[min(700px,calc(100vw-1.25rem))] sm:rounded-[32px]",
+                    "[&>button]:ring-offset-transparent"
                 )}
                 onOpenAutoFocus={(e) => e.preventDefault()}
             >
                 <DialogHeader className="space-y-0 p-0 text-left">
-                    <div className="relative overflow-hidden border-b border-orange-500/25 bg-[radial-gradient(circle_at_15%_0%,rgba(251,146,60,0.25),transparent_32%),linear-gradient(135deg,#09090b_0%,#1c1917_54%,#431407_100%)] px-5 py-5 pr-14 text-white sm:px-6">
-                        <div className="pointer-events-none absolute -right-12 -top-14 h-36 w-36 rounded-full border border-orange-300/20" />
-                        <div className="pointer-events-none absolute bottom-0 right-16 h-px w-32 bg-gradient-to-r from-transparent via-orange-300/45 to-transparent" />
-                        <div className="flex items-start gap-3.5">
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-orange-300/30 bg-orange-400/15 shadow-[0_0_35px_-10px_rgba(251,146,60,0.95)]">
-                                <ShieldCheck className="h-6 w-6 text-orange-200" aria-hidden />
+                    <div className="ppf-terms-dialog__hero rounded-t-[32px]">
+                        <div className="relative z-[1] flex items-start gap-4">
+                            <div className="ppf-terms-dialog__icon" aria-hidden>
+                                <ShieldCheck className="h-6 w-6 sm:h-7 sm:w-7" />
                             </div>
                             <div className="min-w-0">
-                                <p className="mb-1.5 inline-flex rounded-full border border-orange-300/25 bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-100">
-                                    Client service brief
-                                </p>
-                                <DialogTitle className="text-left text-xl font-semibold leading-tight text-white sm:text-2xl">
+                                <p className="ppf-terms-dialog__eyebrow">Client service brief</p>
+                                <DialogTitle className="ppf-terms-dialog__title text-left">
                                     Paint Protection Film Terms & Acknowledgement
                                 </DialogTitle>
-                                <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-100/90">
-                                    AUTOSPF+ SUN PROTECTION FILM
-                                </p>
-                                <p className="mt-1 text-xs leading-snug text-zinc-300">{PPF_TERMS_BUSINESS.name}</p>
+                                <p className="ppf-terms-dialog__brand">AUTOSPF+ Sun Protection Film</p>
+                                <p className="ppf-terms-dialog__subtitle">{PPF_TERMS_BUSINESS.name}</p>
                             </div>
                         </div>
                     </div>
@@ -231,39 +228,33 @@ export function PpfTermsAcceptanceDialog({
                     key={modalBodyKey}
                     ref={scrollRef}
                     onScroll={onScroll}
-                    className="max-h-[min(58vh,540px)] overflow-y-auto bg-[linear-gradient(180deg,#fbf7ef_0%,#fffaf2_38%,#f8fafc_100%)] px-4 py-4 text-left text-[12px] leading-relaxed text-zinc-800 sm:px-5 sm:py-5"
+                    className="ppf-terms-dialog__scroll text-left"
                     role="document"
                     tabIndex={0}
                 >
-                    <div className="mb-4 rounded-2xl border border-amber-900/10 bg-white/90 p-3.5 shadow-sm shadow-amber-950/5 sm:p-4">
-                        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-amber-900/10 pb-3 text-[11px] font-medium text-zinc-600">
+                    <div className="ppf-terms-dialog__card">
+                        <p className="ppf-terms-dialog__card-meta">
                             <span>{PPF_TERMS_BUSINESS.address}</span>
-                            <span className="hidden h-1 w-1 rounded-full bg-orange-400 sm:inline-block" aria-hidden />
                             <span>{PPF_TERMS_BUSINESS.phone}</span>
                         </p>
-                        <p className="pt-3 text-sm leading-relaxed text-zinc-800">{PPF_TERMS_INTRO}</p>
+                        <p className="ppf-terms-dialog__card-intro">{PPF_TERMS_INTRO}</p>
                     </div>
 
-                    <div className="mb-4 grid gap-2.5 sm:grid-cols-2">
+                    <div className="ppf-terms-dialog__highlights">
                         {PPF_TERMS_HIGHLIGHTS.map((item, i) => {
                             const HighlightIcon = PPF_TERMS_HIGHLIGHT_ICONS[i % PPF_TERMS_HIGHLIGHT_ICONS.length];
                             return (
-                                <div
-                                    key={item.label}
-                                    className="rounded-2xl border border-orange-900/10 bg-white p-3 shadow-sm shadow-orange-950/5"
-                                >
-                                    <div className="mb-2 flex items-center gap-2">
-                                        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-100 text-orange-700">
+                                <div key={item.label} className="ppf-terms-dialog__highlight">
+                                    <div className="ppf-terms-dialog__highlight-head">
+                                        <span className="ppf-terms-dialog__highlight-icon">
                                             <HighlightIcon className="h-4 w-4" aria-hidden />
                                         </span>
                                         <div>
-                                            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
-                                                {item.label}
-                                            </p>
-                                            <p className="text-sm font-bold text-zinc-950">{item.value}</p>
+                                            <p className="ppf-terms-dialog__highlight-label">{item.label}</p>
+                                            <p className="ppf-terms-dialog__highlight-value">{item.value}</p>
                                         </div>
                                     </div>
-                                    <p className="text-[11px] leading-relaxed text-zinc-600">{item.detail}</p>
+                                    <p className="ppf-terms-dialog__highlight-detail">{item.detail}</p>
                                 </div>
                             );
                         })}
@@ -273,46 +264,35 @@ export function PpfTermsAcceptanceDialog({
                         <section
                             key={sec.title}
                             className={cn(
-                                "relative mb-3.5 overflow-hidden rounded-2xl border border-zinc-200/80 bg-white p-4 shadow-sm shadow-zinc-950/5",
-                                i === PPF_TERMS_SECTIONS.length - 1 && "mb-0 border-orange-300/60 bg-orange-50/80"
+                                "ppf-terms-dialog__section",
+                                i === PPF_TERMS_SECTIONS.length - 1 && "ppf-terms-dialog__section--final mb-0"
                             )}
                         >
-                            <div className="absolute right-3 top-3 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-[10px] font-black tracking-wider text-zinc-400">
+                            <span className="ppf-terms-dialog__section-index" aria-hidden>
                                 {String(i + 1).padStart(2, "0")}
+                            </span>
+                            <div className="pr-10">
+                                <p className="ppf-terms-dialog__section-kicker">PPF client note</p>
+                                <h3 className="ppf-terms-dialog__section-title">{sec.title}</h3>
+                                <p className="ppf-terms-dialog__section-summary">{sec.summary}</p>
                             </div>
-                            <div className="pr-12">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-700">
-                                    PPF client note
-                                </p>
-                                <h3 className="mt-1 text-sm font-bold text-zinc-950">{sec.title}</h3>
-                                <p className="mt-1 text-[12px] font-semibold leading-relaxed text-zinc-700">
-                                    {sec.summary}
-                                </p>
-                            </div>
-                            <p className="mt-3 text-[12px] leading-relaxed text-zinc-700">{sec.body}</p>
-                            <ul className="mt-3 space-y-2">
+                            <p className="ppf-terms-dialog__section-body">{sec.body}</p>
+                            <ul className="ppf-terms-dialog__bullets">
                                 {sec.bullets.map((bullet) => (
-                                    <li key={bullet} className="flex gap-2 text-[12px] leading-relaxed text-zinc-600">
-                                        <CheckCircle2
-                                            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-600"
-                                            aria-hidden
-                                        />
+                                    <li key={bullet} className="ppf-terms-dialog__bullet">
+                                        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
                                         <span>{bullet}</span>
                                     </li>
                                 ))}
                             </ul>
                         </section>
                     ))}
-                    <p className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-950 px-4 py-3 text-[12px] font-medium leading-relaxed text-zinc-100 shadow-sm">
-                        {PPF_TERMS_ACCEPTANCE_NOTE}
-                    </p>
+                    <p className="ppf-terms-dialog__acceptance">{PPF_TERMS_ACCEPTANCE_NOTE}</p>
                 </div>
                 <div
                     className={cn(
-                        "flex items-center gap-2 border-t px-4 py-2.5 text-[11px] font-medium sm:px-5",
-                        scrolledToEnd
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                            : "border-amber-200 bg-amber-50 text-amber-900"
+                        "ppf-terms-dialog__status",
+                        scrolledToEnd ? "ppf-terms-dialog__status--ready" : "ppf-terms-dialog__status--pending"
                     )}
                 >
                     {scrolledToEnd ? (
@@ -326,11 +306,11 @@ export function PpfTermsAcceptanceDialog({
                             : "Please scroll through the complete service brief to unlock acceptance."}
                     </span>
                 </div>
-                <DialogFooter className="flex-col-reverse items-stretch justify-between gap-2 border-t border-zinc-200 bg-white p-3 sm:flex-row sm:justify-between sm:space-x-0 sm:p-4">
+                <DialogFooter className="ppf-terms-dialog__footer flex-col-reverse items-stretch border-0 p-0 sm:flex-row sm:justify-between sm:space-x-0">
                     <Button
                         type="button"
                         variant="outline"
-                        className="border-zinc-300 bg-zinc-950 text-white hover:bg-zinc-900 hover:text-white sm:min-w-[116px]"
+                        className="ppf-terms-dialog__btn-cancel"
                         onClick={() => onOpenChange(false)}
                     >
                         Cancel
@@ -338,7 +318,7 @@ export function PpfTermsAcceptanceDialog({
                     <Button
                         type="button"
                         disabled={!scrolledToEnd}
-                        className="bg-gradient-to-r from-amber-500 to-orange-600 font-semibold text-zinc-950 shadow-lg shadow-orange-600/20 hover:from-amber-400 hover:to-orange-500 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[260px]"
+                        className="ppf-terms-dialog__btn-accept"
                         onClick={() => {
                             if (!scrolledToEnd) return;
                             onAccept();

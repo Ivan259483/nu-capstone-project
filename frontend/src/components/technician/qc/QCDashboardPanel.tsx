@@ -1,164 +1,23 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { ImageIcon, MessageSquare, Zap, CheckCircle2, AlertTriangle, Loader2, TrendingUp, DollarSign, Eye, RefreshCw } from 'lucide-react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { Zap, CheckCircle2, AlertTriangle, Loader2, TrendingUp, DollarSign, Eye, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
-import { BOOKING_NOTE_UNAVAILABLE, formatBookingNoteForDisplay } from '@/lib/pii-display';
 import QCSidebar from './QCSidebar';
 import QCTopbar from './QCTopbar';
 import QCDashboardView from './QCDashboardView';
-import QCReportsView from './QCReportsView';
 import QCJobsTable from './QCJobsTable';
 import QCJobDetailView from './QCJobDetailView';
 import QCChecklistPanel from './QCChecklistPanel';
 import QCAIDetectionCard from './QCAIDetectionCard';
-import QCImageComparisonSlider from './QCImageComparisonSlider';
 import QCLiveTrackerView from './QCLiveTrackerView';
 import {
   getQCJobWorkflowAction,
   stashLiveTrackerDeepLinkJobId,
 } from '@/lib/qc-job-workflow';
 import { useQCData } from '@/hooks/useQCData';
+import { filterQCJobsBySearch } from '@/lib/qc-job-search';
 
-type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'before-after' | 'ai-detection' | 'customer-notes' | 'reports' | 'live-tracker';
-
-// ─── Customer Notes View ──────────────────────────────────────────────────────
-function CustomerNotesView({
-  jobs,
-}: {
-  jobs: { id: string; customer: string; jobId: string; vehicle: string; customerNotes?: string; notes?: string; submittedAt: string }[];
-}) {
-  useEffect(() => {
-    console.log('QC jobs with notes:', jobs.filter((j) => j.customerNotes || j.notes));
-  }, [jobs]);
-
-  const notesByJob = jobs.map((job) => {
-    const rawNote = job.customerNotes || job.notes || '';
-    const displayNote = formatBookingNoteForDisplay(rawNote);
-    return {
-      ...job,
-      rawNote,
-      displayNote,
-      noteUnavailable: Boolean(rawNote.trim()) && !displayNote,
-    };
-  });
-  const withNotes = notesByJob.filter((j) => j.displayNote || j.noteUnavailable);
-
-  return (
-    <div className="flex min-h-[calc(100vh-10.5rem)] flex-col">
-      <div className="shrink-0">
-        <h1 className="text-xl font-semibold text-slate-900 tracking-tight">Customer Notes</h1>
-        <p className="mt-0.5 text-sm text-slate-400">
-          {withNotes.length} note{withNotes.length !== 1 ? 's' : ''} from active jobs
-        </p>
-      </div>
-
-      {withNotes.length > 0 ? (
-        <div className="mt-6 flex flex-1 flex-col gap-5">
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-            {withNotes.map((j) => (
-              <div
-                key={j.id}
-                className="qc-dash-surface rounded-2xl bg-white p-5 shadow-sm shadow-slate-200/50 transition-shadow hover:shadow-md"
-              >
-                <div className="mb-3 flex items-start justify-between">
-                  <div>
-                    <p className="text-sm font-semibold tracking-tight text-slate-800">{j.customer}</p>
-                    <p className="mt-0.5 text-xs text-slate-400">
-                      {j.jobId} · {j.vehicle}
-                    </p>
-                  </div>
-                  <span className="ml-2 shrink-0 text-xs tabular-nums text-slate-400">
-                    {j.submittedAt ? new Date(j.submittedAt).toLocaleDateString() : '—'}
-                  </span>
-                </div>
-                <div
-                  className={`rounded-xl border p-4 ${
-                    j.noteUnavailable
-                      ? 'border-amber-100/80 bg-amber-50/60'
-                      : 'border-blue-100/80 bg-blue-50/70'
-                  }`}
-                >
-                  <p
-                    className={`text-sm leading-relaxed ${
-                      j.noteUnavailable ? 'italic text-amber-800' : 'text-slate-700'
-                    }`}
-                  >
-                    {j.noteUnavailable ? BOOKING_NOTE_UNAVAILABLE : j.displayNote}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex flex-1 flex-col items-center justify-center rounded-2xl bg-slate-50/40 px-6 py-14 text-center shadow-[inset_0_0_0_1px_rgba(148,163,184,0.12)]">
-            <MessageSquare size={22} className="mb-3 text-slate-300" />
-            <p className="text-sm font-medium text-slate-500">More notes appear here as new jobs are assigned.</p>
-          </div>
-        </div>
-      ) : (
-        <div
-          className="qc-dash-surface mt-6 flex flex-1 flex-col items-center justify-center rounded-2xl bg-white px-6 py-20 text-center"
-          style={{ background: 'linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)' }}
-        >
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-green-100 ring-4 ring-green-50">
-            <MessageSquare size={20} className="text-green-500" />
-          </div>
-          <p className="text-sm font-semibold text-slate-600">No customer notes yet</p>
-          <p className="mt-1 max-w-sm text-xs text-slate-400">
-            Customer booking notes will appear here when jobs include special instructions.
-          </p>
-          <p className="mt-8 text-sm font-medium text-slate-500">
-            More notes appear here as new jobs are assigned.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Before & After View ────────────────────────────────────────────────────
-function BeforeAfterView({ jobs }: { jobs: { id: string; jobId: string; vehicle: string; photos?: { before: string[]; after: string[] } }[] }) {
-  const [selectedIdx, setSelectedIdx] = useState(0);
-  const withPhotos = jobs.filter((j) => j.photos?.before?.length || j.photos?.after?.length);
-  const selected = withPhotos[selectedIdx];
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900 tracking-tight">Before & After</h1>
-        <p className="text-sm text-slate-400 mt-0.5">Photo comparison for jobs in review</p>
-      </div>
-      {withPhotos.length > 0 && selected ? (
-        <>
-          <div className="flex gap-2.5 flex-wrap">
-            {withPhotos.map((j, i) => (
-              <button key={j.id} onClick={() => setSelectedIdx(i)}
-                className={`px-4 py-2 rounded-xl border text-sm font-medium transition-all ${
-                  i === selectedIdx ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white border-slate-200/80 text-slate-600 hover:bg-slate-50'}`}>
-                {j.jobId} — {j.vehicle}
-              </button>
-            ))}
-          </div>
-          <div className="bg-white rounded-2xl shadow-sm shadow-slate-200/50 overflow-hidden">
-            <QCImageComparisonSlider
-              beforeSrc={selected.photos?.before?.[0] || ''}
-              beforeAlt={`${selected.vehicle} before`}
-              afterSrc={selected.photos?.after?.[0] || ''}
-              afterAlt={`${selected.vehicle} after`}
-            />
-          </div>
-        </>
-      ) : (
-        <div className="rounded-2xl border border-slate-100 flex flex-col items-center justify-center py-20 text-center" style={{ background: 'linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%)' }}>
-          <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center mb-3 ring-4 ring-blue-50">
-            <ImageIcon size={20} className="text-blue-500" />
-          </div>
-          <p className="text-sm font-semibold text-slate-600">No photos yet</p>
-          <p className="text-xs text-slate-400 mt-1">Photos appear when technicians upload completed work</p>
-        </div>
-      )}
-    </div>
-  );
-}
+type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker';
 
 // ─── AI Detection View — types ────────────────────────────────────────────────
 interface ScanDmg {
@@ -564,7 +423,7 @@ function AIDetectionView({ jobs: _jobs }: { jobs: unknown[] }) {
 
 // ─── Main QCDashboardPanel ────────────────────────────────────────────────────
 const QC_VIEW_KEY = 'autospf_qc_active_view';
-const VALID_QC_VIEWS: QCView[] = ['dashboard', 'jobs', 'job-detail', 'before-after', 'ai-detection', 'customer-notes', 'reports', 'live-tracker'];
+const VALID_QC_VIEWS: QCView[] = ['dashboard', 'jobs', 'job-detail', 'ai-detection', 'live-tracker'];
 
 export default function QCDashboardPanel() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -577,7 +436,13 @@ export default function QCDashboardPanel() {
     return 'dashboard';
   });
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [globalSearch, setGlobalSearch] = useState('');
   const loadQcSummary = activeView !== 'live-tracker';
+
+  const jobsForView = useMemo(
+    () => filterQCJobsBySearch(jobs, globalSearch),
+    [jobs, globalSearch],
+  );
 
   // Persist active view so remounts don't reset to dashboard
   const navigateTo = useCallback((view: QCView) => {
@@ -592,8 +457,6 @@ export default function QCDashboardPanel() {
     statsLoading,
     activity,
     activityLoading,
-    technicianData,
-    techLoading,
     approveJob,
     returnJob,
     updateChecklist,
@@ -634,7 +497,17 @@ export default function QCDashboardPanel() {
   const renderContent = () => {
     switch (activeView) {
       case 'dashboard':
-        return <QCDashboardView onNavigate={navigateTo} stats={stats} statsLoading={statsLoading} jobs={jobs} activity={activity} activityLoading={activityLoading} onSelectJob={handleSelectJob} />;
+        return (
+          <QCDashboardView
+            onNavigate={navigateTo}
+            stats={stats}
+            statsLoading={statsLoading}
+            jobs={jobsForView}
+            activity={activity}
+            activityLoading={activityLoading}
+            onSelectJob={handleSelectJob}
+          />
+        );
 
       case 'jobs':
         return (
@@ -670,6 +543,8 @@ export default function QCDashboardPanel() {
               jobs={jobs}
               loading={jobsLoading}
               onSelectJob={handleSelectJob}
+              searchQuery={globalSearch}
+              onSearchQueryChange={setGlobalSearch}
             />
           </div>
         );
@@ -686,22 +561,14 @@ export default function QCDashboardPanel() {
           />
         );
 
-      case 'before-after':
-        return <BeforeAfterView jobs={jobs as any} />;
-
       case 'ai-detection':
         return <AIDetectionView jobs={jobs as any} />;
-
-      case 'customer-notes':
-        return <CustomerNotesView jobs={jobs as any} />;
-
-      case 'reports':
-        return <QCReportsView stats={stats} statsLoading={statsLoading} technicianData={technicianData} techLoading={techLoading} />;
 
       case 'live-tracker':
         return (
           <QCLiveTrackerView
             jobs={jobs}
+            searchQuery={globalSearch}
             // Only block the whole view before the first /qc/jobs payload — refetches stay silent (no pulse skeleton).
             loading={jobsLoading && jobs.length === 0}
             onAdvance={updateServiceStatus}
@@ -732,7 +599,13 @@ export default function QCDashboardPanel() {
         aiPendingCount={aiPendingCount}
       />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <QCTopbar sidebarCollapsed={sidebarCollapsed} />
+        <QCTopbar
+          sidebarCollapsed={sidebarCollapsed}
+          jobs={jobs}
+          searchQuery={globalSearch}
+          onSearchQueryChange={setGlobalSearch}
+          onSelectJob={handleSelectJob}
+        />
         <main className="flex-1 overflow-y-auto px-7 py-6" style={{ background: '#FAFAFA' }}>
           {renderContent()}
         </main>

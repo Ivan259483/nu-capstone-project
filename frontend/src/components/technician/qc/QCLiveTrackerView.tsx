@@ -47,6 +47,7 @@ import {
   getCompletedGateIndexFromServiceStage,
   getTrackerPipelineProgressPct,
 } from '@/lib/tracker-pipeline-progress';
+import { filterQCJobsBySearch } from '@/lib/qc-job-search';
 
 type TrackerMedia = {
   stage?: string;
@@ -2146,6 +2147,7 @@ function LiveTrackerOrderModal({ onClose, isUploadInteractionActive = false, ...
 
 export default function QCLiveTrackerView({
   jobs,
+  searchQuery = '',
   loading,
   onAdvance,
   onUploadStagePhoto,
@@ -2155,6 +2157,7 @@ export default function QCLiveTrackerView({
   onPersistQcChecklist,
 }: {
   jobs: QCJob[];
+  searchQuery?: string;
   loading: boolean;
   onAdvance: (id: string, stage: ServiceStage) => Promise<boolean>;
   onUploadStagePhoto: (
@@ -2270,10 +2273,17 @@ export default function QCLiveTrackerView({
       });
   }, [localJobs]);
 
-  const activeCount = useMemo(
-    () => trackedOrders.filter((job) => !getTrackerState(job).isComplete).length,
-    [trackedOrders]
+  const displayedOrders = useMemo(
+    () => filterQCJobsBySearch(trackedOrders, searchQuery),
+    [trackedOrders, searchQuery],
   );
+
+  const activeCount = useMemo(
+    () => displayedOrders.filter((job) => !getTrackerState(job).isComplete).length,
+    [displayedOrders]
+  );
+
+  const searchActive = Boolean(searchQuery.trim());
 
   const selectedJob = useMemo(() => {
     if (!selectedJobId) return null;
@@ -2616,7 +2626,11 @@ export default function QCLiveTrackerView({
           <div className="flex items-center justify-between gap-3 px-6 py-6">
             <div>
               <p className="text-xl font-black tracking-tight text-slate-950">Live Orders</p>
-              <p className="text-sm font-semibold text-slate-400">Today active lane</p>
+              <p className="text-sm font-semibold text-slate-400">
+                {searchActive
+                  ? `${displayedOrders.length} of ${trackedOrders.length} orders`
+                  : 'Today active lane'}
+              </p>
             </div>
             <span className="rounded-full bg-emerald-50 px-3.5 py-1.5 text-xs font-black tabular-nums text-emerald-700 shadow-[0_4px_14px_-6px_rgba(16,185,129,0.3)]">
               {activeCount}
@@ -2624,14 +2638,23 @@ export default function QCLiveTrackerView({
           </div>
 
           <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 pb-5 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
-            {trackedOrders.map((job) => (
-              <OrderSidebarCard
-                key={job.id}
-                job={job}
-                selected={job.id === selectedJobId}
-                onSelect={() => openSelectedOrder(job)}
-              />
-            ))}
+            {displayedOrders.length === 0 && searchActive ? (
+              <div className="col-span-full flex flex-col items-center justify-center rounded-3xl bg-white/80 px-6 py-16 text-center shadow-[inset_0_0_0_1px_rgba(148,163,184,0.12)]">
+                <p className="text-base font-black text-slate-800">No matching orders</p>
+                <p className="mt-2 max-w-sm text-sm font-medium text-slate-500">
+                  Try a job ID, customer name, vehicle, or plate from the search bar above.
+                </p>
+              </div>
+            ) : (
+              displayedOrders.map((job) => (
+                <OrderSidebarCard
+                  key={job.id}
+                  job={job}
+                  selected={job.id === selectedJobId}
+                  onSelect={() => openSelectedOrder(job)}
+                />
+              ))
+            )}
           </div>
         </section>
 

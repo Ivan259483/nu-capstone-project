@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { sanitizeVehiclePlate, vehicleHeadline } from '@/lib/vehicle-display';
+import SalesStatCard from '@/components/sales/ui/SalesStatCard';
+import { SALES_ACCENTS, hashToSalesAccent } from '@/components/sales/ui/salesTheme';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface CustomerRecord {
@@ -36,6 +38,9 @@ interface OrderSummary {
 }
 
 type SortField = 'name' | 'totalSpent' | 'totalOrders' | 'lastVisit';
+
+const customerInitials = (name: string) =>
+  name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
 // ── CustomerDetail Drawer ─────────────────────────────────────────────────────
 function CustomerDetail({ customer, onClose }: { customer: CustomerRecord; onClose: () => void }) {
@@ -71,8 +76,11 @@ function CustomerDetail({ customer, onClose }: { customer: CustomerRecord; onClo
       >
         {/* Header */}
         <div className="flex items-center gap-3 px-6 py-5 bg-white/95 backdrop-blur-md shrink-0 z-10 shadow-[0_12px_32px_-16px_rgba(15,23,42,0.08)]">
-          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-semibold shadow-lg shadow-blue-600/20 shrink-0">
-            {customer.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+          <div
+            className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-semibold shadow-lg shrink-0"
+            style={{ backgroundColor: hashToSalesAccent(customer.name) }}
+          >
+            {customerInitials(customer.name)}
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold text-slate-800 truncate">{customer.name}</h2>
@@ -379,34 +387,50 @@ export default function CustomersView() {
     <div className="h-full flex flex-col space-y-6 page-enter pb-6 text-slate-800">
       {/* Header */}
       <div className="shrink-0">
-        <h1 className="text-2xl font-semibold text-slate-800 tracking-tight">Customers</h1>
+        <h1 className="text-3xl font-bold text-slate-950 tracking-tight">Customers</h1>
         <p className="text-sm text-slate-500/90 mt-1">Customer registry built from transaction history</p>
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
         {[
-          { label: 'Total Customers', value: totalCustomers, icon: Users, color: 'bg-blue-50/90 text-blue-600', accent: 'bg-blue-50' },
-          { label: 'Active Customers', value: activeCustomers, icon: Star, color: 'bg-emerald-50/90 text-emerald-600', accent: 'bg-emerald-50', sub: `${totalCustomers > 0 ? Math.round((activeCustomers / totalCustomers) * 100) : 0}% of total` },
-          { label: 'Total Revenue', value: `₱${totalRevenue.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`, icon: TrendingUp, color: 'bg-indigo-50/90 text-indigo-600', accent: 'bg-indigo-50' },
-          { label: 'Avg. Spend', value: `₱${avgSpend.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`, icon: ShoppingBag, color: 'bg-amber-50/90 text-amber-600', accent: 'bg-amber-50', sub: 'per customer' },
+          {
+            label: 'Total Customers',
+            value: String(totalCustomers),
+            icon: <Users size={17} className="text-slate-500" />,
+            accent: SALES_ACCENTS.blue,
+            sub: 'Customer registry',
+          },
+          {
+            label: 'Active',
+            value: String(activeCustomers),
+            icon: <Star size={17} className="text-slate-500" />,
+            accent: SALES_ACCENTS.green,
+            sub: `${totalCustomers > 0 ? Math.round((activeCustomers / totalCustomers) * 100) : 0}% of total`,
+          },
+          {
+            label: 'Total Revenue',
+            value: `₱${totalRevenue.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+            icon: <TrendingUp size={17} className="text-slate-500" />,
+            accent: SALES_ACCENTS.purple,
+            sub: 'Captured customer spend',
+          },
+          {
+            label: 'Avg Spend',
+            value: `₱${avgSpend.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+            icon: <ShoppingBag size={17} className="text-slate-500" />,
+            accent: SALES_ACCENTS.orange,
+            sub: 'Per customer',
+          },
         ].map((kpi) => (
-          <div
+          <SalesStatCard
             key={kpi.label}
-            className="rounded-3xl bg-white/90 p-5 shadow-[0_4px_28px_-8px_rgba(15,23,42,0.07),0_1px_2px_rgba(15,23,42,0.03)] hover:shadow-[0_12px_40px_-12px_rgba(15,23,42,0.1)] hover:-translate-y-0.5 transition-all duration-300 ease-out relative overflow-hidden group"
-          >
-            <div className={`absolute -right-6 -top-6 w-24 h-24 rounded-full opacity-[0.12] transition-transform duration-300 group-hover:scale-110 ${kpi.accent}`} />
-            <div className="relative z-10">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">{kpi.label}</span>
-                <div className={`w-9 h-9 rounded-2xl ${kpi.color} flex items-center justify-center shadow-[0_2px_8px_-2px_rgba(15,23,42,0.08)]`}>
-                  <kpi.icon size={17} strokeWidth={2} />
-                </div>
-              </div>
-              <p className="text-[1.4rem] font-semibold text-slate-800 tracking-tight leading-none">{isLoading ? '—' : kpi.value}</p>
-              {kpi.sub && <p className="text-[11px] font-medium text-slate-500 mt-1.5">{kpi.sub}</p>}
-            </div>
-          </div>
+            title={kpi.label}
+            metric={isLoading ? '—' : kpi.value}
+            label={kpi.sub}
+            icon={kpi.icon}
+            accent={kpi.accent}
+          />
         ))}
       </div>
 
@@ -497,8 +521,11 @@ export default function CustomersView() {
                   >
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3.5">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold shadow-sm shrink-0">
-                          {c.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                        <div
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm shrink-0"
+                          style={{ backgroundColor: hashToSalesAccent(c.name) }}
+                        >
+                          {customerInitials(c.name)}
                         </div>
                         <div>
                           <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-700/90 transition-colors">{c.name}</p>

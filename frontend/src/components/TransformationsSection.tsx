@@ -12,7 +12,7 @@ export default function TransformationsSection() {
 
     return (
         <section
-            className="relative z-20 overflow-hidden py-24"
+            className="relative z-20 overflow-hidden pt-20 pb-28 md:pt-24 md:pb-32"
             style={TRUSTED_BY_SECTION_BG_FOLLOW}
         >
             <TrustedBySectionAmbient />

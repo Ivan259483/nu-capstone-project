@@ -13,6 +13,19 @@ export const ADD_VEHICLE_TYPE_LABELS = [
 
 export const BOOKING_YEAR_OPTIONS = Array.from({ length: 36 }, (_, i) => String(2025 - i));
 
+export const VEHICLE_COLOR_PRESETS = [
+  'White',
+  'Black',
+  'Silver',
+  'Gray',
+  'Blue',
+  'Red',
+  'Green',
+  'Yellow',
+  'Orange',
+  'Brown',
+] as const;
+
 export const CAR_BRANDS = [
   'Toyota',
   'Honda',

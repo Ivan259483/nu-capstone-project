@@ -86,7 +86,7 @@ export function HeroParallax({
     const rotateX = useSpring(useTransform(scrollYProgress, [0, 0.2], [15, 0]), PARALLAX_SPRING);
     const opacity = useSpring(useTransform(scrollYProgress, [0, 0.2], [0.2, 1]), PARALLAX_SPRING);
     const rotateZ = useSpring(useTransform(scrollYProgress, [0, 0.2], [20, 0]), PARALLAX_SPRING);
-    const translateY = useSpring(useTransform(scrollYProgress, [0, 0.2], [-700, 500]), PARALLAX_SPRING);
+    const translateY = useSpring(useTransform(scrollYProgress, [0, 0.32], [-420, 120]), PARALLAX_SPRING);
 
     const resolvedTitle = title ?? DEFAULT_TITLE;
     const resolvedDescription = description ?? DEFAULT_DESCRIPTION;
@@ -95,7 +95,7 @@ export function HeroParallax({
         <div
             ref={ref}
             className={cn(
-                "relative flex min-h-[300vh] flex-col overflow-hidden py-20 antialiased md:py-40",
+                "relative flex min-h-[185vh] flex-col overflow-hidden py-16 antialiased md:py-28",
                 "[perspective:1000px] [transform-style:preserve-3d]",
                 className,
             )}
@@ -141,17 +141,17 @@ export function HeroParallax({
                 }}
                 className="relative z-0 w-full"
             >
-                <div className="mx-auto flex max-w-none flex-row-reverse gap-12 px-4 pb-20 md:gap-20">
+                <div className="mx-auto flex max-w-none flex-row-reverse gap-10 px-4 pb-14 md:gap-16">
                     {firstRow.map((product) => (
                         <ProductCard key={product.title} product={product} translate={translateX} />
                     ))}
                 </div>
-                <div className="mx-auto flex max-w-none flex-row gap-12 px-4 pb-20 md:gap-20">
+                <div className="mx-auto flex max-w-none flex-row gap-10 px-4 pb-14 md:gap-16">
                     {secondRow.map((product) => (
                         <ProductCard key={product.title} product={product} translate={translateXReverse} />
                     ))}
                 </div>
-                <div className="mx-auto flex max-w-none flex-row-reverse gap-12 px-4 pb-24 md:gap-20">
+                <div className="mx-auto flex max-w-none flex-row-reverse gap-10 px-4 pb-16 md:gap-16">
                     {thirdRow.map((product) => (
                         <ProductCard key={product.title} product={product} translate={translateX} />
                     ))}

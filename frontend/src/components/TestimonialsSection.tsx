@@ -345,7 +345,7 @@ export default function TestimonialsSection() {
     }, [selected]);
 
     return (
-        <section className="relative overflow-hidden py-28 sm:py-36" style={TRUSTED_BY_SECTION_BG_FOLLOW}>
+        <section className="relative overflow-hidden pt-24 pb-28 sm:pt-32 sm:pb-36" style={TRUSTED_BY_SECTION_BG_FOLLOW}>
             <TrustedBySectionAmbient />
 
             {/* Floating particles */}

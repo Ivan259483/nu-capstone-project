@@ -37,10 +37,7 @@ type QCView =
   | 'dashboard'
   | 'jobs'
   | 'job-detail'
-  | 'before-after'
   | 'ai-detection'
-  | 'customer-notes'
-  | 'reports'
   | 'live-tracker';
 
 const BAR_COLORS = ['#2563eb', '#7c3aed', '#0ea5e9', '#10b981', '#f59e0b', '#64748b'];

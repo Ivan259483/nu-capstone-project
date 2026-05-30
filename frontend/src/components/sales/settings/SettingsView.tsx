@@ -3,7 +3,7 @@ import {
   Settings, Clock, Store, Mail, Phone, MapPin,
   Globe, DollarSign, Calendar, Shield, Bell,
   Save, RefreshCw, CheckCircle2, AlertCircle, Lock,
-  Sun, Moon, Smartphone,
+  Sun, Moon, Smartphone, Maximize2, MoreHorizontal,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -72,14 +72,32 @@ function SectionCard({ icon: Icon, title, description, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
-          <Icon size={17} className="text-blue-600" />
+    <div className="overflow-hidden rounded-lg bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_20px_48px_-30px_rgba(15,23,42,0.45)] ring-1 ring-slate-200/80">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-900 ring-1 ring-slate-100">
+            <Icon size={17} />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold text-slate-800">{title}</h3>
+            <p className="mt-0.5 text-[11px] font-medium text-slate-400">{description}</p>
+          </div>
         </div>
-        <div>
-          <h3 className="text-sm font-bold text-slate-800">{title}</h3>
-          <p className="text-[11px] text-slate-400">{description}</p>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label={`Expand ${title}`}
+          >
+            <Maximize2 size={15} />
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label={`${title} options`}
+          >
+            <MoreHorizontal size={16} />
+          </button>
         </div>
       </div>
       <div className="px-5 py-4">{children}</div>
@@ -209,7 +227,7 @@ export default function SettingsView() {
     return (
       <div className="space-y-5 page-enter">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
+          <h1 className="text-3xl font-bold text-slate-950">Settings</h1>
           <p className="text-sm text-slate-500 mt-0.5">Store configuration & preferences</p>
         </div>
         <div className="space-y-4">
@@ -232,14 +250,14 @@ export default function SettingsView() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
+          <h1 className="text-3xl font-bold text-slate-950">Settings</h1>
           <p className="text-sm text-slate-500 mt-0.5">Store configuration & preferences</p>
         </div>
         <div className="flex items-center gap-2">
           {!canEdit && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200">
-              <Lock size={13} className="text-amber-600" />
-              <span className="text-[11px] font-semibold text-amber-700">View only</span>
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-slate-600 ring-1 ring-slate-200">
+              <Lock size={13} />
+              <span className="text-[11px] font-bold">View only</span>
             </div>
           )}
           {canEdit && hasChanges && (

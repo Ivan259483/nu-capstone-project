@@ -8,6 +8,7 @@ import VehicleGarageForm from '@/components/shared/VehicleGarageForm';
 import {
   emptyVehicleGarageForm,
   validateVehicleGarageForm,
+  VEHICLE_COLOR_PRESETS,
   type VehicleGarageFormValues,
 } from '@/components/shared/vehicle-garage-constants';
 import {
@@ -180,6 +181,20 @@ export default function CustomerVehiclePanel({
     });
   };
 
+  const resetGarageFormState = () => {
+    setGarageForm(emptyVehicleGarageForm());
+    setGarageErrors({});
+    setGarageApiError('');
+    setGarageColorOther(false);
+    setEditingVehicleId(null);
+  };
+
+  const closeGarageModal = (opts?: { force?: boolean }) => {
+    if (!opts?.force && garageSaving) return;
+    setGarageOpen(false);
+    resetGarageFormState();
+  };
+
   const openAddGarage = () => {
     if (!selectedCustomer || selectedCustomer.isSynthetic) return;
     setGarageMode('add');
@@ -191,13 +206,22 @@ export default function CustomerVehiclePanel({
     setGarageOpen(true);
   };
 
+  const applyGarageFormWithColorPreset = (form: VehicleGarageFormValues) => {
+    const rawColor = (form.color || '').trim();
+    const presetMatch = VEHICLE_COLOR_PRESETS.find((c) => c.toLowerCase() === rawColor.toLowerCase());
+    setGarageColorOther(Boolean(rawColor && !presetMatch));
+    setGarageForm({
+      ...form,
+      color: presetMatch || rawColor,
+    });
+  };
+
   const openEditGarage = async (v: Vehicle) => {
     if (!selectedCustomer || selectedCustomer.isSynthetic) return;
     setGarageMode('edit');
     setEditingVehicleId(v.id);
     setGarageErrors({});
     setGarageApiError('');
-    setGarageColorOther(false);
     try {
       const res = await VehicleService.getVehiclesForUser(selectedCustomer.id);
       const raw =
@@ -205,9 +229,9 @@ export default function CustomerVehiclePanel({
           ? res.data.find((x: any) => String(x._id || x.id) === v.id)
           : null;
       if (raw) {
-        setGarageForm(mapApiVehicleToGarageForm(raw));
+        applyGarageFormWithColorPreset(mapApiVehicleToGarageForm(raw));
       } else {
-        setGarageForm({
+        applyGarageFormWithColorPreset({
           plate: v.plate,
           year: v.year ? String(v.year) : '',
           brand: v.make,
@@ -266,7 +290,7 @@ export default function CustomerVehiclePanel({
         const still = veh.find((x) => x.id === editingVehicleId);
         if (still) onSelectVehicle(still);
       }
-      setGarageOpen(false);
+      closeGarageModal({ force: true });
     } catch (e: any) {
       setGarageApiError(e?.response?.data?.message || 'Request failed');
     } finally {
@@ -505,27 +529,55 @@ export default function CustomerVehiclePanel({
       {garageOpen &&
         createPortal(
           <div
-            className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/45 p-3 backdrop-blur-sm"
-            onClick={() => !garageSaving && setGarageOpen(false)}
+            className="customer-modal-layer fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5"
+            onClick={() => closeGarageModal()}
           >
             <div
-              className="w-full max-w-md max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl"
+              className="customer-modal-panel customer-vehicle-modal customer-vehicle-modal--premium flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
               onClick={(e) => e.stopPropagation()}
+              style={{
+                animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both',
+                maxHeight: '94vh',
+              }}
             >
-              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-                <h3 className="text-[15px] font-semibold text-slate-900">{garageMode === 'add' ? 'Add vehicle' : 'Edit vehicle'}</h3>
+              <div className="customer-vehicle-header flex shrink-0 items-center justify-between gap-4 border-0 px-5 py-4 sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="customer-vehicle-header-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white">
+                    <iconify-icon icon="solar:garage-bold" width="22" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="customer-vehicle-eyebrow">Customer garage</p>
+                    <h3 className="text-lg font-bold tracking-tight text-slate-950">
+                      {garageMode === 'add' ? 'Add Vehicle' : 'Edit Vehicle'}
+                    </h3>
+                    <p className="mt-0.5 text-xs font-medium text-slate-500">
+                      {selectedCustomer
+                        ? `Same fields as the customer app — updates ${selectedCustomer.name.split(' ')[0] || 'customer'}'s garage.`
+                        : 'Match the customer garage profile for POS.'}
+                    </p>
+                  </div>
+                </div>
                 <button
                   type="button"
                   disabled={garageSaving}
-                  onClick={() => setGarageOpen(false)}
-                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  onClick={closeGarageModal}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border-0 bg-white text-slate-500 shadow-md shadow-slate-900/10 transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 hover:shadow-lg"
+                  aria-label="Close"
                 >
-                  ✕
+                  <iconify-icon icon="solar:close-circle-linear" width="18" />
                 </button>
               </div>
-              <div className="space-y-3 px-5 py-4">
+
+              <form
+                className="customer-modal-scroll customer-vehicle-form min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                noValidate
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void submitGarage();
+                }}
+              >
                 <VehicleGarageForm
-                  variant="compact"
+                  variant="customer-rich"
                   values={garageForm}
                   onChange={setGarageForm}
                   errors={garageErrors}
@@ -533,26 +585,33 @@ export default function CustomerVehiclePanel({
                   showCustomColorInput={garageColorOther}
                   onShowCustomColorInput={setGarageColorOther}
                   apiError={garageApiError}
+                  enableVehicleDatabase
+                  footerHint={
+                    <>
+                      Saved vehicles sync to the customer account and appear here in{' '}
+                      <span className="font-semibold text-slate-800">Customer &amp; Vehicle</span> for POS.
+                    </>
+                  }
                 />
-              </div>
-              <div className="flex gap-2 border-t border-slate-100 px-5 py-4">
-                <button
-                  type="button"
-                  disabled={garageSaving}
-                  onClick={() => setGarageOpen(false)}
-                  className="flex-1 rounded-xl bg-slate-100 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={garageSaving}
-                  onClick={() => void submitGarage()}
-                  className="flex-1 rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
-                >
-                  {garageSaving ? 'Saving…' : garageMode === 'add' ? 'Add vehicle' : 'Save'}
-                </button>
-              </div>
+
+                <div className="customer-modal-sticky customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white/95 px-5 pt-4 shadow-[0_-12px_32px_-16px_rgba(15,23,42,0.08)] backdrop-blur sm:-mx-6 sm:flex-row sm:px-6">
+                  <button
+                    type="button"
+                    disabled={garageSaving}
+                    onClick={closeGarageModal}
+                    className="flex-1 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-white to-slate-50/90 py-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all hover:border-slate-300/85 hover:shadow-[0_4px_14px_-6px_rgba(15,23,42,0.1)]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={garageSaving}
+                    className="customer-vehicle-btn-primary flex-1 rounded-2xl py-3.5 text-sm font-semibold text-white transition-all duration-200 disabled:opacity-60"
+                  >
+                    {garageSaving ? 'Saving…' : garageMode === 'add' ? 'Add Vehicle' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>,
           document.body

@@ -55,6 +55,8 @@ import type { DayStatus, CalendarBooking } from './calendarTypes';
 import { EXCLUDED_STATUSES } from './calendarTypes';
 import { useCalendarScheduleDnD } from './CalendarScheduleDnDContext';
 import { formatCalendarCustomerName } from './calendarFormatters';
+import SalesStatCard from '@/components/sales/ui/SalesStatCard';
+import { SALES_ACCENTS } from '@/components/sales/ui/salesTheme';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function dateKey(d: Date): string { return d.toLocaleDateString('en-CA'); }
@@ -135,28 +137,28 @@ function bookingMatchesSearch(booking: CalendarBooking, query: string): boolean 
 // ── Status → visual config (stronger contrast for scanability) ───────────────
 const STATUS_VISUAL: Record<DayStatus, { dot: string; label: string; ring: string; cellBg: string }> = {
   available: {
-    dot: '#16a34a',
+    dot: SALES_ACCENTS.green,
     label: 'Open',
     ring: '#86efac',
     cellBg: '#ecfdf5',
   },
   almost_full: {
-    dot: '#ca8a04',
+    dot: SALES_ACCENTS.orange,
     label: 'Almost full',
-    ring: '#fde047',
-    cellBg: '#fefce8',
+    ring: '#fed7aa',
+    cellBg: '#fff7ed',
   },
   full: {
-    dot: '#dc2626',
+    dot: SALES_ACCENTS.purple,
     label: 'Full',
-    ring: '#fca5a5',
-    cellBg: '#fef2f2',
+    ring: '#ddd6fe',
+    cellBg: '#f5f3ff',
   },
   closed: {
-    dot: '#ea580c',
+    dot: SALES_ACCENTS.teal,
     label: 'Closed',
-    ring: '#fdba74',
-    cellBg: '#ffedd5',
+    ring: '#99f6e4',
+    cellBg: '#f0fdfa',
   },
 };
 
@@ -280,7 +282,7 @@ function DayCell({
         <div className="mb-1 flex min-h-[2rem] flex-col gap-1">
           <div className="flex items-center gap-1.5">
             <span className="h-2 w-2 shrink-0 rounded-full ring-2 ring-white" style={{ background: vis.dot }} />
-            <span className={`text-[11px] font-semibold leading-tight ${info?.isClosed ? 'text-orange-900' : 'text-slate-700'}`}>
+            <span className={`text-[11px] font-semibold leading-tight ${info?.isClosed ? 'text-teal-900' : 'text-slate-700'}`}>
               {statusLine}
             </span>
           </div>
@@ -854,59 +856,45 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {([
           {
-            label: "Today's active",
+            label: "Today's Active",
             sub: 'Bookings scheduled today',
             value: kpis.todayActive,
-            accent: '#2563EB',
-            iconBg: '#EFF6FF',
-            Icon: Activity,
+            accent: SALES_ACCENTS.green,
+            icon: <Activity size={17} className="text-slate-500" />,
           },
           {
-            label: 'Pending review',
+            label: 'Pending Review',
             sub: 'Awaiting approval',
             value: kpis.pending,
-            accent: '#F97316',
-            iconBg: '#FFF7ED',
-            Icon: ClipboardClock,
+            accent: SALES_ACCENTS.orange,
+            icon: <ClipboardClock size={17} className="text-slate-500" />,
           },
           {
-            label: 'Month bookings',
+            label: 'Month Bookings',
             sub: 'Slots booked this month',
             value: kpis.monthTotal,
-            accent: '#2563EB',
-            iconBg: '#EFF6FF',
-            Icon: Layers,
+            accent: SALES_ACCENTS.blue,
+            icon: <Layers size={17} className="text-slate-500" />,
           },
           {
-            label: 'Full days',
+            label: 'Full Days',
             sub: 'No availability left',
             value: kpis.fullDays,
-            accent: '#EF4444',
-            iconBg: '#FEF2F2',
-            Icon: CalendarX,
+            accent: SALES_ACCENTS.orange,
+            icon: <CalendarX size={17} className="text-slate-300" />,
+            dark: true,
           },
         ] as const).map((k) => (
-          <div
+          <SalesStatCard
             key={k.label}
-            className="relative overflow-hidden rounded-2xl bg-white p-4 shadow-[0_10px_40px_-12px_rgba(15,23,42,0.12),0_4px_14px_-4px_rgba(15,23,42,0.06)] transition-shadow hover:shadow-[0_18px_48px_-14px_rgba(15,23,42,0.14)]"
-            style={{ borderLeft: `4px solid ${k.accent}` }}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
-                style={{ background: k.iconBg, color: k.accent }}
-              >
-                <k.Icon size={22} strokeWidth={2} aria-hidden />
-              </div>
-              <div className="min-w-0 flex-1 text-right">
-                <p className="tabular-nums" style={{ color: k.accent, fontSize: 36, fontWeight: 700, lineHeight: 1 }}>
-                  {k.value}
-                </p>
-              </div>
-            </div>
-            <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">{k.label}</p>
-            <p className="mt-0.5 text-xs font-medium leading-snug text-slate-400">{k.sub}</p>
-          </div>
+            title={k.label}
+            metric={String(k.value)}
+            label={k.sub}
+            icon={k.icon}
+            accent={k.accent}
+            dark={'dark' in k ? k.dark : false}
+            metricClassName="text-3xl"
+          />
         ))}
       </div>
 

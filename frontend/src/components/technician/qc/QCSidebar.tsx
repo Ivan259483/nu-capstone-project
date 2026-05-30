@@ -1,8 +1,8 @@
 import React from 'react';
-import { LayoutDashboard, ClipboardList, ImageIcon, ScanSearch, MessageSquare, BarChart3, ChevronLeft, ChevronRight, Settings, LogOut, ShieldCheck, Radio } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, ScanSearch, ChevronLeft, ChevronRight, LogOut, ShieldCheck, Radio } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
-type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'before-after' | 'ai-detection' | 'customer-notes' | 'reports' | 'live-tracker';
+type QCView = 'dashboard' | 'jobs' | 'job-detail' | 'ai-detection' | 'live-tracker';
 
 type NavItem = { id: QCView; label: string; icon: React.ElementType; badgeKey?: 'pending' | 'ai'; live?: boolean };
 const navGroups: { groupLabel: string; items: NavItem[] }[] = [
@@ -17,12 +17,9 @@ const navGroups: { groupLabel: string; items: NavItem[] }[] = [
     groupLabel: 'QUALITY CONTROL',
     items: [
       { id: 'jobs', label: 'Review Desk', icon: ClipboardList, badgeKey: 'pending' },
-      { id: 'before-after', label: 'Before & After', icon: ImageIcon },
       { id: 'ai-detection', label: 'AI Detection Review', icon: ScanSearch, badgeKey: 'ai' },
     ],
   },
-  { groupLabel: 'COMMUNICATION', items: [{ id: 'customer-notes', label: 'Customer Notes', icon: MessageSquare }] },
-  { groupLabel: 'ANALYTICS', items: [{ id: 'reports', label: 'Reports', icon: BarChart3 }] },
 ];
 
 interface Props {
@@ -47,7 +44,6 @@ export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate,
         {!collapsed && (
           <div className="min-w-0">
             <p className="truncate text-[15px] font-black leading-none tracking-tight text-slate-950">QualityCheck</p>
-            <p className="mt-1 truncate text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Inspection Command</p>
           </div>
         )}
       </div>
@@ -119,13 +115,6 @@ export default function QCSidebar({ collapsed, onToggle, activeView, onNavigate,
 
       {/* Bottom */}
       <div className="qc-dash-divider space-y-0.5 bg-slate-50/75 px-2.5 py-3">
-        <button
-          type="button"
-          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-bold text-slate-500 transition-all duration-150 hover:bg-white hover:text-slate-800 hover:shadow-sm ${collapsed ? 'justify-center' : ''}`}
-        >
-          <Settings size={17} className="flex-shrink-0" />
-          {!collapsed && <span className="text-sm">Settings</span>}
-        </button>
         <button
           type="button"
           onClick={logout}

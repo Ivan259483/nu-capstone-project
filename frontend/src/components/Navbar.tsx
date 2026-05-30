@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Menu, X, Globe, ChevronDown, Check } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -58,20 +58,49 @@ function LanguageSwitcher({ className }: { className?: string }) {
     );
 }
 
+const SCROLL_TOP_REVEAL = 72;
+const SCROLL_DIRECTION_DELTA = 6;
+
 export default function Navbar() {
     const { t } = useLanguage();
     const [scrolled, setScrolled] = useState(false);
+    const [hidden, setHidden] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const location = useLocation();
+    const lastScrollY = useRef(0);
+    const menuOpenRef = useRef(menuOpen);
 
     useEffect(() => {
-        const onScroll = () => setScrolled(window.scrollY > 50);
+        menuOpenRef.current = menuOpen;
+        if (menuOpen) setHidden(false);
+    }, [menuOpen]);
+
+    useEffect(() => {
+        const onScroll = () => {
+            const currentY = window.scrollY;
+            setScrolled(currentY > 50);
+
+            if (menuOpenRef.current || currentY < SCROLL_TOP_REVEAL) {
+                setHidden(false);
+            } else if (currentY > lastScrollY.current + SCROLL_DIRECTION_DELTA) {
+                setHidden(true);
+            } else if (currentY < lastScrollY.current - SCROLL_DIRECTION_DELTA) {
+                setHidden(false);
+            }
+
+            lastScrollY.current = currentY;
+        };
+
+        lastScrollY.current = window.scrollY;
+        onScroll();
         window.addEventListener("scroll", onScroll, { passive: true });
         return () => window.removeEventListener("scroll", onScroll);
     }, []);
 
     useEffect(() => {
         setMenuOpen(false);
+        setHidden(false);
+        lastScrollY.current = 0;
     }, [location.pathname]);
 
     const navLinks = [
@@ -89,7 +118,10 @@ export default function Navbar() {
         <>
             <nav
                 className={cn(
-                    "fixed top-0 left-0 right-0 z-50 transition-all duration-500",
+                    "fixed top-0 left-0 right-0 z-50 transition-[transform,background-color,border-color,padding] duration-300 ease-out",
+                    hidden && !menuOpen
+                        ? "-translate-y-full pointer-events-none"
+                        : "translate-y-0 pointer-events-auto",
                     scrolled
                         ? "glass border-b border-gold/20 py-2"
                         : "bg-transparent py-3"

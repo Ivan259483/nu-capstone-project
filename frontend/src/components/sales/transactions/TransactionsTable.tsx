@@ -11,6 +11,8 @@ import TransactionReceiptModal from './TransactionReceiptModal';
 import { useSalesContext } from '@/contexts/SalesAnalyticsContext';
 import { getPrimaryKpiDayTransactions } from '@/lib/dashboard-time';
 import { printDetailedReceipt, receiptFromTransaction } from '@/lib/receipt-document';
+import SalesStatCard from '@/components/sales/ui/SalesStatCard';
+import { SALES_ACCENTS, hashToSalesAccent } from '@/components/sales/ui/salesTheme';
 
 type SortKey = keyof Transaction | '';
 type SortDir = 'asc' | 'desc';
@@ -23,13 +25,9 @@ const STATUS_OPTIONS: { key: string; value: TransactionStatus | 'all'; label: st
   { key: 'sf-voided', value: 'voided', label: 'Voided' },
 ];
 
-const PM_OPTIONS: { key: string; value: PaymentMethod | 'all'; label: string }[] = [
-  { key: 'pm-all', value: 'all', label: 'All Methods' },
+const PM_OPTIONS: { key: string; value: Extract<PaymentMethod, 'cash' | 'gcash'>; label: string }[] = [
   { key: 'pm-cash', value: 'cash', label: 'Cash' },
-  { key: 'pm-card', value: 'card', label: 'Card' },
   { key: 'pm-gcash', value: 'gcash', label: 'GCash' },
-  { key: 'pm-maya', value: 'maya', label: 'Maya' },
-  { key: 'pm-bank', value: 'bank_transfer', label: 'Bank Transfer' },
 ];
 
 const PM_BADGE_COLORS: Record<string, string> = {
@@ -40,22 +38,66 @@ const PM_BADGE_COLORS: Record<string, string> = {
   bank_transfer: 'text-slate-800 bg-gradient-to-b from-slate-50 to-white shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(226,232,240,0.95),0_1px_2px_rgba(15,23,42,0.04)]',
 };
 
-// Color-coded avatar per customer (consistent by name hash)
-const AVATAR_PALETTE = [
-  'bg-blue-700   text-white',
-  'bg-violet-600 text-white',
-  'bg-emerald-600 text-white',
-  'bg-cyan-600   text-white',
-  'bg-rose-500   text-white',
-  'bg-amber-600  text-white',
-  'bg-indigo-600 text-white',
-  'bg-teal-600   text-white',
-  'bg-fuchsia-600 text-white',
-  'bg-orange-600 text-white',
-];
-const getAvatarColor = (name: string) => {
-  const hash = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
+const statusKey = (status: TransactionStatus, raw?: string) =>
+  String(raw || status || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+
+const STATUS_BADGES: Record<string, { dot: string; className: string }> = {
+  approved: {
+    dot: SALES_ACCENTS.green,
+    className: 'bg-green-50 text-green-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(187,247,208,0.9),0_1px_2px_rgba(22,163,74,0.06)]',
+  },
+  confirmed: {
+    dot: SALES_ACCENTS.green,
+    className: 'bg-green-50 text-green-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(187,247,208,0.9),0_1px_2px_rgba(22,163,74,0.06)]',
+  },
+  completed: {
+    dot: SALES_ACCENTS.green,
+    className: 'bg-green-50 text-green-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(187,247,208,0.9),0_1px_2px_rgba(22,163,74,0.06)]',
+  },
+  paid: {
+    dot: SALES_ACCENTS.green,
+    className: 'bg-green-50 text-green-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(187,247,208,0.9),0_1px_2px_rgba(22,163,74,0.06)]',
+  },
+  rejected: {
+    dot: SALES_ACCENTS.red,
+    className: 'bg-red-50 text-red-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(254,202,202,0.9),0_1px_2px_rgba(220,38,38,0.06)]',
+  },
+  cancelled: {
+    dot: SALES_ACCENTS.red,
+    className: 'bg-red-50 text-red-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(254,202,202,0.9),0_1px_2px_rgba(220,38,38,0.06)]',
+  },
+  voided: {
+    dot: SALES_ACCENTS.red,
+    className: 'bg-red-50 text-red-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(254,202,202,0.9),0_1px_2px_rgba(220,38,38,0.06)]',
+  },
+  in_progress: {
+    dot: SALES_ACCENTS.orange,
+    className: 'bg-orange-50 text-orange-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(254,215,170,0.9),0_1px_2px_rgba(249,115,22,0.07)]',
+  },
+  processing: {
+    dot: SALES_ACCENTS.orange,
+    className: 'bg-orange-50 text-orange-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(254,215,170,0.9),0_1px_2px_rgba(249,115,22,0.07)]',
+  },
+  released: {
+    dot: SALES_ACCENTS.blue,
+    className: 'bg-blue-50 text-blue-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(191,219,254,0.9),0_1px_2px_rgba(37,99,235,0.07)]',
+  },
+  pending: {
+    dot: SALES_ACCENTS.amber,
+    className: 'bg-amber-50 text-amber-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(253,230,138,0.9),0_1px_2px_rgba(217,119,6,0.07)]',
+  },
+  pending_confirmation: {
+    dot: SALES_ACCENTS.amber,
+    className: 'bg-amber-50 text-amber-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(253,230,138,0.9),0_1px_2px_rgba(217,119,6,0.07)]',
+  },
+};
+
+const getStatusBadge = (txn: Transaction) => {
+  const key = statusKey(txn.status, txn.statusRaw);
+  return STATUS_BADGES[key] || {
+    dot: SALES_ACCENTS.slate,
+    className: 'bg-slate-50 text-slate-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(226,232,240,0.95),0_1px_2px_rgba(15,23,42,0.04)]',
+  };
 };
 
 const ITEMS_PER_PAGE_OPTIONS = [5, 10, 20, 50];
@@ -63,7 +105,7 @@ const ITEMS_PER_PAGE_OPTIONS = [5, 10, 20, 50];
 export default function TransactionsTable() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<TransactionStatus | 'all'>('all');
-  const [pmFilter, setPmFilter] = useState<PaymentMethod | 'all'>('all');
+  const [pmFilter, setPmFilter] = useState<Extract<PaymentMethod, 'cash' | 'gcash'>>('cash');
   const [sortKey, setSortKey] = useState<SortKey>('dateTime');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(1);
@@ -88,7 +130,7 @@ export default function TransactionsTable() {
       );
     }
     if (statusFilter !== 'all') data = data.filter((t) => t.status === statusFilter);
-    if (pmFilter !== 'all') data = data.filter((t) => t.paymentMethod === pmFilter);
+    data = data.filter((t) => t.paymentMethod === pmFilter);
     if (sortKey) {
       data.sort((a, b) => {
         const aVal = a[sortKey as keyof Transaction];
@@ -156,13 +198,14 @@ export default function TransactionsTable() {
   };
 
   const clearFilters = () => {
-    setSearch(''); setStatusFilter('all'); setPmFilter('all'); setPage(1);
+    setSearch(''); setStatusFilter('all'); setPmFilter('cash'); setPage(1);
   };
 
-  const hasActiveFilters = search || statusFilter !== 'all' || pmFilter !== 'all';
+  const hasActiveFilters = search || statusFilter !== 'all' || pmFilter !== 'cash';
 
   const todayTotal = kpiDayTxns.reduce((s, t) => s + t.total, 0);
   const pendingTotal = TRANSACTIONS.filter((t) => t.status === 'pending').reduce((s, t) => s + t.total, 0);
+  const pendingCount = TRANSACTIONS.filter((t) => t.status === 'pending').length;
 
   return (
     <>
@@ -171,25 +214,25 @@ export default function TransactionsTable() {
         {[
           {
             key: 'ts-today',
-            label: useLast24hFallback ? 'Revenue (last 24h)' : "Today's Revenue",
+            title: 'Revenue 24h',
             value: formatPeso(todayTotal),
             sub: `${kpiDayTxns.length} transaction${kpiDayTxns.length !== 1 ? 's' : ''}${useLast24hFallback ? ' · rolling' : ''}`,
-            color: 'text-blue-700',
-            accent: '#1d4ed8',
+            accent: SALES_ACCENTS.orange,
+            icon: <Receipt size={17} className="text-slate-500" />,
           },
-          { key: 'ts-pending',  label: 'Pending Amount',    value: formatPeso(pendingTotal),  sub: `${TRANSACTIONS.filter((t) => t.status === 'pending').length} awaiting payment`,            color: 'text-amber-600', accent: '#d97706' },
-          { key: 'ts-total',    label: 'Total Records',     value: String(TRANSACTIONS.length), sub: 'All time',                                                                              color: 'text-slate-900', accent: '#94a3b8' },
-          { key: 'ts-filtered', label: 'Filtered Results',  value: String(filtered.length),   sub: 'Current view',                                                                            color: 'text-slate-900', accent: '#94a3b8' },
+          { key: 'ts-pending',  title: 'Pending',       value: formatPeso(pendingTotal),      sub: `${pendingCount} awaiting payment`, accent: SALES_ACCENTS.orange, icon: <Calendar size={17} className="text-slate-500" /> },
+          { key: 'ts-total',    title: 'Total Records', value: String(TRANSACTIONS.length),   sub: 'All time',                  accent: SALES_ACCENTS.purple, icon: <Receipt size={17} className="text-slate-500" /> },
+          { key: 'ts-filtered', title: 'Filtered',      value: String(filtered.length),        sub: 'Current view',              accent: SALES_ACCENTS.teal, icon: <Filter size={17} className="text-slate-500" /> },
         ].map((s) => (
-          <div
+          <SalesStatCard
             key={s.key}
-            className="stat-card-animate rounded-2xl border border-slate-200/50 bg-white px-4 py-3.5 relative overflow-hidden shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-8px_rgba(15,23,42,0.06)] transition-[box-shadow,border-color] duration-200 hover:shadow-[0_2px_8px_-2px_rgba(15,23,42,0.06),0_12px_32px_-10px_rgba(15,23,42,0.08)] hover:border-slate-200/70"
-            style={{ borderLeft: `3px solid ${s.accent}` }}
-          >
-            <p className="metric-label mb-1">{s.label}</p>
-            <p className={`text-xl font-bold font-tabular ${s.color}`}>{s.value}</p>
-            <p className="text-xs text-slate-400 mt-0.5">{s.sub}</p>
-          </div>
+            title={s.title}
+            metric={s.value}
+            label={s.sub}
+            accent={s.accent}
+            icon={s.icon}
+            className="stat-card-animate"
+          />
         ))}
       </div>
 
@@ -234,7 +277,7 @@ export default function TransactionsTable() {
           <div className="relative">
             <select
               value={pmFilter}
-              onChange={(e) => { setPmFilter(e.target.value as PaymentMethod | 'all'); setPage(1); }}
+              onChange={(e) => { setPmFilter(e.target.value as Extract<PaymentMethod, 'cash' | 'gcash'>); setPage(1); }}
               className="input-base py-2 pr-8 text-sm appearance-none cursor-pointer min-w-40 rounded-xl border-slate-200/70 shadow-sm shadow-slate-200/20"
             >
               {PM_OPTIONS.map((opt) => (
@@ -368,13 +411,15 @@ export default function TransactionsTable() {
                   </td>
                 </tr>
               ) : (
-                paginated.map((txn, rowIdx) => (
+                paginated.map((txn) => {
+                  const statusBadge = getStatusBadge(txn);
+                  return (
                   <tr
                     key={`txn-row-${txn.id}`}
                     className={`txn-row group border-b border-slate-100/70 last:border-b-0 transition-colors duration-200 ${
                       selectedRows.has(txn.id)
                         ? 'bg-blue-50/55 ring-1 ring-inset ring-blue-100/50'
-                        : 'bg-white'
+                        : 'bg-white hover:bg-gray-50'
                     }`}
                   >
                     {/* Checkbox */}
@@ -397,7 +442,10 @@ export default function TransactionsTable() {
                     {/* Customer */}
                     <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
                       <div className="flex items-center gap-2.5">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ring-2 ring-white shadow-sm ${getAvatarColor(txn.customerName)}`}>
+                        <div
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 text-white ring-2 ring-white shadow-sm"
+                          style={{ backgroundColor: hashToSalesAccent(txn.customerName) }}
+                        >
                           {txn.customerName.split(' ').map((n) => n[0]).slice(0, 2).join('')}
                         </div>
                         <div>
@@ -461,33 +509,12 @@ export default function TransactionsTable() {
 
                     {/* Status — soft edge (no hard border stroke) */}
                     <td className="px-3 sm:px-4 py-3.5 whitespace-nowrap align-middle">
-                      <div
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 antialiased ${
-                          txn.status === 'completed'
-                            ? 'bg-emerald-50/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(167,243,208,0.8),0_1px_2px_rgba(5,150,105,0.06)]'
-                            : txn.status === 'pending'
-                              ? 'bg-amber-50/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(253,230,138,0.85),0_1px_2px_rgba(180,83,9,0.06)]'
-                              : txn.status === 'processing'
-                                ? 'bg-blue-50/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_0_0_1px_rgba(191,219,254,0.85),0_1px_2px_rgba(37,99,235,0.07)]'
-                                : 'bg-slate-50/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(226,232,240,0.95),0_1px_2px_rgba(15,23,42,0.04)]'
-                        }`}
-                      >
+                      <div className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 antialiased ${statusBadge.className}`}>
                         <span
-                          className={`w-1.5 h-1.5 rounded-full shrink-0 ring-2 ring-white ${
-                            txn.status === 'completed'
-                              ? 'bg-emerald-500'
-                              : txn.status === 'pending'
-                                ? 'bg-amber-500'
-                                : txn.status === 'processing'
-                                  ? 'bg-blue-500'
-                                  : 'bg-slate-400'
-                          }`}
+                          className="w-1.5 h-1.5 rounded-full shrink-0 ring-2 ring-white"
+                          style={{ backgroundColor: statusBadge.dot }}
                         />
-                        <span
-                          className={`text-[11px] font-semibold tracking-tight ${
-                            txn.status === 'voided' ? 'text-slate-500' : 'text-slate-700'
-                          }`}
-                        >
+                        <span className="text-[11px] font-semibold tracking-tight">
                           {formatTransactionStatusLabel(txn.status, txn.statusRaw)}
                         </span>
                       </div>
@@ -530,7 +557,8 @@ export default function TransactionsTable() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
