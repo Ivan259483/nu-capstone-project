@@ -44,15 +44,15 @@ export const en = {
         items: {
             spf80: {
                 name: "SPF 80 — Essential",
-                desc: "3 Layers Graphene Ceramic Coating (Canada) with Graphene Sealant. 3 years protection.",
+                desc: "3 Layers of Graphene Ceramic Coating (Made in Canada) with Graphene Sealant. 3 years protection.",
             },
             spf89: {
                 name: "SPF 89 — Advanced",
-                desc: "4 Layers Graphene Ceramic Coating (Canada) with free maintenance visit. 5 years protection.",
+                desc: "4 Layers of Graphene Ceramic Coating (Made in Canada) with free maintenance visit. 5 years protection.",
             },
             spf99: {
                 name: "SPF 99 — Premium",
-                desc: "4 Layers SONAX Profiline CC EVO (Germany) with free recoat and maintenance. 10 years protection.",
+                desc: "4 Layers of SONAX Profiline CC EVO (Made in Germany) with free recoat and maintenance. 10 years protection.",
             },
             spf101: {
                 name: "SPF 101 — Flagship ALL-IN",

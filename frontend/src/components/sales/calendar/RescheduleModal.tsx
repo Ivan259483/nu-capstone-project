@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { X, Clock, Loader2, Calendar as CalIcon } from 'lucide-react';
 import { fetchSlotsByDate } from './calendarService';
 import type { CalendarBooking } from './calendarTypes';
+import { formatCalendarCustomerName } from './calendarFormatters';
 
 interface RescheduleModalProps {
   booking: CalendarBooking;
@@ -46,6 +47,7 @@ export default function RescheduleModal({ booking, targetDate, onClose, onConfir
   const formattedTargetDate = new Date(targetDate).toLocaleDateString('en-PH', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
   });
+  const customerLabel = formatCalendarCustomerName(booking.customerName);
 
   return (
     <div
@@ -64,7 +66,7 @@ export default function RescheduleModal({ booking, targetDate, onClose, onConfir
         <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid #f1f5f9' }}>
           <div>
             <h3 className="font-bold text-slate-900">Reschedule Booking</h3>
-            <p className="text-xs text-slate-500 mt-0.5">{booking.customerName} • {booking.serviceName || booking.serviceType}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{customerLabel} • {booking.serviceName || booking.serviceType}</p>
           </div>
           <button onClick={onClose} disabled={submitting} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
             <X size={16} />

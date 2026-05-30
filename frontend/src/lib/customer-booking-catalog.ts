@@ -42,7 +42,7 @@ export const RAW_SPF_PACKAGES: BookingPackage[] = [
             "Give your car the protection it deserves with our essential ceramic coating package. We apply a high-quality protective layer that helps shield your paint from scratches, UV rays, dirt, and water so your vehicle stays glossier and easier to wash between visits.",
         prices: getDefaultPackagePrices("spf80"),
         features: [
-            "3 Layers Graphene Ceramic Coating (Canada)",
+            "3 Layers of Graphene Ceramic Coating (Made in Canada)",
             "Graphene Sealant",
             "FREE 1 visit Signature AUTOSPF Carwash",
         ],
@@ -55,7 +55,7 @@ export const RAW_SPF_PACKAGES: BookingPackage[] = [
             "Step up to a deeper, longer-lasting ceramic stack built for daily drivers. Multiple graphene-rich layers add stronger UV and chemical resistance while keeping water beading tight—so your paint looks richer and stays protected through sun, rain, and road grime.",
         prices: getDefaultPackagePrices("spf89"),
         features: [
-            "4 Layers Graphene Ceramic Coating (Canada)",
+            "4 Layers of Graphene Ceramic Coating (Made in Canada)",
             "Graphene Sealant",
             "FREE 1 visit Reboost/Maintenance (save ₱1,500)",
         ],
@@ -68,7 +68,7 @@ export const RAW_SPF_PACKAGES: BookingPackage[] = [
             "Our premium coating program uses professional-grade SONAX Profiline layers for exceptional gloss and durability. Ideal if you want showroom depth, easier maintenance, and a documented maintenance path—including scheduled reboost visits to keep the film chemistry performing year after year.",
         prices: getDefaultPackagePrices("spf99"),
         features: [
-            "4 Layers SONAX Profiline CC EVO (Germany)",
+            "4 Layers of SONAX Profiline CC EVO (Made in Germany)",
             "FREE Full Recoat After 5 Years",
             "FREE 2 visits Reboost/Maintenance (save ₱3,000)",
         ],
@@ -81,12 +81,12 @@ export const RAW_SPF_PACKAGES: BookingPackage[] = [
             "The ultimate AutoSPF+ experience: strategic PPF coverage for high-impact areas, flagship ceramic coating, full nano-ceramic tint, and bundled maintenance so your vehicle leaves protected from bumper to glass. Built for owners who want maximum resale appeal and peace of mind in one appointment.",
         prices: getDefaultPackagePrices("spf101"),
         features: [
-            "PPF Coverage (Hood, Stepsils, Side Mirrors, Front Bumper, Door Bowls, Headlights & Taillights)",
-            "4 Layers SONAX Profiline CC EVO (Germany)",
+            "Paint Protection Film PPF Install on: Hood, Front Bumper, Stepsils, Door Bowls, Side Mirrors, Headlight & Taillight",
+            "4 Layers of SONAX Profiline CC EVO (Made in Germany)",
             "FREE 5 visits Reboost/Maintenance (save ₱7,500)",
             "FREE Full Recoat After 5 Years",
-            "Nano Ceramic Window Tint (Full Wrap — Any Shade)",
-            "FREE Undercoating (Rust Proofing) (value ₱14,000)",
+            "Nano Ceramic Window Tint (Full Wrap — Any Shades)",
+            "FREE UnderCoating (Rust Proofing) (save ₱14,000)",
         ],
     },
 ];

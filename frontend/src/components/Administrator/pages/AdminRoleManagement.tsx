@@ -11,6 +11,11 @@ type SystemRole = {
   icon: React.ElementType;
   color: string;
   bg: string;
+  border: string;
+  cardBg: string;
+  countBg: string;
+  permissionBg: string;
+  permissionColor: string;
   permissions: string[];
 };
 
@@ -18,10 +23,10 @@ const STAFF_ROLE_IDS = ['office_admin', 'sales', 'staff_quality_checker'];
 const PRESENCE_ONLINE_MS = 3 * 60 * 1000;
 
 const SYSTEM_ROLES: SystemRole[] = [
-  { id: 'office_admin', label: 'Office Admin', desc: 'Ang admin ninyo — oversees and controls everything: users, bookings, operations, live tracking, and settings', icon: ShieldCheck, color: '#F97316', bg: '#FFF7ED', permissions: ['User management', 'Bookings & jobs', 'Vehicle live tracking', 'Inventory & suppliers', 'Activity & reports', 'Settings'] },
-  { id: 'sales', label: 'Sales', desc: 'Booking appointments, point of sale, and assistance for customer booking', icon: CreditCard, color: '#F59E0B', bg: '#FFFBEB', permissions: ['POS', 'Sales dashboard', 'Bookings / calendar', 'Customer lookup'] },
-  { id: 'staff_quality_checker', label: 'Quality Checker - Technician', desc: 'Vehicle live tracking, QC workflows, and job visibility', icon: Wrench, color: '#2563EB', bg: '#EFF6FF', permissions: ['Live customer tracking', 'QC queue', 'Job read / verify'] },
-  { id: 'customer', label: 'Customer', desc: 'End-user accounts — book services and view their own status', portalDesc: 'Portal access is limited to self-service booking, payment proof, live status tracking, and personal service history.', icon: CalendarCheck, color: '#64748b', bg: '#f8fafc', permissions: ['Booking portal', 'Own service history', 'Profile'] },
+  { id: 'office_admin', label: 'Office Admin', desc: 'Ang admin ninyo — oversees and controls everything: users, bookings, operations, live tracking, and settings', icon: ShieldCheck, color: '#F97316', bg: '#FFF7ED', border: '#FDBA74', cardBg: 'linear-gradient(135deg, #FFF7ED 0%, #FFFFFF 45%)', countBg: '#FFEDD5', permissionBg: '#FFF7ED', permissionColor: '#9A3412', permissions: ['User management', 'Bookings & jobs', 'Vehicle live tracking', 'Inventory & suppliers', 'Activity & reports', 'Settings'] },
+  { id: 'sales', label: 'Sales', desc: 'Booking appointments, point of sale, and assistance for customer booking', icon: CreditCard, color: '#0D9488', bg: '#F0FDFA', border: '#5EEAD4', cardBg: 'linear-gradient(135deg, #F0FDFA 0%, #FFFFFF 45%)', countBg: '#CCFBF1', permissionBg: '#F0FDFA', permissionColor: '#115E59', permissions: ['POS', 'Sales dashboard', 'Bookings / calendar', 'Customer lookup'] },
+  { id: 'staff_quality_checker', label: 'Quality Checker - Technician', desc: 'Vehicle live tracking, QC workflows, and job visibility', icon: Wrench, color: '#4F46E5', bg: '#EEF2FF', border: '#A5B4FC', cardBg: 'linear-gradient(135deg, #EEF2FF 0%, #FFFFFF 45%)', countBg: '#E0E7FF', permissionBg: '#EEF2FF', permissionColor: '#3730A3', permissions: ['Live customer tracking', 'QC queue', 'Job read / verify'] },
+  { id: 'customer', label: 'Customer', desc: 'End-user accounts — book services and view their own status', portalDesc: 'Portal access is limited to self-service booking, payment proof, live status tracking, and personal service history.', icon: CalendarCheck, color: '#475569', bg: '#F8FAFC', border: '#CBD5E1', cardBg: 'linear-gradient(135deg, #F8FAFC 0%, #FFFFFF 45%)', countBg: '#E2E8F0', permissionBg: '#F8FAFC', permissionColor: '#334155', permissions: ['Booking portal', 'Own service history', 'Profile'] },
 ];
 
 const normalizeUserStatus = (status?: string) => {
@@ -86,21 +91,21 @@ export default function AdminRoleManagement({ users }: Props) {
           const Icon = role.icon;
           const count = roleCounts[role.id] || 0;
           return (
-            <div key={role.id} className="ah-card-section ah-slide-up" style={{ padding: 20, animationDelay: `${idx * 0.04}s`, borderLeft: `4px solid ${role.color}` }}>
+            <div key={role.id} className="ah-card-section ah-slide-up" style={{ padding: 20, animationDelay: `${idx * 0.04}s`, background: role.cardBg, border: `1px solid ${role.border}`, borderLeft: `4px solid ${role.color}` }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: role.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: role.bg, boxShadow: `inset 0 0 0 1px ${role.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <Icon size={20} style={{ color: role.color }} />
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <h3 style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', margin: 0 }}>{role.label}</h3>
-                    <span className="tabular-nums" style={{ fontSize: 12, fontWeight: 600, color: role.color, background: role.bg, padding: '2px 8px', borderRadius: 6 }}>{count} user{count !== 1 ? 's' : ''}</span>
+                    <span className="tabular-nums" style={{ fontSize: 12, fontWeight: 600, color: role.color, background: role.countBg, border: `1px solid ${role.border}`, padding: '2px 8px', borderRadius: 6 }}>{count} user{count !== 1 ? 's' : ''}</span>
                   </div>
                   <p style={{ fontSize: 12, color: '#64748b', margin: '4px 0 12px', lineHeight: 1.4 }}>{role.desc}</p>
                   {role.portalDesc && <p style={{ fontSize: 12, color: '#475569', margin: '-4px 0 12px', lineHeight: 1.5 }}>{role.portalDesc}</p>}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {role.permissions.map(p => (
-                      <span key={p} style={{ fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 4, background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' }}>{p}</span>
+                      <span key={p} style={{ fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 4, background: role.permissionBg, color: role.permissionColor, border: `1px solid ${role.border}` }}>{p}</span>
                     ))}
                   </div>
                 </div>

@@ -1533,6 +1533,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 email: updatedUser.email,
                 avatar: updatedUser.avatar,
                 phone: normalizedPhone || updatedUser.phone,
+                address: (updatedUser as { address?: string }).address,
             });
 
             if (response.success) {
@@ -1544,10 +1545,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const mergedData: User = {
                     ...updatedUser,
                     ...backendData,
-                    id: updatedUser.id,
+                    id: updatedUser.id || String(backendData.id || backendData._id || ''),
                     _id: (backendData._id as string | undefined) || (backendData.id as string | undefined) || updatedUser._id,
                     name: (backendData.name as string | undefined) || updatedUser.name,
-                    phone: apiPhone || undefined,
+                    phone: apiPhone || updatedUser.phone,
+                    address:
+                        typeof backendData.address === 'string'
+                            ? backendData.address
+                            : (updatedUser as { address?: string }).address,
+                    avatar:
+                        typeof backendData.avatar === 'string' && backendData.avatar
+                            ? backendData.avatar
+                            : updatedUser.avatar,
                 };
                 applyLocalUpdate(mergedData);
                 const token = localStorage.getItem('autospf_token') || '';

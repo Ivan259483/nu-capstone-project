@@ -16,7 +16,7 @@ interface SidebarProps {
 
 /** Standalone customer sidebar — styles match CustomerDashboard / Admin Hub (see index.css `.customer-sidebar-*`). */
 export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, className }) => {
-    const { logout, user } = useAuth();
+    const { user } = useAuth();
     const [collapsed, setCollapsed] = useState(false);
 
     const navItems: { id: TabType; label: string; icon: CustomerSidebarIconName }[] = [
@@ -77,25 +77,19 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
                 })}
             </nav>
 
-            <div className="customer-sidebar-footer">
-                <button
-                    type="button"
-                    className="customer-sidebar-item customer-sidebar-item--danger"
-                    onClick={() => logout()}
-                >
-                    <CustomerSidebarAnimatedIcon name="logout" />
-                    {!collapsed && <span className="customer-sidebar-label">Log Out</span>}
-                </button>
-                <button
-                    type="button"
-                    className="customer-sidebar-collapse-btn"
-                    onClick={() => setCollapsed((c) => !c)}
-                    aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                >
-                    <CustomerSidebarAnimatedIcon name="collapse" size={16} className="customer-sidebar-collapse-chevron shrink-0 text-slate-500" />
-                    {!collapsed && <span className="customer-sidebar-label font-medium">Collapse</span>}
-                </button>
-            </div>
+            {!collapsed ? (
+                <div className="customer-sidebar-footer">
+                    <button
+                        type="button"
+                        className="customer-sidebar-collapse-btn"
+                        onClick={() => setCollapsed((c) => !c)}
+                        aria-label="Collapse sidebar"
+                    >
+                        <iconify-icon icon="solar:sidebar-minimalistic-outline" width="16" className="shrink-0 text-slate-500"></iconify-icon>
+                        <span className="customer-sidebar-label font-medium">Collapse</span>
+                    </button>
+                </div>
+            ) : null}
         </aside>
     );
 };

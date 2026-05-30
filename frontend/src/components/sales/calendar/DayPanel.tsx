@@ -25,6 +25,7 @@ import type { CalendarBooking } from './calendarTypes';
 import { EXCLUDED_STATUSES } from './calendarTypes';
 import type { DayMapEntry } from './useCalendarSlots';
 import DraggableBooking from './DraggableBooking';
+import { formatCalendarCustomerName } from './calendarFormatters';
 
 const CALENDAR_BLOCK_NOTE = 'Blocked from appointments calendar';
 
@@ -115,6 +116,7 @@ function BookingCard({
     booking.bookingReference && booking.bookingReference.length > 18
       ? `${booking.bookingReference.slice(0, 10)}…${booking.bookingReference.slice(-4)}`
       : booking.bookingReference;
+  const customerLabel = formatCalendarCustomerName(booking.customerName);
 
   return (
     <div className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_32px_-14px_rgba(15,23,42,0.12),0_0_0_1px_rgba(226,232,240,0.45)]">
@@ -125,11 +127,11 @@ function BookingCard({
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white shadow-md"
             style={{ background: `linear-gradient(145deg, ${meta.dot}, ${meta.dot}cc)` }}
           >
-            {(booking.customerName || 'C').charAt(0).toUpperCase()}
+            {customerLabel.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[15px] font-bold tracking-tight text-slate-900">{booking.customerName}</span>
+              <span className="text-[15px] font-bold tracking-tight text-slate-900">{customerLabel}</span>
               <span
                 className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold"
                 style={{
@@ -550,7 +552,7 @@ export default function DayPanel({ date, bookings, loading, dayInfo, onClose, on
                         className="flex items-center gap-3 rounded-xl px-3 py-2.5 opacity-60 shadow-[0_4px_16px_-8px_rgba(15,23,42,0.1)]"
                         style={{ background: '#f8fafc' }}>
                         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: meta.dot }} />
-                        <span className="text-xs text-slate-600 flex-1 truncate">{b.customerName}</span>
+                        <span className="text-xs text-slate-600 flex-1 truncate">{formatCalendarCustomerName(b.customerName)}</span>
                         <span className="text-[10px] font-medium" style={{ color: meta.text }}>{meta.label}</span>
                       </div>
                     );

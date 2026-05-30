@@ -6,22 +6,20 @@ import { OrderService } from '@/lib/order-service';
 import {
   LayoutDashboard,
   Users,
+  User,
   ShieldCheck,
   ScrollText,
-  ChevronLeft,
-  ChevronRight,
   ArrowLeft,
   X,
   Radio,
   PhilippinePeso,
   Calendar,
   Package,
-  Search,
   type LucideIcon,
 } from 'lucide-react';
-import AdminSidebarProfileMenu from './AdminSidebarProfileMenu';
-import AdminAccountProfileSheet from './AdminAccountProfileSheet';
-import AdminAccountSettingsSheet from './AdminAccountSettingsSheet';
+import AdminTopBar from './AdminTopBar';
+import { NotificationService, type SystemNotification } from '@/lib/notification-service';
+import AdminUserProfilePage from './pages/AdminUserProfilePage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import AdminUserManagement from './pages/AdminUserManagement';
 import AdminActivityLogs from './pages/AdminActivityLogs';
@@ -33,7 +31,7 @@ import InventoryPanel from '@/components/inventory/InventoryPanel';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { getRoleLabel, getSafeUserRole, isServiceCatalogRole } from '@/lib/roles';
+import { getSafeUserRole, isServiceCatalogRole } from '@/lib/roles';
 import { CalendarScheduleDnDProvider, useCalendarScheduleDnD } from '@/components/sales/calendar/CalendarScheduleDnDContext';
 
 interface Props {
@@ -64,9 +62,10 @@ interface Props {
 
 const ROUTABLE_TAB_IDS = new Set(['live_tracking', 'pricing', 'scheduling', 'inventory']);
 
-const SIDEBAR_WIDTH_EXPANDED = 292;
-const SIDEBAR_WIDTH_COLLAPSED = 72;
-const SIDEBAR_MAIN_OFFSET = 24;
+const SIDEBAR_WIDTH_EXPANDED = 260;
+const SIDEBAR_WIDTH_COLLAPSED = 64;
+const SIDEBAR_MAIN_OFFSET = 0;
+const ADMINHUB_THEME_STORAGE_KEY = 'adminhub_theme';
 
 type NavChild = { id: string; label: string };
 
@@ -109,6 +108,7 @@ const PAGE_ICONS: Record<string, LucideIcon> = {
   users: Users,
   roles: ShieldCheck,
   logs: ScrollText,
+  profile: User,
 };
 
 function buildNavTree(role: string): NavEntry[] {
@@ -243,10 +243,12 @@ function AdminHubPanelInner({
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [isUsersLoading, setIsUsersLoading] = useState(true);
   const [isLogsLoading, setIsLogsLoading] = useState(false);
-  const [accountSheet, setAccountSheet] = useState<null | 'profile' | 'settings'>(null);
   const [navSearch, setNavSearch] = useState('');
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [hubTheme, setHubTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window === 'undefined') return 'light';
+    return window.localStorage.getItem(ADMINHUB_THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light';
+  });
+  const [notifications, setNotifications] = useState<SystemNotification[]>([]);
 
   const { logout } = useAuth();
   const navigate = useNavigate();
@@ -261,9 +263,6 @@ function AdminHubPanelInner({
   /** Avoid showing the generic login "admin" — use proper role title in the header */
   const sidebarDisplayName =
     rawProfileName.toLowerCase() === 'admin' ? 'Administrator' : rawProfileName || 'Signed in';
-  const sidebarRoleLabel = getRoleLabel(currentRole);
-  const showSidebarRoleRow = Boolean(sidebarRoleLabel && sidebarRoleLabel !== sidebarDisplayName);
-
   const applyCurrentUserFallback = useCallback(() => {
     const cu = currentUserRef.current;
     if (!cu) return;
@@ -422,7 +421,8 @@ function AdminHubPanelInner({
 
   const selectNavPage = useCallback(
     (requestedId: string) => {
-      const id = isQualityChecker ? 'live_tracking' : requestedId;
+      const id =
+        isQualityChecker && requestedId !== 'profile' ? 'live_tracking' : requestedId;
       if (id !== activePage) {
         setActivePage(id);
       }
@@ -437,27 +437,75 @@ function AdminHubPanelInner({
   const { isDraggingSchedule } = useCalendarScheduleDnD();
   const sidebarWEffective = sidebarW;
 
-  const openSidebarSearch = useCallback(() => {
-    if (collapsed) setCollapsed(false);
-    setIsSearchOpen(true);
-  }, [collapsed]);
+  const toggleHubTheme = useCallback(() => {
+    setHubTheme((current) => {
+      const next = current === 'light' ? 'dark' : 'light';
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(ADMINHUB_THEME_STORAGE_KEY, next);
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        openSidebarSearch();
+    if (typeof document === 'undefined') return;
+    const previousTheme = document.body.dataset.adminhubTheme;
+    document.body.dataset.adminhubTheme = hubTheme;
+
+    return () => {
+      if (previousTheme) {
+        document.body.dataset.adminhubTheme = previousTheme;
+      } else {
+        delete document.body.dataset.adminhubTheme;
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [openSidebarSearch]);
+  }, [hubTheme]);
 
   useEffect(() => {
-    if (!isSearchOpen || collapsed) return;
-    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
-  }, [collapsed, isSearchOpen]);
+    let cancelled = false;
+    NotificationService.getNotifications()
+      .then((res) => {
+        if (!cancelled && res.success && Array.isArray(res.data)) {
+          setNotifications(res.data);
+        }
+      })
+      .catch((error) => {
+        console.warn('[AdminHub] notifications fetch error:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAdminNotificationClick = useCallback(
+    async (notification: SystemNotification) => {
+      const id = notification.id || notification._id;
+      if (id) {
+        const res = await NotificationService.markAsRead(id);
+        if (res?.success) {
+          setNotifications((current) =>
+            current.map((item) =>
+              (item.id || item._id) === id ? { ...item, isRead: true } : item,
+            ),
+          );
+        }
+      }
+      if (notification.link) {
+        const path = notification.link.startsWith('/')
+          ? notification.link
+          : `/${notification.link}`;
+        navigate(path);
+      }
+    },
+    [navigate],
+  );
+
+  const handleMarkAllNotificationsRead = useCallback(async () => {
+    const res = await NotificationService.markAllAsRead();
+    if (res?.success) {
+      setNotifications((current) => current.map((item) => ({ ...item, isRead: true })));
+    }
+  }, []);
 
   const prefetchCustomerTracker =
     currentRole === 'office_admin' ||
@@ -466,8 +514,14 @@ function AdminHubPanelInner({
 
   const navSearchQuery = navSearch.trim().toLowerCase();
 
-  const openAccountSheet = useCallback((sheet: 'profile' | 'settings') => {
-    setAccountSheet(sheet);
+  const openUserProfile = useCallback(() => {
+    setActivePage('profile');
+    setVisitedPages((current) => {
+      if (current.has('profile')) return current;
+      const next = new Set(current);
+      next.add('profile');
+      return next;
+    });
   }, []);
 
   const handleSignOut = useCallback(async () => {
@@ -481,6 +535,7 @@ function AdminHubPanelInner({
   );
 
   const collapsedNavPages = useMemo(() => flattenNavPages(navTree), [navTree]);
+  const commandPages = collapsedNavPages;
 
   const incomingBookings = useMemo(() => (Array.isArray(bookings) ? bookings : []), [bookings]);
   const [dashboardBookings, setDashboardBookings] = useState<any[]>(incomingBookings);
@@ -543,7 +598,7 @@ function AdminHubPanelInner({
 
   return (
     <div
-      className={`adminhub-root ${isDraggingSchedule ? 'ah-schedule-dragging' : ''}`}
+      className={`adminhub-root${hubTheme === 'dark' ? ' adminhub--dark' : ''} ${isDraggingSchedule ? 'ah-schedule-dragging' : ''}`}
       style={{
         position: 'fixed',
         inset: 0,
@@ -569,45 +624,7 @@ function AdminHubPanelInner({
             {!collapsed && <span className="ah-sidebar-brand-name">AutoSPF+</span>}
           </div>
 
-          {!collapsed ? (
-            <button
-              type="button"
-              className={`ah-sidebar-search-action${isSearchOpen ? ' is-active' : ''}`}
-              onClick={openSidebarSearch}
-              aria-label="Search navigation"
-            >
-              <Search size={18} strokeWidth={1.8} aria-hidden />
-            </button>
-          ) : null}
         </div>
-
-        {!collapsed && isSearchOpen ? (
-          <div className="ah-sidebar-search-wrap">
-            <label className="ah-sidebar-search">
-              <Search size={16} aria-hidden />
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={navSearch}
-                onChange={(e) => setNavSearch(e.target.value)}
-                placeholder="Search"
-                aria-label="Search navigation"
-              />
-              <kbd>⌘K</kbd>
-            </label>
-            <button
-              type="button"
-              className="ah-sidebar-search-close"
-              onClick={() => {
-                setNavSearch('');
-                setIsSearchOpen(false);
-              }}
-              aria-label="Close search"
-            >
-              <X size={14} strokeWidth={2} aria-hidden />
-            </button>
-          </div>
-        ) : null}
 
         <nav className="ah-sidebar-nav">
           {filteredNavTree.length === 0 && !collapsed ? (
@@ -625,7 +642,7 @@ function AdminHubPanelInner({
                   onClick={() => selectNavPage(page.id)}
                   title={page.label}
                 >
-                  <Icon size={20} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
+                  <Icon size={18} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
                 </button>
               );
             })
@@ -641,7 +658,7 @@ function AdminHubPanelInner({
                     className={`ah-nav-item ah-nav-leaf${isActive ? ' active' : ''}`}
                     onClick={() => selectNavPage(entry.id)}
                   >
-                    <Icon size={20} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
+                    <Icon size={18} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
                     <span className="ah-nav-label">{entry.label}</span>
                   </button>
                 );
@@ -663,7 +680,7 @@ function AdminHubPanelInner({
                           className={`ah-nav-item ah-nav-row${isActive ? ' active' : ''}`}
                           onClick={() => selectNavPage(child.id)}
                         >
-                          <ChildIcon size={20} strokeWidth={1.7} className="ah-nav-icon" aria-hidden />
+                          <ChildIcon size={18} strokeWidth={1.7} className="ah-nav-icon" aria-hidden />
                           <span className="ah-nav-label">{child.label}</span>
                         </button>
                       );
@@ -675,8 +692,8 @@ function AdminHubPanelInner({
           )}
         </nav>
 
-        <div className="ah-sidebar-footer">
-          {!fullMode && onClose ? (
+        {!fullMode && onClose ? (
+          <div className="ah-sidebar-footer">
             <div className="ah-sidebar-secondary">
               <button
                 type="button"
@@ -684,51 +701,43 @@ function AdminHubPanelInner({
                 onClick={onClose}
                 title={collapsed ? 'Back' : undefined}
               >
-                <ArrowLeft size={20} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
+                <ArrowLeft size={18} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
                 {!collapsed && <span className="ah-nav-label">Back</span>}
               </button>
             </div>
-          ) : null}
-
-          <AdminSidebarProfileMenu
-            displayName={sidebarDisplayName}
-            email={currentUser?.email || ''}
-            roleLabel={sidebarRoleLabel}
-            showRoleRow={showSidebarRoleRow}
-            avatar={currentUser?.avatar}
-            collapsed={collapsed}
-            onViewProfile={() => openAccountSheet('profile')}
-            onAccountSettings={() => openAccountSheet('settings')}
-            onSignOut={handleSignOut}
-          />
-
-          <button
-            type="button"
-            className="ah-sidebar-collapse-btn"
-            onClick={() => setCollapsed((c) => !c)}
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {collapsed ? <ChevronRight size={16} /> : (
-              <>
-                <ChevronLeft size={16} />
-                <span>Collapse</span>
-              </>
-            )}
-          </button>
-        </div>
+          </div>
+        ) : null}
       </aside>
 
-      {/* ── Main Content ── */}
-      <main
-        className="ah-main-surface"
+      {/* ── Main column: top bar + content ── */}
+      <div
+        className="ah-main-column"
         style={{
-          overflow: 'auto',
           transition: 'margin-left 0.22s cubic-bezier(0.16,1,0.3,1)',
           marginLeft: sidebarWEffective + SIDEBAR_MAIN_OFFSET,
-          background: '#f8fafc',
         }}
       >
+        <AdminTopBar
+          collapsed={collapsed}
+          onToggleSidebar={() => setCollapsed((c) => !c)}
+          navSearch={navSearch}
+          onNavSearchChange={setNavSearch}
+          commandPages={commandPages}
+          onSelectPage={selectNavPage}
+          displayName={sidebarDisplayName}
+          email={currentUser?.email || ''}
+          avatar={currentUser?.avatar}
+          onViewProfile={openUserProfile}
+          onAccountSettings={openUserProfile}
+          onSignOut={handleSignOut}
+          notifications={notifications}
+          onNotificationClick={handleAdminNotificationClick}
+          onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
+          theme={hubTheme}
+          onToggleTheme={toggleHubTheme}
+        />
+
+        <main className="ah-main-surface">
         <div
           className="ah-tab-shell"
           style={{
@@ -771,17 +780,19 @@ function AdminHubPanelInner({
             {prefetchCustomerTracker && renderTabPanel('live_tracking', (
               <CustomerTrackerPanel embedded />
             ), { forceMount: true })}
+
+            {renderTabPanel('profile', (
+              <AdminUserProfilePage
+                currentUser={currentUser}
+                onNavigateHome={() => selectNavPage('dashboard')}
+                onSignOut={handleSignOut}
+              />
+            ))}
           </div>
         </div>
-      </main>
+        </main>
+      </div>
 
-      {accountSheet === 'profile' ? (
-        <AdminAccountProfileSheet currentUser={currentUser} onClose={() => setAccountSheet(null)} />
-      ) : null}
-
-      {accountSheet === 'settings' ? (
-        <AdminAccountSettingsSheet currentUser={currentUser} onClose={() => setAccountSheet(null)} />
-      ) : null}
     </div>
   );
 }

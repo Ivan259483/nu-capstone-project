@@ -17,6 +17,7 @@ export interface User {
     createdAt: string;
     avatar?: string;
     phone?: string;
+    address?: string;
     displayName?: string;
     photoURL?: string;
 }

@@ -12,7 +12,7 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight, Check, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
     HOMEPAGE_SERVICE_MENU,
@@ -25,7 +25,7 @@ export type CustomerDashboardServicesShowcaseProps = {
     vehicles: any[];
     packages: BookingPackage[];
     getVehiclePriceKey: (type: string) => string;
-    onOpenBooking: (opts?: { presetPackageId?: string }) => void;
+    onOpenBooking: (opts?: { presetPackageId?: string; priceTier?: VehiclePriceKey }) => void;
 };
 
 export function CustomerDashboardServicesShowcase({
@@ -46,6 +46,17 @@ export function CustomerDashboardServicesShowcase({
     useEffect(() => {
         setPriceTier(defaultTier);
     }, [defaultTier]);
+
+    const highlightedPackageId = useMemo(() => {
+        return packages.reduce<{ id: string | null; price: number }>(
+            (winner, pkg) => {
+                const price = pkg.prices[priceTier] ?? null;
+                if (typeof price !== "number") return winner;
+                return price > winner.price ? { id: pkg.id, price } : winner;
+            },
+            { id: null, price: -1 }
+        ).id;
+    }, [packages, priceTier]);
 
     const getPackageDisplay = (name: string) => {
         const [codeRaw, labelRaw] = name.split("—").map((part) => part.trim());
@@ -104,27 +115,28 @@ export function CustomerDashboardServicesShowcase({
 	                        const price = pkg.prices[priceTier] ?? null;
 	                        const isUnavailable = price === null;
 	                        const isPopular = pkg.id === "spf89";
-	                        const isFlagship = pkg.id === "spf101" || /spf\s*101/i.test(pkg.name) || /flagship\s*all[-\s]*in/i.test(pkg.name);
+	                        const isPremiumHighlight = !isUnavailable && pkg.id === highlightedPackageId;
 	                        const display = getPackageDisplay(pkg.name);
 	                        const packageIntro = (
-	                            <div className={cn(isFlagship ? "pr-0 lg:max-w-xl" : "pr-24")}>
+	                            <div className={cn(isPremiumHighlight ? "pr-0 lg:max-w-xl" : "pr-24")}>
 	                                <span
 	                                    className={cn(
 	                                        "inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.08em]",
-	                                        isPopular || isFlagship ? "bg-blue-50 text-blue-600 ring-1 ring-blue-100" : "bg-slate-100 text-slate-600"
+	                                        isPopular || isPremiumHighlight ? "bg-blue-50 text-blue-600 ring-1 ring-blue-100" : "bg-slate-100 text-slate-600",
+	                                        isPremiumHighlight && "customer-services-premium-chip"
 	                                    )}
 	                                >
-	                                    {display.label}
+	                                    {isPremiumHighlight ? "Highest protection tier" : display.label}
 	                                </span>
 	                                <h3 className={cn(
 	                                    "mt-5 font-black tracking-tight text-slate-950",
-	                                    isFlagship ? "text-4xl sm:text-5xl" : "text-4xl"
+	                                    isPremiumHighlight ? "text-4xl sm:text-5xl" : "text-4xl"
 	                                )}>
 	                                    {display.code}
 	                                </h3>
 	                                <p className={cn(
 	                                    "mt-2 text-sm font-medium leading-relaxed text-slate-500",
-	                                    isFlagship ? "max-w-xl" : "min-h-[44px]"
+	                                    isPremiumHighlight ? "max-w-xl" : "min-h-[44px]"
 	                                )}>{pkg.duration}</p>
 	                            </div>
 	                        );
@@ -133,7 +145,7 @@ export function CustomerDashboardServicesShowcase({
 		                            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Indicative price</p>
 		                            <p className={cn(
 		                                "mt-1 font-bold tracking-tight text-blue-600",
-		                                isFlagship ? "text-4xl sm:text-[42px]" : "text-3xl"
+		                                isPremiumHighlight ? "customer-services-premium-price text-4xl sm:text-[42px]" : "text-3xl"
 		                            )}>
 		                                {isUnavailable ? "N/A" : `FROM ₱${price.toLocaleString()}`}
 	                                </p>
@@ -143,11 +155,14 @@ export function CustomerDashboardServicesShowcase({
 	                        const featuresList = (
 	                            <ul className={cn(
 	                                "flex-1",
-	                                isFlagship ? "grid gap-3 sm:grid-cols-2 lg:gap-x-5" : "space-y-3"
+	                                isPremiumHighlight ? "grid gap-3 sm:grid-cols-2 lg:gap-x-5" : "space-y-3"
 	                            )}>
 	                                {pkg.features.map((feature) => (
 	                                    <li key={feature} className="flex gap-3 text-sm leading-relaxed text-slate-700">
-	                                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+	                                        <span className={cn(
+	                                            "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 ring-1 ring-blue-100",
+	                                            isPremiumHighlight && "customer-services-premium-check"
+	                                        )}>
 	                                            <Check className="h-3.5 w-3.5" strokeWidth={3} />
 	                                        </span>
 	                                        <span>{feature}</span>
@@ -158,12 +173,12 @@ export function CustomerDashboardServicesShowcase({
 	                        const bookingButton = (
 	                            <button
 	                                type="button"
-	                                onClick={() => onOpenBooking({ presetPackageId: pkg.id })}
+	                                onClick={() => onOpenBooking({ presetPackageId: pkg.id, priceTier })}
 	                                disabled={isUnavailable}
 	                                className={cn(
 	                                    "inline-flex w-full items-center justify-center rounded-lg px-4 py-3",
 	                                    "text-sm font-black transition-all",
-	                                    isFlagship ? "mt-6 lg:mt-8" : "mt-8",
+	                                    isPremiumHighlight ? "customer-services-premium-cta mt-6 lg:mt-8" : "mt-8",
 	                                    isUnavailable
 	                                        ? "cursor-not-allowed bg-slate-200 text-slate-500"
 	                                        : "bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:-translate-y-0.5 hover:bg-blue-700",
@@ -177,31 +192,36 @@ export function CustomerDashboardServicesShowcase({
 	                            <article
 	                                key={pkg.id}
 	                                className={cn(
-		                                    "relative rounded-xl border bg-white transition-all",
+		                                    "customer-services-package-card relative overflow-hidden rounded-xl border bg-white transition-all",
 		                                    "shadow-[0_10px_30px_-24px_rgba(15,23,42,0.35)] hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-[0_20px_42px_-28px_rgba(15,23,42,0.38)]",
-	                                    isFlagship
+	                                    isPremiumHighlight
 	                                        ? "flex min-h-[520px] flex-col p-6 lg:col-span-3 lg:grid lg:min-h-[360px] lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-8 lg:p-8"
 	                                        : "flex min-h-[520px] flex-col p-6",
 	                                    isPopular
 	                                        ? "border-blue-500 shadow-[0_22px_60px_-30px_rgba(37,99,235,0.45)] ring-2 ring-blue-100/90"
-	                                        : "border-slate-200/90"
+	                                        : "border-slate-200/90",
+	                                    isPremiumHighlight && "customer-services-premium-card border-blue-500 bg-[linear-gradient(135deg,#ffffff_0%,#f8fbff_42%,#eff6ff_100%)] ring-2 ring-blue-100"
                                 )}
                             >
-                                {isPopular && (
+                                {isPopular && !isPremiumHighlight && (
                                     <span className="absolute right-5 top-5 rounded-full bg-blue-600 px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white shadow-lg shadow-blue-600/20">
 	                                        Most Popular
 	                                    </span>
 	                                )}
 
-	                                {isFlagship ? (
+	                                {isPremiumHighlight ? (
 	                                    <>
 	                                        <div className="flex flex-col justify-between">
 	                                            <div>
+                                                    <div className="customer-services-premium-badge" aria-label="Highest priced service">
+                                                        <Sparkles className="h-3.5 w-3.5" strokeWidth={2.4} />
+                                                        Flagship Pick
+                                                    </div>
 	                                                {packageIntro}
 	                                                {priceBlock}
 	                                            </div>
-	                                            <p className="mt-6 rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm font-semibold leading-relaxed text-blue-700">
-	                                                Premium all-in coverage for owners who want the highest protection tier in one booking.
+	                                            <p className="customer-services-premium-note mt-6 rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm font-semibold leading-relaxed text-blue-700">
+	                                                The highest-value package in this class, built for owners who want the most complete protection in one booking.
 	                                            </p>
 	                                        </div>
 	                                        <div className="mt-6 flex flex-col border-t border-slate-200/80 pt-6 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
@@ -229,7 +249,7 @@ export function CustomerDashboardServicesShowcase({
                     </p>
                     <button
                         type="button"
-                        onClick={() => onOpenBooking()}
+                        onClick={() => onOpenBooking({ priceTier })}
                         className={cn(
 	                            "inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white",
                             "px-4 py-2 text-sm font-semibold text-blue-600 shadow-md shadow-blue-600/15 transition-all",

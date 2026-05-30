@@ -58,8 +58,8 @@
 
 /* ── Sidebar (premium layout — Untitled-style structure, blue theme) ─ */
 .adminhub-root .ah-sidebar {
-  --ah-sidebar-w: 292px;
-  --ah-sidebar-collapsed-w: 72px;
+  --ah-sidebar-w: 260px;
+  --ah-sidebar-collapsed-w: 64px;
   --ah-sidebar-text: #182230;
   --ah-sidebar-muted: #667085;
   --ah-sidebar-border: #eaecf0;
@@ -67,20 +67,19 @@
   --ah-sidebar-accent: #2563eb;
   --ah-sidebar-accent-dark: #1d4ed8;
   position: fixed;
-  left: 10px;
-  top: 10px;
+  left: 0;
+  top: 0;
   width: var(--ah-sidebar-w);
-  height: calc(100vh - 20px);
-  height: calc(100dvh - 20px);
+  height: 100vh;
+  height: 100dvh;
   z-index: 30;
   display: flex;
   flex-direction: column;
   background: #fff;
-  border: 1px solid #e4e7ec;
-  border-radius: 16px;
-  box-shadow:
-    0 1px 2px rgba(16, 24, 40, 0.05),
-    0 8px 24px rgba(16, 24, 40, 0.06);
+  border: none;
+  border-right: 1px solid #e4e7ec;
+  border-radius: 0;
+  box-shadow: none;
   transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
 }
@@ -93,22 +92,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 24px 20px 18px;
+  gap: 10px;
+  padding: 16px 16px 12px;
   flex-shrink: 0;
 }
 
 .adminhub-root .ah-sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
 .adminhub-root .ah-sidebar-brand-mark {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   background: #000;
   display: flex;
   align-items: center;
@@ -125,7 +124,7 @@
 }
 
 .adminhub-root .ah-sidebar-brand-name {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   color: #101828;
   letter-spacing: 0;
@@ -160,7 +159,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 20px 14px;
+  padding: 0 16px 10px;
   flex-shrink: 0;
 }
 
@@ -170,9 +169,9 @@
   gap: 8px;
   flex: 1;
   min-width: 0;
-  height: 40px;
-  padding: 0 12px;
-  border-radius: 10px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
   border: 1px solid #e4e7ec;
   background: #f9fafb;
   color: #667085;
@@ -245,10 +244,10 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 4px 20px 18px;
+  padding: 2px 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
 }
 
 .adminhub-root .ah-sidebar-empty {
@@ -261,15 +260,15 @@
 .adminhub-root .ah-nav-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .adminhub-root .ah-nav-section-title {
   margin: 0;
-  padding: 0;
+  padding: 0 8px;
   color: #707781;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0;
   line-height: 1.2;
   text-transform: uppercase;
@@ -297,20 +296,20 @@
 
 .adminhub-root .ah-nav-item.ah-nav-row,
 .adminhub-root .ah-nav-item.ah-nav-leaf {
-  min-height: 42px;
-  padding: 9px 10px;
-  font-weight: 700;
+  min-height: 36px;
+  padding: 7px 10px;
+  font-weight: 600;
   color: #3f4652;
 }
 
 .adminhub-root .ah-nav-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 9px 10px;
+  gap: 10px;
+  padding: 7px 10px;
   border-radius: 8px;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   color: var(--ah-sidebar-text);
@@ -540,7 +539,7 @@
 
 .adminhub-root .ah-sidebar.is-collapsed .ah-sidebar-header {
   justify-content: center;
-  padding: 18px 8px 12px;
+  padding: 14px 8px 10px;
 }
 
 .adminhub-root .ah-sidebar.is-collapsed .ah-sidebar-brand {
@@ -548,19 +547,19 @@
 }
 
 .adminhub-root .ah-sidebar.is-collapsed .ah-sidebar-brand-mark {
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
 }
 
 .adminhub-root .ah-sidebar.is-collapsed .ah-sidebar-nav {
-  padding: 4px 10px;
-  gap: 8px;
+  padding: 2px 8px;
+  gap: 6px;
 }
 
 .adminhub-root .ah-sidebar.is-collapsed .ah-nav-item {
   justify-content: center;
-  min-height: 42px;
-  padding: 9px 0;
+  min-height: 36px;
+  padding: 7px 0;
   border-radius: 8px;
 }
 
@@ -617,6 +616,80 @@
 }
 
 /* Portaled outside .adminhub-root — keep unscoped for Radix dropdown */
+.ah-account-dropdown-content {
+  min-width: 264px;
+  max-width: 300px;
+  padding: 0 !important;
+  border-radius: 12px !important;
+  border: 1px solid #e4e7ec !important;
+  background: #fff !important;
+  box-shadow:
+    0 20px 24px -4px rgba(16, 24, 40, 0.08),
+    0 8px 8px -4px rgba(16, 24, 40, 0.03) !important;
+  z-index: 120;
+  overflow: hidden;
+}
+
+.ah-account-dropdown-header {
+  padding: 16px 20px 14px;
+}
+
+.ah-account-dropdown-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #1e293b;
+}
+
+.ah-account-dropdown-email {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ah-account-dropdown-list {
+  padding: 4px 0;
+}
+
+.ah-account-dropdown-content .ah-account-dropdown-item {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  margin: 0 8px;
+  padding: 10px 12px !important;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e293b !important;
+  cursor: pointer;
+}
+
+.ah-account-dropdown-content .ah-account-dropdown-item svg {
+  flex-shrink: 0;
+  color: #475569;
+}
+
+.ah-account-dropdown-content .ah-account-dropdown-item:hover,
+.ah-account-dropdown-content .ah-account-dropdown-item:focus {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.ah-account-dropdown-separator {
+  margin: 6px 0 !important;
+  background: #f2f4f7 !important;
+}
+
+.ah-account-dropdown-content .ah-account-dropdown-item--signout {
+  margin-bottom: 8px;
+}
+
+/* Legacy profile menu (deprecated) */
 .ah-profile-menu-content {
   min-width: 280px;
   max-width: 320px;
@@ -1101,6 +1174,416 @@
   z-index: 0;
 }
 
+.adminhub-root .ah-main-column {
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+  overflow: hidden;
+}
+
+.adminhub-root .ah-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
+  padding: 0 clamp(14px, 2vw, 20px);
+  background: #fff;
+  border-bottom: 1px solid #eaecf0;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  box-sizing: border-box;
+}
+
+.adminhub-root .ah-topbar-start {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.adminhub-root .ah-topbar-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.adminhub-root .ah-topbar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid #e4e7ec;
+  border-radius: 999px;
+  background: #fff;
+  color: #475467;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.adminhub-root .ah-topbar-icon-btn:hover {
+  background: #f9fafb;
+  border-color: #d0d5dd;
+  color: #101828;
+}
+
+.adminhub-root .ah-topbar-start > .ah-topbar-icon-btn {
+  border-radius: 8px;
+}
+
+.adminhub-root .ah-topbar-icon-btn--notify {
+  position: relative;
+}
+
+.adminhub-root .ah-topbar-notify-dot {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #f97316;
+  border: 2px solid #fff;
+}
+
+.adminhub-root .ah-topbar-command-wrap {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 480px;
+}
+
+.adminhub-root .ah-topbar-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #fff;
+  box-sizing: border-box;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.adminhub-root .ah-topbar-command:focus-within {
+  border-color: #84adff;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.adminhub-root .ah-topbar-command-icon {
+  flex-shrink: 0;
+  color: #98a2b3;
+}
+
+.adminhub-root .ah-topbar-command input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #101828;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  outline: none;
+}
+
+.adminhub-root .ah-topbar-command input::placeholder {
+  color: #98a2b3;
+  font-weight: 400;
+}
+
+.adminhub-root .ah-topbar-command-kbd {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid #e4e7ec;
+  border-radius: 5px;
+  background: #fff;
+  color: #667085;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.adminhub-root .ah-topbar-command-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  overflow: hidden;
+  border: 1px solid #e4e7ec;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow:
+    0 12px 16px -4px rgba(16, 24, 40, 0.08),
+    0 4px 6px -2px rgba(16, 24, 40, 0.03);
+}
+
+.adminhub-root .ah-topbar-command-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  background: transparent;
+  color: #344054;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.adminhub-root .ah-topbar-command-item:hover {
+  background: #f2f4f7;
+  color: #101828;
+}
+
+.adminhub-root .ah-topbar-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 200px;
+  height: 36px;
+  padding: 0 6px 0 2px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: #101828;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.adminhub-root .ah-topbar-user:hover {
+  background: #f9fafb;
+  border-color: #e4e7ec;
+}
+
+.adminhub-root .ah-topbar-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.adminhub-root .ah-topbar-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.adminhub-root .ah-topbar-user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.adminhub-root .ah-topbar-user-chevron {
+  flex-shrink: 0;
+  color: #98a2b3;
+}
+
+.adminhub-root .ah-topbar-notify-panel {
+  width: min(360px, calc(100vw - 32px));
+  padding: 0 !important;
+  border: 1px solid #e4e7ec !important;
+  border-radius: 16px !important;
+  overflow: hidden;
+}
+
+.adminhub-root .ah-topbar-notify-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f2f4f7;
+}
+
+.adminhub-root .ah-topbar-notify-head strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #101828;
+}
+
+.adminhub-root .ah-topbar-notify-mark {
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.adminhub-root .ah-topbar-notify-list {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.adminhub-root .ah-topbar-notify-empty {
+  margin: 0;
+  padding: 24px 16px;
+  text-align: center;
+  color: #667085;
+  font-size: 13px;
+}
+
+.adminhub-root .ah-topbar-notify-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-bottom: 1px solid #f2f4f7;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.adminhub-root .ah-topbar-notify-item:hover {
+  background: #f9fafb;
+}
+
+.adminhub-root .ah-topbar-notify-item.is-unread {
+  background: #eff6ff;
+}
+
+.adminhub-root .ah-topbar-notify-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #101828;
+}
+
+.adminhub-root .ah-topbar-notify-message {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #667085;
+}
+
+.adminhub-root.adminhub--dark {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.adminhub-root.adminhub--dark .ah-sidebar {
+  background: #111827;
+  border-color: #1f2937;
+  color: #e5e7eb;
+}
+
+.adminhub-root.adminhub--dark .ah-topbar {
+  background: #111827;
+  border-bottom-color: #1f2937;
+  box-shadow: none;
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-icon-btn,
+.adminhub-root.adminhub--dark .ah-topbar-user {
+  background: #0f172a;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-command {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-command:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-command input {
+  color: #f8fafc;
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-command-kbd {
+  background: #1e293b;
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+.adminhub-root.adminhub--dark .ah-main-surface {
+  background: #0f172a;
+}
+
+@media (max-width: 900px) {
+  .adminhub-root .ah-topbar-user-name {
+    display: none;
+  }
+
+  .adminhub-root .ah-topbar-user {
+    max-width: none;
+    padding-right: 6px;
+  }
+}
+
+@media (max-width: 640px) {
+  .adminhub-root .ah-topbar {
+    height: 52px;
+    min-height: 52px;
+    max-height: 52px;
+    padding-inline: 10px;
+    gap: 8px;
+  }
+
+  .adminhub-root .ah-topbar-command-wrap {
+    max-width: none;
+  }
+
+  .adminhub-root .ah-topbar-command-kbd {
+    display: none;
+  }
+}
+
 .adminhub-root .ah-main-surface {
   flex: 1 1 0%;
   display: flex;
@@ -1108,17 +1591,19 @@
   min-width: 0;
   min-height: 0;
   align-self: stretch;
+  overflow: auto;
   background: #f8fafc;
 }
 
 /* Appointments: calendar tab locks page scroll; availability tab scrolls inside panel */
-.adminhub-root .ah-main-surface:has(.admin-appointments-page) {
+/* Only lock outer scroll when appointments is the *active* tab (hidden mounted tabs must not match :has) */
+.adminhub-root .ah-main-surface:has(.ah-tab-panel.is-active .admin-appointments-page) {
   overflow: hidden !important;
   display: flex;
   flex-direction: column;
 }
 
-.adminhub-root .ah-main-surface:has(.admin-appointments-page) > .ah-tab-shell {
+.adminhub-root .ah-main-surface:has(.ah-tab-panel.is-active .admin-appointments-page) > .ah-tab-shell {
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -1141,20 +1626,20 @@
 }
 
 /* Dashboard: full-width, compact density, fill viewport */
-.adminhub-root .ah-main-surface:has(.admin-dashboard-page) {
+.adminhub-root .ah-main-surface:has(.ah-tab-panel.is-active .admin-dashboard-page) {
   overflow: hidden !important;
   display: flex;
   flex-direction: column;
 }
 
-.adminhub-root .ah-main-surface:has(.admin-dashboard-page) > .ah-tab-shell {
+.adminhub-root .ah-main-surface:has(.ah-tab-panel.is-active .admin-dashboard-page) > .ah-tab-shell {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-.adminhub-root .ah-tab-stack:has(.admin-dashboard-page) {
+.adminhub-root .ah-tab-stack:has(.ah-tab-panel.is-active .admin-dashboard-page) {
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -1167,7 +1652,7 @@
   flex-direction: column;
 }
 
-.adminhub-root .ah-tab-shell:has(.admin-dashboard-page) {
+.adminhub-root .ah-tab-shell:has(.ah-tab-panel.is-active .admin-dashboard-page) {
   padding: 8px 10px 12px !important;
 }
 
@@ -1717,40 +2202,40 @@
 }
 
 @media (max-width: 720px) {
-  .adminhub-root:has(.admin-dashboard-page) .ah-sidebar {
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar {
     width: var(--ah-sidebar-collapsed-w) !important;
   }
 
-  .adminhub-root:has(.admin-dashboard-page) .ah-main-surface {
-    margin-left: 96px !important;
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-main-column {
+    margin-left: var(--ah-sidebar-collapsed-w) !important;
   }
 
-  .adminhub-root:has(.admin-dashboard-page) .ah-sidebar-header,
-  .adminhub-root:has(.admin-dashboard-page) .ah-sidebar-brand,
-  .adminhub-root:has(.admin-dashboard-page) .ah-sidebar-footer {
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-header,
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-brand,
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-footer {
     justify-content: center;
     padding-left: 10px;
     padding-right: 10px;
   }
 
-  .adminhub-root:has(.admin-dashboard-page) .ah-sidebar-brand-name,
-  .adminhub-root:has(.admin-dashboard-page) .ah-sidebar-search-action,
-  .adminhub-root:has(.admin-dashboard-page) .ah-sidebar-search-wrap,
-  .adminhub-root:has(.admin-dashboard-page) .ah-nav-section-title,
-  .adminhub-root:has(.admin-dashboard-page) .ah-nav-label,
-  .adminhub-root:has(.admin-dashboard-page) .ah-sidebar-profile-info,
-  .adminhub-root:has(.admin-dashboard-page) .ah-sidebar-profile-chevron,
-  .adminhub-root:has(.admin-dashboard-page) .ah-sidebar-collapse-btn span {
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-brand-name,
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-search-action,
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-search-wrap,
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-nav-section-title,
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-nav-label,
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-profile-info,
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-profile-chevron,
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-collapse-btn span {
     display: none !important;
   }
 
-  .adminhub-root:has(.admin-dashboard-page) .ah-nav-item {
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-nav-item {
     justify-content: center;
     padding-left: 0;
     padding-right: 0;
   }
 
-  .adminhub-root:has(.admin-dashboard-page) .ah-sidebar-collapse-btn {
+  .adminhub-root:has(.ah-tab-panel.is-active .admin-dashboard-page) .ah-sidebar-collapse-btn {
     width: 44px;
     justify-content: center;
     padding-left: 0 !important;
@@ -1927,7 +2412,7 @@
 }
 
 /* Appointments: tighter chrome so the calendar uses the full main area */
-.adminhub-root .ah-tab-shell:has(.admin-appointments-page) {
+.adminhub-root .ah-tab-shell:has(.ah-tab-panel.is-active .admin-appointments-page) {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -1935,11 +2420,31 @@
   padding: 8px 10px 10px !important;
 }
 
-.adminhub-root .ah-tab-stack:has(.admin-appointments-page) {
+.adminhub-root .ah-tab-stack:has(.ah-tab-panel.is-active .admin-appointments-page) {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* Profile & other standard pages: scroll inside the active tab panel */
+.adminhub-root .ah-tab-panel.is-active:has(.ah-user-profile-page) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.adminhub-root .ah-tab-shell:has(.ah-tab-panel.is-active .ah-user-profile-page) {
+  padding: 20px clamp(16px, 2vw, 28px) 32px !important;
+}
+
+.adminhub-root .ah-user-profile-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding-bottom: 32px;
 }
 
 .adminhub-root .admin-appointments-page {
@@ -2633,4 +3138,1749 @@
 .adminhub-root.ah-schedule-dragging .ah-sidebar {
   /* inline width/opacity also applied in AdminHubPanel */
   box-shadow: none !important;
+}
+
+/* ── User profile page (TailAdmin-style) ───────────────── */
+
+.adminhub-root .ah-user-profile-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.adminhub-root .ah-user-profile-page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #101828;
+}
+
+.adminhub-root .ah-user-profile-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #667085;
+}
+
+.adminhub-root .ah-user-profile-breadcrumb button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #667085;
+  font: inherit;
+  cursor: pointer;
+}
+
+.adminhub-root .ah-user-profile-breadcrumb button:hover {
+  color: #2563eb;
+}
+
+.adminhub-root .ah-user-profile-breadcrumb span[aria-current] {
+  color: #344054;
+  font-weight: 500;
+}
+
+.adminhub-root .ah-user-profile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+}
+
+.adminhub-root .ah-user-profile-card {
+  border: 1px solid #e4e7ec;
+  border-radius: 16px;
+  background: #fff;
+  padding: 24px 28px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.adminhub-root .ah-user-profile-card-title,
+.adminhub-root .ah-user-profile-shell-title {
+  margin: 0 0 20px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #101828;
+}
+
+.adminhub-root .ah-user-profile-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e4e7ec;
+}
+
+.adminhub-root .ah-user-profile-card-top--compact {
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.adminhub-root .ah-user-profile-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.adminhub-root .ah-user-profile-hero-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 999px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #fff;
+  font-size: 28px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.adminhub-root .ah-user-profile-hero-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.adminhub-root .ah-user-profile-hero-name {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: #101828;
+}
+
+.adminhub-root .ah-user-profile-hero-meta {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: #667085;
+}
+
+.adminhub-root .ah-user-profile-hero-dot {
+  margin-inline: 8px;
+  color: #d0d5dd;
+}
+
+.adminhub-root .ah-user-profile-section-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #101828;
+}
+
+.adminhub-root .ah-user-profile-section-title--spaced {
+  margin-bottom: 20px;
+}
+
+.adminhub-root .ah-user-profile-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  background: #fff;
+  color: #344054;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.adminhub-root .ah-user-profile-edit-btn:hover {
+  background: #f9fafb;
+  border-color: #98a2b3;
+}
+
+.adminhub-root .ah-user-profile-edit-btn--danger {
+  border-color: #fda4af;
+  color: #e11d48;
+}
+
+.adminhub-root .ah-user-profile-edit-btn--danger:hover {
+  background: #fff1f2;
+  border-color: #fb7185;
+}
+
+.adminhub-root .ah-user-profile-fields {
+  display: grid;
+  width: 100%;
+  gap: 24px 32px;
+}
+
+/* Bounded width so wide screens / zoom-out keep TailAdmin proportions */
+.adminhub-root .ah-user-profile-fields--personal,
+.adminhub-root .ah-user-profile-fields--address {
+  width: 100%;
+  max-width: 1100px;
+}
+
+/* Col1: First/Email · Col2: Last/Phone · Col3: Bio · Col4: Social */
+.adminhub-root .ah-user-profile-fields--personal {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 32px;
+  row-gap: 24px;
+}
+
+.adminhub-root .ah-user-profile-fields--personal .ah-user-profile-field:nth-child(1) {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.adminhub-root .ah-user-profile-fields--personal .ah-user-profile-field:nth-child(2) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.adminhub-root .ah-user-profile-fields--personal .ah-user-profile-field:nth-child(3) {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.adminhub-root .ah-user-profile-fields--personal .ah-user-profile-field:nth-child(4) {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.adminhub-root .ah-user-profile-fields--personal .ah-user-profile-field:nth-child(5) {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.adminhub-root .ah-user-profile-fields--personal .ah-user-profile-field:nth-child(6) {
+  grid-column: 4;
+  grid-row: 2;
+}
+
+.adminhub-root .ah-user-profile-fields--address {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 32px;
+  row-gap: 24px;
+}
+
+@media (max-width: 1023px) {
+  .adminhub-root .ah-user-profile-fields--personal,
+  .adminhub-root .ah-user-profile-fields--address {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .adminhub-root .ah-user-profile-fields--personal .ah-user-profile-field:nth-child(n) {
+    grid-column: auto;
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .adminhub-root .ah-user-profile-fields--personal,
+  .adminhub-root .ah-user-profile-fields--address {
+    grid-template-columns: 1fr;
+    column-gap: 0;
+    row-gap: 20px;
+  }
+}
+
+.adminhub-root .ah-user-profile-field-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #667085;
+}
+
+.adminhub-root .ah-user-profile-field-value {
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: #101828;
+  word-break: break-word;
+}
+
+.adminhub-root .ah-user-profile-role-pill {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.adminhub-root .ah-user-profile-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.adminhub-root .ah-user-profile-input-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.adminhub-root .ah-user-profile-input-wrap span {
+  font-size: 13px;
+  font-weight: 500;
+  color: #344054;
+}
+
+.adminhub-root .ah-user-profile-input-wrap input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  background: #fff;
+  color: #101828;
+  font-size: 14px;
+  outline: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.adminhub-root .ah-user-profile-input-wrap input:focus {
+  border-color: #84adff;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+}
+
+.adminhub-root .ah-user-profile-input-wrap input:disabled {
+  background: #f9fafb;
+  color: #667085;
+}
+
+.adminhub-root .ah-user-profile-input-wrap--wide {
+  grid-column: 1 / -1;
+}
+
+.adminhub-root .ah-user-profile-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.adminhub-root .ah-user-profile-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.adminhub-root .ah-user-profile-btn--ghost {
+  border-color: #d0d5dd;
+  background: #fff;
+  color: #344054;
+}
+
+.adminhub-root .ah-user-profile-btn--primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.adminhub-root .ah-user-profile-btn--primary:hover {
+  background: #1d4ed8;
+}
+
+.adminhub-root .ah-user-profile-btn--danger {
+  background: #e11d48;
+  color: #fff;
+}
+
+.adminhub-root .ah-user-profile-btn--danger:hover {
+  background: #be123c;
+}
+
+.adminhub-root .ah-user-profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0;
+}
+
+.adminhub-root .ah-user-profile-row-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #101828;
+}
+
+.adminhub-root .ah-user-profile-row-desc {
+  margin: 0;
+  max-width: 520px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #667085;
+}
+
+.adminhub-root .ah-user-profile-divider {
+  height: 1px;
+  margin: 20px 0;
+  background: #e4e7ec;
+}
+
+.adminhub-root .ah-user-profile-toggle {
+  position: relative;
+  width: 52px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: #e4e7ec;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+
+.adminhub-root .ah-user-profile-toggle.is-on {
+  background: #2563eb;
+}
+
+.adminhub-root .ah-user-profile-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.12);
+  transition: transform 160ms ease;
+}
+
+.adminhub-root .ah-user-profile-toggle.is-on .ah-user-profile-toggle-thumb {
+  transform: translateX(24px);
+}
+
+.adminhub-root .ah-user-profile-password-panel,
+.adminhub-root .ah-user-profile-danger-panel {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f2f4f7;
+  display: grid;
+  gap: 16px;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-page-title,
+.adminhub-root.adminhub--dark .ah-user-profile-shell-title,
+.adminhub-root.adminhub--dark .ah-user-profile-hero-name,
+.adminhub-root.adminhub--dark .ah-user-profile-section-title,
+.adminhub-root.adminhub--dark .ah-user-profile-row-title,
+.adminhub-root.adminhub--dark .ah-user-profile-field-value {
+  color: #f8fafc;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-card {
+  background: #111827;
+  border-color: #1f2937;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-edit-btn,
+.adminhub-root.adminhub--dark .ah-user-profile-input-wrap input,
+.adminhub-root.adminhub--dark .ah-user-profile-btn--ghost {
+  background: #0f172a;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+.adminhub-root .ah-user-profile-field--full {
+  grid-column: 1 / -1;
+}
+
+.adminhub-root .ah-user-profile-social-icons {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  min-height: 28px;
+}
+
+.adminhub-root .ah-user-profile-social-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: #344054;
+  text-decoration: none;
+  border-radius: 8px;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease;
+}
+
+.adminhub-root .ah-user-profile-social-icon:hover {
+  background: #f2f4f7;
+  color: #101828;
+}
+
+.adminhub-root .ah-user-profile-social-icon.is-empty {
+  opacity: 0.44;
+  cursor: default;
+}
+
+.adminhub-root .ah-user-profile-social-icon.is-empty:hover {
+  background: transparent;
+  color: #344054;
+}
+
+.adminhub-root .ah-user-profile-social-x {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-social-icon {
+  color: #cbd5e1;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-social-icon:hover {
+  background: #1f2937;
+  color: #f8fafc;
+}
+
+/* Profile edit modals (portaled to body; also work inside hub) */
+.ah-profile-modal-root,
+.adminhub-root .ah-profile-modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.ah-profile-modal-backdrop,
+.adminhub-root .ah-profile-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.45);
+  cursor: pointer;
+}
+
+.ah-profile-modal,
+.adminhub-root .ah-profile-modal {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 720px);
+  max-height: min(90vh, 860px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e4e7ec;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow:
+    0 24px 48px -12px rgba(16, 24, 40, 0.18),
+    0 8px 16px -8px rgba(16, 24, 40, 0.08);
+  overflow: hidden;
+}
+
+.ah-profile-modal-header,
+.adminhub-root .ah-profile-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+  padding: 24px 28px 20px;
+}
+
+.ah-profile-modal-title,
+.adminhub-root .ah-profile-modal-title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #101828;
+}
+
+.ah-profile-modal-subtitle,
+.adminhub-root .ah-profile-modal-subtitle {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #667085;
+}
+
+.ah-profile-modal-close,
+.adminhub-root .ah-profile-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: 1px solid #e4e7ec;
+  border-radius: 999px;
+  background: #fff;
+  color: #667085;
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.ah-profile-modal-close:hover,
+.adminhub-root .ah-profile-modal-close:hover {
+  background: #f9fafb;
+  border-color: #d0d5dd;
+  color: #101828;
+}
+
+.ah-profile-modal-body,
+.adminhub-root .ah-profile-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 28px 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ah-profile-modal-body::-webkit-scrollbar,
+.adminhub-root .ah-profile-modal-body::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.ah-profile-modal--personal .ah-profile-modal-body {
+  padding-bottom: 32px;
+}
+
+.ah-profile-modal--personal .ah-profile-modal-body::after {
+  content: '';
+  display: block;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.ah-profile-modal--compact .ah-profile-modal-body {
+  padding-bottom: 20px;
+}
+
+.ah-profile-modal-section-label,
+.adminhub-root .ah-profile-modal-section-label {
+  margin: 8px 0 16px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #101828;
+}
+
+.ah-profile-modal-grid,
+.adminhub-root .ah-profile-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ah-profile-modal-photo-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.ah-profile-modal-photo-picker {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  flex-shrink: 0;
+}
+
+.ah-profile-modal-photo-img,
+.ah-profile-modal-photo-fallback {
+  width: 80px;
+  height: 80px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.ah-profile-modal-photo-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #fff;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.ah-profile-modal-photo-btn {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+
+.ah-profile-modal-photo-btn:hover {
+  background: #1d4ed8;
+}
+
+.ah-profile-modal-photo-hint {
+  margin: 0;
+  max-width: 280px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #667085;
+}
+
+.ah-profile-modal-field textarea {
+  min-height: 112px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.ah-profile-modal--personal .ah-profile-modal-section-label:first-of-type {
+  margin-top: 0;
+}
+
+.ah-profile-modal-section-label--spaced {
+  margin-top: 28px;
+}
+
+.ah-profile-modal-field,
+.adminhub-root .ah-profile-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ah-profile-modal-field span,
+.adminhub-root .ah-profile-modal-field span {
+  font-size: 13px;
+  font-weight: 500;
+  color: #344054;
+}
+
+.ah-profile-modal-field input,
+.ah-profile-modal-field textarea,
+.adminhub-root .ah-profile-modal-field input,
+.adminhub-root .ah-profile-modal-field textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  background: #fff;
+  color: #101828;
+  font-size: 14px;
+  outline: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.ah-profile-modal-field input:focus,
+.ah-profile-modal-field textarea:focus,
+.adminhub-root .ah-profile-modal-field input:focus,
+.adminhub-root .ah-profile-modal-field textarea:focus {
+  border-color: #84adff;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+}
+
+.ah-profile-modal-field--full,
+.adminhub-root .ah-profile-modal-field--full {
+  grid-column: 1 / -1;
+}
+
+.ah-profile-modal-footer,
+.adminhub-root .ah-profile-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 16px 28px 24px;
+  border-top: 1px solid #f2f4f7;
+  background: #fff;
+  border-radius: 0 0 20px 20px;
+}
+
+.ah-profile-modal-btn,
+.adminhub-root .ah-profile-modal-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.ah-profile-modal-btn--ghost,
+.adminhub-root .ah-profile-modal-btn--ghost {
+  border-color: #d0d5dd;
+  background: #fff;
+  color: #344054;
+}
+
+.ah-profile-modal-btn--ghost:hover,
+.adminhub-root .ah-profile-modal-btn--ghost:hover {
+  background: #f9fafb;
+}
+
+.ah-profile-modal-btn--primary,
+.adminhub-root .ah-profile-modal-btn--primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.ah-profile-modal-btn--primary:hover,
+.adminhub-root .ah-profile-modal-btn--primary:hover {
+  background: #1d4ed8;
+}
+
+.ah-profile-modal-btn:disabled,
+.adminhub-root .ah-profile-modal-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .ah-profile-modal-grid,
+  .adminhub-root .ah-profile-modal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ah-profile-modal-header,
+  .ah-profile-modal-footer,
+  .adminhub-root .ah-profile-modal-header,
+  .adminhub-root .ah-profile-modal-footer {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .ah-profile-modal-body,
+  .adminhub-root .ah-profile-modal-body {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .ah-profile-modal-photo-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 900px) {
+  .adminhub-root .ah-user-profile-page-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .adminhub-root .ah-user-profile-card {
+    padding: 24px 20px;
+  }
+
+  .adminhub-root .ah-user-profile-fields,
+  .adminhub-root .ah-user-profile-fields--personal,
+  .adminhub-root .ah-user-profile-fields--address,
+  .adminhub-root .ah-user-profile-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .adminhub-root .ah-user-profile-card-top,
+  .adminhub-root .ah-user-profile-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .adminhub-root .ah-user-profile-hero {
+    align-items: flex-start;
+    gap: 18px;
+  }
+
+  .adminhub-root .ah-user-profile-hero-avatar {
+    width: 72px;
+    height: 72px;
+    font-size: 24px;
+  }
+
+  .adminhub-root .ah-user-profile-hero-name {
+    font-size: 18px;
+  }
+
+  .adminhub-root .ah-user-profile-hero-meta,
+  .adminhub-root .ah-user-profile-row-desc,
+  .adminhub-root .ah-user-profile-field-value {
+    font-size: 15px;
+  }
+
+  .adminhub-root .ah-user-profile-edit-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ── Admin hub theme polish: user/profile surfaces ───────────── */
+.adminhub-root {
+  color-scheme: light;
+  background: #f6f8fb;
+}
+
+.adminhub-root .ah-main-surface {
+  background: #f6f8fb;
+}
+
+.adminhub-root .ah-tab-shell:has(.ah-tab-panel.is-active .ah-user-profile-page) {
+  padding: 22px clamp(18px, 2.4vw, 32px) 34px !important;
+}
+
+.adminhub-root .ah-user-profile-page-head {
+  margin-bottom: 20px;
+}
+
+.adminhub-root .ah-user-profile-stack {
+  gap: 18px;
+}
+
+.adminhub-root .ah-user-profile-card {
+  border-radius: 12px;
+  padding: 24px 28px;
+  border-color: #e5e7eb;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.adminhub-root .ah-user-profile-card-title,
+.adminhub-root .ah-user-profile-shell-title {
+  margin-bottom: 22px;
+  font-size: 20px;
+}
+
+.adminhub-root .ah-user-profile-card-top {
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.adminhub-root .ah-user-profile-card-top--compact {
+  margin-bottom: 22px;
+}
+
+.adminhub-root .ah-user-profile-hero {
+  gap: 20px;
+}
+
+.adminhub-root .ah-user-profile-hero-avatar {
+  width: 88px;
+  height: 88px;
+  font-size: 30px;
+  box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.72);
+}
+
+.adminhub-root .ah-user-profile-hero-name {
+  margin-bottom: 6px;
+  font-size: 22px;
+}
+
+.adminhub-root .ah-user-profile-hero-meta,
+.adminhub-root .ah-user-profile-row-desc {
+  font-size: 14px;
+}
+
+.adminhub-root .ah-user-profile-section-title {
+  font-size: 18px;
+}
+
+.adminhub-root .ah-user-profile-section-title--spaced {
+  margin-bottom: 20px;
+}
+
+.adminhub-root .ah-user-profile-edit-btn {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.adminhub-root .ah-user-profile-fields,
+.adminhub-root .ah-user-profile-fields--personal,
+.adminhub-root .ah-user-profile-fields--address {
+  gap: 26px 40px;
+}
+
+.adminhub-root .ah-user-profile-field-label {
+  margin-bottom: 7px;
+  font-size: 12px;
+}
+
+.adminhub-root .ah-user-profile-field-value {
+  font-size: 15px;
+}
+
+.adminhub-root .ah-user-profile-row-title {
+  margin-bottom: 4px;
+  font-size: 15px;
+}
+
+.adminhub-root .ah-user-profile-divider {
+  margin: 18px 0;
+}
+
+.adminhub-root .ah-user-profile-password-panel,
+.adminhub-root .ah-user-profile-danger-panel {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.adminhub-root .ah-user-profile-input-wrap span {
+  color: #475467;
+}
+
+.adminhub-root .ah-user-profile-btn {
+  min-height: 38px;
+  border-radius: 9px;
+}
+
+.adminhub-root .ah-users-stat-card,
+.adminhub-root .ah-users-table-card {
+  border: 1px solid #e5e7eb;
+}
+
+.adminhub-root .ah-users-stat-card {
+  border-radius: 12px;
+}
+
+.adminhub-root .ah-user-toolbar,
+.adminhub-root .ah-users-table-footer {
+  background: #fff;
+}
+
+/* Radix dropdowns are portaled, so these notification styles must be unscoped. */
+.ah-topbar-notify-panel {
+  width: min(360px, calc(100vw - 32px));
+  padding: 0 !important;
+  border: 1px solid #e4e7ec !important;
+  border-radius: 16px !important;
+  background: #fff !important;
+  overflow: hidden;
+  box-shadow:
+    0 20px 24px -4px rgba(16, 24, 40, 0.08),
+    0 8px 8px -4px rgba(16, 24, 40, 0.03) !important;
+}
+
+.ah-topbar-notify-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f2f4f7;
+}
+
+.ah-topbar-notify-head strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #101828;
+}
+
+.ah-topbar-notify-mark {
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ah-topbar-notify-list {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.ah-topbar-notify-empty {
+  margin: 0;
+  padding: 24px 16px;
+  text-align: center;
+  color: #667085;
+  font-size: 13px;
+}
+
+.ah-topbar-notify-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-bottom: 1px solid #f2f4f7;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.ah-topbar-notify-item:hover {
+  background: #f9fafb;
+}
+
+.ah-topbar-notify-item.is-unread {
+  background: #eff6ff;
+}
+
+.ah-topbar-notify-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #101828;
+}
+
+.ah-topbar-notify-message {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #667085;
+}
+
+.adminhub-root.adminhub--dark {
+  --ah-dark-bg: #101214;
+  --ah-dark-surface: #171a20;
+  --ah-dark-surface-2: #1d2027;
+  --ah-dark-surface-3: #22262e;
+  --ah-dark-border: #2b3038;
+  --ah-dark-border-soft: #232832;
+  --ah-dark-text: #f3f5f7;
+  --ah-dark-muted: #aeb6c2;
+  --ah-dark-subtle: #7f8996;
+  --ah-dark-accent: #60a5fa;
+  color-scheme: dark;
+  background: var(--ah-dark-bg);
+  color: var(--ah-dark-text);
+}
+
+.adminhub-root.adminhub--dark .ah-main-surface {
+  background: var(--ah-dark-bg);
+}
+
+.adminhub-root.adminhub--dark .ah-sidebar {
+  --ah-sidebar-text: var(--ah-dark-text);
+  --ah-sidebar-muted: #aab3bf;
+  --ah-sidebar-border: var(--ah-dark-border);
+  --ah-sidebar-hover: rgba(255, 255, 255, 0.055);
+  --ah-sidebar-accent: var(--ah-dark-accent);
+  background: var(--ah-dark-surface);
+  border-color: var(--ah-dark-border);
+}
+
+.adminhub-root.adminhub--dark .ah-sidebar-footer,
+.adminhub-root.adminhub--dark .ah-sidebar-profile,
+.adminhub-root.adminhub--dark .ah-sidebar-profile--collapsed {
+  background: var(--ah-dark-surface);
+}
+
+.adminhub-root.adminhub--dark .ah-sidebar-brand-name,
+.adminhub-root.adminhub--dark .ah-sidebar-profile-name,
+.adminhub-root.adminhub--dark .ah-nav-item {
+  color: var(--ah-dark-text);
+}
+
+.adminhub-root.adminhub--dark .ah-sidebar-profile-email,
+.adminhub-root.adminhub--dark .ah-sidebar-profile-role,
+.adminhub-root.adminhub--dark .ah-sidebar-empty,
+.adminhub-root.adminhub--dark .ah-nav-section-title,
+.adminhub-root.adminhub--dark .ah-nav-item .ah-nav-icon {
+  color: var(--ah-dark-muted);
+}
+
+.adminhub-root.adminhub--dark .ah-nav-item:hover,
+.adminhub-root.adminhub--dark .ah-sidebar.is-collapsed .ah-nav-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.adminhub-root.adminhub--dark .ah-nav-item.ah-nav-row.active,
+.adminhub-root.adminhub--dark .ah-nav-item.ah-nav-row.active:hover,
+.adminhub-root.adminhub--dark .ah-nav-item.ah-nav-leaf.active,
+.adminhub-root.adminhub--dark .ah-sidebar.is-collapsed .ah-nav-item.active {
+  background: rgba(96, 165, 250, 0.15);
+  color: #f8fbff;
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.2);
+}
+
+.adminhub-root.adminhub--dark .ah-nav-item.ah-nav-row.active .ah-nav-icon,
+.adminhub-root.adminhub--dark .ah-nav-item.ah-nav-leaf.active .ah-nav-icon,
+.adminhub-root.adminhub--dark .ah-sidebar.is-collapsed .ah-nav-item.active .ah-nav-icon {
+  color: #8fc2ff;
+}
+
+.adminhub-root.adminhub--dark .ah-sidebar-secondary {
+  border-color: var(--ah-dark-border);
+}
+
+.adminhub-root.adminhub--dark .ah-topbar {
+  background: var(--ah-dark-surface);
+  border-bottom-color: var(--ah-dark-border);
+  box-shadow: none;
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-icon-btn,
+.adminhub-root.adminhub--dark .ah-topbar-user,
+.adminhub-root.adminhub--dark .ah-topbar-command {
+  background: var(--ah-dark-surface-2);
+  border-color: var(--ah-dark-border);
+  color: var(--ah-dark-text);
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-icon-btn:hover,
+.adminhub-root.adminhub--dark .ah-topbar-user:hover {
+  background: var(--ah-dark-surface-3);
+  border-color: #3b4250;
+  color: #fff;
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-notify-dot {
+  border-color: var(--ah-dark-surface);
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-command-icon,
+.adminhub-root.adminhub--dark .ah-topbar-user-chevron {
+  color: var(--ah-dark-subtle);
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-command input::placeholder {
+  color: var(--ah-dark-subtle);
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-command-panel {
+  background: var(--ah-dark-surface-2);
+  border-color: var(--ah-dark-border);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-command-item {
+  color: var(--ah-dark-muted);
+}
+
+.adminhub-root.adminhub--dark .ah-topbar-command-item:hover {
+  background: rgba(96, 165, 250, 0.12);
+  color: var(--ah-dark-text);
+}
+
+.adminhub-root.adminhub--dark .ah-page-title,
+.adminhub-root.adminhub--dark .ah-dashboard-title,
+.adminhub-root.adminhub--dark .ah-dashboard-card-title,
+.adminhub-root.adminhub--dark .ah-dashboard-kpi-value,
+.adminhub-root.adminhub--dark .ah-dashboard-metric-chip strong,
+.adminhub-root.adminhub--dark .ah-dashboard-chart-legend-row strong,
+.adminhub-root.adminhub--dark .ah-dashboard-donut-center strong,
+.adminhub-root.adminhub--dark .ah-dashboard-mini-chart-head strong,
+.adminhub-root.adminhub--dark .ah-dashboard-pipeline-summary-item strong,
+.adminhub-root.adminhub--dark .ah-dashboard-empty-chart strong {
+  color: var(--ah-dark-text) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-section-label,
+.adminhub-root.adminhub--dark .ah-dashboard-subtitle,
+.adminhub-root.adminhub--dark .ah-dashboard-card-sub,
+.adminhub-root.adminhub--dark .ah-dashboard-kpi-detail,
+.adminhub-root.adminhub--dark .ah-dashboard-metric-chip span,
+.adminhub-root.adminhub--dark .ah-dashboard-chart-legend-label,
+.adminhub-root.adminhub--dark .ah-dashboard-donut-center span,
+.adminhub-root.adminhub--dark .ah-dashboard-mini-chart-head,
+.adminhub-root.adminhub--dark .ah-dashboard-pipeline-summary-item em,
+.adminhub-root.adminhub--dark .ah-dashboard-empty-chart span {
+  color: var(--ah-dark-muted) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-kpi-card,
+.adminhub-root.adminhub--dark .ah-card-section,
+.adminhub-root.adminhub--dark .ah-chart-card,
+.adminhub-root.adminhub--dark .ah-users-stat-card,
+.adminhub-root.adminhub--dark .ah-users-table-card {
+  background: var(--ah-dark-surface);
+  border: 1px solid var(--ah-dark-border);
+  box-shadow: none;
+}
+
+.adminhub-root.adminhub--dark .ah-users-stat-card {
+  background: linear-gradient(180deg, var(--ah-dark-surface-2), var(--ah-dark-surface));
+}
+
+.adminhub-root.adminhub--dark .ah-dashboard-metric-chip,
+.adminhub-root.adminhub--dark .ah-dashboard-chart-legend-row,
+.adminhub-root.adminhub--dark .ah-dashboard-donut-panel,
+.adminhub-root.adminhub--dark .ah-dashboard-hourly-panel,
+.adminhub-root.adminhub--dark .ah-dashboard-pipeline-summary-item,
+.adminhub-root.adminhub--dark .ah-dashboard-empty-chart {
+  background: var(--ah-dark-surface-2);
+  border-color: var(--ah-dark-border);
+}
+
+.adminhub-root.adminhub--dark .ah-input,
+.adminhub-root.adminhub--dark .ah-account-input {
+  background: var(--ah-dark-surface-2);
+  color: var(--ah-dark-text);
+  box-shadow: inset 0 0 0 1px var(--ah-dark-border);
+}
+
+.adminhub-root.adminhub--dark .ah-input::placeholder,
+.adminhub-root.adminhub--dark .ah-account-input::placeholder {
+  color: var(--ah-dark-subtle);
+}
+
+.adminhub-root.adminhub--dark .ah-input:focus,
+.adminhub-root.adminhub--dark .ah-account-input:focus {
+  background: var(--ah-dark-surface);
+  box-shadow:
+    0 0 0 3px rgba(96, 165, 250, 0.2),
+    inset 0 0 0 1px rgba(96, 165, 250, 0.65);
+}
+
+.adminhub-root.adminhub--dark select.ah-input option {
+  background: var(--ah-dark-surface);
+  color: var(--ah-dark-text);
+}
+
+.adminhub-root.adminhub--dark .ah-btn-secondary,
+.adminhub-root.adminhub--dark .ah-account-btn--ghost,
+.adminhub-root.adminhub--dark .ah-user-profile-btn--ghost {
+  background: var(--ah-dark-surface-2);
+  border: 1px solid var(--ah-dark-border);
+  color: var(--ah-dark-text);
+  box-shadow: none;
+}
+
+.adminhub-root.adminhub--dark .ah-btn-secondary:hover,
+.adminhub-root.adminhub--dark .ah-account-btn--ghost:hover,
+.adminhub-root.adminhub--dark .ah-user-profile-btn--ghost:hover {
+  background: var(--ah-dark-surface-3);
+}
+
+.adminhub-root.adminhub--dark .ah-table th {
+  background: var(--ah-dark-surface-2);
+  color: var(--ah-dark-muted);
+  box-shadow: 0 1px 0 var(--ah-dark-border);
+}
+
+.adminhub-root.adminhub--dark .ah-table td {
+  color: #d9dee7;
+  box-shadow: 0 1px 0 var(--ah-dark-border-soft);
+}
+
+.adminhub-root.adminhub--dark .ah-table tbody tr:hover,
+.adminhub-root.adminhub--dark .ah-users-table tbody tr:hover {
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.adminhub-root.adminhub--dark .ah-user-toolbar,
+.adminhub-root.adminhub--dark .ah-user-toolbar-tip,
+.adminhub-root.adminhub--dark .ah-users-table-footer {
+  background: var(--ah-dark-surface);
+  box-shadow: none !important;
+}
+
+.adminhub-root.adminhub--dark .ah-user-toolbar {
+  border-bottom: 1px solid var(--ah-dark-border);
+}
+
+.adminhub-root.adminhub--dark .ah-user-toolbar-tip {
+  border-bottom: 1px solid var(--ah-dark-border-soft);
+}
+
+.adminhub-root.adminhub--dark .ah-users-page-header p,
+.adminhub-root.adminhub--dark .ah-users-stat-card .ah-section-label,
+.adminhub-root.adminhub--dark .ah-users-stat-card p:not(.tabular-nums),
+.adminhub-root.adminhub--dark .ah-user-toolbar-tip p,
+.adminhub-root.adminhub--dark .ah-user-toolbar-tip strong,
+.adminhub-root.adminhub--dark .ah-users-table-footer p,
+.adminhub-root.adminhub--dark .ah-users-table-footer strong {
+  color: var(--ah-dark-muted) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-user-toolbar-meta > span,
+.adminhub-root.adminhub--dark .ah-user-active-filters span:not(:first-child) {
+  background: var(--ah-dark-surface-2) !important;
+  color: var(--ah-dark-muted) !important;
+  box-shadow: inset 0 0 0 1px var(--ah-dark-border) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-user-active-filters span:first-child {
+  color: var(--ah-dark-muted) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-users-table tbody td:nth-child(1) .ah-cell-truncate:first-child {
+  color: var(--ah-dark-text) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-users-table tbody td:nth-child(1) .font-mono,
+.adminhub-root.adminhub--dark .ah-users-table tbody td:nth-child(5) .font-mono,
+.adminhub-root.adminhub--dark .ah-user-activity span[style] {
+  color: var(--ah-dark-subtle) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-users-table tbody td:nth-child(2) .font-mono {
+  color: #cbd2dd !important;
+}
+
+.adminhub-root.adminhub--dark .ah-user-role-pill {
+  background: rgba(96, 165, 250, 0.13);
+  color: #bfdbfe;
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.26);
+}
+
+.adminhub-root.adminhub--dark .ah-user-action-btn {
+  background: var(--ah-dark-surface-2);
+  color: var(--ah-dark-muted);
+  box-shadow: inset 0 0 0 1px var(--ah-dark-border);
+}
+
+.adminhub-root.adminhub--dark .ah-user-action-btn:hover:not(:disabled) {
+  background: rgba(96, 165, 250, 0.14);
+  color: #bfdbfe;
+}
+
+.adminhub-root.adminhub--dark .ah-user-action-btn--danger {
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+  box-shadow: inset 0 0 0 1px rgba(244, 63, 94, 0.22);
+}
+
+.adminhub-root.adminhub--dark .ah-user-action-btn--success {
+  background: rgba(16, 185, 129, 0.12);
+  color: #86efac;
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.22);
+}
+
+.adminhub-root.adminhub--dark .ah-badge-active,
+.adminhub-root.adminhub--dark .ah-badge-success {
+  background: rgba(16, 185, 129, 0.13);
+  color: #86efac;
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+.adminhub-root.adminhub--dark .ah-badge-pending,
+.adminhub-root.adminhub--dark .ah-badge-warning {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fcd34d;
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.adminhub-root.adminhub--dark .ah-badge-inactive,
+.adminhub-root.adminhub--dark .ah-badge-archived {
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.adminhub-root.adminhub--dark .ah-badge-failed {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.adminhub-root.adminhub--dark .ah-badge-verified {
+  background: rgba(96, 165, 250, 0.14);
+  color: #bfdbfe;
+  border-color: rgba(96, 165, 250, 0.3);
+}
+
+.adminhub-root.adminhub--dark .ah-modal-overlay {
+  background: rgba(5, 7, 10, 0.66);
+}
+
+.adminhub-root.adminhub--dark .ah-modal-card,
+.adminhub-root.adminhub--dark .ah-create-user-dialog {
+  background: var(--ah-dark-surface) !important;
+  border: 1px solid var(--ah-dark-border) !important;
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.36) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-modal-card > div:first-child,
+.adminhub-root.adminhub--dark .ah-modal-card form > div:last-child,
+.adminhub-root.adminhub--dark .ah-modal-card > div:last-child,
+.adminhub-root.adminhub--dark .ah-create-user-header,
+.adminhub-root.adminhub--dark .ah-create-user-footer {
+  background: var(--ah-dark-surface-2) !important;
+  border-color: var(--ah-dark-border) !important;
+  box-shadow: none !important;
+}
+
+.adminhub-root.adminhub--dark .ah-modal-card h3,
+.adminhub-root.adminhub--dark .ah-modal-card label,
+.adminhub-root.adminhub--dark .ah-modal-card strong,
+.adminhub-root.adminhub--dark .ah-create-user-dialog h2,
+.adminhub-root.adminhub--dark .ah-create-user-dialog label {
+  color: var(--ah-dark-text) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-modal-card p,
+.adminhub-root.adminhub--dark .ah-modal-card span:not(.ah-badge),
+.adminhub-root.adminhub--dark .ah-create-user-dialog [class*="text-slate"] {
+  color: var(--ah-dark-muted) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-create-user-dialog [class*="bg-slate"],
+.adminhub-root.adminhub--dark .ah-create-user-dialog [class*="bg-white"] {
+  background: var(--ah-dark-surface-2) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-create-user-footer button[type="button"] {
+  background: var(--ah-dark-surface) !important;
+  color: var(--ah-dark-text) !important;
+  box-shadow: inset 0 0 0 1px var(--ah-dark-border) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-skeleton {
+  background: linear-gradient(90deg, #242932 25%, #303641 50%, #242932 75%);
+  background-size: 200% 100%;
+}
+
+.adminhub-root.adminhub--dark ::-webkit-scrollbar-track {
+  background: #121419;
+}
+
+.adminhub-root.adminhub--dark ::-webkit-scrollbar-thumb {
+  background: #343b46;
+}
+
+.adminhub-root.adminhub--dark ::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-breadcrumb,
+.adminhub-root.adminhub--dark .ah-user-profile-breadcrumb button,
+.adminhub-root.adminhub--dark .ah-user-profile-hero-meta,
+.adminhub-root.adminhub--dark .ah-user-profile-row-desc,
+.adminhub-root.adminhub--dark .ah-user-profile-field-label {
+  color: var(--ah-dark-muted);
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-breadcrumb button:hover {
+  color: #93c5fd;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-breadcrumb span[aria-current],
+.adminhub-root.adminhub--dark .ah-user-profile-page-title,
+.adminhub-root.adminhub--dark .ah-user-profile-card-title,
+.adminhub-root.adminhub--dark .ah-user-profile-shell-title,
+.adminhub-root.adminhub--dark .ah-user-profile-hero-name,
+.adminhub-root.adminhub--dark .ah-user-profile-section-title,
+.adminhub-root.adminhub--dark .ah-user-profile-row-title,
+.adminhub-root.adminhub--dark .ah-user-profile-field-value {
+  color: var(--ah-dark-text);
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-card {
+  background: var(--ah-dark-surface);
+  border-color: var(--ah-dark-border);
+  box-shadow: none;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-edit-btn,
+.adminhub-root.adminhub--dark .ah-user-profile-input-wrap input,
+.adminhub-root.adminhub--dark .ah-user-profile-btn--ghost {
+  background: var(--ah-dark-surface-2);
+  border-color: var(--ah-dark-border);
+  color: var(--ah-dark-text);
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-edit-btn:hover,
+.adminhub-root.adminhub--dark .ah-user-profile-btn--ghost:hover {
+  background: var(--ah-dark-surface-3);
+  border-color: #3b4250;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-edit-btn--danger {
+  border-color: rgba(244, 63, 94, 0.32);
+  color: #fda4af;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-edit-btn--danger:hover {
+  background: rgba(244, 63, 94, 0.12);
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-divider,
+.adminhub-root.adminhub--dark .ah-user-profile-password-panel,
+.adminhub-root.adminhub--dark .ah-user-profile-danger-panel {
+  border-color: var(--ah-dark-border);
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-password-panel,
+.adminhub-root.adminhub--dark .ah-user-profile-danger-panel {
+  background: var(--ah-dark-surface-2);
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-toggle {
+  background: #3b4250;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-toggle-thumb {
+  background: #f8fafc;
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-social-icon {
+  color: var(--ah-dark-muted);
+}
+
+.adminhub-root.adminhub--dark .ah-user-profile-social-icon:hover {
+  background: var(--ah-dark-surface-2);
+  color: var(--ah-dark-text);
+}
+
+body[data-adminhub-theme='dark'] .ah-account-dropdown-content,
+body[data-adminhub-theme='dark'] .ah-topbar-notify-panel {
+  background: #171a20 !important;
+  border-color: #2b3038 !important;
+  color: #f3f5f7 !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.34) !important;
+}
+
+body[data-adminhub-theme='dark'] .ah-account-dropdown-header,
+body[data-adminhub-theme='dark'] .ah-topbar-notify-head,
+body[data-adminhub-theme='dark'] .ah-topbar-notify-item {
+  border-color: #2b3038 !important;
+}
+
+body[data-adminhub-theme='dark'] .ah-account-dropdown-name,
+body[data-adminhub-theme='dark'] .ah-topbar-notify-head strong,
+body[data-adminhub-theme='dark'] .ah-topbar-notify-title {
+  color: #f3f5f7 !important;
+}
+
+body[data-adminhub-theme='dark'] .ah-account-dropdown-email,
+body[data-adminhub-theme='dark'] .ah-topbar-notify-empty,
+body[data-adminhub-theme='dark'] .ah-topbar-notify-message {
+  color: #aeb6c2 !important;
+}
+
+body[data-adminhub-theme='dark'] .ah-account-dropdown-content .ah-account-dropdown-item {
+  color: #d9dee7 !important;
+}
+
+body[data-adminhub-theme='dark'] .ah-account-dropdown-content .ah-account-dropdown-item svg {
+  color: #aeb6c2;
+}
+
+body[data-adminhub-theme='dark'] .ah-account-dropdown-content .ah-account-dropdown-item:hover,
+body[data-adminhub-theme='dark'] .ah-account-dropdown-content .ah-account-dropdown-item:focus,
+body[data-adminhub-theme='dark'] .ah-topbar-notify-item:hover {
+  background: rgba(96, 165, 250, 0.12) !important;
+  color: #f3f5f7 !important;
+}
+
+body[data-adminhub-theme='dark'] .ah-topbar-notify-item.is-unread {
+  background: rgba(96, 165, 250, 0.15) !important;
+}
+
+body[data-adminhub-theme='dark'] .ah-account-dropdown-separator {
+  background: #2b3038 !important;
+}
+
+body[data-adminhub-theme='dark'] .ah-profile-modal {
+  background: #171a20;
+  border-color: #2b3038;
+  color: #f3f5f7;
+  box-shadow: 0 28px 64px rgba(0, 0, 0, 0.42);
+}
+
+body[data-adminhub-theme='dark'] .ah-profile-modal-backdrop {
+  background: rgba(5, 7, 10, 0.68);
+}
+
+body[data-adminhub-theme='dark'] .ah-profile-modal-title,
+body[data-adminhub-theme='dark'] .ah-profile-modal-section-label {
+  color: #f3f5f7;
+}
+
+body[data-adminhub-theme='dark'] .ah-profile-modal-subtitle,
+body[data-adminhub-theme='dark'] .ah-profile-modal-photo-hint,
+body[data-adminhub-theme='dark'] .ah-profile-modal-field span {
+  color: #aeb6c2;
+}
+
+body[data-adminhub-theme='dark'] .ah-profile-modal-close,
+body[data-adminhub-theme='dark'] .ah-profile-modal-field input,
+body[data-adminhub-theme='dark'] .ah-profile-modal-field textarea,
+body[data-adminhub-theme='dark'] .ah-profile-modal-btn--ghost {
+  background: #1d2027;
+  border-color: #2b3038;
+  color: #f3f5f7;
+}
+
+body[data-adminhub-theme='dark'] .ah-profile-modal-close:hover,
+body[data-adminhub-theme='dark'] .ah-profile-modal-btn--ghost:hover {
+  background: #22262e;
+  color: #fff;
+}
+
+body[data-adminhub-theme='dark'] .ah-profile-modal-field input:focus,
+body[data-adminhub-theme='dark'] .ah-profile-modal-field textarea:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.2);
+}
+
+body[data-adminhub-theme='dark'] .ah-profile-modal-footer {
+  background: #171a20;
+  border-top-color: #2b3038;
+}
+
+body[data-adminhub-theme='dark'] .ah-profile-modal-photo-btn,
+body[data-adminhub-theme='dark'] .ah-profile-modal-btn--primary {
+  background: #3b82f6;
+  color: #fff;
+}
+
+body[data-adminhub-theme='dark'] .ah-profile-modal-photo-btn:hover,
+body[data-adminhub-theme='dark'] .ah-profile-modal-btn--primary:hover {
+  background: #2563eb;
+}
+
+@media (max-width: 900px) {
+  .adminhub-root .ah-user-profile-card {
+    padding: 22px 18px;
+  }
+
+  .adminhub-root .ah-user-profile-hero-avatar {
+    width: 72px;
+    height: 72px;
+    font-size: 24px;
+  }
+
+  .adminhub-root .ah-user-profile-card-top,
+  .adminhub-root .ah-user-profile-row {
+    align-items: stretch;
+  }
 }

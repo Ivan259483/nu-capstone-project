@@ -61,7 +61,7 @@ function AnimatedCounter({ value, suffix = "", duration = 2 }: { value: number; 
    ADD-ONS DATA
 ═══════════════════════════════════════ */
 const addOns: { name: string; prices: Record<VehicleType, string> }[] = [
-    { name: "Undercoating", prices: { hatchback: "₱8,000", sedan: "₱8,000", midsized: "₱8,000", suv: "₱8,000", pickup: "₱8,000", largesuv: "₱8,000", highend: "₱8,000" } },
+    { name: "Undercoating", prices: { hatchback: "₱6,000", sedan: "₱6,500", midsized: "₱7,000", suv: "₱7,500", pickup: "₱7,500", largesuv: "₱9,000", highend: "₱8,000" } },
     { name: "Repainting", prices: { hatchback: "Per Panel", sedan: "Per Panel", midsized: "Per Panel", suv: "Per Panel", pickup: "Per Panel", largesuv: "Per Panel", highend: "Per Panel" } },
     { name: "PDR (Paintless Dent Repair)", prices: { hatchback: "Per Dent", sedan: "Per Dent", midsized: "Per Dent", suv: "Per Dent", pickup: "Per Dent", largesuv: "Per Dent", highend: "Per Dent" } },
     { name: "PPF (per panel)", prices: { hatchback: "Per Panel", sedan: "Per Panel", midsized: "Per Panel", suv: "Per Panel", pickup: "Per Panel", largesuv: "Per Panel", highend: "Per Panel" } },

@@ -54,6 +54,13 @@ const TODAY_STATUS_STAGES: Array<{ key: TodayStatKey; label: string; color: stri
 ];
 
 const DASHBOARD_HOURS = Array.from({ length: 11 }, (_, index) => index + 8);
+const ROLE_CHART_LABELS: Record<string, string> = {
+  administrator: 'Admin',
+  office_admin: 'Office Admin',
+  sales: 'Sales',
+  staff_quality_checker: 'QC Tech',
+  customer: 'Customer',
+};
 
 function formatDateKey(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -210,6 +217,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
       .filter(([slug]) => slug !== 'administrator')
       .map(([slug, count]) => ({
         role: getRoleLabel(slug),
+        roleShort: ROLE_CHART_LABELS[slug] || getRoleLabel(slug),
         count,
       }))
       .sort((a, b) => b.count - a.count)
@@ -267,7 +275,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
   const kpis = [
     { key: 'total' as const, label: 'Total Users', value: stats.total, change: `${stats.total} registered accounts`, icon: Users, iconBg: '#DBEAFE', iconColor: '#2563EB', border: '#2563EB', tint: '#EFF6FF' },
     { key: 'active' as const, label: 'Active Users', value: stats.active, change: `${stats.total > 0 ? ((stats.active / stats.total) * 100).toFixed(1) : 0}% of total`, icon: UserCheck, iconBg: '#D1FAE5', iconColor: '#10B981', border: '#10B981', tint: '#ECFDF5' },
-    { key: 'pending' as const, label: 'Pending Verifications', value: stats.pending, change: 'Requires action', icon: Clock, iconBg: '#FEF3C7', iconColor: '#F59E0B', border: '#F59E0B', tint: '#FFFBEB', alert: stats.pending > 0 },
+    { key: 'pending' as const, label: 'Pending Verifications', value: stats.pending, change: stats.pending > 0 ? 'Requires action' : 'No pending verifications', icon: Clock, iconBg: '#FEF3C7', iconColor: '#F59E0B', border: '#F59E0B', tint: '#FFFBEB', alert: stats.pending > 0 },
     { key: 'roles' as const, label: 'Total Roles', value: stats.roles, change: 'Across all departments', icon: ShieldCheck, iconBg: '#FFEDD5', iconColor: '#F97316', border: '#F97316', tint: '#FFF7ED' },
   ];
 
@@ -479,7 +487,6 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
   if (loading) {
     return (
       <div className="ah-page-enter admin-dashboard-page">
-        <div><div className="ah-skeleton" style={{ width: 200, height: 24, marginBottom: 6 }} /><div className="ah-skeleton" style={{ width: 280, height: 14 }} /></div>
         <div className="ah-dashboard-kpi-grid">{[1, 2, 3, 4].map((i) => <div key={i} className="ah-skeleton" style={{ height: 72, borderRadius: 10 }} />)}</div>
         <div className="ah-dashboard-charts-grid">{[1, 2].map((i) => <div key={i} className="ah-skeleton" style={{ height: 168, borderRadius: 10 }} />)}</div>
         <div className="ah-dashboard-bottom ah-skeleton" style={{ flex: 1, minHeight: 120, borderRadius: 10 }} />
@@ -489,13 +496,6 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
 
   return (
     <div className="ah-page-enter admin-dashboard-page">
-      <header className="ah-dashboard-header">
-        <div className="ah-dashboard-header-copy">
-          <h1 className="ah-page-title ah-dashboard-title">Dashboard Overview</h1>
-          <p className="ah-dashboard-subtitle">Welcome back — here&apos;s what&apos;s happening with your users today.</p>
-        </div>
-      </header>
-
       <div className="ah-dashboard-kpi-grid">
         {kpis.map((kpi, idx) => {
           const Icon = kpi.icon;
@@ -576,15 +576,14 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
             <ResponsiveContainer width="100%" height={roleChartHeight}>
               <BarChart
                 data={roleDistributionData}
-                margin={{ top: 2, right: 4, left: -12, bottom: 4 }}
+                margin={{ top: 2, right: 4, left: -12, bottom: 0 }}
                 barCategoryGap="18%"
               >
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
                 <XAxis
-                  dataKey="role"
-                  angle={-15}
-                  textAnchor="end"
-                  height={48}
+                  dataKey="roleShort"
+                  textAnchor="middle"
+                  height={28}
                   interval={0}
                   tick={{ fontSize: 9, fill: '#94a3b8' }}
                   axisLine={false}
@@ -598,7 +597,11 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
                   tickLine={false}
                   width={26}
                 />
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                <Tooltip
+                  contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                  formatter={(value: number | string) => [Number(value || 0).toLocaleString(), 'Users']}
+                  labelFormatter={(_label: string, payload: any[]) => payload?.[0]?.payload?.role || _label}
+                />
                 <Bar dataKey="count" name="Users" fill="#2563EB" barSize={40} radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>

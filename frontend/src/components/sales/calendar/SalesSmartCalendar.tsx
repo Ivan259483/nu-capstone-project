@@ -54,6 +54,7 @@ import RescheduleModal from './RescheduleModal';
 import type { DayStatus, CalendarBooking } from './calendarTypes';
 import { EXCLUDED_STATUSES } from './calendarTypes';
 import { useCalendarScheduleDnD } from './CalendarScheduleDnDContext';
+import { formatCalendarCustomerName } from './calendarFormatters';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function dateKey(d: Date): string { return d.toLocaleDateString('en-CA'); }
@@ -382,7 +383,9 @@ function PremiumDayCell({
             const tone = CHIP_VISUAL[statusKey] || DEFAULT_CHIP_VISUAL;
             const time = getBookingTime(booking);
             const service = booking.serviceName || booking.serviceType || 'Booking';
-            const label = booking.customerName || booking.bookingReference || 'Customer';
+            const label = booking.customerName
+              ? formatCalendarCustomerName(booking.customerName)
+              : booking.bookingReference || 'Customer';
             return (
               <button
                 key={booking._id || booking.id || `${dateKey(date)}-${label}-${time}`}
@@ -1086,12 +1089,12 @@ export default function SalesSmartCalendar({ variant = 'classic' }: { variant?: 
           <div className="pointer-events-none w-[min(92vw,360px)] cursor-grabbing rounded-2xl bg-white p-4 shadow-[0_28px_60px_-15px_rgba(15,23,42,0.45)] ring-2 ring-blue-500/35">
             <div className="flex items-start gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-sm font-bold text-white shadow-md">
-                {(dragOverlayBooking.customerName || 'C').charAt(0).toUpperCase()}
+                {formatCalendarCustomerName(dragOverlayBooking.customerName).charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <GripVertical className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
-                  <p className="truncate text-[15px] font-bold text-slate-900">{dragOverlayBooking.customerName}</p>
+                  <p className="truncate text-[15px] font-bold text-slate-900">{formatCalendarCustomerName(dragOverlayBooking.customerName)}</p>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[12px] font-medium text-slate-600">
                   {dragOverlayBooking.bookingTime ? (

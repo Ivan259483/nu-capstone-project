@@ -454,10 +454,11 @@ export default function OpsCustomerJobTable({ jobs, technicians, onJobClick, onS
                       <button
                         type="button"
                         onClick={() => onJobClick(job)}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100/80 px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-slate-200/70 hover:text-slate-800"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-100 hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35"
                         title="Open details to assign technician"
+                        aria-label={`Assign technician to ${job.customer}`}
                       >
-                        <UserPlus size={12} />
+                        <UserPlus size={13} strokeWidth={2.5} />
                         Assign technician
                       </button>
                     )}

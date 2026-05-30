@@ -31,7 +31,7 @@ export const UserService = {
         return response.data;
     },
 
-    async patchMyProfile(userData: { name?: string; email?: string; avatar?: string; phone?: string }) {
+    async patchMyProfile(userData: { name?: string; email?: string; avatar?: string; phone?: string; address?: string }) {
         const response = await api.patch('/users/profile', userData, { timeout: 10000 });
         return response.data;
     },

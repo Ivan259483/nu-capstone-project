@@ -1,12 +1,11 @@
 import React from 'react';
-import { BookOpen, ChevronsUpDown, Circle, LogOut, Settings, User } from 'lucide-react';
+import { ChevronsUpDown } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import AdminAccountDropdownMenu from './AdminAccountDropdownMenu';
 
 interface Props {
   displayName: string;
@@ -47,106 +46,6 @@ function ProfileAvatar({
   );
 }
 
-function MenuShortcut({ children }: { children: React.ReactNode }) {
-  return <span className="ah-profile-menu-shortcut">{children}</span>;
-}
-
-function ProfileMenuItems({
-  onViewProfile,
-  onAccountSettings,
-  onDocumentation,
-  onSignOut,
-  displayName,
-  email,
-  avatar,
-}: Pick<
-  Props,
-  | 'onViewProfile'
-  | 'onAccountSettings'
-  | 'onDocumentation'
-  | 'onSignOut'
-  | 'displayName'
-  | 'email'
-  | 'avatar'
->) {
-  const openDocs =
-    onDocumentation ??
-    (() => {
-      window.open('/about', '_blank', 'noopener,noreferrer');
-    });
-
-  return (
-    <>
-      <div className="ah-profile-menu-actions">
-        <DropdownMenuItem
-          className="ah-profile-menu-item"
-          onSelect={() => onViewProfile()}
-        >
-          <User size={16} strokeWidth={1.5} aria-hidden />
-          <span className="ah-profile-menu-item-label">View profile</span>
-          <MenuShortcut>
-            <kbd>⌘</kbd>
-            <span className="ah-profile-menu-shortcut-arrow">→</span>
-            <kbd>P</kbd>
-          </MenuShortcut>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="ah-profile-menu-item"
-          onSelect={() => onAccountSettings()}
-        >
-          <Settings size={16} strokeWidth={1.5} aria-hidden />
-          <span className="ah-profile-menu-item-label">Account settings</span>
-          <MenuShortcut>
-            <kbd>⌘</kbd>
-            <kbd>S</kbd>
-          </MenuShortcut>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="ah-profile-menu-item"
-          onSelect={() => openDocs()}
-        >
-          <BookOpen size={16} strokeWidth={1.5} aria-hidden />
-          <span className="ah-profile-menu-item-label">Documentation</span>
-        </DropdownMenuItem>
-      </div>
-
-      <div className="ah-profile-menu-switch">
-        <div className="ah-profile-menu-switch-label">Switch account</div>
-        <div className="ah-profile-menu-account ah-profile-menu-account--active">
-          <ProfileAvatar
-            displayName={displayName}
-            email={email}
-            avatar={avatar}
-            size="sm"
-          />
-          <div className="ah-profile-menu-account-info">
-            <div className="ah-profile-menu-account-name">{displayName}</div>
-            <div className="ah-profile-menu-account-email">{email}</div>
-          </div>
-          <span className="ah-profile-menu-account-radio" aria-hidden>
-            <Circle size={16} strokeWidth={1.5} className="ah-profile-menu-radio-icon" />
-          </span>
-        </div>
-      </div>
-
-      <DropdownMenuSeparator className="ah-profile-menu-separator" />
-
-      <DropdownMenuItem
-        className="ah-profile-menu-item ah-profile-menu-item--signout"
-        onSelect={() => onSignOut()}
-      >
-        <LogOut size={16} strokeWidth={1.5} aria-hidden />
-        <span className="ah-profile-menu-item-label">Sign out</span>
-        <MenuShortcut>
-          <kbd>⌥</kbd>
-          <kbd>⇧</kbd>
-          <kbd>Q</kbd>
-        </MenuShortcut>
-      </DropdownMenuItem>
-    </>
-  );
-}
-
 export default function AdminSidebarProfileMenu({
   displayName,
   email,
@@ -159,14 +58,13 @@ export default function AdminSidebarProfileMenu({
   onSignOut,
   onDocumentation,
 }: Props) {
-  const menuContentProps = {
-    onViewProfile,
-    onAccountSettings,
-    onDocumentation,
-    onSignOut,
+  const menuProps = {
     displayName,
     email,
-    avatar,
+    onEditProfile: onViewProfile,
+    onAccountSettings,
+    onSupport: onDocumentation,
+    onSignOut,
   };
 
   if (collapsed) {
@@ -185,10 +83,10 @@ export default function AdminSidebarProfileMenu({
           <DropdownMenuContent
             side="right"
             align="end"
-            sideOffset={8}
-            className="ah-profile-menu-content"
+            sideOffset={10}
+            className="ah-account-dropdown-content"
           >
-            <ProfileMenuItems {...menuContentProps} />
+            <AdminAccountDropdownMenu {...menuProps} />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -219,10 +117,10 @@ export default function AdminSidebarProfileMenu({
       <DropdownMenuContent
         side="top"
         align="end"
-        sideOffset={8}
-        className="ah-profile-menu-content"
+        sideOffset={10}
+        className="ah-account-dropdown-content"
       >
-        <ProfileMenuItems {...menuContentProps} />
+        <AdminAccountDropdownMenu {...menuProps} />
       </DropdownMenuContent>
     </DropdownMenu>
   );

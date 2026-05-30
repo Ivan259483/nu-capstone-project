@@ -130,7 +130,7 @@ const SPF_PACKAGES: SPFPackage[] = [
     prices: SPF_BASE_PRICES.spf80,
     tintPrices: SPF_TINT_PRICES.spf80,
     features: [
-      '3 Layers Graphene Ceramic Coating (Canada)',
+      '3 Layers of Graphene Ceramic Coating (Made in Canada)',
       'Graphene Sealant',
       'FREE 1 visit Signature AUTOSPF Carwash',
     ],
@@ -149,7 +149,7 @@ const SPF_PACKAGES: SPFPackage[] = [
     prices: SPF_BASE_PRICES.spf89,
     tintPrices: SPF_TINT_PRICES.spf89,
     features: [
-      '4 Layers Graphene Ceramic Coating (Canada)',
+      '4 Layers of Graphene Ceramic Coating (Made in Canada)',
       'Graphene Sealant',
       'FREE 1 visit Reboost/Maintenance (save ₱1,500)',
     ],
@@ -168,7 +168,7 @@ const SPF_PACKAGES: SPFPackage[] = [
     prices: SPF_BASE_PRICES.spf99,
     tintPrices: SPF_TINT_PRICES.spf99,
     features: [
-      '4 Layers SONAX Profiline CC EVO (Germany)',
+      '4 Layers of SONAX Profiline CC EVO (Made in Germany)',
       'FREE Full Recoat After 5 Years',
       'FREE 2 visits Reboost/Maintenance (save ₱3,000)',
     ],
@@ -187,12 +187,12 @@ const SPF_PACKAGES: SPFPackage[] = [
     prices: SPF_BASE_PRICES.spf101,
     tintPrices: SPF_TINT_PRICES.spf101,
     features: [
-      'PPF Coverage (Hood, Stepsils, Side Mirrors, Front Bumper, Door Bowls, Headlights & Taillights)',
-      '4 Layers SONAX Profiline CC EVO (Germany)',
+      'Paint Protection Film PPF Install on: Hood, Front Bumper, Stepsils, Door Bowls, Side Mirrors, Headlight & Taillight',
+      '4 Layers of SONAX Profiline CC EVO (Made in Germany)',
       'FREE 5 visits Reboost/Maintenance (save ₱7,500)',
       'FREE Full Recoat After 5 Years',
-      'Nano Ceramic Window Tint (Full Wrap — Any Shade)',
-      'FREE Undercoating (Rust Proofing) (value ₱14,000)',
+      'Nano Ceramic Window Tint (Full Wrap — Any Shades)',
+      'FREE UnderCoating (Rust Proofing) (save ₱14,000)',
     ],
     popular: false,
     flagship: true,

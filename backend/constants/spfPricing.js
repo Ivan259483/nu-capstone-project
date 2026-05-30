@@ -12,7 +12,7 @@ export const SPF_PACKAGE_PRICING = {
   spf80: {
     name: 'SPF 80 — Essential',
     category: 'Exterior',
-    description: '3 Layers Graphene Ceramic Coating (Canada) with Graphene Sealant. 3 years protection.',
+    description: '3 Layers of Graphene Ceramic Coating (Made in Canada) with Graphene Sealant. 3 years protection.',
     duration: '2-3 hours',
     displayOrder: 1,
     base: { hatchback: 7499, sedan: 7999, midsized: 7999, suv: 8999, pickup: 8499, largeSuv: 12999, highend: null },
@@ -22,7 +22,7 @@ export const SPF_PACKAGE_PRICING = {
   spf89: {
     name: 'SPF 89 — Advanced',
     category: 'Exterior',
-    description: '4 Layers Graphene Ceramic Coating (Canada) with free maintenance visit. 5 years protection.',
+    description: '4 Layers of Graphene Ceramic Coating (Made in Canada) with free maintenance visit. 5 years protection.',
     duration: '3-4 hours',
     displayOrder: 2,
     base: { hatchback: 8999, sedan: 9999, midsized: 10999, suv: 11999, pickup: 10999, largeSuv: 14999, highend: 17999 },
@@ -32,7 +32,7 @@ export const SPF_PACKAGE_PRICING = {
   spf99: {
     name: 'SPF 99 — Premium',
     category: 'Premium',
-    description: '4 Layers SONAX Profiline CC EVO (Germany) with free recoat and maintenance. 10 years protection.',
+    description: '4 Layers of SONAX Profiline CC EVO (Made in Germany) with free recoat and maintenance. 10 years protection.',
     duration: '4-6 hours',
     displayOrder: 3,
     base: { hatchback: 13999, sedan: 13999, midsized: 15999, suv: 16999, pickup: 15999, largeSuv: 19999, highend: 22999 },

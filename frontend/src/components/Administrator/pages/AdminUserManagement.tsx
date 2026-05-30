@@ -627,10 +627,10 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-user-modal-title"
-        className="flex max-h-[min(92vh,760px)] w-full max-w-[460px] flex-col overflow-hidden rounded-2xl border-0 bg-white shadow-[0_25px_50px_-12px_rgba(15,23,42,0.2)]"
+        className="ah-create-user-dialog flex max-h-[min(92vh,760px)] w-full max-w-[460px] flex-col overflow-hidden rounded-2xl border-0 bg-white shadow-[0_25px_50px_-12px_rgba(15,23,42,0.2)]"
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex shrink-0 items-center justify-between gap-3 px-6 py-4 bg-gradient-to-b from-slate-50/95 to-white">
+        <header className="ah-create-user-header flex shrink-0 items-center justify-between gap-3 px-6 py-4 bg-gradient-to-b from-slate-50/95 to-white">
           <h2 id="create-user-modal-title" className="text-lg font-semibold text-slate-900">
             Create New User
           </h2>
@@ -800,7 +800,7 @@ function CreateUserModalInline({ defaultRole, roleOptions, onClose, onCreated }:
             </div>
           </div>
 
-          <footer className="flex shrink-0 flex-wrap items-center justify-end gap-3 px-6 py-4 bg-slate-50/80 shadow-[0_-6px_24px_-8px_rgba(15,23,42,0.06)]">
+          <footer className="ah-create-user-footer flex shrink-0 flex-wrap items-center justify-end gap-3 px-6 py-4 bg-slate-50/80 shadow-[0_-6px_24px_-8px_rgba(15,23,42,0.06)]">
             <button
               type="button"
               className="rounded-xl border-0 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-[0_1px_3px_rgba(15,23,42,0.08)] transition-all hover:bg-slate-50 hover:shadow-[0_2px_10px_rgba(15,23,42,0.1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/35"

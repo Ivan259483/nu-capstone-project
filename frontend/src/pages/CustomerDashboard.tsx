@@ -14,7 +14,7 @@ import { ensureBackendAuthToken, getStoredAuthToken } from '../lib/api';
 import { useLiveJobs, type BookingStatusEvent } from '../hooks/useLiveJobs';
 import { isValidPhilippineMobileInput, isValidPhilippineBookingContact, formatContactNoInputFromProfile, normalizePhilippineMobileForBooking, normalizePhilippineMobileInput, resolveProfilePhoneDisplay } from '../lib/phone';
 import { normalizePlateNumber } from '../lib/plate';
-import { usePublishedBookingPackages } from '../lib/customer-booking-catalog';
+import { usePublishedBookingPackages, type VehiclePriceKey } from '../lib/customer-booking-catalog';
 import {
   BOOKING_TERMS_DOCUMENT_TITLE,
   BOOKING_TERMS_INTRO,
@@ -35,6 +35,7 @@ import {
 import { getTrackerPipelineProgressPct } from '../lib/tracker-pipeline-progress';
 import { toCloudinaryHighResDeliveryUrl, toCloudinaryEvidenceThumbUrl } from '../lib/cloudinary-delivery-url';
 import { CustomerDashboardServicesShowcase } from '../components/customer/CustomerDashboardServicesShowcase';
+import { CustomerDashboardOverviewStrip } from '../components/customer/CustomerDashboardOverviewStrip';
 import CustomerGarageVehicleSilhouette from '../components/customer/CustomerGarageVehicleSilhouette';
 import { CustomerPaymentHistorySection } from '../components/customer/CustomerPaymentHistorySection';
 import {
@@ -91,6 +92,20 @@ const CUSTOMER_UI = {
 } as const;
 const CUSTOMER_SECTION_LABEL = 'text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500';
 const CUSTOMER_PRIMARY_BUTTON = 'rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700';
+const CUSTOMER_SETTINGS_LABEL_CLASS = 'block text-xs font-semibold text-slate-700';
+const CUSTOMER_SETTINGS_INPUT_CLASS = 'w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500';
+const CUSTOMER_SETTINGS_SELECT_CLASS = 'w-full appearance-none rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 pr-10 text-sm font-medium text-slate-800 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10';
+
+function normalizeInternationalPhoneInput(raw: string): string {
+  const trimmed = raw.trim();
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits) return '';
+  return trimmed.startsWith('+') ? `+${digits}` : digits;
+}
+
+function isValidInternationalPhoneInput(raw: string): boolean {
+  return /^\+[1-9]\d{7,14}$/.test(normalizeInternationalPhoneInput(raw));
+}
 
 function resolveCustomerDashboardSection(pathname: string, searchString: string): DashboardSection {
   if (pathname === '/customer/services') return 'services';
@@ -488,16 +503,21 @@ function resolveGarageVehiclePlate(v: any): string {
   return String(raw ?? '').trim();
 }
 
+function normalizeVehicleYear(value: any): string {
+  return String(value ?? '').trim();
+}
+
 /** Normalize API vehicle → garage / booking UI shape (single source of truth). */
 function mapCustomerVehicleApiRecord(v: any) {
+  const year = normalizeVehicleYear(v.year);
   return {
     _id: v._id || v.id,
     id: v._id || v.id,
     plate: resolveGarageVehiclePlate(v) || '',
-    year: v.year || '',
+    year,
     make: v.make || '',
     model: v.model || '',
-    name: [v.year, v.make, v.model].filter(Boolean).join(' ') || v.name || '',
+    name: [year, v.make, v.model].filter(Boolean).join(' ') || v.name || '',
     color: v.color || '',
     type: v.vehicleType || v.type || '',
     transmission: v.transmission || '',
@@ -1204,6 +1224,16 @@ export default function CustomerDashboard() {
     };
   }, [bookingDone, bookingForm.service, bookingOpen, bookingStep, updatePackagePeek, setPackagePeekHidden]);
 
+  useLayoutEffect(() => {
+    if (!bookingOpen || bookingDone) return;
+    const body = bookingBodyRef.current;
+    if (!body) return;
+    const frame = requestAnimationFrame(() => {
+      body.scrollTo({ top: 0, behavior: 'auto' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [bookingDone, bookingOpen, bookingStep]);
+
   const BOOKING_TIMES = ['8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'];
 
   const [bookingCalMonth, setBookingCalMonth] = useState(() => {
@@ -1289,7 +1319,7 @@ export default function CustomerDashboard() {
         ...f,
         vehicleMake: v.make || '',
         vehicleModel: v.model || '',
-        vehicleYear: v.year || '',
+        vehicleYear: normalizeVehicleYear(v.year),
         vehiclePlate: resolveGarageVehiclePlate(v),
         vehicleColor: v.color || '',
         vehicleCategory: v.type || '',
@@ -1311,14 +1341,19 @@ export default function CustomerDashboard() {
     });
   }, [bookingPackages]);
 
-  const openBookingModal = async (preSelectedVehicle?: any, options?: { presetPackageId?: string }) => {
+  const openBookingModal = async (
+    preSelectedVehicle?: any,
+    options?: { presetPackageId?: string; presetPriceTier?: VehiclePriceKey },
+  ) => {
     dismissCustomerOverlaysForBooking();
     setBookingOpen(true); setBookingStep(1); setBookingDone(false);
     setBookingAgreed(false); setBookingTermsReachedEnd(false); setBookingDownpaymentProof(null);
     setSlotStatuses([]); setBookedSlots([]); setSlotError(''); setMonthAvailability({});
     // Only pre-select when opened from a garage card — never auto-pick the first vehicle
     const targetVehicle = preSelectedVehicle ?? null;
-    const detectedKey = targetVehicle ? getVehiclePriceKey(targetVehicle.type) : 'hatchback';
+    const detectedKey: VehiclePriceKey = targetVehicle
+      ? (getVehiclePriceKey(targetVehicle.type) as VehiclePriceKey)
+      : (options?.presetPriceTier ?? 'hatchback');
     setBookingVehicleType(detectedKey);
     const targetId = targetVehicle?._id || targetVehicle?.id;
     const targetIdx = targetVehicle
@@ -1347,7 +1382,7 @@ export default function CustomerDashboard() {
       // Populate individual vehicle fields from the garage record
       vehicleMake: targetVehicle ? (targetVehicle.make || '') : '',
       vehicleModel: targetVehicle ? (targetVehicle.model || '') : '',
-      vehicleYear: targetVehicle ? (targetVehicle.year || '') : '',
+      vehicleYear: targetVehicle ? normalizeVehicleYear(targetVehicle.year) : '',
       vehicleColor: targetVehicle ? (targetVehicle.color || '') : '',
       vehiclePlate: targetVehicle ? resolveGarageVehiclePlate(targetVehicle) : '',
       vehicleCategory: targetVehicle ? (targetVehicle.type || '') : '',
@@ -1829,15 +1864,55 @@ export default function CustomerDashboard() {
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState(false);
   const [rewardRedeemMessage, setRewardRedeemMessage] = useState('');
+  const customerModalOpen = Boolean(
+    bookingOpen ||
+    addVehicleOpen ||
+    editVehicleOpen ||
+    vehicleHistoryOpen ||
+    showOnboarding ||
+    trackerEvidenceLightbox ||
+    feedbackOpen ||
+    paymentLightboxUrl ||
+    orderReceiptPdfUrl,
+  );
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || !customerModalOpen) return;
+
+    const root = document.documentElement;
+    const body = document.body;
+    const previousBodyOverflow = body.style.overflow;
+    const previousRootOverscroll = root.style.overscrollBehavior;
+
+    body.classList.add('customer-modal-scroll-locked');
+    body.style.overflow = 'hidden';
+    root.style.overscrollBehavior = 'none';
+
+    return () => {
+      body.classList.remove('customer-modal-scroll-locked');
+      body.style.overflow = previousBodyOverflow;
+      root.style.overscrollBehavior = previousRootOverscroll;
+    };
+  }, [customerModalOpen]);
 
   // Settings — Profile
   const [profile, setProfile] = useState({
     fullName: user?.name || '',
     email: user?.email || '',
     phone: resolveProfilePhoneDisplay((user as any)?.phone),
+    avatarPreview: '',
   });
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   const [profileSaved, setProfileSaved] = useState(false);
+  const [regionalPrefs, setRegionalPrefs] = useState(() => ({
+    language: 'English',
+    region: 'Philippines',
+    timezone:
+      typeof Intl !== 'undefined'
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Manila'
+        : 'Asia/Manila',
+    dateFormat: 'DD MMM YYYY',
+  }));
 
   useEffect(() => {
     if (!user) return;
@@ -1875,7 +1950,12 @@ export default function CustomerDashboard() {
   function validateProfile() {
     const errs: Record<string, string> = {};
     if (!(profile.fullName || '').trim() || (profile.fullName || '').trim().length < 2) errs.fullName = 'Full name must be at least 2 characters.';
-    if (!(profile.phone || '').trim() || !isValidPhilippineMobileInput(profile.phone || '')) errs.phone = 'Enter 09XXXXXXXXX or +639XXXXXXXXX.';
+    if (
+      !(profile.phone || '').trim() ||
+      (!isValidPhilippineMobileInput(profile.phone || '') && !isValidInternationalPhoneInput(profile.phone || ''))
+    ) {
+      errs.phone = 'Use +country code for international numbers, or 09 for Philippine mobile.';
+    }
     setProfileErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -1890,7 +1970,9 @@ export default function CustomerDashboard() {
       return;
     }
 
-    const phoneToSave = normalizePhilippineMobileInput(profile.phone);
+    const phoneToSave = isValidPhilippineMobileInput(profile.phone)
+      ? normalizePhilippineMobileInput(profile.phone)
+      : normalizeInternationalPhoneInput(profile.phone);
 
     try {
       const result = await updateUser({
@@ -2527,6 +2609,15 @@ export default function CustomerDashboard() {
 
     return best;
   }, [bookingPackages, recommendationPriceKey]);
+  const DASHBOARD_HOME_PREVIEW_LIMIT = 5;
+  const dashboardDocumentPreview = useMemo(
+    () => documents.slice(0, DASHBOARD_HOME_PREVIEW_LIMIT),
+    [documents],
+  );
+  const dashboardActivityPreview = useMemo(
+    () => activities.slice(0, DASHBOARD_HOME_PREVIEW_LIMIT),
+    [activities],
+  );
   const dashboardOverviewCards = [
     {
       key: 'status',
@@ -2608,6 +2699,57 @@ export default function CustomerDashboard() {
   const paymentsSectionLoading = activeSection === 'payments' && customerSectionDataLoading;
   const rewardsSectionLoading = activeSection === 'rewards' && customerSectionDataLoading;
   const servicesSectionLoading = activeSection === 'services' && (customerSectionDataLoading || vehiclesLoading);
+  const settingsInitial = (profile.fullName || user?.name || user?.email || 'C').charAt(0).toUpperCase();
+  const settingsAccountStatus = profile.phone ? 'Profile ready' : 'Add phone';
+  const settingsProfileCompletion = [
+    profile.fullName?.trim(),
+    profile.email?.trim(),
+    profile.phone?.trim(),
+  ].filter(Boolean).length;
+  const settingsProfileCompletionPct = Math.round((settingsProfileCompletion / 3) * 100);
+  const passwordRuleChecks = [
+    { label: '8+ characters', met: passwords.newPass.length >= 8 },
+    { label: 'Uppercase', met: /[A-Z]/.test(passwords.newPass) },
+    { label: 'Lowercase', met: /[a-z]/.test(passwords.newPass) },
+    { label: 'Number', met: /[0-9]/.test(passwords.newPass) },
+    { label: 'Special', met: /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(passwords.newPass) },
+  ];
+  const passwordStrengthScore = passwordRuleChecks.filter((rule) => rule.met).length;
+  const passwordStrengthLabel = !passwords.newPass
+    ? 'Awaiting new password'
+    : passwordStrengthScore <= 2
+      ? 'Weak'
+      : passwordStrengthScore <= 4
+        ? 'Good'
+        : 'Strong';
+  const passwordStrengthTone =
+    passwordStrengthScore <= 2 ? 'bg-rose-500' : passwordStrengthScore <= 4 ? 'bg-amber-500' : 'bg-emerald-500';
+  const settingsRegionalFields = [
+    {
+      key: 'language',
+      label: 'Preferred Language',
+      icon: 'solar:global-linear',
+      options: ['English', 'Filipino', 'Japanese', 'Korean'],
+    },
+    {
+      key: 'region',
+      label: 'Country / Region',
+      icon: 'solar:map-point-linear',
+      options: ['Philippines', 'Singapore', 'United States', 'United Arab Emirates'],
+    },
+    {
+      key: 'timezone',
+      label: 'Time Zone',
+      icon: 'solar:clock-circle-linear',
+      options: ['Asia/Manila', 'Asia/Singapore', 'UTC', 'America/Los_Angeles', 'Europe/London'],
+    },
+    {
+      key: 'dateFormat',
+      label: 'Date Format',
+      icon: 'solar:calendar-date-linear',
+      options: ['DD MMM YYYY', 'MMM DD, YYYY', 'YYYY-MM-DD'],
+    },
+  ] as const;
 
   return (
     <>
@@ -2626,7 +2768,7 @@ export default function CustomerDashboard() {
           className={`customer-sidebar ${sidebarCollapsed ? 'is-collapsed' : 'is-expanded'} ${sidebarLabelsHidden ? 'is-labels-hidden' : ''} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} fixed inset-y-0 left-0 z-30 flex flex-col bg-white ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
             }`}
         >
-          <div className="flex h-16 shrink-0 items-center border-b border-slate-100 px-3 overflow-hidden">
+          <div className="flex h-16 shrink-0 items-center gap-1 border-b border-slate-100 px-3 overflow-hidden">
             <div className="customer-sidebar-user-header min-w-0 flex-1">
               <div
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-700 text-sm font-bold text-white shadow-sm"
@@ -2641,6 +2783,17 @@ export default function CustomerDashboard() {
                 </div>
               )}
             </div>
+            {sidebarCollapsed ? (
+              <button
+                type="button"
+                className="customer-sidebar-collapse-btn !w-9 !min-h-9 shrink-0 !p-0"
+                onClick={toggleSidebarCollapsed}
+                aria-label="Expand sidebar"
+                title="Expand sidebar"
+              >
+                <iconify-icon icon="solar:sidebar-minimalistic-outline" width="18" className="text-slate-500"></iconify-icon>
+              </button>
+            ) : null}
           </div>
 
           <nav className="customer-sidebar-nav">
@@ -2741,35 +2894,24 @@ export default function CustomerDashboard() {
             </button>
           </nav>
 
-          <div className="customer-sidebar-footer">
-            <button
-              type="button"
-              className="customer-sidebar-item customer-sidebar-item--danger"
-              onClick={async () => {
-                await logout();
-                navigate('/login');
-              }}
-              aria-label="Log out"
-              title={sidebarCollapsed ? 'Log out' : undefined}
-            >
-              <CustomerSidebarAnimatedIcon name="logout" />
-              {!sidebarCollapsed && <span className="customer-sidebar-label">Log Out</span>}
-            </button>
-            <button
-              type="button"
-              className="customer-sidebar-collapse-btn"
-              onClick={toggleSidebarCollapsed}
-              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            >
-              <CustomerSidebarAnimatedIcon name="collapse" size={16} className="customer-sidebar-collapse-chevron shrink-0" />
-              {!sidebarCollapsed && <span className="customer-sidebar-label font-medium">Collapse</span>}
-            </button>
-          </div>
+          {!sidebarCollapsed ? (
+            <div className="customer-sidebar-footer">
+              <button
+                type="button"
+                className="customer-sidebar-collapse-btn"
+                onClick={toggleSidebarCollapsed}
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+              >
+                <iconify-icon icon="solar:sidebar-minimalistic-outline" width="16" className="shrink-0 text-slate-500"></iconify-icon>
+                <span className="customer-sidebar-label font-medium">Collapse</span>
+              </button>
+            </div>
+          ) : null}
         </aside>
 
         {/* Main Content */}
-        <div className={`customer-main-shell ${sidebarCollapsed ? 'is-sidebar-collapsed' : 'is-sidebar-expanded'} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} ${bookingOpen ? 'is-booking-modal-open' : ''} flex flex-1 flex-col min-w-0`}>
+        <div className={`customer-main-shell ${sidebarCollapsed ? 'is-sidebar-collapsed' : 'is-sidebar-expanded'} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} ${bookingOpen ? 'is-booking-modal-open' : ''} ${customerModalOpen ? 'is-customer-modal-open' : ''} flex flex-1 flex-col min-w-0`}>
 
           {/* Header */}
           <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-10">
@@ -3098,7 +3240,7 @@ export default function CustomerDashboard() {
           </header>
 
           {/* Scrollable Area */}
-          <main className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-50">
+          <main className="customer-dashboard-scroll-root flex-1 overflow-y-auto p-3 sm:p-5 lg:p-6 bg-slate-50">
 
             {activeSection === 'bookings' ? (
               bookingsSectionLoading ? (
@@ -3460,7 +3602,10 @@ export default function CustomerDashboard() {
                   packages={bookingPackages}
                   getVehiclePriceKey={getVehiclePriceKey}
                   onOpenBooking={(opts) => {
-                    void openBookingModal(undefined, opts?.presetPackageId ? { presetPackageId: opts.presetPackageId } : undefined);
+                    void openBookingModal(undefined, opts ? {
+                      ...(opts.presetPackageId ? { presetPackageId: opts.presetPackageId } : {}),
+                      ...(opts.priceTier ? { presetPriceTier: opts.priceTier } : {}),
+                    } : undefined);
                   }}
                 />
               </div>
@@ -4345,11 +4490,11 @@ export default function CustomerDashboard() {
 
                 {orderReceiptPdfUrl && (
                   <div
-                    className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+                    className="customer-modal-layer fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black/75 backdrop-blur-sm p-4"
                     onClick={closeCustomerOrderReceiptPdf}
                   >
                     <div
-                      className="relative w-full max-w-3xl flex flex-col rounded-2xl bg-white shadow-2xl overflow-hidden max-h-[90vh]"
+                      className="customer-modal-panel relative w-full max-w-3xl flex flex-col rounded-2xl bg-white shadow-2xl overflow-hidden max-h-[90vh]"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
@@ -4370,10 +4515,10 @@ export default function CustomerDashboard() {
                 {/* Lightbox */}
                 {paymentLightboxUrl && (
                   <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                    className="customer-modal-layer fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
                     onClick={() => setPaymentLightboxUrl(null)}
                   >
-                    <div className="relative max-w-lg w-full mx-4" onClick={(e) => e.stopPropagation()}>
+                    <div className="customer-modal-panel relative max-w-lg w-full mx-4" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => setPaymentLightboxUrl(null)}
                         className="absolute -top-10 right-0 text-white/80 hover:text-white text-sm font-semibold flex items-center gap-1"
@@ -4684,208 +4829,421 @@ export default function CustomerDashboard() {
                 );
               })()
             ) : activeSection === 'settings' ? (
-	              <div className="max-w-2xl mx-auto space-y-8 pb-12">
-	                <div>
-	                  <h2 className="text-[28px] font-bold text-slate-900 mb-1">Account Settings</h2>
-	                  <p className="text-sm text-slate-500">Manage your profile, security, and notification preferences.</p>
-	                </div>
-
-                {/* Profile */}
-                <div className="bg-white rounded-lg border border-slate-200 shadow-sm">
-                  <div className="px-6 py-4 border-b border-slate-100">
-                    <h3 className="font-semibold text-slate-900 flex items-center gap-2"><iconify-icon icon="solar:user-circle-linear" width="18"></iconify-icon> Profile Information</h3>
+              <div className="customer-content-fade-in mx-auto w-full max-w-6xl space-y-6 pb-12">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="min-w-0">
+                    <p className={CUSTOMER_SECTION_LABEL}>Customer Profile</p>
+                    <h2 className="mt-2 text-[28px] font-bold text-slate-950">Account Settings</h2>
+                    <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+                      Keep your contact details, sign-in security, notifications, and regional preferences current.
+                    </p>
                   </div>
-                  <form onSubmit={handleProfileSave} className="p-6 space-y-5" noValidate>
-                    {profileSaved && <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md px-4 py-2 text-sm"><iconify-icon icon="solar:check-circle-linear" width="18"></iconify-icon> Profile saved successfully!</div>}
-                    {profileErrors.form && <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-100 rounded-md px-4 py-2 text-sm"><iconify-icon icon="solar:danger-circle-linear" width="18"></iconify-icon> {profileErrors.form}</div>}
-
-                    {/* Avatar Upload */}
-                    <div className="flex items-center gap-5 pb-4 border-b border-slate-100">
-                      <div className="relative group cursor-pointer" onClick={() => document.getElementById('avatar-upload-input')?.click()}>
-                        <div className="w-20 h-20 rounded-full bg-[#eff6ff] flex items-center justify-center text-[#1d4ed8] font-bold text-3xl shadow-sm overflow-hidden border border-slate-200">
-                          {(profile as any).avatarPreview ? (
-                            <img src={(profile as any).avatarPreview} alt="Profile" className="w-full h-full object-cover" />
-                          ) : user?.avatar ? (
-                            <img src={user.avatar} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                          ) : (
-                            (user?.name || 'C').charAt(0).toUpperCase()
-                          )}
-                        </div>
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
-                          <iconify-icon icon="solar:camera-add-linear" width="24" style={{ color: 'white' }}></iconify-icon>
-                        </div>
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-medium text-slate-900">Profile Photo</h4>
-                        <p className="text-xs text-slate-500 mt-0.5 mb-2">Recommended: Square JPG or PNG, max 2MB.</p>
-                        <input id="avatar-upload-input" type="file" accept="image/*" className="hidden" onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            if (file.size > 2 * 1024 * 1024) {
-                              setProfileErrors({ form: 'Image must be under 2MB.' });
-                              return;
-                            }
-                            const reader = new FileReader();
-                            reader.onloadend = () => setProfile(p => ({ ...p, avatarPreview: reader.result as string }));
-                            reader.readAsDataURL(file);
-                          }
-                        }} />
-                        <div className="flex items-center gap-2">
-                          <button type="button" onClick={() => document.getElementById('avatar-upload-input')?.click()} className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-md transition-colors shadow-sm">
-                            Upload Photo
-                          </button>
-                          {((profile as any).avatarPreview || user?.avatar) && (
-                            <button type="button" onClick={() => setProfile(p => ({ ...p, avatarPreview: '' }))} className="px-3 py-1.5 text-slate-500 hover:text-red-600 text-xs font-medium transition-colors">
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1.5">Full Name</label>
-                      <input value={profile.fullName} onChange={e => { setProfile(p => ({ ...p, fullName: e.target.value })); setProfileErrors(er => ({ ...er, fullName: '' })); }}
-                        className={`w-full px-3 py-2 rounded-md border text-sm bg-white text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors ${profileErrors.fullName ? 'border-red-400 bg-red-50' : 'border-slate-200'}`}
-                        placeholder="Your full name" />
-                      {profileErrors.fullName && <p className="mt-1 text-xs text-red-600 flex items-center gap-1"><iconify-icon icon="solar:danger-circle-linear" width="14"></iconify-icon>{profileErrors.fullName}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1.5">Email Address <span className="text-[10px] text-slate-400 font-normal ml-1">— cannot be changed</span></label>
-                      <div className="relative">
-                        <input type="email" value={profile.email} readOnly disabled
-                          className="w-full px-3 py-2 pr-9 rounded-md border border-slate-200 text-sm bg-slate-50 text-slate-500 outline-none cursor-not-allowed"
-                          placeholder="you@email.com" />
-                        <iconify-icon icon="solar:lock-keyhole-bold" width="14" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1' }}></iconify-icon>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1.5">Phone Number</label>
-                      <input type="tel" value={profile.phone} onChange={e => { setProfile(p => ({ ...p, phone: e.target.value })); setProfileErrors(er => ({ ...er, phone: '' })); }}
-                        className={`w-full px-3 py-2 rounded-md border text-sm bg-white text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors ${profileErrors.phone ? 'border-red-400 bg-red-50' : 'border-slate-200'}`}
-                        placeholder="+63 912 000 0000" />
-                      {profileErrors.phone && <p className="mt-1 text-xs text-red-600 flex items-center gap-1"><iconify-icon icon="solar:danger-circle-linear" width="14"></iconify-icon>{profileErrors.phone}</p>}
-                    </div>
-                    <div className="flex justify-end pt-1">
-	                      <button type="submit" className={CUSTOMER_PRIMARY_BUTTON}>Save Changes</button>
-                    </div>
-                  </form>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                      {settingsAccountStatus}
+                    </span>
+                    <span className="inline-flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+                      <iconify-icon icon="solar:global-linear" width="15"></iconify-icon>
+                      {regionalPrefs.timezone}
+                    </span>
+                  </div>
                 </div>
 
-                {/* Password */}
-                <div className="bg-white rounded-lg border border-slate-200 shadow-sm">
-                  <div className="px-6 py-4 border-b border-slate-100">
-                    <h3 className="font-semibold text-slate-900 flex items-center gap-2"><iconify-icon icon="solar:lock-password-linear" width="18"></iconify-icon> Change Password</h3>
-                  </div>
-                  <form onSubmit={handlePasswordSave} className="p-6 space-y-5" noValidate>
-                    {passwordSaved && <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md px-4 py-2 text-sm"><iconify-icon icon="solar:check-circle-linear" width="18"></iconify-icon> Password changed successfully!</div>}
-                    {passwordErrors.form && !passwordSaved && (
-                      <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-100 rounded-md px-4 py-2 text-sm">
-                        <iconify-icon icon="solar:danger-circle-linear" width="18"></iconify-icon>
-                        {passwordErrors.form}
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+                  <div className="min-w-0 space-y-6">
+                    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                      <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+                            <iconify-icon icon="solar:user-circle-linear" width="20"></iconify-icon>
+                          </div>
+                          <div className="min-w-0">
+                            <h3 className="font-semibold text-slate-950">Profile Information</h3>
+                            <p className="text-xs text-slate-500">Name, photo, and reachable contact number.</p>
+                          </div>
+                        </div>
+                        {profileSaved && (
+                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                            <iconify-icon icon="solar:check-circle-linear" width="15"></iconify-icon>
+                            Saved
+                          </span>
+                        )}
                       </div>
-                    )}
-                    {(['current', 'newPass', 'confirm'] as const).map((key) => {
-                      const labels = { current: 'Current Password', newPass: 'New Password', confirm: 'Confirm New Password' };
-                      const hints = { current: '', newPass: 'Min 8 characters, upper & lowercase, one number, one special (!@#*…)', confirm: '' };
-                      return (
-                        <div key={key}>
-                          <label className="block text-xs font-medium text-slate-700 mb-1.5">{labels[key]}</label>
-                          <div className="relative">
-                            <input type={showPass[key] ? 'text' : 'password'} value={passwords[key]}
-                              onChange={e => { setPasswords(p => ({ ...p, [key]: e.target.value })); setPasswordErrors(er => ({ ...er, [key]: '' })); }}
-                              className={`w-full px-3 py-2 pr-10 rounded-md border text-sm bg-white text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors ${passwordErrors[key] ? 'border-red-400 bg-red-50' : 'border-slate-200'}`}
-                              placeholder="••••••••" />
-                            <button type="button" onClick={() => setShowPass(p => ({ ...p, [key]: !p[key] }))} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                              <iconify-icon icon={showPass[key] ? 'solar:eye-closed-linear' : 'solar:eye-linear'} width="16"></iconify-icon>
+
+                      <form onSubmit={handleProfileSave} className="p-5 sm:p-6" noValidate>
+                        <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+                          <div className="space-y-4">
+                            <input
+                              id="avatar-upload-input"
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  if (file.size > 2 * 1024 * 1024) {
+                                    setProfileErrors({ form: 'Image must be under 2MB.' });
+                                    return;
+                                  }
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => setProfile(p => ({ ...p, avatarPreview: reader.result as string }));
+                                  reader.readAsDataURL(file);
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => document.getElementById('avatar-upload-input')?.click()}
+                              className="group flex w-full flex-col items-center rounded-lg border border-slate-200 bg-slate-50 px-4 py-5 text-center transition hover:border-blue-200 hover:bg-blue-50/50 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
+                            >
+                              <span className="relative mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white bg-white text-2xl font-bold text-blue-700 shadow-sm ring-1 ring-slate-200">
+                                {profile.avatarPreview ? (
+                                  <img src={profile.avatarPreview} alt="Profile" className="h-full w-full object-cover" />
+                                ) : user?.avatar ? (
+                                  <img src={user.avatar} alt="Profile" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                                ) : (
+                                  settingsInitial
+                                )}
+                                <span className="absolute inset-0 flex items-center justify-center bg-slate-950/45 opacity-0 transition group-hover:opacity-100">
+                                  <iconify-icon icon="solar:camera-add-linear" width="22" style={{ color: 'white' }}></iconify-icon>
+                                </span>
+                              </span>
+                              <span className="text-sm font-semibold text-slate-900">Profile Photo</span>
+                              <span className="mt-1 text-xs leading-5 text-slate-500">JPG or PNG, max 2MB.</span>
+                            </button>
+                            {(profile.avatarPreview || user?.avatar) && (
+                              <button
+                                type="button"
+                                onClick={() => setProfile(p => ({ ...p, avatarPreview: '' }))}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                              >
+                                Remove Photo
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="min-w-0 space-y-5">
+                            {(profileErrors.form || profileSaved) && (
+                              <div
+                                className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm ${
+                                  profileErrors.form
+                                    ? 'border-rose-100 bg-rose-50 text-rose-700'
+                                    : 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                                }`}
+                              >
+                                <iconify-icon icon={profileErrors.form ? 'solar:danger-circle-linear' : 'solar:check-circle-linear'} width="18"></iconify-icon>
+                                {profileErrors.form || 'Profile saved successfully.'}
+                              </div>
+                            )}
+
+                            <div className="grid gap-4 sm:grid-cols-2">
+                              <div className="space-y-1.5">
+                                <label htmlFor="settings-full-name" className={CUSTOMER_SETTINGS_LABEL_CLASS}>Full Name</label>
+                                <div className="relative">
+                                  <iconify-icon icon="solar:user-linear" width="16" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></iconify-icon>
+                                  <input
+                                    id="settings-full-name"
+                                    value={profile.fullName}
+                                    onChange={e => { setProfile(p => ({ ...p, fullName: e.target.value })); setProfileErrors(er => ({ ...er, fullName: '', form: '' })); }}
+                                    className={`${CUSTOMER_SETTINGS_INPUT_CLASS} pl-10 ${profileErrors.fullName ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-500/10' : ''}`}
+                                    placeholder="Your full name"
+                                  />
+                                </div>
+                                {profileErrors.fullName && <p className="text-xs font-medium text-rose-600">{profileErrors.fullName}</p>}
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label htmlFor="settings-phone" className={CUSTOMER_SETTINGS_LABEL_CLASS}>Phone Number</label>
+                                <div className="relative">
+                                  <iconify-icon icon="solar:phone-linear" width="16" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></iconify-icon>
+                                  <input
+                                    id="settings-phone"
+                                    type="tel"
+                                    value={profile.phone}
+                                    onChange={e => { setProfile(p => ({ ...p, phone: e.target.value })); setProfileErrors(er => ({ ...er, phone: '', form: '' })); }}
+                                    className={`${CUSTOMER_SETTINGS_INPUT_CLASS} pl-10 ${profileErrors.phone ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-500/10' : ''}`}
+                                    placeholder="+63 912 000 0000"
+                                    autoComplete="tel"
+                                  />
+                                </div>
+                                {profileErrors.phone ? (
+                                  <p className="text-xs font-medium text-rose-600">{profileErrors.phone}</p>
+                                ) : (
+                                  <p className="text-xs text-slate-400">Use E.164 format for numbers outside the Philippines.</p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label htmlFor="settings-email" className={CUSTOMER_SETTINGS_LABEL_CLASS}>Email Address</label>
+                              <div className="relative">
+                                <iconify-icon icon="solar:mailbox-linear" width="16" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></iconify-icon>
+                                <input
+                                  id="settings-email"
+                                  type="email"
+                                  value={profile.email}
+                                  readOnly
+                                  disabled
+                                  className={`${CUSTOMER_SETTINGS_INPUT_CLASS} pl-10 pr-10`}
+                                  placeholder="you@example.com"
+                                />
+                                <iconify-icon icon="solar:lock-keyhole-bold" width="14" style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1' }}></iconify-icon>
+                              </div>
+                              <p className="text-xs text-slate-400">Email is managed from your sign-in account.</p>
+                            </div>
+
+                            <div className="flex justify-end border-t border-slate-100 pt-4">
+                              <button type="submit" className={`${CUSTOMER_PRIMARY_BUTTON} inline-flex items-center gap-2`}>
+                                <iconify-icon icon="solar:diskette-linear" width="16"></iconify-icon>
+                                Save Changes
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </form>
+                    </section>
+
+                    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                      <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+                            <iconify-icon icon="solar:lock-password-linear" width="20"></iconify-icon>
+                          </div>
+                          <div className="min-w-0">
+                            <h3 className="font-semibold text-slate-950">Security</h3>
+                            <p className="text-xs text-slate-500">Update your password and review strength before saving.</p>
+                          </div>
+                        </div>
+                        <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600">
+                          <span className={`h-2 w-2 rounded-full ${passwordStrengthScore >= 5 ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                          {passwordStrengthLabel}
+                        </span>
+                      </div>
+
+                      <form onSubmit={handlePasswordSave} className="p-5 sm:p-6" noValidate>
+                        <div className="space-y-5">
+                          {passwordSaved && (
+                            <div className="flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                              <iconify-icon icon="solar:check-circle-linear" width="18"></iconify-icon>
+                              Password changed successfully.
+                            </div>
+                          )}
+                          {passwordErrors.form && !passwordSaved && (
+                            <div className="flex items-center gap-2 rounded-lg border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                              <iconify-icon icon="solar:danger-circle-linear" width="18"></iconify-icon>
+                              {passwordErrors.form}
+                            </div>
+                          )}
+
+                          <div className="grid gap-4 lg:grid-cols-3">
+                            {(['current', 'newPass', 'confirm'] as const).map((key) => {
+                              const labels = { current: 'Current Password', newPass: 'New Password', confirm: 'Confirm Password' };
+                              return (
+                                <div key={key} className="space-y-1.5">
+                                  <label className={CUSTOMER_SETTINGS_LABEL_CLASS}>{labels[key]}</label>
+                                  <div className="relative">
+                                    <input
+                                      type={showPass[key] ? 'text' : 'password'}
+                                      value={passwords[key]}
+                                      onChange={e => { setPasswords(p => ({ ...p, [key]: e.target.value })); setPasswordErrors(er => ({ ...er, [key]: '', form: '' })); }}
+                                      className={`${CUSTOMER_SETTINGS_INPUT_CLASS} pr-10 ${passwordErrors[key] ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-500/10' : ''}`}
+                                      placeholder="********"
+                                      autoComplete={key === 'current' ? 'current-password' : 'new-password'}
+                                    />
+                                    <button
+                                      type="button"
+                                      aria-label={showPass[key] ? 'Hide password' : 'Show password'}
+                                      onClick={() => setShowPass(p => ({ ...p, [key]: !p[key] }))}
+                                      className="absolute right-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                                    >
+                                      <iconify-icon icon={showPass[key] ? 'solar:eye-closed-linear' : 'solar:eye-linear'} width="16"></iconify-icon>
+                                    </button>
+                                  </div>
+                                  {passwordErrors[key] && <p className="text-xs font-medium text-rose-600">{passwordErrors[key]}</p>}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <p className="text-xs font-semibold text-slate-700">Password Strength</p>
+                              <p className="text-xs font-semibold text-slate-500">{passwordStrengthScore}/5 checks</p>
+                            </div>
+                            <div className="h-2 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
+                              <div
+                                className={`h-full rounded-full transition-all ${passwordStrengthTone}`}
+                                style={{ width: `${Math.max(8, (passwordStrengthScore / passwordRuleChecks.length) * 100)}%` }}
+                              />
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {passwordRuleChecks.map((rule) => (
+                                <span
+                                  key={rule.label}
+                                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                                    rule.met
+                                      ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                                      : 'border-slate-200 bg-white text-slate-500'
+                                  }`}
+                                >
+                                  <iconify-icon icon={rule.met ? 'solar:check-circle-linear' : 'solar:minus-circle-linear'} width="14"></iconify-icon>
+                                  {rule.label}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex justify-end border-t border-slate-100 pt-4">
+                            <button
+                              type="submit"
+                              disabled={passwordSubmitting}
+                              className={`${CUSTOMER_PRIMARY_BUTTON} inline-flex items-center gap-2 disabled:pointer-events-none disabled:opacity-60`}
+                            >
+                              <iconify-icon icon="solar:shield-check-linear" width="16"></iconify-icon>
+                              {passwordSubmitting ? 'Updating...' : 'Update Password'}
                             </button>
                           </div>
-                          {hints[key] && !passwordErrors[key] && <p className="mt-1 text-xs text-slate-400">{hints[key]}</p>}
-                          {passwordErrors[key] && <p className="mt-1 text-xs text-red-600 flex items-center gap-1"><iconify-icon icon="solar:danger-circle-linear" width="14"></iconify-icon>{passwordErrors[key]}</p>}
                         </div>
-                      );
-                    })}
-                    <div className="flex justify-end pt-1">
-                      <button
-                        type="submit"
-                        disabled={passwordSubmitting}
-	                        className={`${CUSTOMER_PRIMARY_BUTTON} disabled:opacity-60 disabled:pointer-events-none`}
-                      >
-                        {passwordSubmitting ? 'Updating…' : 'Update Password'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
+                      </form>
+                    </section>
+                  </div>
 
-                {/* Notifications */}
-                <div className="bg-white rounded-lg border border-slate-200 shadow-sm">
-                  <div className="px-6 py-4 border-b border-slate-100">
-                    <h3 className="font-semibold text-slate-900 flex items-center gap-2"><iconify-icon icon="solar:bell-linear" width="18"></iconify-icon> Notification Preferences</h3>
-                  </div>
-                  <div className="p-6 divide-y divide-slate-100">
-                    {([
-                      { key: 'bookingUpdates', label: 'Booking Updates', desc: 'Confirmations and changes to your appointments.' },
-                      { key: 'serviceStatus', label: 'Live Service Status', desc: 'Real-time updates while your vehicle is in service.' },
-                      { key: 'promotions', label: 'Promotions & Offers', desc: 'Exclusive deals and seasonal discounts.' },
-                      { key: 'reminders', label: 'Service Reminders', desc: 'Upcoming appointment and maintenance reminders.' },
-                    ] as const).map(({ key, label, desc }) => (
-                      <div key={key} className="flex items-center justify-between py-4 first:pt-0 last:pb-0">
-                        <div>
-                          <p className="text-sm font-medium text-slate-900">{label}</p>
-                          <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+                  <aside className="min-w-0 space-y-6">
+                    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-50 text-xl font-bold text-blue-700 ring-1 ring-blue-100">
+                          {profile.avatarPreview ? (
+                            <img src={profile.avatarPreview} alt="Profile" className="h-full w-full object-cover" />
+                          ) : user?.avatar ? (
+                            <img src={user.avatar} alt="Profile" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            settingsInitial
+                          )}
                         </div>
-                        <button type="button" onClick={() => setNotifs(n => ({ ...n, [key]: !n[key] }))}
-                          className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200 focus:outline-none ${notifs[key] ? 'bg-blue-600' : 'bg-slate-200'}`}>
-                          <span className={`inline-block h-4 w-4 mt-0.5 rounded-full bg-white shadow transform transition-transform duration-200 ${notifs[key] ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                        </button>
+                        <div className="min-w-0">
+                          <p className="truncate text-base font-bold text-slate-950">{profile.fullName || 'Customer'}</p>
+                          <p className="truncate text-xs text-slate-500">{profile.email || 'No email on file'}</p>
+                        </div>
                       </div>
-                    ))}
-                  </div>
+
+                      <div className="mt-5">
+                        <div className="mb-2 flex items-center justify-between text-xs">
+                          <span className="font-semibold text-slate-600">Profile completion</span>
+                          <span className="font-bold text-slate-900">{settingsProfileCompletionPct}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                          <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${settingsProfileCompletionPct}%` }} />
+                        </div>
+                      </div>
+
+                      <dl className="mt-5 divide-y divide-slate-100 text-sm">
+                        {[
+                          { label: 'Account Type', value: 'Customer' },
+                          { label: 'Region', value: regionalPrefs.region },
+                          { label: 'Language', value: regionalPrefs.language },
+                        ].map((item) => (
+                          <div key={item.label} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+                            <dt className="text-slate-500">{item.label}</dt>
+                            <dd className="min-w-0 truncate font-semibold text-slate-900">{item.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </section>
+
+                    <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+                      <div className="border-b border-slate-100 px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50 text-amber-600 ring-1 ring-amber-100">
+                            <iconify-icon icon="solar:bell-linear" width="19"></iconify-icon>
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-slate-950">Communication</h3>
+                            <p className="text-xs text-slate-500">Choose which updates reach you.</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="divide-y divide-slate-100 px-5">
+                        {([
+                          { key: 'bookingUpdates', icon: 'solar:calendar-mark-linear', label: 'Booking Updates', desc: 'Confirmations and schedule changes.' },
+                          { key: 'serviceStatus', icon: 'solar:map-arrow-square-linear', label: 'Live Service Status', desc: 'Progress while your vehicle is in service.' },
+                          { key: 'reminders', icon: 'solar:alarm-linear', label: 'Service Reminders', desc: 'Upcoming appointments and maintenance.' },
+                          { key: 'promotions', icon: 'solar:ticket-sale-linear', label: 'Promotions & Offers', desc: 'Seasonal deals and loyalty rewards.' },
+                        ] as const).map(({ key, icon, label, desc }) => (
+                          <div key={key} className="flex items-center gap-3 py-4">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500 ring-1 ring-slate-100">
+                              <iconify-icon icon={icon} width="17"></iconify-icon>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-semibold text-slate-900">{label}</p>
+                              <p className="mt-0.5 text-xs leading-5 text-slate-500">{desc}</p>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={notifs[key]}
+                              onClick={() => setNotifs(n => ({ ...n, [key]: !n[key] }))}
+                              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500/10 ${notifs[key] ? 'bg-blue-600' : 'bg-slate-200'}`}
+                            >
+                              <span className={`inline-block h-5 w-5 translate-y-0.5 rounded-full bg-white shadow transition-transform duration-200 ${notifs[key] ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+                      <div className="border-b border-slate-100 px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+                            <iconify-icon icon="solar:global-linear" width="19"></iconify-icon>
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-slate-950">Language & Region</h3>
+                            <p className="text-xs text-slate-500">International formats for your dashboard.</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-4 p-5">
+                        {settingsRegionalFields.map((field) => (
+                          <div key={field.key} className="space-y-1.5">
+                            <label className={CUSTOMER_SETTINGS_LABEL_CLASS}>{field.label}</label>
+                            <div className="relative">
+                              <iconify-icon icon={field.icon} width="16" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></iconify-icon>
+                              <select
+                                value={regionalPrefs[field.key]}
+                                onChange={(e) => setRegionalPrefs((p) => ({ ...p, [field.key]: e.target.value }))}
+                                className={`${CUSTOMER_SETTINGS_SELECT_CLASS} pl-10`}
+                              >
+                                {field.options.map((option) => (
+                                  <option key={option} value={option}>{option}</option>
+                                ))}
+                              </select>
+                              <iconify-icon icon="solar:alt-arrow-down-linear" width="16" style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none' }}></iconify-icon>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    <button
+                      type="button"
+                      onClick={async () => { await logout(); navigate('/login'); }}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50 focus:outline-none focus:ring-4 focus:ring-rose-500/10"
+                    >
+                      <iconify-icon icon="solar:logout-2-linear" width="17"></iconify-icon>
+                      Sign Out
+                    </button>
+                  </aside>
                 </div>
               </div>
             ) : dashboardSectionLoading ? (
               <CustomerDashboardHomeSkeleton />
             ) : (
-              <div className="customer-content-fade-in space-y-8">
+              <div className="customer-content-fade-in w-full max-w-none space-y-5">
 
                 {/* Service Overview Strip */}
-                <div className="customer-overview-grid grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  {dashboardOverviewCards.map((card) => (
-                    <div
-                      key={card.key}
-                      className={`customer-overview-card relative min-h-[132px] overflow-hidden rounded-2xl border border-l-4 bg-white p-4 ${card.borderClass}`}
-                    >
-                      <div className={`pointer-events-none absolute inset-y-0 left-0 w-28 bg-gradient-to-r ${card.glowClass} to-transparent`} />
-                      <div className="relative flex h-full flex-col">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{card.label}</span>
-                            <div className={`mt-2 flex min-w-0 items-center gap-2 text-base font-black ${card.valueClass}`}>
-                              {card.showPulse && (
-                                <span className="relative flex h-2.5 w-2.5 shrink-0">
-                                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-60"></span>
-                                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"></span>
-                                </span>
-                              )}
-                              <span className="truncate">{card.value}</span>
-                            </div>
-                          </div>
-                          <div className={`customer-overview-icon ring-1 ring-inset ${card.iconClass}`}>
-                            <iconify-icon icon={card.icon} width="19"></iconify-icon>
-                          </div>
-                        </div>
-                        {card.key === 'loyalty' && (
-                          <div className="mt-3 rounded-full bg-amber-100/80 p-0.5">
-                            <div className="h-1.5 overflow-hidden rounded-full bg-white/70">
-                              <div className="h-full rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-500" style={{ width: `${rewardTierProgressPct}%` }} />
-                            </div>
-                          </div>
-                        )}
-                        <p className="relative mt-auto pt-3 text-xs font-medium text-slate-400">{card.helper}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <CustomerDashboardOverviewStrip cards={dashboardOverviewCards} rewardTierProgressPct={rewardTierProgressPct} />
 
                 {/* ── PENDING CONFIRMATION card ── */}
                 {pendingConfirmationBooking && !hasActiveTrackerBooking && (() => {
@@ -5441,8 +5799,8 @@ export default function CustomerDashboard() {
 
 
                 {/* Your Vehicles */}
-                <section className="rounded-[32px] border border-slate-200/80 bg-white/80 p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.35)] sm:p-6">
-                  <div className="mb-5 flex items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-4 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.28)] sm:p-5">
+                  <div className="mb-4 flex items-center justify-between gap-4 border-b border-slate-100 pb-3">
                     <div>
                       <p className="text-[11px] font-bold tracking-[0.08em] text-slate-500">Garage</p>
                       <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Your Garage</h2>
@@ -5456,7 +5814,7 @@ export default function CustomerDashboard() {
                     </button>
                   </div>
 
-                  <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)] xl:items-stretch">
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.85fr)] xl:items-start">
                     <div className="min-w-0">
                   {vehicles.length === 0 ? (
                     <div className="rounded-3xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #1e3a8a 100%)', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
@@ -5649,7 +6007,7 @@ export default function CustomerDashboard() {
                   )}
                     </div>
 
-                    <aside className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1 xl:self-stretch">
+                    <aside className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1">
                       <div className="relative overflow-hidden rounded-[28px] border border-blue-100 bg-white p-5 shadow-[0_18px_48px_-30px_rgba(37,99,235,0.34)]">
                         <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-blue-100/80 blur-3xl" />
                         <div className="relative">
@@ -5731,167 +6089,146 @@ export default function CustomerDashboard() {
                   </div>
                 </section>
 
-                {/* Bottom Grid: Documents & Activity */}
-                <div className="grid grid-cols-1 gap-5 pb-8 lg:grid-cols-2">
-
-                  {/* AI & Documents */}
-                  <section className="min-w-0 rounded-[28px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.35)] sm:p-6">
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Service files</p>
-                        <h2 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">AI &amp; documents</h2>
-                        <p className="mt-0.5 max-w-md text-[13px] leading-relaxed text-slate-500">
-                          Service reports and intake summaries from your bookings — written for people, not internal IDs.
-                        </p>
+                {/* Documents + Activity — single panel so columns share height without dead space */}
+                <section className="w-full rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.28)] sm:p-5">
+                  <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2 lg:gap-6">
+                    <div className="min-w-0">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Service files</p>
+                          <h2 className="text-base font-semibold tracking-tight text-slate-900 sm:text-lg">AI &amp; documents</h2>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => nav('documents')}
+                          className="shrink-0 text-xs font-semibold text-blue-600 transition-colors hover:text-blue-800"
+                        >
+                          {documents.length > DASHBOARD_HOME_PREVIEW_LIMIT
+                            ? `View all (${documents.length})`
+                            : 'View all'}
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => nav('documents')}
-                        className="shrink-0 text-[13px] font-semibold text-blue-600 transition-colors hover:text-blue-800"
-                      >
-                        View all
-                      </button>
-                    </div>
 
-                    <div className="mt-5 flex min-h-[340px] flex-col overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/60">
-                      {documents.length === 0 ? (
-                        <div className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center">
-                          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 ring-1 ring-slate-100">
-                            <iconify-icon icon="solar:folder-with-files-linear" width="28" className="text-slate-300"></iconify-icon>
+                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-100 bg-slate-50/60">
+                        {documents.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center px-4 py-7 text-center">
+                            <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 ring-1 ring-slate-100">
+                              <iconify-icon icon="solar:folder-with-files-linear" width="22" className="text-slate-300"></iconify-icon>
+                            </div>
+                            <p className="text-sm font-semibold text-slate-900">Nothing here yet</p>
+                            <p className="mt-1 text-xs text-slate-500">Reports appear after each visit.</p>
                           </div>
-                          <p className="text-[15px] font-semibold text-slate-900">Nothing here yet</p>
-                          <p className="mt-1.5 max-w-[260px] text-[13px] leading-relaxed text-slate-500">
-                            After each visit, completion summaries and intake details will appear in this list.
-                          </p>
-                        </div>
-                      ) : (
-                        <ul className="flex-1 divide-y divide-slate-100 bg-white/80">
-                          {documents.map((doc, i) => (
-                            <li key={doc.id ?? i}>
-                              <button
-                                type="button"
-                                onClick={() => nav('documents')}
-                                className="group flex w-full items-start gap-4 px-5 py-4 text-left transition-colors hover:bg-slate-50/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/25 sm:gap-5 sm:px-6 sm:py-5"
-                              >
-                                <div
-                                  className={`mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${
-                                    doc.type === 'report'
-                                      ? 'bg-blue-50 text-blue-600 ring-blue-100/90'
-                                      : doc.type === 'waiver'
-                                        ? 'bg-emerald-50 text-emerald-600 ring-emerald-100/90'
-                                        : 'bg-slate-50 text-slate-600 ring-slate-100'
-                                  }`}
+                        ) : (
+                          <ul className="divide-y divide-slate-100 bg-white/80">
+                            {dashboardDocumentPreview.map((doc, i) => (
+                              <li key={doc.id ?? i}>
+                                <button
+                                  type="button"
+                                  onClick={() => nav('documents')}
+                                  className="group flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-slate-50/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/25 sm:px-4"
                                 >
-                                  <iconify-icon icon={doc.icon} width="22" height="22" className="shrink-0"></iconify-icon>
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-[15px] font-semibold leading-snug tracking-tight text-slate-900 transition-colors group-hover:text-blue-700">
-                                    {doc.title}
-                                  </p>
-                                  <p className="mt-1 text-[13px] leading-relaxed text-slate-600">{doc.desc}</p>
-                                </div>
-                                <div className="shrink-0 pt-0.5">
-                                  {doc.type === 'report' ? (
-                                    <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
-                                      Signed
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-900/90">
-                                      Action needed
-                                    </span>
-                                  )}
-                                </div>
-                              </button>
-                            </li>
-                          ))}
-                          {documents.length === 1 && (
-                            <li className="flex min-h-[136px] items-center justify-center bg-slate-50/70 px-6 py-8 text-center">
-                              <div>
-                                <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-slate-300 shadow-sm ring-1 ring-slate-100">
-                                  <iconify-icon icon="solar:folder-check-linear" width="22"></iconify-icon>
-                                </div>
-                                <p className="text-sm font-semibold text-slate-700">No other documents yet</p>
-                                <p className="mt-1 text-xs text-slate-500">Future reports and waivers will fill this panel.</p>
-                              </div>
-                            </li>
-                          )}
-                        </ul>
-                      )}
-                    </div>
-                  </section>
-
-                  {/* Recent Activity */}
-                  <section className="min-w-0 rounded-[28px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.35)] sm:p-6">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Timeline</p>
-                      <h2 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">Recent activity</h2>
-                      <p className="mt-0.5 max-w-md text-[13px] leading-relaxed text-slate-500">
-                        A short timeline of each booking — newest first, with plain-language status labels.
-                      </p>
-                    </div>
-
-                    <div className="mt-5 flex min-h-[340px] flex-col overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/60">
-                      {activities.length === 0 ? (
-                        <div className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center">
-                          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 ring-1 ring-slate-100">
-                            <iconify-icon icon="solar:history-linear" width="28" className="text-slate-300"></iconify-icon>
-                          </div>
-                          <p className="text-[15px] font-semibold text-slate-900">No updates yet</p>
-                          <p className="mt-1.5 max-w-[260px] text-[13px] leading-relaxed text-slate-500">
-                            When you book or your service status changes, a clean entry will appear here.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="flex-1 bg-white/80 px-2 py-5 sm:px-5 sm:py-6">
-                          <ul className="relative">
-                            <div
-                              className="pointer-events-none absolute bottom-2 left-[15px] top-3 w-px bg-gradient-to-b from-blue-200 via-slate-200 to-transparent sm:left-[17px]"
-                              aria-hidden
-                            />
-                            {activities.map((activity: any, i) => (
-                              <li key={activity.id ?? i} className="relative flex gap-4 pb-8 pl-1 last:pb-1 sm:gap-5">
-                                <div className="relative z-10 flex w-8 shrink-0 justify-center pt-1 sm:w-9">
-                                  <span
-                                    className={`mt-0.5 block size-2.5 rounded-full ring-[5px] ring-white sm:size-3 ${
-                                      i === 0 ? 'bg-blue-500 shadow-[0_0_0_1px_rgba(37,99,235,0.35)]' : 'bg-slate-300'
+                                  <div
+                                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset ${
+                                      doc.type === 'report'
+                                        ? 'bg-blue-50 text-blue-600 ring-blue-100/90'
+                                        : doc.type === 'waiver'
+                                          ? 'bg-emerald-50 text-emerald-600 ring-emerald-100/90'
+                                          : 'bg-slate-50 text-slate-600 ring-slate-100'
                                     }`}
-                                  />
-                                </div>
-                                <div className="-mt-0.5 min-w-0 flex-1 pb-1">
-                                  <p className="text-[15px] font-semibold leading-snug tracking-tight text-slate-900">{activity.title}</p>
-                                  {activity.statusLabel != null ? (
-                                    <p className="mt-1 text-[13px] text-slate-600">
-                                      <span className="font-medium text-slate-700">{activity.statusLabel}</span>
-                                      <span className="mx-1.5 text-slate-300">·</span>
-                                      <span>{activity.plate}</span>
+                                  >
+                                    <iconify-icon icon={doc.icon} width="16" height="16" className="shrink-0"></iconify-icon>
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-semibold text-slate-900 group-hover:text-blue-700">
+                                      {doc.title}
                                     </p>
-                                  ) : (
-                                    <p className="mt-1 text-[13px] leading-relaxed text-slate-600">{activity.desc}</p>
-                                  )}
-                                  {activity.time ? (
-                                    <p className="mt-2 text-[12px] font-medium tabular-nums text-slate-400">{activity.time}</p>
-                                  ) : null}
-                                </div>
+                                    <p className="truncate text-xs text-slate-500">{doc.desc}</p>
+                                  </div>
+                                  <div className="shrink-0">
+                                    {doc.type === 'report' ? (
+                                      <span className="inline-flex rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-800">
+                                        Signed
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-900/90">
+                                        Action needed
+                                      </span>
+                                    )}
+                                  </div>
+                                </button>
                               </li>
                             ))}
-                            {activities.length === 1 && (
-                              <li className="relative flex gap-4 rounded-2xl bg-slate-50/85 px-4 py-6 sm:gap-5">
-                                <div className="relative z-10 flex w-8 shrink-0 justify-center pt-1 sm:w-9">
-                                  <span className="mt-0.5 block size-2.5 rounded-full bg-slate-300 ring-[5px] ring-white sm:size-3" />
-                                </div>
-                                <div className="-mt-0.5 min-w-0 flex-1">
-                                  <p className="text-[15px] font-semibold leading-snug tracking-tight text-slate-900">All caught up!</p>
-                                  <p className="mt-1 text-[13px] leading-relaxed text-slate-600">No other activity yet. New booking updates will appear here automatically.</p>
-                                </div>
-                              </li>
-                            )}
                           </ul>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
-                  </section>
 
-                </div>
+                    <div className="min-w-0 lg:border-l lg:border-slate-100 lg:pl-6">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Timeline</p>
+                          <h2 className="text-base font-semibold tracking-tight text-slate-900 sm:text-lg">Recent activity</h2>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => nav('bookings')}
+                          className="shrink-0 text-xs font-semibold text-blue-600 transition-colors hover:text-blue-800"
+                        >
+                          {activities.length > DASHBOARD_HOME_PREVIEW_LIMIT
+                            ? `View all (${activities.length})`
+                            : 'View all'}
+                        </button>
+                      </div>
+
+                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-100 bg-slate-50/60">
+                        {activities.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center px-4 py-7 text-center">
+                            <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 ring-1 ring-slate-100">
+                              <iconify-icon icon="solar:history-linear" width="22" className="text-slate-300"></iconify-icon>
+                            </div>
+                            <p className="text-sm font-semibold text-slate-900">No updates yet</p>
+                            <p className="mt-1 text-xs text-slate-500">Updates appear when you book or status changes.</p>
+                          </div>
+                        ) : (
+                          <div className="bg-white/80 px-3 py-2.5 sm:px-4">
+                            <ul className="relative">
+                              <div
+                                className="pointer-events-none absolute left-[11px] top-2 bottom-0 w-px bg-gradient-to-b from-blue-200 via-slate-200 to-transparent sm:left-[13px]"
+                                aria-hidden
+                              />
+                              {dashboardActivityPreview.map((activity: any, i) => (
+                                <li key={activity.id ?? i} className="relative flex gap-3 pb-2.5 last:pb-0">
+                                  <div className="relative z-10 flex w-6 shrink-0 justify-center pt-1.5">
+                                    <span
+                                      className={`block size-2 rounded-full ring-[4px] ring-white ${
+                                        i === 0 ? 'bg-blue-500' : 'bg-slate-300'
+                                      }`}
+                                    />
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-semibold leading-snug text-slate-900">{activity.title}</p>
+                                    {activity.statusLabel != null ? (
+                                      <p className="mt-0.5 truncate text-xs text-slate-600">
+                                        <span className="font-medium text-slate-700">{activity.statusLabel}</span>
+                                        <span className="mx-1 text-slate-300">·</span>
+                                        <span>{activity.plate}</span>
+                                      </p>
+                                    ) : (
+                                      <p className="mt-0.5 truncate text-xs text-slate-600">{activity.desc}</p>
+                                    )}
+                                    {activity.time ? (
+                                      <p className="mt-0.5 text-[11px] tabular-nums text-slate-400">{activity.time}</p>
+                                    ) : null}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </section>
               </div>
             )}
 
@@ -5900,8 +6237,8 @@ export default function CustomerDashboard() {
       </div>
       {/* ── First-Time Onboarding Modal ── */}
       {showOnboarding && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)' }}>
-          <div className="w-full max-w-md bg-white rounded-3xl overflow-hidden shadow-2xl" style={{ boxShadow: '0 32px 80px rgba(0,0,0,0.35)' }}>
+        <div className="customer-modal-layer fixed inset-0 z-[110] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)' }}>
+          <div className="customer-modal-panel w-full max-w-md bg-white rounded-3xl overflow-hidden shadow-2xl" style={{ boxShadow: '0 32px 80px rgba(0,0,0,0.35)' }}>
 
             {/* Header banner */}
             <div className="relative px-8 pt-8 pb-10 text-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #1e3a8a 100%)' }}>
@@ -5987,12 +6324,12 @@ export default function CustomerDashboard() {
       {/* Add Vehicle Modal */}
 
       {addVehicleOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5" onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}>
+        <div className="customer-modal-layer fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5" onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}>
           <div
-            className="customer-vehicle-modal customer-vehicle-modal--premium flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
+            className="customer-modal-panel customer-vehicle-modal customer-vehicle-modal--premium flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
             onClick={e => e.stopPropagation()}
             style={{
-              animation: 'modalIn .2s ease-out',
+              animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both',
               maxHeight: '94vh',
             }}
           >
@@ -6022,7 +6359,7 @@ export default function CustomerDashboard() {
             {/* Form */}
             <form
               onSubmit={handleAddVehicleSubmit}
-              className="customer-vehicle-form min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              className="customer-modal-scroll customer-vehicle-form min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
               noValidate
             >
 
@@ -6046,7 +6383,7 @@ export default function CustomerDashboard() {
               />
 
               {/* Actions */}
-              <div className="customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white/95 px-5 pt-4 shadow-[0_-12px_32px_-16px_rgba(15,23,42,0.08)] backdrop-blur sm:-mx-6 sm:flex-row sm:px-6">
+              <div className="customer-modal-sticky customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white/95 px-5 pt-4 shadow-[0_-12px_32px_-16px_rgba(15,23,42,0.08)] backdrop-blur sm:-mx-6 sm:flex-row sm:px-6">
                 <button
                   type="button"
                   onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}
@@ -6068,27 +6405,27 @@ export default function CustomerDashboard() {
 
       {/* Book Service Modal */}
       {bookingOpen && (
-        <div className="customer-booking-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/85 p-3 sm:p-5" onClick={closeBookingModal}>
+        <div className="customer-modal-layer customer-booking-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-3 sm:p-5" onClick={closeBookingModal}>
           <div
-            className={`customer-booking-modal w-full min-h-0 overflow-hidden rounded-[1.75rem] border-0 bg-white ${!bookingDone && (bookingStep === 4 || bookingStep === 5) ? 'max-w-4xl' : 'max-w-3xl'}`}
+            className={`customer-modal-panel customer-booking-modal w-full min-h-0 overflow-hidden rounded-[1.75rem] border-0 bg-white ${!bookingDone && (bookingStep === 3 || bookingStep === 4 || bookingStep === 5 || bookingStep === 6) ? 'max-w-4xl' : 'max-w-3xl'} ${!bookingDone && bookingStep === 6 ? 'customer-booking-modal--payment' : ''}`}
             onClick={e => e.stopPropagation()}
             style={{
-              animation: 'modalIn .2s ease-out',
+              animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both',
               maxHeight: '94vh',
               display: 'flex',
               flexDirection: 'column',
             }}
           >
 
-            {/* Header — hidden when success screen is active (hero fills the top) */}
+            {/* Header - hidden when success screen is active (hero fills the top) */}
             {!bookingDone && (
               <div className="customer-booking-header flex shrink-0 items-center justify-between gap-4 border-0 px-5 py-4 sm:px-6">
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-sky-500 text-white shadow-lg shadow-blue-600/20">
                     <iconify-icon icon="solar:calendar-add-bold" width="20"></iconify-icon>
                   </div>
                   <div className="min-w-0">
-                    <div className="text-base font-bold text-slate-950">Book a Service</div>
+                    <div className="text-base font-bold text-slate-900">Book a Service</div>
                     <div className="mt-0.5 text-xs font-medium text-slate-500">
                       Step {bookingStep} of 6 · {
                         bookingStep === 1 ? 'Choose Service' :
@@ -6109,7 +6446,7 @@ export default function CustomerDashboard() {
                 </div>
                 {!bookingSubmitting && (
                   <button onClick={closeBookingModal}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border-0 bg-white text-slate-500 shadow-md shadow-slate-900/10 transition-all hover:bg-slate-50 hover:text-slate-900 hover:shadow-lg">
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50 text-slate-500 shadow-sm transition-all hover:bg-slate-100 hover:text-slate-700">
                     <iconify-icon icon="solar:close-circle-linear" width="16"></iconify-icon>
                   </button>
                 )}
@@ -6118,7 +6455,7 @@ export default function CustomerDashboard() {
 
             {/* Progress bar */}
             {!bookingDone && (
-              <div className="shrink-0 border-0 bg-slate-50/70 px-5 py-3 shadow-[inset_0_8px_16px_-16px_rgba(15,23,42,0.06)] sm:px-6">
+              <div className="shrink-0 border-0 border-t border-slate-100 bg-slate-50/90 px-5 py-3 sm:px-6">
                 <div className="grid grid-cols-6 gap-1.5" aria-label={`Booking step ${bookingStep} of 6`}>
                   {Array.from({ length: 6 }, (_, index) => {
                     const stepNumber = index + 1;
@@ -6129,7 +6466,7 @@ export default function CustomerDashboard() {
                         key={index}
                         className="h-1.5 rounded-full transition-all duration-300"
                         style={{
-                          background: isCompleted ? CUSTOMER_UI.success : isActive ? CUSTOMER_UI.primary : '#E2E8F0',
+                          background: isCompleted ? CUSTOMER_UI.success : isActive ? CUSTOMER_UI.primary : '#DBEAFE',
                           boxShadow: isCompleted
                             ? '0 4px 12px rgba(16,185,129,0.28)'
                             : isActive
@@ -6157,7 +6494,7 @@ export default function CustomerDashboard() {
             )}
 
             {/* Body */}
-            <div ref={bookingBodyRef} className="booking-body min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <div ref={bookingBodyRef} className="customer-modal-scroll booking-body min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               <style dangerouslySetInnerHTML={{ __html: `.booking-body::-webkit-scrollbar { display: none; } @keyframes spin { to { transform: rotate(360deg); } }` }} />
               {bookingDone ? (
                 /* ── Success Receipt — Premium Dark Luxury ── */
@@ -6425,7 +6762,7 @@ export default function CustomerDashboard() {
                           <p className="mt-1 text-xs font-medium text-slate-500">
                             {bookingSelectedVehicleIdx >= 0
                               ? 'Prices reflect your selected vehicle class.'
-                              : 'Sample Hatchback pricing shown until you pick a vehicle above.'}
+                              : `${VEHICLE_OPTIONS.find((o) => o.type === bookingVehicleType)?.label || 'Selected class'} pricing shown until you pick a vehicle above.`}
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -6828,84 +7165,99 @@ export default function CustomerDashboard() {
                 </div>
 
               ) : bookingStep === 3 ? (
-                /* ── Step 3 — Calendar (real-time availability) ── */
-                <div className="p-4 pb-4 sm:p-5 sm:pb-4">
+                (() => {
+                  const monthLabel = bookingCalMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                  const selectedDate = bookingForm.date ? new Date(`${bookingForm.date}T00:00:00`) : null;
+                  const selectedDateLabel = selectedDate
+                    ? selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+                    : 'Date pending';
+                  const selectedDateFullLabel = selectedDate
+                    ? selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                    : 'Select from calendar';
+                  const vehicleLabel = formatVehicleMakeModelDisplay(bookingForm.vehicleMake, bookingForm.vehicleModel);
+                  const vehicleMeta = [
+                    formatPlateDisplay(bookingForm.vehiclePlate, ''),
+                    formatTitleCaseDisplay(bookingForm.vehicleColor, ''),
+                  ].filter(Boolean).join(' · ') || 'Vehicle profile ready';
+                  const serviceLabel = bookingForm.serviceName || 'Protection package';
+                  const priceLabel = bookingForm.servicePrice ? formatPeso(bookingForm.servicePrice) : 'Rate ready';
+                  const openSlots = slotStatuses.filter(slot => slot.status === 'AVAILABLE').length;
+                  const availableDays = Object.values(monthAvailability).filter(day => day.status === 'available' && !day.unavailable).length;
+                  const fullDays = Object.values(monthAvailability).filter(day => day.status === 'full').length;
+                  const closedDays = Object.values(monthAvailability).filter(day => day.status === 'closed' && day.errorCode !== 'PAST_DATE').length;
+                  const selectedDayInfo = bookingForm.date ? monthAvailability[bookingForm.date] : undefined;
+                  const selectedDateStatus =
+                    !bookingForm.date ? 'Choose date' :
+                      selectedDayInfo?.status === 'full' ? 'Fully booked' :
+                        selectedDayInfo?.status === 'closed' ? 'Closed' :
+                          'Date locked';
+                  const slotStatusLabel =
+                    !bookingForm.date ? 'Waiting for date' :
+                      slotsLoading ? 'Syncing slots' :
+                        slotStatuses.length === 0 ? 'No slots posted' :
+                          `${openSlots} open slot${openSlots === 1 ? '' : 's'}`;
+                  const scheduleReady = !!bookingForm.date && !!bookingForm.time && !slotError;
+                  const slotFillPct = slotStatuses.length > 0
+                    ? Math.max(8, Math.round((openSlots / slotStatuses.length) * 100))
+                    : 0;
 
-                  {/* Month nav — triggers availability fetch */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                    <button type="button"
-                      disabled={monthAvailLoading}
-                      onClick={() => {
-                        const prev = new Date(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth() - 1, 1);
-                        setBookingCalMonth(prev);
-                        fetchMonthAvailability(prev.getFullYear(), prev.getMonth());
-                      }}
-                      style={{ width: 32, height: 32, borderRadius: 8, border: 'none', background: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: monthAvailLoading ? 'default' : 'pointer', color: '#94a3b8', fontSize: 20, lineHeight: 1, flexShrink: 0 }}>
-                      ‹
-                    </button>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.02em' }}>
-                        {bookingCalMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                      </span>
-	                      {monthAvailLoading && (
-	                        <div style={{ width: 14, height: 14, border: '2px solid #e2e8f0', borderTopColor: CUSTOMER_UI.primary, borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-	                      )}
-                    </div>
-                    <button type="button"
-                      disabled={monthAvailLoading}
-                      onClick={() => {
-                        const next = new Date(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth() + 1, 1);
-                        setBookingCalMonth(next);
-                        fetchMonthAvailability(next.getFullYear(), next.getMonth());
-                      }}
-                      style={{ width: 32, height: 32, borderRadius: 8, border: 'none', background: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: monthAvailLoading ? 'default' : 'pointer', color: '#94a3b8', fontSize: 20, lineHeight: 1, flexShrink: 0 }}>
-                      ›
-                    </button>
-                  </div>
+                  const localIso = (date: Date) =>
+                    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
-                  {/* Day-of-week headers */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 4 }}>
-	                    {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((d, i) => (
-	                      <div key={i} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#64748B', letterSpacing: '0.08em', paddingBottom: 8 }}>{d}</div>
-	                    ))}
-                  </div>
-
-                  {/* Date grid — driven by monthAvailability from real API */}
-                  {(() => {
+                  const renderCalendarCells = () => {
                     const year = bookingCalMonth.getFullYear();
                     const month = bookingCalMonth.getMonth();
                     const firstDay = new Date(year, month, 1).getDay();
                     const daysInMonth = new Date(year, month + 1, 0).getDate();
-                    const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
-                    const todayIso = todayD.toISOString().split('T')[0];
+                    const todayD = new Date();
+                    todayD.setHours(0, 0, 0, 0);
+                    const todayIso = localIso(todayD);
                     const cells: React.ReactNode[] = [];
-                    for (let i = 0; i < firstDay; i++) cells.push(<div key={`bl${i}`} />);
-                    for (let day = 1; day <= daysInMonth; day++) {
+
+                    for (let i = 0; i < firstDay; i += 1) {
+                      cells.push(<div key={`blank-${i}`} className="booking-step3-day is-blank" aria-hidden />);
+                    }
+
+                    for (let day = 1; day <= daysInMonth; day += 1) {
                       const date = new Date(year, month, day);
                       date.setHours(0, 0, 0, 0);
                       const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                       const isToday = iso === todayIso;
                       const dayInfo = monthAvailability[iso];
-                      // Use API-driven status; fall back to closed for safety while loading.
                       const status: DayAvailabilityStatus = dayInfo?.status || 'closed';
                       const errorCode = dayInfo?.errorCode || null;
-	                      const isPast = errorCode === 'PAST_DATE' || date < todayD;
-                      // Distinguish "shop closed" (schedule/closure) from "fully booked"
+                      const isPast = errorCode === 'PAST_DATE' || date < todayD;
                       const isShopClosed = !isPast && status === 'closed';
                       const isFullyBooked = status === 'full';
                       const disabled = !!dayInfo?.unavailable || status === 'closed' || status === 'full';
                       const isSelected = bookingForm.date === iso;
                       const unavailableReason = isPast
-                        ? 'Past date — no longer available.'
+                        ? 'Past date is no longer available.'
                         : isFullyBooked
                           ? (dayInfo?.reason || 'All booking slots for this date are fully booked.')
                           : isShopClosed
                             ? (dayInfo?.reason || 'Shop is closed on this day.')
                             : '';
+                      const dayClassName = [
+                        'booking-step3-day',
+                        status === 'available' && !disabled ? 'is-available' : '',
+                        isSelected ? 'is-selected' : '',
+                        isToday ? 'is-today' : '',
+                        isPast ? 'is-past' : '',
+                        isShopClosed ? 'is-closed' : '',
+                        isFullyBooked ? 'is-full' : '',
+                        monthAvailLoading ? 'is-loading' : '',
+                      ].filter(Boolean).join(' ');
+
                       cells.push(
-                        <button key={iso} type="button" disabled={disabled}
+                        <button
+                          key={iso}
+                          type="button"
+                          disabled={disabled}
                           title={disabled ? unavailableReason : undefined}
-                          aria-label={disabled ? `Unavailable: ${unavailableReason}` : `Select ${iso}`}
+                          aria-label={disabled ? `Unavailable: ${unavailableReason}` : `Select ${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`}
+                          className={dayClassName}
+                          data-date={iso}
                           onClick={() => {
                             if (disabled) return;
                             const prevTime = bookingForm.time;
@@ -6914,190 +7266,239 @@ export default function CustomerDashboard() {
                             setSlotError('');
                             fetchSlotsForDate(iso, prevTime);
                           }}
-                          style={{
-                            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                            position: 'relative',
-                            gap: 2, width: '100%', aspectRatio: '1', borderRadius: '50%', border: 'none',
-                            cursor: disabled ? 'default' : 'pointer',
-	                            opacity: monthAvailLoading ? 0.35 : isPast ? 0.3 : 1,
-	                            background: isSelected
-	                              ? CUSTOMER_UI.primary
-                              : isShopClosed
-                                ? 'rgba(239,68,68,0.08)'
-                                : isFullyBooked
-                                  ? 'rgba(245,158,11,0.08)'
-                                  : isToday && !disabled
-                                    ? 'rgba(15,23,42,0.06)'
-                                    : 'transparent',
-                            transition: 'all 0.15s',
-                          }}>
-                          <span style={{
-                            fontSize: 13,
-                            fontWeight: isSelected ? 700 : isToday ? 700 : 500,
-                            color: isSelected
-                              ? '#fff'
-                              : isShopClosed
-                                ? '#fca5a5'
-                                : isFullyBooked
-                                  ? '#fcd34d'
-                                  : isPast
-                                    ? '#d1d5db'
-                                    : isToday
-                                      ? '#0f172a'
-                                      : '#374151',
-                            lineHeight: 1,
-                          }}>{day}</span>
-                          {/* Indicator dots / badges */}
-	                          {status === 'available' && !isSelected && (
-	                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: CUSTOMER_UI.success }} aria-hidden />
-                          )}
-                          {isShopClosed && !isSelected && (
-                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#94a3b8' }} aria-hidden />
-                          )}
-                          {isFullyBooked && !isSelected && (
-                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#f59e0b' }} aria-hidden />
-                          )}
+                        >
+                          <span className="booking-step3-day-number">{day}</span>
+                          {isToday && <span className="booking-step3-day-tag">Today</span>}
+                          {!isSelected && <span className="booking-step3-day-dot" aria-hidden />}
                         </button>
                       );
                     }
-                    return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>{cells}</div>;
-                  })()}
 
-                  {/* Calendar legend — one guide (matches colored dots on dates) */}
-                  <div
-                    style={{
-                      marginTop: 14,
-                      borderRadius: 12,
-	                      background: '#f8fafc',
-	                      border: '1px solid #E2E8F0',
-	                      padding: '10px 12px',
-	                      boxShadow: '0 8px 24px -20px rgba(15,23,42,0.28)',
-                    }}
-                    role="note"
-                    aria-label="Calendar date availability"
-                  >
-                    <p style={{ margin: '0 0 8px', textAlign: 'center', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#94a3b8' }}>
-                      What the dots mean
-                    </p>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px 16px' }}>
-                      {[
-	                        { dot: CUSTOMER_UI.success, label: 'Available', hint: 'pick this day' },
-                        { dot: '#94a3b8', label: 'Closed', hint: 'shop not open' },
-                        { dot: '#f59e0b', label: 'Fully booked', hint: 'no times left' },
-                      ].map((item) => (
-                        <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: item.dot, flexShrink: 0 }} aria-hidden />
-                          <span style={{ fontSize: 11, color: '#475569', fontWeight: 500 }}>
-                            {item.label}
-                            <span style={{ fontWeight: 400, color: '#94a3b8' }}> — {item.hint}</span>
+                    return cells;
+                  };
+
+                  return (
+                    <div className="booking-step3" data-testid="booking-step3">
+                      <section className={`booking-step3-hero ${scheduleReady ? 'is-ready' : ''}`}>
+                        <div className="booking-step3-hero-copy">
+                          <span className="booking-step3-eyebrow">
+                            <iconify-icon icon="solar:calendar-mark-bold" width="15"></iconify-icon>
+                            Priority Scheduling
                           </span>
+                          <h3>Choose your appointment window.</h3>
+                          <div className="booking-step3-trust-row" aria-label="Schedule metadata">
+                            <span><iconify-icon icon="solar:global-bold" width="13"></iconify-icon>Asia/Manila</span>
+                            <span><iconify-icon icon="solar:shield-check-bold" width="13"></iconify-icon>Live availability</span>
+                            <span><iconify-icon icon="solar:clock-circle-bold" width="13"></iconify-icon>Secure hold</span>
+                          </div>
+                          <div className="booking-step3-live-rail" aria-hidden>
+                            <span />
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
+                        <div className="booking-step3-selected-panel" aria-label="Selected appointment">
+                          <iconify-icon icon={scheduleReady ? 'solar:verified-check-bold' : 'solar:calendar-search-bold'} width="17"></iconify-icon>
+                          <span className="booking-step3-selected-kicker">{scheduleReady ? 'Ready for review' : selectedDateStatus}</span>
+                          <strong>{selectedDateLabel}</strong>
+                          <span>{bookingForm.time || 'Time pending'}</span>
+                        </div>
+                      </section>
 
-                  {/* Divider */}
-                  <div style={{ height: 1, background: '#f1f5f9', margin: '16px 0' }} />
+                      <div className="booking-step3-executive-strip" aria-label="Appointment itinerary summary">
+                        {[
+                          { icon: 'solar:earth-bold', label: 'Timezone', value: 'Asia/Manila' },
+                          { icon: 'solar:calendar-date-bold', label: 'Appointment', value: selectedDateLabel },
+                          { icon: 'solar:clock-circle-bold', label: 'Slots', value: slotStatusLabel },
+                        ].map(item => (
+                          <div key={item.label} className="booking-step3-executive-item">
+                            <span><iconify-icon icon={item.icon} width="15"></iconify-icon>{item.label}</span>
+                            <strong>{item.value}</strong>
+                          </div>
+                        ))}
+                      </div>
 
-                  {/* Time picker — status-driven from API */}
-                  <p style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>Preferred Time</p>
+                      <div className="booking-step3-layout">
+                        <section className="booking-step3-calendar-shell" aria-label="Appointment calendar">
+                          <div className="booking-step3-calendar-toolbar">
+                            <button
+                              type="button"
+                              className="booking-step3-nav-button"
+                              disabled={monthAvailLoading}
+                              aria-label="Previous month"
+                              onClick={() => {
+                                const prev = new Date(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth() - 1, 1);
+                                setBookingCalMonth(prev);
+                                fetchMonthAvailability(prev.getFullYear(), prev.getMonth());
+                              }}
+                            >
+                              <iconify-icon icon="solar:alt-arrow-left-linear" width="17"></iconify-icon>
+                            </button>
+                            <div className="booking-step3-month-title">
+                              <span>Calendar</span>
+                              <strong>{monthLabel}</strong>
+                              {monthAvailLoading && <i aria-hidden />}
+                            </div>
+                            <button
+                              type="button"
+                              className="booking-step3-nav-button"
+                              disabled={monthAvailLoading}
+                              aria-label="Next month"
+                              onClick={() => {
+                                const next = new Date(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth() + 1, 1);
+                                setBookingCalMonth(next);
+                                fetchMonthAvailability(next.getFullYear(), next.getMonth());
+                              }}
+                            >
+                              <iconify-icon icon="solar:alt-arrow-right-linear" width="17"></iconify-icon>
+                            </button>
+                          </div>
 
-                  {/* Stale-selection error banner */}
-                  {slotError && (
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 12px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', marginBottom: 10 }}>
-                      <iconify-icon icon="solar:danger-triangle-bold" width="16" style={{ color: '#d97706', flexShrink: 0, marginTop: 1 }}></iconify-icon>
-                      <span style={{ fontSize: 12, color: '#92400e', lineHeight: 1.5 }}>{slotError}</span>
-                    </div>
-                  )}
+                          <div className="booking-step3-month-metrics">
+                            {[
+                              { label: 'Open days', value: monthAvailLoading ? '...' : String(availableDays), tone: 'open' },
+                              { label: 'Fully booked', value: monthAvailLoading ? '...' : String(fullDays), tone: 'full' },
+                              { label: 'Closed', value: monthAvailLoading ? '...' : String(closedDays), tone: 'closed' },
+                            ].map(item => (
+                              <div key={item.label} className={`booking-step3-month-metric is-${item.tone}`}>
+                                <span>{item.label}</span>
+                                <strong>{item.value}</strong>
+                              </div>
+                            ))}
+                          </div>
 
-                  {!bookingForm.date ? (
-                    <p style={{ fontSize: 12, color: '#cbd5e1', textAlign: 'center', padding: '12px 0' }}>Select a date to see available times</p>
-                  ) : slotsLoading ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-                      {BOOKING_TIMES.map(t => (
-                        <div key={t} style={{
-                          padding: '10px 4px', borderRadius: 8, border: '1px solid #f1f5f9',
-                          background: '#f8fafc', height: 40, animation: 'pulse 1.5s ease-in-out infinite'
-                        }} />
-                      ))}
-                    </div>
-                  ) : slotStatuses.length === 0 ? (
-                    <p style={{ fontSize: 12, color: '#cbd5e1', textAlign: 'center', padding: '12px 0' }}>No slots available for this date</p>
-                  ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-                      {slotStatuses.map(({ time: t, status }) => {
-                        const isDisabled = status !== 'AVAILABLE';
-                        const isActive = bookingForm.time === t && !isDisabled;
-	                        const bgColor = isActive ? CUSTOMER_UI.primary
-                          : status === 'FULL' ? '#fef2f2'
-                            : status === 'CLOSED' ? '#f8fafc'
-                              : '#fff';
-                        const textColor = isActive ? '#fff'
-                          : status === 'FULL' ? '#fca5a5'
-                            : status === 'CLOSED' ? '#d1d5db'
-                              : '#374151';
-                        const label = status === 'FULL' ? 'Full' : status === 'CLOSED' ? 'Closed' : t;
-                        return (
-                          <button key={t} type="button"
-                            disabled={isDisabled}
-                            title={status === 'FULL' ? 'This slot is fully booked' : status === 'CLOSED' ? 'This slot is unavailable' : t}
-                            onClick={() => {
-                              if (isDisabled) return;
-                              setSlotError('');
-                              setBookingForm(f => ({ ...f, time: t }));
-                            }}
-                            style={{
-                              padding: '8px 4px', borderRadius: 8,
-                              border: isActive ? 'none' : `1px solid ${status === 'FULL' ? '#fecaca' : status === 'CLOSED' ? '#f1f5f9' : '#e5e7eb'}`,
-                              fontSize: 11, fontWeight: 600, lineHeight: 1.3, transition: 'all 0.15s',
-                              cursor: isDisabled ? 'not-allowed' : 'pointer',
-                              background: bgColor, color: textColor,
-                              textDecoration: status === 'FULL' ? 'line-through' : 'none',
-                              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                            }}>
-                            <span>{t}</span>
-                            {status !== 'AVAILABLE' && (
-                              <span style={{ fontSize: 9, fontWeight: 500, color: status === 'FULL' ? '#fca5a5' : '#d1d5db', textDecoration: 'none' }}>
-                                {label === t ? '' : label}
+                          <div className="booking-step3-weekdays" aria-hidden>
+                            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                              <span key={day}>{day}</span>
+                            ))}
+                          </div>
+                          <div className="booking-step3-calendar-grid">
+                            {renderCalendarCells()}
+                          </div>
+                          <div className="booking-step3-legend" aria-label="Calendar availability legend">
+                            {[
+                              { className: 'open', label: 'Available' },
+                              { className: 'full', label: 'Fully booked' },
+                              { className: 'closed', label: 'Closed' },
+                            ].map(item => (
+                              <span key={item.label} className={`is-${item.className}`}>
+                                <i aria-hidden />
+                                {item.label}
                               </span>
+                            ))}
+                          </div>
+                        </section>
+
+                        <aside className="booking-step3-side-panel">
+                          <section className="booking-step3-summary">
+                            <div className="booking-step3-summary-row">
+                              <span><iconify-icon icon="solar:shield-star-bold" width="14"></iconify-icon>Service</span>
+                              <strong>{serviceLabel}</strong>
+                              <em>{priceLabel}</em>
+                            </div>
+                            <div className="booking-step3-summary-row">
+                              <span><iconify-icon icon="solar:car-bold" width="14"></iconify-icon>Vehicle</span>
+                              <strong>{vehicleLabel}</strong>
+                              <em>{vehicleMeta}</em>
+                            </div>
+                            <div className="booking-step3-summary-row">
+                              <span><iconify-icon icon="solar:calendar-date-bold" width="14"></iconify-icon>Date</span>
+                              <strong>{selectedDateFullLabel}</strong>
+                              <em>{selectedDateStatus}</em>
+                            </div>
+                          </section>
+
+                          <section className="booking-step3-time-shell">
+                            <div className="booking-step3-section-head">
+                              <div>
+                                <span>Preferred Time</span>
+                                <strong>{slotStatusLabel}</strong>
+                              </div>
+                              <em className={bookingForm.time ? 'is-picked' : ''}>{bookingForm.time ? 'Selected' : 'Required'}</em>
+                            </div>
+
+                            {slotError && (
+                              <div className="booking-step3-alert" role="alert">
+                                <iconify-icon icon="solar:danger-triangle-bold" width="16"></iconify-icon>
+                                <span>{slotError}</span>
+                              </div>
                             )}
-                          </button>
-                        );
-                      })}
+
+                            {!bookingForm.date ? (
+                              <div className="booking-step3-empty-state">
+                                <iconify-icon icon="solar:calendar-search-bold" width="24"></iconify-icon>
+                                <strong>Date pending</strong>
+                                <span>Select an available calendar day.</span>
+                              </div>
+                            ) : slotsLoading ? (
+                              <div className="booking-step3-time-grid" aria-label="Loading time slots">
+                                {BOOKING_TIMES.map(t => (
+                                  <div key={t} className="booking-step3-time-skeleton" />
+                                ))}
+                              </div>
+                            ) : slotStatuses.length === 0 ? (
+                              <div className="booking-step3-empty-state">
+                                <iconify-icon icon="solar:clock-circle-bold" width="24"></iconify-icon>
+                                <strong>No slots posted</strong>
+                                <span>{selectedDateFullLabel}</span>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="booking-step3-slot-meter" aria-hidden>
+                                  <span style={{ width: `${slotFillPct}%` }} />
+                                </div>
+                                <div className="booking-step3-time-grid">
+                                  {slotStatuses.map(({ time: t, status }) => {
+                                    const isDisabled = status !== 'AVAILABLE';
+                                    const isActive = bookingForm.time === t && !isDisabled;
+                                    const slotClassName = [
+                                      'booking-step3-time-option',
+                                      status === 'AVAILABLE' ? 'is-open' : '',
+                                      status === 'FULL' ? 'is-full' : '',
+                                      status === 'CLOSED' ? 'is-closed' : '',
+                                      isActive ? 'is-selected' : '',
+                                    ].filter(Boolean).join(' ');
+                                    const label = status === 'FULL' ? 'Booked' : status === 'CLOSED' ? 'Closed' : isActive ? 'Selected' : 'Open';
+
+                                    return (
+                                      <button
+                                        key={t}
+                                        type="button"
+                                        disabled={isDisabled}
+                                        title={status === 'FULL' ? 'This slot is fully booked' : status === 'CLOSED' ? 'This slot is unavailable' : t}
+                                        className={slotClassName}
+                                        onClick={() => {
+                                          if (isDisabled) return;
+                                          setSlotError('');
+                                          setBookingForm(f => ({ ...f, time: t }));
+                                        }}
+                                      >
+                                        <span>{t}</span>
+                                        <small>{label}</small>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            )}
+                          </section>
+
+                          <section className="booking-step3-notes">
+                            <div className="booking-step3-notes-head">
+                              <span>Visit Notes <em>(optional)</em></span>
+                              <strong className={bookingForm.notes.length > 180 ? 'is-limit' : ''}>{bookingForm.notes.length}/200</strong>
+                            </div>
+                            <textarea
+                              rows={3}
+                              maxLength={200}
+                              value={bookingForm.notes}
+                              onChange={e => setBookingForm(f => ({ ...f, notes: e.target.value }))}
+                              placeholder="Preferred handoff contact, arrival notes, or special requests"
+                            />
+                          </section>
+                        </aside>
+                      </div>
                     </div>
-                  )}
-
-                  {bookingForm.date && slotStatuses.length > 0 && (
-                    <p style={{ marginTop: 10, fontSize: 11, color: '#94a3b8', textAlign: 'center', lineHeight: 1.45 }}>
-                      Tap a white time to select it. Gray buttons are unavailable.
-                    </p>
-                  )}
-
-                  {/* Notes */}
-                  <div style={{ marginTop: 20 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <p style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                        Notes <span style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 0, color: '#cbd5e1' }}>(optional)</span>
-                      </p>
-                      <span style={{ fontSize: 10, color: bookingForm.notes.length > 180 ? '#ef4444' : '#cbd5e1' }}>{bookingForm.notes.length}/200</span>
-                    </div>
-                    <textarea rows={2}
-                      maxLength={200}
-                      value={bookingForm.notes}
-                      onChange={e => setBookingForm(f => ({ ...f, notes: e.target.value }))}
-                      placeholder="Any special requests..."
-                      style={{
-                        width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #e5e7eb',
-                        fontSize: 13, color: '#1e293b', background: '#fff', resize: 'none',
-                        outline: 'none', fontFamily: 'inherit', lineHeight: 1.5, boxSizing: 'border-box',
-                      }}
-	                      onFocus={e => e.currentTarget.style.borderColor = CUSTOMER_UI.primary}
-                      onBlur={e => e.currentTarget.style.borderColor = '#e5e7eb'}
-                    />
-                  </div>
-                </div>
-
-
+                  );
+                })()
               ) : bookingStep === 4 ? (
                 /* ── Step 4: Booking Summary ── */
                 <div className="p-4 sm:p-5">
@@ -7288,8 +7689,8 @@ export default function CustomerDashboard() {
                         const el = e.currentTarget;
                         if (el.scrollHeight - el.scrollTop - el.clientHeight <= 28) setBookingTermsReachedEnd(true);
                       }}
-                      className="booking-terms-surface booking-terms-scroll max-h-[min(420px,56vh)] min-h-[min(260px,36vh)] overflow-y-auto overscroll-contain bg-slate-50/90 px-4 py-3.5 text-sm leading-[1.65] text-slate-700 scroll-smooth outline-none"
-                      style={{ WebkitOverflowScrolling: 'touch' }}
+                      className="booking-terms-surface booking-terms-scroll max-h-[min(420px,56vh)] min-h-[min(260px,36vh)] overflow-y-auto overscroll-contain bg-slate-50/90 px-4 py-3.5 text-sm leading-[1.65] text-slate-700 scroll-smooth outline-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                      style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}
                     >
 	                      {BOOKING_TERMS_SECTIONS.map((sec) => (
 	                        <section key={sec.id} className="mb-4 last:mb-1">
@@ -7364,10 +7765,40 @@ export default function CustomerDashboard() {
                     const RESERVATION_FEE = 500;
                     const total = Number(bookingForm.servicePrice || 0);
                     const balance = Math.max(total - RESERVATION_FEE, 0);
+                    const selectedGarageVehicle =
+                      bookingSelectedVehicleIdx >= 0 && bookingSelectedVehicleIdx < vehicles.length
+                        ? vehicles[bookingSelectedVehicleIdx]
+                        : null;
+                    const vehicleTitle = [
+                      bookingForm.vehicleYear || selectedGarageVehicle?.year,
+                      bookingForm.vehicleMake || selectedGarageVehicle?.make,
+                      bookingForm.vehicleModel || selectedGarageVehicle?.model,
+                    ].filter(Boolean).join(' ') || 'Selected vehicle';
+                    const vehiclePlate = displayVehicleLabel(
+                      bookingForm.vehiclePlate || resolveGarageVehiclePlate(selectedGarageVehicle),
+                      '',
+                    );
+                    const scheduleLabel = bookingForm.date
+                      ? new Date(`${bookingForm.date}T00:00:00`).toLocaleDateString('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                      })
+                      : 'Date selected';
+                    const paymentHighlights = [
+                      { icon: 'solar:shield-check-bold', label: 'Secure upload' },
+                      { icon: 'solar:verified-check-bold', label: 'Manual verification' },
+                      { icon: 'solar:shop-bold', label: 'Balance onsite' },
+                    ];
+                    const reservationPreview = [
+                      { icon: 'solar:shield-star-bold', label: 'Package', value: bookingForm.serviceName || 'Selected package' },
+                      { icon: 'solar:car-bold', label: 'Vehicle', value: `${vehicleTitle}${vehiclePlate ? ` · ${vehiclePlate}` : ''}` },
+                      { icon: 'solar:calendar-date-bold', label: 'Appointment', value: `${scheduleLabel}${bookingForm.time ? ` · ${bookingForm.time}` : ''}` },
+                    ];
                     return (
                       <div className="booking-step6-payment-card">
                         <div className="booking-step6-hero">
-                          <div className="flex min-w-0 items-start gap-3">
+                          <div className="booking-step6-hero-copy">
                             <div className="booking-step6-icon">
                               <iconify-icon icon="solar:smartphone-bold" width="22"></iconify-icon>
                             </div>
@@ -7377,27 +7808,63 @@ export default function CustomerDashboard() {
                               <p className="booking-step6-subtitle">
                                 Scan the QR, send the exact amount, then upload your GCash receipt for verification.
                               </p>
+                              <div className="booking-step6-trust-row">
+                                {paymentHighlights.map((item) => (
+                                  <span key={item.label} className="booking-step6-trust-pill">
+                                    <iconify-icon icon={item.icon} width="13"></iconify-icon>
+                                    {item.label}
+                                  </span>
+                                ))}
+                              </div>
                             </div>
                           </div>
                           <div className="booking-step6-amount">
                             <span>Due now</span>
                             <strong>₱{RESERVATION_FEE.toLocaleString()}</strong>
+                            <small>GCash reservation fee</small>
                           </div>
                         </div>
 
                         <div className="booking-step6-ledger">
                           <div className="booking-step6-ledger-item">
-                            <span>Total service price</span>
-                            <strong>₱{total.toLocaleString()}</strong>
+                            <div className="booking-step6-ledger-icon">
+                              <iconify-icon icon="solar:bill-list-bold" width="15"></iconify-icon>
+                            </div>
+                            <div>
+                              <span>Total service price</span>
+                              <strong>₱{total.toLocaleString()}</strong>
+                            </div>
                           </div>
                           <div className="booking-step6-ledger-item is-due">
-                            <span>GCash downpayment</span>
-                            <strong>₱{RESERVATION_FEE.toLocaleString()}</strong>
+                            <div className="booking-step6-ledger-icon">
+                              <iconify-icon icon="solar:smartphone-2-bold" width="15"></iconify-icon>
+                            </div>
+                            <div>
+                              <span>GCash downpayment</span>
+                              <strong>₱{RESERVATION_FEE.toLocaleString()}</strong>
+                            </div>
                           </div>
                           <div className="booking-step6-ledger-item">
-                            <span>Remaining balance onsite</span>
-                            <strong>₱{balance.toLocaleString()}</strong>
+                            <div className="booking-step6-ledger-icon">
+                              <iconify-icon icon="solar:cash-out-bold" width="15"></iconify-icon>
+                            </div>
+                            <div>
+                              <span>Remaining balance onsite</span>
+                              <strong>₱{balance.toLocaleString()}</strong>
+                            </div>
                           </div>
+                        </div>
+
+                        <div className="booking-step6-reservation-strip">
+                          {reservationPreview.map((item) => (
+                            <div key={item.label} className="booking-step6-reservation-item">
+                              <iconify-icon icon={item.icon} width="15"></iconify-icon>
+                              <div>
+                                <span>{item.label}</span>
+                                <strong>{item.value}</strong>
+                              </div>
+                            </div>
+                          ))}
                         </div>
 
                         <div className="booking-step6-flow" aria-label="GCash payment steps">
@@ -7405,8 +7872,9 @@ export default function CustomerDashboard() {
                             { icon: 'solar:qr-code-bold', label: 'Scan QR' },
                             { icon: 'solar:wallet-money-bold', label: 'Send ₱500' },
                             { icon: 'solar:upload-minimalistic-bold', label: 'Upload receipt' },
-                          ].map((item) => (
+                          ].map((item, index) => (
                             <div key={item.label} className="booking-step6-chip">
+                              <span className="booking-step6-chip-index">{index + 1}</span>
                               <iconify-icon icon={item.icon} width="14"></iconify-icon>
                               <span>{item.label}</span>
                             </div>
@@ -7425,6 +7893,10 @@ export default function CustomerDashboard() {
                           <h4>GCash QR</h4>
                         </div>
                         <span className="booking-step6-status-pill">Exact ₱500</span>
+                      </div>
+                      <div className="booking-step6-qr-meta">
+                        <span><iconify-icon icon="solar:shield-check-bold" width="13"></iconify-icon> AutoSPF+ reservation</span>
+                        <span><iconify-icon icon="solar:lock-keyhole-bold" width="13"></iconify-icon> Secure review</span>
                       </div>
                       <div className="booking-step6-qr-frame">
                         <img src="/gcash-qr.png" alt="GCash QR Code" className="h-48 w-48 rounded-2xl object-contain" onError={(e) => { e.currentTarget.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=AutoSPFPayment'; }} />
@@ -7470,7 +7942,7 @@ export default function CustomerDashboard() {
                             <img src={bookingDownpaymentProof} alt="GCash receipt proof" className="absolute inset-0 h-full w-full object-cover opacity-55 transition-opacity group-hover:opacity-35" />
                             <div className="booking-step6-upload-action">
                               <iconify-icon icon="solar:check-circle-bold" width="17"></iconify-icon>
-                              <span>Receipt attached - tap to change</span>
+                              <span>Receipt attached · tap to change</span>
                             </div>
                           </>
                         ) : (
@@ -7483,6 +7955,11 @@ export default function CustomerDashboard() {
                           </div>
                         )}
                       </label>
+
+                      <div className="booking-step6-proof-notes">
+                        <span><iconify-icon icon="solar:check-circle-bold" width="13"></iconify-icon> Successful transaction screenshot</span>
+                        <span><iconify-icon icon="solar:check-circle-bold" width="13"></iconify-icon> Exact ₱500 amount</span>
+                      </div>
 
                       <div className="booking-step6-info-card">
                         <iconify-icon icon="solar:info-circle-bold" width="17"></iconify-icon>
@@ -7571,17 +8048,20 @@ export default function CustomerDashboard() {
                           !bookingForm.time ? 'Select an available time slot' :
                             selectedSlotStatus !== 'AVAILABLE' ? 'Selected slot is no longer available' : ''
                     ) :
-                      bookingStep === 5
-                        ? !bookingTermsReachedEnd
-                          ? 'Scroll to the bottom of the terms to enable the checkbox.'
-                          : !bookingAgreed
-                            ? 'Check the box to agree to the Terms and Conditions.'
-                            : ''
-                          : '';
+	                      bookingStep === 5
+	                        ? !bookingTermsReachedEnd
+	                          ? 'Scroll to the bottom of the terms to enable the checkbox.'
+	                          : !bookingAgreed
+	                            ? 'Check the box to agree to the Terms and Conditions.'
+	                            : ''
+	                          : bookingStep === 6 && !bookingDownpaymentProof
+                                ? 'Upload your GCash receipt to submit your booking for payment review.'
+                                : '';
                 const selectedBookingService = bookingPackages.find((svc: any) => svc.id === bookingForm.service);
+                const isStep3Footer = bookingStep === 3;
 
                 return (
-                  <div className="booking-service-footer shrink-0 border-0 px-5 py-4">
+                  <div className={`customer-modal-sticky booking-service-footer shrink-0 border-0 px-5 py-4 ${bookingStep === 3 ? 'booking-step3-footer' : ''}`}>
                     {bookingStep === 1 && selectedBookingService && (
                       <div className="booking-service-footer-summary mb-3 rounded-2xl border-0 bg-white px-3.5 py-3">
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -7604,14 +8084,26 @@ export default function CustomerDashboard() {
                       marginBottom: hintText ? 8 : 0,
                     }}
                   >
-                    {bookingStep > 1 && (
-                      <button type="button"
-                        onClick={() => { setSlotError(''); setStep2Errors({}); setBookingStep(s => s - 1); }}
-                        disabled={bookingSubmitting}
-                        style={{ width: '100%', padding: '11px 16px', borderRadius: 14, border: 'none', background: 'linear-gradient(180deg,#ffffff,#f1f5f9)', fontSize: 13, fontWeight: 600, color: '#475569', cursor: bookingSubmitting ? 'not-allowed' : 'pointer', transition: 'all 0.2s ease', boxShadow: '0 4px 16px -6px rgba(15,23,42,0.12)' }}>
-                        Back
-                      </button>
-                    )}
+	                    {bookingStep > 1 && (
+	                      <button type="button"
+	                        onClick={() => { setSlotError(''); setStep2Errors({}); setBookingStep(s => s - 1); }}
+	                        disabled={bookingSubmitting}
+	                        style={{
+                            width: '100%',
+                            padding: '11px 16px',
+                            borderRadius: 14,
+                            border: 'none',
+                            background: isStep3Footer ? 'linear-gradient(180deg,#ffffff,#eff6ff)' : 'linear-gradient(180deg,#ffffff,#f1f5f9)',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: isStep3Footer ? '#2563eb' : '#475569',
+                            cursor: bookingSubmitting ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.2s ease',
+                            boxShadow: isStep3Footer ? '0 8px 22px -16px rgba(37,99,235,0.28)' : '0 4px 16px -6px rgba(15,23,42,0.12)'
+                          }}>
+	                        Back
+	                      </button>
+	                    )}
 
                     {bookingStep < 6 ? (
                       <button type="button"
@@ -7660,43 +8152,42 @@ export default function CustomerDashboard() {
                         style={{
                           width: '100%',
                           padding: '12px 16px', borderRadius: 14, border: 'none',
-                          fontSize: 13, fontWeight: 700, letterSpacing: '0.01em', transition: 'all 0.25s ease',
-                          cursor: isStepInvalid ? 'not-allowed' : 'pointer',
-                          background: isStepInvalid ? '#e2e8f0' : 'linear-gradient(135deg,#2563EB,#1D4ED8)',
-                          color: isStepInvalid ? '#94a3b8' : '#fff',
-                          boxShadow: isStepInvalid ? 'none' : '0 10px 32px -10px rgba(37,99,235,0.32)',
-                          opacity: isStepInvalid ? 0.7 : 1,
-                        }}>
+	                          fontSize: 13, fontWeight: 700, letterSpacing: '0.01em', transition: 'all 0.25s ease',
+	                          cursor: isStepInvalid ? 'not-allowed' : 'pointer',
+	                          background: isStepInvalid ? (isStep3Footer ? '#eaf3ff' : '#e2e8f0') : 'linear-gradient(135deg,#2563EB,#1D4ED8)',
+	                          color: isStepInvalid ? (isStep3Footer ? '#7da3d9' : '#94a3b8') : '#fff',
+	                          boxShadow: isStepInvalid ? (isStep3Footer ? 'inset 0 1px 0 rgba(255,255,255,0.9)' : 'none') : '0 10px 32px -10px rgba(37,99,235,0.32)',
+	                          opacity: isStepInvalid ? 0.7 : 1,
+	                        }}>
                           Continue →
                       </button>
                     ) : (
-                      <button type="button" onClick={submitBooking} disabled={!step6Valid}
-                        style={{
-                          width: '100%',
-                          padding: '12px 16px', borderRadius: 14, border: 'none',
-                          fontSize: 13, fontWeight: 700, letterSpacing: '0.01em', transition: 'all 0.25s ease',
-                          cursor: step6Valid ? 'pointer' : 'not-allowed',
-                          background: step6Valid ? 'linear-gradient(135deg,#2563EB,#1D4ED8)' : '#e2e8f0',
-                          color: step6Valid ? '#fff' : '#94a3b8',
-                          boxShadow: step6Valid ? '0 10px 32px -10px rgba(37,99,235,0.32)' : 'none',
-                          opacity: step6Valid ? 1 : 0.7,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                        }}>
-                        {bookingSubmitting ? (
-                          <>
-                            <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
-                            Submitting…
-                          </>
-                        ) : 'Confirm Booking'}
-                      </button>
+	                      <button
+                          type="button"
+                          onClick={submitBooking}
+                          disabled={!step6Valid}
+                          className={`booking-step6-confirm-button ${step6Valid ? 'is-ready' : 'is-disabled'}`}
+                        >
+	                        {bookingSubmitting ? (
+	                          <>
+	                            <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
+	                            Submitting…
+	                          </>
+	                        ) : (
+                            <>
+                              <iconify-icon icon={step6Valid ? 'solar:shield-check-bold' : 'solar:lock-keyhole-bold'} width="17"></iconify-icon>
+                              {step6Valid ? 'Confirm Booking for Review' : 'Upload Receipt to Continue'}
+                            </>
+                          )}
+	                      </button>
                     )}
                   </div>
 
-                  {/* Inline hint — what's blocking the button */}
-                  {hintText && (
-                    <p style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', fontWeight: 500, letterSpacing: '0.01em' }}>
-                      {hintText}
-                    </p>
+	                  {/* Inline hint — what's blocking the button */}
+	                  {hintText && (
+	                    <p style={{ fontSize: 11, color: isStep3Footer ? '#7da3d9' : '#94a3b8', textAlign: 'center', fontWeight: 500, letterSpacing: '0.01em' }}>
+	                      {hintText}
+	                    </p>
                   )}
                 </div>
               );
@@ -7719,13 +8210,13 @@ export default function CustomerDashboard() {
         const hiResSrc = toCloudinaryHighResDeliveryUrl(current.url, dpr);
         return (
         <div
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+          className="customer-modal-layer fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
           role="dialog"
           aria-modal="true"
           aria-label={ariaTitle}
           onClick={() => setTrackerEvidenceLightbox(null)}
         >
-          <div className="relative max-w-4xl w-full max-h-[90vh] flex flex-col px-10 sm:px-12" onClick={(e) => e.stopPropagation()}>
+          <div className="customer-modal-panel relative max-w-4xl w-full max-h-[90vh] flex flex-col px-10 sm:px-12" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               onClick={() => setTrackerEvidenceLightbox(null)}
@@ -7785,8 +8276,8 @@ export default function CustomerDashboard() {
 
       {/* Feedback Modal */}
       {feedbackOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15,23,42,.5)', backdropFilter: 'blur(4px)' }}>
-          <div className="bg-white rounded-2xl w-full max-w-[440px] overflow-hidden" style={{ boxShadow: '0 25px 50px -12px rgba(0,0,0,.25), 0 0 0 1px rgba(0,0,0,.03)', animation: 'modalIn .25s ease-out' }} onClick={e => e.stopPropagation()}>
+        <div className="customer-modal-layer fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15,23,42,.5)', backdropFilter: 'blur(4px)' }}>
+          <div className="customer-modal-panel bg-white rounded-2xl w-full max-w-[440px] overflow-hidden" style={{ boxShadow: '0 25px 50px -12px rgba(0,0,0,.25), 0 0 0 1px rgba(0,0,0,.03)', animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both' }} onClick={e => e.stopPropagation()}>
             {!feedbackSubmitted ? (
               <>
                 {/* Gradient Header */}
@@ -7861,7 +8352,7 @@ export default function CustomerDashboard() {
               </>
             ) : (
               /* Success state */
-              <div className="px-6 py-14 text-center" style={{ animation: 'modalIn .3s ease-out' }}>
+              <div className="px-6 py-14 text-center" style={{ animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both' }}>
                 <div className="w-20 h-20 rounded-full mx-auto mb-5 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)' }}>
                   <iconify-icon icon="solar:check-circle-bold" width="48" style={{ color: '#059669' }}></iconify-icon>
                 </div>
@@ -7964,14 +8455,14 @@ export default function CustomerDashboard() {
       {/* Edit Vehicle Modal — same shell + form as Add Vehicle */}
       {editVehicleOpen && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5"
+          className="customer-modal-layer fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5"
           onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); setEditVehicleApiError(''); }}
         >
           <div
-            className="customer-vehicle-modal customer-vehicle-modal--premium flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
+            className="customer-modal-panel customer-vehicle-modal customer-vehicle-modal--premium flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
             onClick={e => e.stopPropagation()}
             style={{
-              animation: 'modalIn .2s ease-out',
+              animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both',
               maxHeight: '94vh',
             }}
           >
@@ -7997,7 +8488,7 @@ export default function CustomerDashboard() {
             </div>
 
             <form
-              className="customer-vehicle-form min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              className="customer-modal-scroll customer-vehicle-form min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
               noValidate
               onSubmit={(e) => {
                 e.preventDefault();
@@ -8023,7 +8514,7 @@ export default function CustomerDashboard() {
                 }
               />
 
-              <div className="customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white/95 px-5 pt-4 shadow-[0_-12px_32px_-16px_rgba(15,23,42,0.08)] backdrop-blur sm:-mx-6 sm:flex-row sm:px-6">
+              <div className="customer-modal-sticky customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white/95 px-5 pt-4 shadow-[0_-12px_32px_-16px_rgba(15,23,42,0.08)] backdrop-blur sm:-mx-6 sm:flex-row sm:px-6">
                 <button
                   type="button"
                   onClick={() => { setEditVehicleOpen(false); setEditVehicleErrors({}); setEditVehicleApiError(''); }}
@@ -8046,14 +8537,14 @@ export default function CustomerDashboard() {
       {/* Vehicle History Modal */}
       {vehicleHistoryOpen && vehicleHistoryVehicle && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          className="customer-modal-layer fixed inset-0 z-[100] flex items-center justify-center p-4"
           style={{ backgroundColor: 'rgba(0,0,0,.45)', backdropFilter: 'blur(5px)' }}
           onClick={() => setVehicleHistoryOpen(false)}
         >
           <div
-            className="bg-white rounded-2xl w-full max-w-md shadow-2xl shadow-slate-900/15 overflow-hidden"
+            className="customer-modal-panel bg-white rounded-2xl w-full max-w-md shadow-2xl shadow-slate-900/15 overflow-hidden"
             onClick={e => e.stopPropagation()}
-            style={{ animation: 'modalIn .2s ease-out', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
+            style={{ animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
           >
             {/* Header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-4 shrink-0">
@@ -8072,7 +8563,7 @@ export default function CustomerDashboard() {
             </div>
 
             {/* Body */}
-            <div className="booking-body min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <div className="customer-modal-scroll booking-body min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               {vehicleHistoryLoading ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-3">
                   <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-600 rounded-full animate-spin"></div>

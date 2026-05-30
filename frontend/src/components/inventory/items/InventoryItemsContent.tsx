@@ -175,6 +175,12 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
     () => `₱${totalInventoryValue.toLocaleString('en-PH', { maximumFractionDigits: 0 })}`,
     [totalInventoryValue],
   );
+  const compactInventoryValue = useMemo(() => {
+    const absValue = Math.abs(totalInventoryValue);
+    if (absValue >= 1_000_000) return `₱${(totalInventoryValue / 1_000_000).toLocaleString('en-PH', { maximumFractionDigits: 1 })}M`;
+    if (absValue >= 100_000) return `₱${(totalInventoryValue / 1_000).toLocaleString('en-PH', { maximumFractionDigits: 1 })}K`;
+    return formattedInventoryValue;
+  }, [formattedInventoryValue, totalInventoryValue]);
   const latestRestockedLabel = useMemo(() => {
     const latest = items.reduce<number | null>((latestTime, item) => {
       const time = new Date(item.lastRestocked).getTime();
@@ -199,10 +205,12 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
     },
     {
       label: 'Stock Value',
-      value: formattedInventoryValue,
+      value: compactInventoryValue,
+      title: formattedInventoryValue,
       detail: 'Current inventory',
       icon: BadgeDollarSign,
       tone: 'emerald',
+      valueKind: 'money',
     },
     {
       label: 'Need Restock',
@@ -253,7 +261,7 @@ export default function InventoryItemsContent({ embedded = false }: { embedded?:
                 <div className="inv-metric-icon"><Icon size={17} /></div>
                 <div className="inv-metric-copy">
                   <span>{metric.label}</span>
-                  <strong>{metric.value}</strong>
+                  <strong className={metric.valueKind === 'money' ? 'inv-metric-value--money' : undefined} title={metric.title || metric.value}>{metric.value}</strong>
                   <p>{metric.detail}</p>
                 </div>
               </div>

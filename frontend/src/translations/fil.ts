@@ -44,15 +44,15 @@ export const fil = {
         items: {
             spf80: {
                 name: "SPF 80 — Essential",
-                desc: "3 Layer Graphene Ceramic Coating (Canada) na may Graphene Sealant. 3 taong proteksyon.",
+                desc: "3 Layers of Graphene Ceramic Coating (Made in Canada) na may Graphene Sealant. 3 taong proteksyon.",
             },
             spf89: {
                 name: "SPF 89 — Advanced",
-                desc: "4 Layer Graphene Ceramic Coating (Canada) na may libreng maintenance visit. 5 taong proteksyon.",
+                desc: "4 Layers of Graphene Ceramic Coating (Made in Canada) na may libreng maintenance visit. 5 taong proteksyon.",
             },
             spf99: {
                 name: "SPF 99 — Premium",
-                desc: "4 Layer SONAX Profiline CC EVO (Germany) na may libreng recoat at maintenance. 10 taong proteksyon.",
+                desc: "4 Layers of SONAX Profiline CC EVO (Made in Germany) na may libreng recoat at maintenance. 10 taong proteksyon.",
             },
             spf101: {
                 name: "SPF 101 — Flagship ALL-IN",

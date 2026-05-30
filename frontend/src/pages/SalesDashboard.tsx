@@ -1,11 +1,7 @@
 import React, { useState } from 'react';
 import SalesSidebar from '@/components/sales/SalesSidebar';
 import SalesTopbar from '@/components/sales/SalesTopbar';
-import KPIBentoGrid from '@/components/sales/dashboard/KPIBentoGrid';
-import HourlySalesChart from '@/components/sales/dashboard/HourlySalesChart';
-import ServiceMixChart from '@/components/sales/dashboard/ServiceMixChart';
-import SevenDayTrendChart from '@/components/sales/dashboard/SevenDayTrendChart';
-import RecentTransactionsFeed from '@/components/sales/dashboard/RecentTransactionsFeed';
+import PremiumSalesDashboard from '@/components/sales/dashboard/PremiumSalesDashboard';
 import POSWorkspace from '@/components/sales/pos/POSWorkspace';
 import TransactionsTable from '@/components/sales/transactions/TransactionsTable';
 import CustomersView from '@/components/sales/customers/CustomersView';
@@ -14,7 +10,7 @@ import SettingsView from '@/components/sales/settings/SettingsView';
 import ToastProvider from '@/components/sales/ui/ToastProvider';
 import SalesSmartCalendar from '@/components/sales/calendar/SalesSmartCalendar';
 import BookingApprovalsPage from '@/components/sales/booking/BookingApprovalsPage';
-import { SalesAnalyticsProvider, useSalesContext } from '@/contexts/SalesAnalyticsContext';
+import { SalesAnalyticsProvider } from '@/contexts/SalesAnalyticsContext';
 
 type SalesView = 'dashboard' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
 
@@ -34,44 +30,7 @@ function TransactionsView() {
 
 // ── Dashboard View ────────────────────────────────────────────────────────────
 function DashboardView({ onNavigate }: { onNavigate: (v: SalesView) => void }) {
-  const { kpis } = useSalesContext();
-  const today = new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  const showNoTodayHint =
-    !kpis.usingLast24hFallback &&
-    kpis.transactionCount === 0 &&
-    kpis.transactionCountYesterday > 0;
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Sales Dashboard</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{today} — Shift: 8:00 AM – 6:00 PM</p>
-          {showNoTodayHint && (
-            <p className="mt-2 text-xs text-amber-900 bg-amber-50/90 rounded-xl px-3 py-2 max-w-2xl leading-relaxed shadow-sm shadow-amber-900/5">
-              No activity dated today (Manila) in the loaded orders yet. Dashboard totals use payment time when paid, otherwise last update vs. booking time. Yesterday had{' '}
-              <span className="font-semibold">{kpis.transactionCountYesterday}</span> orders.
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50/90 shadow-sm shadow-emerald-900/5">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-semibold text-emerald-700">Live</span>
-          </div>
-        </div>
-      </div>
-      <KPIBentoGrid />
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2"><HourlySalesChart /></div>
-        <div className="lg:col-span-1"><ServiceMixChart /></div>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2"><SevenDayTrendChart /></div>
-        <div className="lg:col-span-1"><RecentTransactionsFeed onViewAll={() => onNavigate('transactions')} /></div>
-      </div>
-    </div>
-  );
+  return <PremiumSalesDashboard onNavigate={onNavigate} />;
 }
 
 // ── POS View ──────────────────────────────────────────────────────────────────
@@ -122,7 +81,7 @@ function CalendarView() {
 // ── Main Sales Dashboard Page ─────────────────────────────────────────────────
 export default function SalesDashboard() {
   const [activeView, setActiveView] = useState<SalesView>('dashboard');
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
   const [posPreloadOrderId, setPosPreloadOrderId] = useState<string | null>(null);
   const [approvalsPreloadOrderId, setApprovalsPreloadOrderId] = useState<string | null>(null);
 

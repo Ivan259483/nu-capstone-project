@@ -55,8 +55,18 @@ const PPF_PRICE_ROWS = [
   { vehicle: 'Full-Size SUV', prices: ['₱100,000', '₱110,000', '₱120,000', '₱150,000'] },
 ];
 
+const UNDERCOATING_ADDON_PRICES = [
+  'Hatchback ₱6,000',
+  'Sedan ₱6,500',
+  'Midsized ₱7,000',
+  'SUV ₱7,500',
+  'Pick Up ₱7,500',
+  'Large SUV / Van ₱9,000',
+  'Highend Sedan ₱8,000',
+];
+
 const ADD_ON_SERVICE_ROWS = [
-  { name: 'Undercoating', price: '₱8,000' },
+  { name: 'Undercoating', price: UNDERCOATING_ADDON_PRICES.join(' | ') },
   { name: 'Repainting', price: 'Per panel' },
   { name: 'PDR (Paintless Dent Repair)', price: 'Per dent' },
   { name: 'PPF per panel', price: 'Per panel' },
