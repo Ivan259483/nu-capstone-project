@@ -87,26 +87,27 @@ export default function HeroSection() {
     return (
         <section className="relative min-h-screen w-full flex items-center overflow-hidden" style={{ backgroundColor: "#07070A" }}>
 
-            {/* Right side background image with gradient mask */}
-            <div className="absolute top-0 right-0 w-full lg:w-[65%] h-full z-0 overflow-hidden">
+            {/* Full-bleed hero media — wide soft fade (avoids hard vertical seam under nav) */}
+            <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden border-0">
                 <img
                     src="https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?q=80&w=2670&auto=format&fit=crop"
                     alt="Luxury Car Detailing"
-                    className="w-full h-full object-cover object-center opacity-40 lg:opacity-100"
+                    className="h-full w-full object-cover object-center opacity-40 lg:opacity-100 lg:object-[72%_center]"
                     style={{ animation: "hero-car-drift 25s ease-in-out infinite", transformOrigin: "center center" }}
                 />
-                {/* Gradient mask bleeding into the background naturally */}
                 <div
                     className="absolute inset-0 z-10 hidden lg:block"
+                    aria-hidden
                     style={{
-                        background: "linear-gradient(to right, #07070A 0%, rgba(7,7,10,0.85) 15%, rgba(7,7,10,0) 45%, rgba(7,7,10,0) 100%)"
+                        background:
+                            "linear-gradient(105deg, #07070A 0%, #07070A 20%, rgba(7,7,10,0.96) 30%, rgba(7,7,10,0.78) 40%, rgba(7,7,10,0.42) 52%, rgba(7,7,10,0.12) 64%, transparent 76%)",
                     }}
                 />
-                {/* Mobile overlay mask */}
                 <div
                     className="absolute inset-0 z-10 lg:hidden"
+                    aria-hidden
                     style={{
-                        background: "linear-gradient(to top, #07070A 0%, rgba(7,7,10,0.8) 50%, rgba(7,7,10,0) 100%)"
+                        background: "linear-gradient(to top, #07070A 0%, rgba(7,7,10,0.8) 50%, rgba(7,7,10,0) 100%)",
                     }}
                 />
             </div>
@@ -154,24 +155,28 @@ export default function HeroSection() {
                         </span>
                     </h1>
 
-                    {/* Short gold rule divider */}
-                    <div className="w-12 h-[1.5px] bg-[#F0A500] mb-8 animate-slide-up" style={{ animationDelay: "0.3s" }} />
-
                     {/* Subtitle */}
                     <p className="text-[15px] leading-relaxed max-w-md mb-10 font-sans animate-slide-up" style={{ color: "rgba(255,255,255,0.6)", animationDelay: "0.4s" }}>
                         {t("hero.subtitle") || "Professional detailing services that bring out the brilliance in every vehicle. We treat your car like our own with premium protection and unmatched aesthetic perfection."}
                     </p>
 
-                    {/* Star rating row */}
-                    <div className="flex items-center gap-4 mb-12 animate-slide-up" style={{ animationDelay: "0.5s" }}>
-                        <span className="text-[40px] font-serif font-light text-white leading-none">4.9</span>
-                        <div className="flex flex-col gap-1">
-                            <div className="flex text-[#F0A500] gap-[2px]">
+                    {/* Star rating row — 4.9 aligned to star row; reviews under stars */}
+                    <div
+                        className="mb-12 w-fit animate-slide-up"
+                        style={{ animationDelay: "0.5s" }}
+                    >
+                        <div className="grid grid-cols-[auto_auto] items-center gap-x-3 gap-y-1.5">
+                            <span className="text-[40px] font-serif font-light leading-none text-white tabular-nums">
+                                4.9
+                            </span>
+                            <div className="flex items-center gap-0.5 text-[#F0A500]">
                                 {[...Array(5)].map((_, i) => (
-                                    <Star key={i} className="w-4 h-4 fill-current" />
+                                    <Star key={i} className="h-[18px] w-[18px] shrink-0 fill-current" />
                                 ))}
                             </div>
-                            <span className="text-[10px] font-sans uppercase tracking-widest text-[rgba(255,255,255,0.4)]">2,400+ Reviews</span>
+                            <span className="col-start-2 text-[10px] font-sans uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
+                                2,400+ Reviews
+                            </span>
                         </div>
                     </div>
 
@@ -200,25 +205,24 @@ export default function HeroSection() {
                                 </span>
                             </button>
                         </Link>
-                        <Link to="/gallery">
-                            <button
-                                className="group relative px-10 py-[16px] font-medium text-sm tracking-wide uppercase rounded-none overflow-hidden transition-all duration-500"
-                                style={{
-                                    border: "1px solid rgba(240,165,0,0.25)",
-                                    color: "rgba(255,255,255,0.85)",
-                                    backdropFilter: "blur(8px)",
-                                    background: "rgba(240,165,0,0.04)"
-                                }}
-                            >
-                                {/* Hover fill */}
-                                <span
-                                    className="absolute inset-0 bg-[rgba(240,165,0,0.08)] scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left"
-                                />
-                                <span className="relative z-10 group-hover:text-[#F0A500] transition-colors duration-300">
-                                    View Work
-                                </span>
-                            </button>
-                        </Link>
+                        <a
+                            href="#transformation"
+                            className="group relative inline-flex px-10 py-[16px] font-medium text-sm tracking-wide uppercase rounded-none overflow-hidden transition-all duration-500 no-underline"
+                            style={{
+                                border: "1px solid rgba(240,165,0,0.25)",
+                                color: "rgba(255,255,255,0.85)",
+                                backdropFilter: "blur(8px)",
+                                background: "rgba(240,165,0,0.04)",
+                            }}
+                        >
+                            <span
+                                className="absolute inset-0 bg-[rgba(240,165,0,0.08)] scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left"
+                                aria-hidden
+                            />
+                            <span className="relative z-10 group-hover:text-[#F0A500] transition-colors duration-300">
+                                View Work
+                            </span>
+                        </a>
                     </div>
 
                     {/* Service tags */}
@@ -227,20 +231,12 @@ export default function HeroSection() {
                             <div key={service} className="flex items-center">
                                 <button
                                     onClick={() => setActiveService(service)}
-                                    className={`relative px-3 py-1.5 text-[10px] tracking-[0.18em] uppercase transition-all duration-400 ${activeService === service
+                                    className={`px-3 py-1.5 text-[10px] tracking-[0.18em] uppercase transition-all duration-400 ${activeService === service
                                         ? "text-[#F0A500]"
                                         : "text-[rgba(255,255,255,0.35)] hover:text-[rgba(255,255,255,0.8)]"
                                         }`}
                                 >
                                     {service}
-                                    {/* Gold underline indicator */}
-                                    <span
-                                        className={`absolute bottom-0 left-3 right-3 h-[1px] transition-all duration-400 ${activeService === service
-                                            ? "bg-[#F0A500] opacity-100 scale-x-100"
-                                            : "bg-white opacity-0 scale-x-0"
-                                            }`}
-                                        style={{ transformOrigin: "left" }}
-                                    />
                                 </button>
                                 {index < services.length - 1 && (
                                     <span className="text-[rgba(255,255,255,0.1)] text-[8px] select-none">/</span>

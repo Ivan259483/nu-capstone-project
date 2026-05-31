@@ -2,20 +2,29 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 import { getBaseApiUrl } from "@/lib/api";
+import { TOKEN_KEY, persistBackendUser, safeLocalStorageSet } from "@/lib/auth-storage";
+import { useAuth } from "@/contexts/AuthContext";
+import { getDashboardPathForRole, getSafeUserRole } from "@/lib/roles";
+import { signOut } from "firebase/auth";
+import { auth } from "@/config/firebase";
 import { ShieldCheck, RefreshCw, ArrowLeft, Loader2 } from "lucide-react";
 
 const OTP_LENGTH = 6;
 const OTP_SECONDS = 600; // 10 minutes
+const RESEND_COOLDOWN_SEC = 60;
 const normalizeOtp = (value: string) => value.replace(/\D/g, "").slice(0, OTP_LENGTH);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 export default function VerifyOtpPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
+    const { setAuthUser } = useAuth();
     const email = normalizeEmail(searchParams.get("email") || "");
+    const fromRegister = searchParams.get("from") === "register";
 
     const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(""));
     const [seconds, setSeconds] = useState(OTP_SECONDS);
+    const [resendSec, setResendSec] = useState(RESEND_COOLDOWN_SEC);
     const [isVerifying, setIsVerifying] = useState(false);
     const [isResending, setIsResending] = useState(false);
     const [shake, setShake] = useState(false);
@@ -27,6 +36,12 @@ export default function VerifyOtpPage() {
         const t = setInterval(() => setSeconds((s) => s - 1), 1000);
         return () => clearInterval(t);
     }, [seconds]);
+
+    useEffect(() => {
+        if (resendSec <= 0) return;
+        const t = setInterval(() => setResendSec((s) => s - 1), 1000);
+        return () => clearInterval(t);
+    }, [resendSec]);
 
     const formatTime = (s: number) =>
         `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -95,13 +110,39 @@ export default function VerifyOtpPage() {
                 toast.error(data.message || "Invalid or expired OTP.");
                 return;
             }
+
+            const backendToken = data.data?.token as string | undefined;
+            const backendUser = data.data?.user as Record<string, unknown> | undefined;
+            const role = getSafeUserRole(String(data.data?.role || backendUser?.role || "customer"));
+
+            if (backendToken && backendUser) {
+                await signOut(auth).catch(() => {});
+                safeLocalStorageSet(TOKEN_KEY, backendToken);
+                persistBackendUser({ ...backendUser, role });
+                setAuthUser({
+                    id: String(backendUser.id || backendUser._id || ""),
+                    _id: String(backendUser._id || backendUser.id || ""),
+                    email: String(backendUser.email || normalizedEmail),
+                    name: String(backendUser.name || ""),
+                    role,
+                    createdAt: String(backendUser.createdAt || new Date().toISOString()),
+                    password: "",
+                    isActive: (backendUser.isActive as boolean) ?? true,
+                    lastActive: String(backendUser.lastActive || new Date().toISOString()),
+                    avatar: backendUser.avatar as string | undefined,
+                    phone: backendUser.phone as string | undefined,
+                });
+                toast.success("Welcome to AutoSPF+!");
+                navigate(getDashboardPathForRole(role) || "/customer/dashboard", { replace: true });
+                return;
+            }
+
             toast.success("Email verified!");
-            // Redirect based on role
-            const { role, isFirstLogin } = data.data || {};
+            const { isFirstLogin } = data.data || {};
             if (isFirstLogin && role && role !== "customer") {
                 navigate("/set-password");
             } else {
-                navigate("/login?verified=1");
+                navigate(fromRegister ? "/login?verified=1" : "/login?verified=1");
             }
         } catch {
             toast.error("Network error. Please try again.");
@@ -119,7 +160,7 @@ export default function VerifyOtpPage() {
     /* ── resend ── */
     const handleResend = async () => {
         const normalizedEmail = normalizeEmail(email);
-        if (isResending || seconds > 0) return;
+        if (isResending || resendSec > 0) return;
         if (!normalizedEmail) {
             toast.error("Email address is missing. Please go back and try again.");
             return;
@@ -133,11 +174,14 @@ export default function VerifyOtpPage() {
             });
             const data = await res.json();
             if (!res.ok || !data.success) {
+                const retryAfter = data.data?.retryAfterSeconds as number | undefined;
+                if (retryAfter) setResendSec(retryAfter);
                 toast.error(data.message || "Failed to resend OTP.");
                 return;
             }
             setDigits(Array(OTP_LENGTH).fill(""));
-            setSeconds(OTP_SECONDS);
+            setSeconds(typeof data.data?.expiresIn === "number" ? data.data.expiresIn : OTP_SECONDS);
+            setResendSec(RESEND_COOLDOWN_SEC);
             inputRefs.current[0]?.focus();
             toast.success("A new verification code was sent to your email.");
         } catch {
@@ -294,11 +338,11 @@ export default function VerifyOtpPage() {
                 </button>
 
                 <div className="resend-row">
-                    {seconds > 0 ? (
-                        <span>Didn't receive it? Resend available in {formatTime(seconds)}</span>
+                    {resendSec > 0 ? (
+                        <span>Didn&apos;t receive it? Resend available in {formatTime(resendSec)}</span>
                     ) : (
                         <span>
-                            Didn't receive it?{" "}
+                            Didn&apos;t receive it?{" "}
                             <button
                                 className="btn-resend"
                                 onClick={handleResend}

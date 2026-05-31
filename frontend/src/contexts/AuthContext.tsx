@@ -16,6 +16,17 @@ import { getBaseApiUrl } from '@/lib/api';
 import { invalidate, invalidateAll } from '@/lib/queryCache';
 import { getSharedSocket, refreshSocketAuth, destroySharedSocket } from '@/hooks/useRealtimeSync';
 import { formatContactNoInputFromProfile, normalizePhilippineMobileInput } from '@/lib/phone';
+import {
+    BACKEND_USER_KEY,
+    TOKEN_KEY,
+    isDataImage,
+    persistBackendUser,
+    patchBackendUser,
+    purgeAvatarLocalStorage,
+    repairAuthLocalStorage,
+    safeLocalStorageSet,
+    stripAvatarForStorage,
+} from '@/lib/auth-storage';
 
 /** Resolved per call so Vite env / port changes apply after restart without stale module constant. */
 const apiUrl = () => getBaseApiUrl();
@@ -91,8 +102,9 @@ function getSessionCache(): SessionCache | null {
 }
 
 function setSessionCache(user: User, token: string): void {
-    const cache: SessionCache = { user, token, timestamp: Date.now(), version: SESSION_CACHE_VERSION };
-    try { localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(cache)); } catch { /* quota */ }
+    const slimUser = stripAvatarForStorage(user as unknown as Record<string, unknown>) as unknown as User;
+    const cache: SessionCache = { user: slimUser, token, timestamp: Date.now(), version: SESSION_CACHE_VERSION };
+    safeLocalStorageSet(SESSION_CACHE_KEY, JSON.stringify(cache));
 }
 
 function clearSessionCache(): void {
@@ -102,8 +114,9 @@ function clearSessionCache(): void {
 /** Wipe JWT + backend profile caches (shared by logout and account switch on /login). */
 function clearAuthStorage(): void {
     clearSessionCache();
-    localStorage.removeItem('autospf_token');
-    localStorage.removeItem('autospf_backend_user');
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(BACKEND_USER_KEY);
+    purgeAvatarLocalStorage();
 }
 
 async function fetchAuthMe(
@@ -159,7 +172,7 @@ interface AuthContextType {
     login: (email: string, password: string) => Promise<{ success: boolean; role?: string; message?: string; requiresOTP?: boolean; userId?: string; maskedEmail?: string; requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; data?: { requiresOtp?: boolean; requiresPasswordChange?: boolean; token?: string; email?: string; remainingAttempts?: number; loginAttempts?: number; maxAttempts?: number; locked?: boolean; lockUntilMs?: number; remainingMinutes?: number } }>;
     signup: (email: string, password: string, name: string) => Promise<{ success: boolean; message?: string }>;
     resetPassword: (email: string) => Promise<{ success: boolean; message?: string }>;
-    logout: () => void;
+    logout: () => Promise<void>;
     updateUser: (user: User, options?: { localOnly?: boolean }) => Promise<{ success: boolean; message?: string; offline?: boolean; reason?: 'timeout' | 'network' | 'error'; phone?: string }>;
     setAuthUser: (user: User | null) => void;
     markLoginInProgress: () => void;
@@ -170,10 +183,6 @@ interface AuthContextType {
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const AVATAR_STORAGE_PREFIX = 'autospf_avatar_';
-const stripAvatarMetadata = (value: string) => value.replace(/^data:image\/\w+;base64,/, '');
-const isLikelyBase64Image = (value: string) =>
-    value.startsWith('data:image/') || (value.length > 200 && !value.startsWith('http'));
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
@@ -181,51 +190,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // True once Firebase's onAuthStateChanged has fired at least once.
     // Login.tsx uses this to avoid redirecting on stale localStorage data.
     const [isFirebaseAuthReady, setIsFirebaseAuthReady] = useState(false);
-    const pendingAvatarRef = useRef<{ id: string; avatar: string } | null>(null);
     // Track whether login() already resolved the user to avoid double-fetch in onAuthStateChanged
     const loginResolvedRef = useRef(false);
     // Track whether login() is currently in progress — onAuthStateChanged must completely
     // defer to login() during this window to prevent stale role data from triggering redirects.
     const loginInProgressRef = useRef(false);
+    /** Prevents onAuthStateChanged from re-hydrating JWT after intentional sign-out. */
+    const logoutInProgressRef = useRef(false);
 
     const sanitizeUser = useCallback((userData: User): User => {
         if (!userData) return userData;
-        if (userData.avatar && typeof userData.avatar === 'string' && isLikelyBase64Image(userData.avatar)) {
-            const rawAvatar = stripAvatarMetadata(userData.avatar);
-            if (userData.id) {
-                pendingAvatarRef.current = { id: userData.id, avatar: rawAvatar };
-            }
-            const { avatar, ...rest } = userData;
+        if (userData.avatar && isDataImage(userData.avatar)) {
+            const { avatar: _removed, ...rest } = userData;
             return { ...rest } as User;
         }
         return userData;
     }, []);
 
     useEffect(() => {
-        if (!pendingAvatarRef.current) return;
-        const { id, avatar } = pendingAvatarRef.current;
-        let idleId: number | null = null;
-        if (typeof (window as any).requestIdleCallback === 'function') {
-            idleId = (window as any).requestIdleCallback(() => {
-                localStorage.setItem(`${AVATAR_STORAGE_PREFIX}${id}`, avatar);
-                pendingAvatarRef.current = null;
-            });
-        } else {
-            idleId = window.setTimeout(() => {
-                localStorage.setItem(`${AVATAR_STORAGE_PREFIX}${id}`, avatar);
-                pendingAvatarRef.current = null;
-            }, 0);
-        }
-        return () => {
-            if (idleId && typeof (window as any).cancelIdleCallback === 'function') {
-                (window as any).cancelIdleCallback(idleId);
-            } else if (idleId) {
-                window.clearTimeout(idleId);
-            }
-        };
-    }, [user]);
-
-    useEffect(() => {
+        repairAuthLocalStorage();
         initializeStorage();
         // NOTE: We intentionally do NOT call setUser() here from localStorage.
         // Previously, pre-populating user before onAuthStateChanged caused a race:
@@ -300,10 +283,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             const sanitizedJwt = sanitizeUser(jwtUser);
                             userStorage.setCurrentUser(sanitizedJwt);
                             setUser(jwtUser);
-                            localStorage.setItem('autospf_backend_user', JSON.stringify({
-                                ...me,
-                                role: jwtUser.role,
-                            }));
+                            persistBackendUser(me, jwtUser.role);
                             setSessionCache(jwtUser, validToken);
                             console.log(`✅ [AuthContext] Restored session from JWT /auth/me — role: ${jwtUser.role}`);
                             setIsLoading(false);
@@ -384,7 +364,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         userStorage.setCurrentUser(sanitized);
                         setUser(mergedUser);
                         if (restoredToken && !localStorage.getItem('autospf_token')) {
-                            localStorage.setItem('autospf_token', restoredToken);
+                            safeLocalStorageSet(TOKEN_KEY, restoredToken);
                         }
                         setSessionCache(mergedUser, restoredToken || cached.token);
                         try {
@@ -448,7 +428,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             }
 
                             if (backendToken) {
-                                localStorage.setItem('autospf_token', backendToken);
+                                safeLocalStorageSet(TOKEN_KEY, backendToken);
                                 console.log('✅ [onAuth] Fresh backend JWT saved');
                             }
                             if (backendUser) {
@@ -500,7 +480,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     // After a backend sync failure, localStorage may be empty (no autospf_token).
                     // Check the session cache and restore the token so API calls go out with Bearer.
                     if (!localStorage.getItem('autospf_token') && cached?.token) {
-                        localStorage.setItem('autospf_token', cached.token);
+                        safeLocalStorageSet(TOKEN_KEY, cached.token);
                         console.log('🔑 [onAuth] Restored cached token from session cache (fallback path)');
                     }
 
@@ -536,6 +516,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     setIsFirebaseAuthReady(true);
                 }
             } else {
+                if (logoutInProgressRef.current) {
+                    clearAuthStorage();
+                    userStorage.setCurrentUser(null);
+                    setUser(null);
+                    setIsLoading(false);
+                    setIsFirebaseAuthReady(true);
+                    return;
+                }
+
                 // Firebase reports no signed-in user.
                 // Staff/admin accounts are backend-only — they authenticate via OTP and have
                 // no Firebase Auth entry. Preserve their session if backend token exists.
@@ -556,10 +545,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             const sanitized = sanitizeUser(restoredUser);
                             userStorage.setCurrentUser(sanitized);
                             setUser(restoredUser);
-                            localStorage.setItem(
-                                'autospf_backend_user',
-                                JSON.stringify({ ...me, role: restoredUser.role }),
-                            );
+                            persistBackendUser(me, restoredUser.role);
                             setSessionCache(restoredUser, backendToken);
                         }
                     } else {
@@ -639,7 +625,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 try {
                     const parsed = JSON.parse(backendUserRaw);
                     parsed.role = migratedNewRole;
-                    localStorage.setItem('autospf_backend_user', JSON.stringify(parsed));
+                    persistBackendUser(parsed);
                 } catch { /* ignore parse errors */ }
             }
 
@@ -780,17 +766,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     const sanitized = sanitizeUser(merged);
                     userStorage.setCurrentUser(sanitized);
                     setSessionCache(merged, token);
-                    try {
-                        const backendRaw = localStorage.getItem('autospf_backend_user');
-                        if (backendRaw) {
-                            const bu = JSON.parse(backendRaw);
-                            bu.phone = merged.phone;
-                            if (me.id || me._id) bu._id = me.id || me._id;
-                            localStorage.setItem('autospf_backend_user', JSON.stringify(bu));
-                        }
-                    } catch {
-                        /* ignore */
-                    }
+                    patchBackendUser({
+                        phone: merged.phone,
+                        _id: (me.id || me._id) as string,
+                    });
                     if (import.meta.env.DEV) {
                         console.log('[Auth] Hydrated user.phone from GET /auth/me for booking/profile UI');
                     }
@@ -881,8 +860,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const finalRole = migratedRole || CUSTOMER_ROLE;
                 const normalizedBackendUser = { ...bUser, role: finalRole };
                 console.log('✅ [DEBUG-login] Backend JWT session — Firebase optional / backend-first');
-                localStorage.setItem('autospf_token', bToken);
-                localStorage.setItem('autospf_backend_user', JSON.stringify(normalizedBackendUser));
+                safeLocalStorageSet(TOKEN_KEY, bToken);
+                persistBackendUser(normalizedBackendUser as Record<string, unknown>);
 
                 const mongoId = String(normalizedBackendUser._id || normalizedBackendUser.id || '');
                 const userData: User = {
@@ -1210,7 +1189,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (backendBody.data?.token) {
                 backendToken = backendBody.data.token;
-                localStorage.setItem('autospf_token', backendToken);
+                safeLocalStorageSet(TOKEN_KEY, backendToken);
                 const verify = localStorage.getItem('autospf_token');
                 console.log('✅ [DEBUG-login] Token saved to localStorage:', !!verify, 'length:', verify?.length);
             } else {
@@ -1351,10 +1330,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 if (resp.ok) {
                     const json = await resp.json();
                     if (json.data?.token) {
-                        localStorage.setItem('autospf_token', json.data.token);
+                        safeLocalStorageSet(TOKEN_KEY, json.data.token);
                     }
                     if (json.data?.user) {
-                        localStorage.setItem('autospf_backend_user', JSON.stringify(json.data.user));
+                        persistBackendUser(json.data.user as Record<string, unknown>);
                     }
                     backendSynced = true;
                     console.log('✅ [AuthContext] Backend register synced');
@@ -1382,10 +1361,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     if (resp.ok) {
                         const json = await resp.json();
                         if (json.data?.token) {
-                            localStorage.setItem('autospf_token', json.data.token);
+                            safeLocalStorageSet(TOKEN_KEY, json.data.token);
                         }
                         if (json.data?.user) {
-                            localStorage.setItem('autospf_backend_user', JSON.stringify(json.data.user));
+                            persistBackendUser(json.data.user as Record<string, unknown>);
                         }
                         console.log('✅ [AuthContext] Backend social-login fallback synced');
                     } else {
@@ -1442,12 +1421,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const logout = useCallback(async () => {
+        logoutInProgressRef.current = true;
         try {
             destroySharedSocket();
-            await signOut(auth);
             clearAuthStorage();
             userStorage.setCurrentUser(null);
             setUser(null);
+            try {
+                sessionStorage.removeItem('redirect_after_login');
+            } catch {
+                /* ignore */
+            }
+            await signOut(auth);
             try {
                 invalidateAll();
             } catch {
@@ -1455,6 +1440,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         } catch (error) {
             console.error('Logout error:', error);
+        } finally {
+            logoutInProgressRef.current = false;
         }
     }, []);
 
@@ -1509,17 +1496,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             userStorage.update(sanitized);
             userStorage.setCurrentUser(sanitized);
             setUser(withPhone);
-            try {
-                const backendRaw = localStorage.getItem('autospf_backend_user');
-                if (backendRaw) {
-                    const bu = JSON.parse(backendRaw);
-                    bu.phone = withPhone.phone;
-                    if (withPhone._id) bu._id = withPhone._id;
-                    localStorage.setItem('autospf_backend_user', JSON.stringify(bu));
-                }
-            } catch {
-                /* ignore */
-            }
+            patchBackendUser({
+                phone: withPhone.phone,
+                _id: withPhone._id,
+            });
         };
 
         if (options?.localOnly) {
@@ -1590,14 +1570,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const token = localStorage.getItem('autospf_token') || '';
                 if (token && token !== 'undefined' && token !== 'null') {
                     setSessionCache(u, token);
-                    try {
-                        localStorage.setItem(
-                            'autospf_backend_user',
-                            JSON.stringify({ ...u, _id: u._id || u.id, role: u.role }),
-                        );
-                    } catch {
-                        /* quota */
-                    }
+                    persistBackendUser({
+                        ...(u as unknown as Record<string, unknown>),
+                        _id: u._id || u.id,
+                        role: u.role,
+                    });
                 }
                 setIsFirebaseAuthReady(true);
                 setIsLoading(false);

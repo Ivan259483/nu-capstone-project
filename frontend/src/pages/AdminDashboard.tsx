@@ -950,9 +950,9 @@ export default function AdminDashboard() {
         return () => clearInterval(analyticsInterval);
     }, [bookings, needsAnalyticsData, user]); // Re-run when accessible booking data changes
 
-    const handleLogout = () => {
-        logout();
-        navigate('/');
+    const handleLogout = async () => {
+        await logout();
+        navigate('/login', { replace: true });
     };
 
     const handleGenerateReceipt = (payment: any) => {

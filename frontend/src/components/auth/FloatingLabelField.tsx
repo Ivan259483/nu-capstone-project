@@ -1,4 +1,4 @@
-import { useId, type InputHTMLAttributes } from "react";
+import { useId, type InputHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 type FloatingLabelFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "onChange"> & {
@@ -7,6 +7,10 @@ type FloatingLabelFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "onCh
     onChange: (value: string) => void;
     error?: string;
     containerClassName?: string;
+    /** Tighter error line for dense forms (e.g. register). */
+    compactError?: boolean;
+    /** Icon or control aligned to the vertical center of the input shell (e.g. password visibility). */
+    endAdornment?: ReactNode;
 };
 
 export function FloatingLabelField({
@@ -16,6 +20,8 @@ export function FloatingLabelField({
     error,
     className,
     containerClassName,
+    compactError = false,
+    endAdornment,
     id: idProp,
     disabled,
     onBlur,
@@ -67,9 +73,19 @@ export function FloatingLabelField({
                 >
                     {label}
                 </label>
+                {endAdornment ? (
+                    <div className="absolute inset-y-0 right-3 z-10 flex items-center">{endAdornment}</div>
+                ) : null}
             </div>
             {error ? (
-                <p id={`${id}-error`} className="mt-1.5 px-1 text-xs font-medium text-red-400 animate-slide-up" role="alert">
+                <p
+                    id={`${id}-error`}
+                    className={cn(
+                        "px-1 font-medium text-red-400 animate-slide-up",
+                        compactError ? "mt-0.5 text-[11px] leading-tight" : "mt-1.5 text-xs"
+                    )}
+                    role="alert"
+                >
                     {error}
                 </p>
             ) : null}

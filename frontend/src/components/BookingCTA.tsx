@@ -16,10 +16,6 @@ export default function BookingCTA() {
             <div className="absolute top-0 left-0 right-0 gold-line" />
             <div className="absolute bottom-0 left-0 right-0 gold-line" />
 
-            {/* Rotating decorative rings */}
-            <div className="absolute -right-32 -top-32 w-96 h-96 rounded-full border border-gold/5 animate-spin-slow pointer-events-none" />
-            <div className="absolute -left-20 -bottom-20 w-64 h-64 rounded-full border border-gold/8 pointer-events-none" style={{ animation: "spin-slow 18s linear infinite reverse" }} />
-
             <div
                 ref={ref}
                 className={cn(

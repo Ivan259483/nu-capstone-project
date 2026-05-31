@@ -27,6 +27,8 @@ export type HeroParallaxProps = {
     description?: string;
     titleSerif?: boolean;
     className?: string;
+    /** Anchor id for in-page links (e.g. hero “View work” → this section). */
+    sectionId?: string;
 };
 
 /**
@@ -70,6 +72,7 @@ export function HeroParallax({
     description,
     titleSerif = false,
     className,
+    sectionId,
 }: HeroParallaxProps) {
     const firstRow = products.slice(0, 5);
     const secondRow = products.slice(5, 10);
@@ -94,9 +97,11 @@ export function HeroParallax({
     return (
         <div
             ref={ref}
+            id={sectionId}
             className={cn(
                 "relative flex min-h-[185vh] flex-col overflow-hidden py-16 antialiased md:py-28",
                 "[perspective:1000px] [transform-style:preserve-3d]",
+                sectionId && "scroll-mt-24 sm:scroll-mt-28",
                 className,
             )}
             style={TRUSTED_BY_SECTION_BG}

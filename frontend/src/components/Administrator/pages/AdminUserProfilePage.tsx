@@ -10,6 +10,7 @@ import AdminEditPersonalInfoModal, {
   type SocialLinks,
 } from '../AdminEditPersonalInfoModal';
 import AdminEditAddressModal, { type AddressDraft } from '../AdminEditAddressModal';
+import AdminPasswordInput from '../AdminPasswordInput';
 
 type ProfileStorage = AddressDraft & {
   bio?: string;
@@ -106,18 +107,10 @@ function ProfileField({
   );
 }
 
-const AVATAR_STORAGE_PREFIX = 'autospf_avatar_';
-
-function resolveProfileAvatar(userId: string, avatar?: string | null) {
-  if (avatar?.startsWith('http') || avatar?.startsWith('data:image/')) return avatar;
-  if (!userId) return avatar || null;
-  try {
-    const stored = localStorage.getItem(`${AVATAR_STORAGE_PREFIX}${userId}`);
-    if (!stored) return avatar || null;
-    return stored.startsWith('data:') ? stored : `data:image/jpeg;base64,${stored}`;
-  } catch {
-    return avatar || null;
-  }
+function resolveProfileAvatar(_userId: string, avatar?: string | null) {
+  if (!avatar) return null;
+  if (avatar.startsWith('http') || avatar.startsWith('data:image/')) return avatar;
+  return null;
 }
 
 function normalizeExternalUrl(value?: string) {
@@ -615,28 +608,25 @@ export default function AdminUserProfilePage({
             <div className="ah-user-profile-password-panel">
               <label className="ah-user-profile-input-wrap ah-user-profile-input-wrap--wide">
                 <span>Current password</span>
-                <input
-                  type="password"
+                <AdminPasswordInput
                   value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  onChange={setCurrentPassword}
                   autoComplete="current-password"
                 />
               </label>
               <label className="ah-user-profile-input-wrap">
                 <span>New password</span>
-                <input
-                  type="password"
+                <AdminPasswordInput
                   value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
+                  onChange={setNewPassword}
                   autoComplete="new-password"
                 />
               </label>
               <label className="ah-user-profile-input-wrap">
                 <span>Confirm password</span>
-                <input
-                  type="password"
+                <AdminPasswordInput
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onChange={setConfirmPassword}
                   autoComplete="new-password"
                 />
               </label>
@@ -730,10 +720,9 @@ export default function AdminUserProfilePage({
             <div className="ah-user-profile-danger-panel">
               <label className="ah-user-profile-input-wrap ah-user-profile-input-wrap--wide">
                 <span>Confirm with your password</span>
-                <input
-                  type="password"
+                <AdminPasswordInput
                   value={deletePassword}
-                  onChange={(e) => setDeletePassword(e.target.value)}
+                  onChange={setDeletePassword}
                   autoComplete="current-password"
                 />
               </label>

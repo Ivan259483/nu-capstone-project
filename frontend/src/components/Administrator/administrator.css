@@ -1858,7 +1858,13 @@
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-body--growth,
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-body--roles {
-  min-height: 0;
+  min-height: 136px;
+  min-width: 0;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-chart-canvas {
+  width: 100%;
+  min-width: 0;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-appointment-mix.ah-chart-card,
@@ -2034,8 +2040,13 @@
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-hourly-chart,
 .adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-chart {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: 160px;
+  min-width: 0;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-chart {
+  min-height: 200px;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-mini-chart-head {
@@ -3443,6 +3454,48 @@
   color: #344054;
 }
 
+.adminhub-root .ah-password-input {
+  position: relative;
+  width: 100%;
+}
+
+.adminhub-root .ah-password-input input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.adminhub-root .ah-password-input-toggle {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #667085;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition:
+    color 160ms ease,
+    background-color 160ms ease;
+}
+
+.adminhub-root .ah-password-input-toggle:hover:not(:disabled) {
+  color: #344054;
+  background: #f2f4f7;
+}
+
+.adminhub-root .ah-password-input-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .adminhub-root .ah-user-profile-input-wrap input {
   width: 100%;
   min-height: 44px;
@@ -4715,6 +4768,15 @@
   background: var(--ah-dark-surface-2);
   border-color: var(--ah-dark-border);
   color: var(--ah-dark-text);
+}
+
+.adminhub-root.adminhub--dark .ah-password-input-toggle {
+  color: var(--ah-dark-subtle);
+}
+
+.adminhub-root.adminhub--dark .ah-password-input-toggle:hover:not(:disabled) {
+  color: var(--ah-dark-text);
+  background: rgba(148, 163, 184, 0.12);
 }
 
 .adminhub-root.adminhub--dark .ah-user-profile-edit-btn:hover,

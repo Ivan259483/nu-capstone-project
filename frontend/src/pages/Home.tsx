@@ -41,6 +41,7 @@ export default function Home() {
         <PageLayout>
             <HeroSection />
             <HeroParallax
+                sectionId="transformation"
                 products={PARALLAX_PRODUCTS}
                 title={transformationTitle}
                 description={transformationDescription}

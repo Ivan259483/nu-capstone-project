@@ -4,11 +4,6 @@ import bcrypt from 'bcryptjs';
 import { encrypt, decrypt } from '../utils/encryption.utils.js';
 import { USER_ROLES, normalizeToCanonical } from '../constants/roles.js';
 
-const stripSensitiveUserFields = (_doc, ret) => {
-  delete ret.password;
-  return ret;
-};
-
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -25,7 +20,6 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: false,
       default: undefined,
-      select: false,
     },
     role: {
       type: String,
@@ -111,11 +105,7 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
   },
-  {
-    timestamps: true,
-    toJSON: { transform: stripSensitiveUserFields },
-    toObject: { transform: stripSensitiveUserFields },
-  }
+  { timestamps: true }
 );
 
 // Admin directory: filter by isDeleted + optional role $in — avoids full scans at scale

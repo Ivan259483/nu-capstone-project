@@ -526,7 +526,7 @@ function AdminHubPanelInner({
 
   const handleSignOut = useCallback(async () => {
     await logout();
-    navigate('/');
+    navigate('/login', { replace: true });
   }, [logout, navigate]);
 
   const filteredNavTree = useMemo(
@@ -755,6 +755,7 @@ function AdminHubPanelInner({
                 activityLogs={activityLogs}
                 bookings={safeBookings}
                 loading={blockingHubLoad}
+                chartsVisible={activePage === 'dashboard'}
               />
             ))}
             {renderTabPanel('scheduling', (

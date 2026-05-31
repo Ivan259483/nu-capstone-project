@@ -77,7 +77,10 @@ export default function Contact() {
             ══════════════════════════════════ */}
             <section className="relative pt-36 pb-24 overflow-hidden">
                 <div className="absolute inset-0 bg-hero-pattern" />
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background" />
+                <div
+                    className="absolute inset-0"
+                    style={{ background: "linear-gradient(to bottom, transparent 0%, transparent 50%, #07070A 100%)" }}
+                />
                 <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-amber-500/[0.06] blur-[150px] rounded-full pointer-events-none" />
                 <div className="absolute top-40 right-0 w-[400px] h-[300px] bg-violet-500/[0.04] blur-[120px] rounded-full pointer-events-none" />
 
@@ -138,7 +141,7 @@ export default function Contact() {
             {/* ══════════════════════════════════
                 CONTACT INFO + FORM
             ══════════════════════════════════ */}
-            <section className="relative py-20 overflow-hidden">
+            <section className="relative py-20 overflow-hidden" style={{ background: "#07070A" }}>
                 {/* Ambient blobs */}
                 <div className="absolute top-20 left-0 w-[500px] h-[500px] bg-indigo-500/[0.02] blur-[140px] rounded-full pointer-events-none" />
                 <div className="absolute bottom-20 right-0 w-[400px] h-[400px] bg-amber-500/[0.03] blur-[120px] rounded-full pointer-events-none" />
@@ -411,7 +414,7 @@ export default function Contact() {
             {/* ══════════════════════════════════
                 MAP CTA
             ══════════════════════════════════ */}
-            <section className="relative py-20 px-6 overflow-hidden">
+            <section className="relative py-20 px-6 overflow-hidden" style={{ background: "#07070A" }}>
                 <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/8 to-transparent" />
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-amber-500/[0.03] blur-[140px] rounded-full pointer-events-none" />
 

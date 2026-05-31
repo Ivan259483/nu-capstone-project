@@ -511,8 +511,8 @@
 }
 
 body {
-    background-color: #0c0b08 !important;
-    background-image: radial-gradient(circle at top right, rgba(201, 162, 39, 0.15) 0%, transparent 60%);
+    background-color: #07070A !important;
+    background-image: none;
     background-attachment: fixed;
     color: hsl(var(--foreground));
     font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
@@ -523,21 +523,34 @@ body {
     color: hsl(var(--primary));
 }
 
+html {
+    scroll-behavior: smooth;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+}
+
 ::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-    background: hsl(var(--background));
+    background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: hsl(var(--primary) / 0.4);
+    background: rgba(255, 255, 255, 0.14);
     border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--primary) / 0.7);
+    background: rgba(255, 255, 255, 0.24);
 }
 
 html,
@@ -5199,7 +5212,7 @@ html.dark * {
 }
 
 .bg-gradient-dark {
-    background: linear-gradient(180deg, hsl(240 15% 4%), hsl(240 12% 7%));
+    background: #07070A;
 }
 
 .bg-gradient-radial-gold {
@@ -5220,13 +5233,13 @@ html.dark * {
 
 /* ── Section backgrounds ── */
 .section-dark {
-    background: radial-gradient(ellipse at top, hsl(221 45% 11%) 0%, hsl(221 55% 6%) 100%);
+    background: #07070A;
     border-top: 1px solid rgba(212, 175, 55, 0.05);
     border-bottom: 1px solid rgba(212, 175, 55, 0.05);
 }
 
 .section-darker {
-    background: radial-gradient(circle at center, hsl(221 48% 7%) 0%, hsl(221 65% 4%) 100%);
+    background: #07070A;
 }
 
 /* ── Gold divider ── */
@@ -5866,6 +5879,54 @@ html.dark * {
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background-color: #e2e8f0; border-radius: 3px; }
+
+/* Public floating navbar — depth only, no visible white outline */
+.floating-nav-shell {
+    border: none;
+    box-shadow:
+        0 14px 44px rgba(0, 0, 0, 0.45),
+        0 4px 14px rgba(0, 0, 0, 0.28);
+}
+
+/* Public floating navbar — kill stray underlines / pseudo-element lines on nav links */
+a.public-nav-link,
+a.public-nav-link:hover,
+a.public-nav-link:focus,
+a.public-nav-link:focus-visible,
+a.public-nav-link:active,
+a.public-nav-link:visited {
+    text-decoration: none !important;
+    text-decoration-line: none !important;
+    border-bottom: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+a.public-nav-link::before,
+a.public-nav-link::after {
+    display: none !important;
+    content: none !important;
+    height: 0 !important;
+    width: 0 !important;
+    border: none !important;
+    background: transparent !important;
+}
+
+.public-nav-link-label,
+.public-nav-links-group {
+    text-decoration: none !important;
+    border-bottom: none !important;
+}
+
+.public-nav-links-group {
+    border: none !important;
+    box-shadow: none !important;
+}
+
+a.public-nav-link.public-nav-link--active {
+    box-shadow: none !important;
+    outline: none !important;
+}
 
 /* Modal / popover shadow — no hairline ring */
 .shadow-modal {

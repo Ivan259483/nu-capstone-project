@@ -151,6 +151,8 @@ export const fil = {
     login: {
         title: "Maligayang Pagbabalik",
         subtitle: "Mag-sign in para pamahalaan ang iyong mga booking",
+        registerTitle: "Gumawa ng account",
+        registerSubtitle: "Sumali sa AutoSPF+ para mag-book, subaybayan ang sasakyan, at pamahalaan ang mga appointment",
         email: "Email Address",
         password: "Password",
         emailPlaceholder: "Email address",
@@ -160,7 +162,6 @@ export const fil = {
         noAccount: "Wala pang account?",
         signUp: "Mag-sign Up",
         register: "Lumikha ng Account",
-        registerSubtitle: "Sumali sa AutoSPF+ ngayon",
         fullName: "Buong Pangalan",
         confirmPassword: "Kumpirmahin ang Password",
         agreeTerms: "Sumasang-ayon ako sa Mga Tuntunin at Kundisyon",

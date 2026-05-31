@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { UserService } from '@/lib/user-service';
 import { getRoleLabel, getSafeUserRole } from '@/lib/roles';
 import AdminAccountSheetLayout from './AdminAccountSheetLayout';
+import AdminPasswordInput from './AdminPasswordInput';
 
 interface Props {
   currentUser?: {
@@ -78,31 +79,28 @@ export default function AdminAccountSettingsSheet({ currentUser, onClose }: Prop
         <div className="ah-account-form">
           <label className="ah-account-label">
             Current password
-            <input
-              className="ah-account-input"
-              type="password"
+            <AdminPasswordInput
+              inputClassName="ah-account-input"
               value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
+              onChange={setCurrentPassword}
               autoComplete="current-password"
             />
           </label>
           <label className="ah-account-label">
             New password
-            <input
-              className="ah-account-input"
-              type="password"
+            <AdminPasswordInput
+              inputClassName="ah-account-input"
               value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
+              onChange={setNewPassword}
               autoComplete="new-password"
             />
           </label>
           <label className="ah-account-label">
             Confirm new password
-            <input
-              className="ah-account-input"
-              type="password"
+            <AdminPasswordInput
+              inputClassName="ah-account-input"
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              onChange={setConfirmPassword}
               autoComplete="new-password"
             />
           </label>

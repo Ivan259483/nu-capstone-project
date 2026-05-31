@@ -152,6 +152,8 @@ export const en = {
     login: {
         title: "Welcome Back",
         subtitle: "Access your appointments, vehicle status, and service history",
+        registerTitle: "Create your account",
+        registerSubtitle: "Join AutoSPF+ to book services, track your vehicle, and manage appointments",
         email: "Email Address",
         password: "Password",
         emailPlaceholder: "Email address",
@@ -161,7 +163,6 @@ export const en = {
         noAccount: "Don't have an account?",
         signUp: "Sign Up",
         register: "Create Account",
-        registerSubtitle: "Join AutoSPF+ today",
         fullName: "Full Name",
         confirmPassword: "Confirm Password",
         agreeTerms: "I agree to the Terms & Conditions",

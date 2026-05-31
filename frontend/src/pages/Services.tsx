@@ -153,7 +153,10 @@ export default function Services() {
             <section className="relative pt-32 pb-20 overflow-hidden">
                 {/* Same bg-hero-pattern as Gallery */}
                 <div className="absolute inset-0 bg-hero-pattern" />
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background" />
+                <div
+                    className="absolute inset-0"
+                    style={{ background: "linear-gradient(to bottom, transparent 0%, transparent 50%, #07070A 100%)" }}
+                />
                 {/* Orange amber glow blob — matches Gallery hero */}
                 <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-amber-500/[0.07] blur-[160px] rounded-full pointer-events-none" />
 
@@ -245,7 +248,7 @@ export default function Services() {
             {/* ══════════════════════════════════
                 VEHICLE SELECTOR
             ══════════════════════════════════ */}
-            <section className="relative py-6 z-20" style={{ background: "#0a0f1c" }}>
+            <section className="relative py-6 z-20" style={{ background: "#07070A" }}>
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -305,14 +308,7 @@ export default function Services() {
             {/* ══════════════════════════════════
                 LUXURY PRICING CARDS
             ══════════════════════════════════ */}
-            <section className="relative pt-8 pb-28 overflow-hidden" style={{
-                background: `
-                    radial-gradient(ellipse 70% 50% at 50% 30%, rgba(245,158,11,0.03) 0%, transparent 60%),
-                    radial-gradient(ellipse 50% 40% at 20% 60%, rgba(59,130,246,0.03) 0%, transparent 50%),
-                    radial-gradient(ellipse 50% 40% at 80% 70%, rgba(139,92,246,0.03) 0%, transparent 50%),
-                    linear-gradient(180deg, #0a0f1c 0%, #080c18 100%)
-                `
-            }}>
+            <section className="relative pt-8 pb-28 overflow-hidden" style={{ background: "#07070A" }}>
                 <div className="w-full max-w-[1440px] mx-auto px-4 lg:px-10 relative z-10">
                     <motion.div
                         key={vehicleType}
@@ -344,7 +340,7 @@ export default function Services() {
             {/* ══════════════════════════════════
                 ADD-ONS
             ══════════════════════════════════ */}
-            <section className="relative py-20 overflow-hidden" style={{ background: "#080c18" }}>
+            <section className="relative py-20 overflow-hidden" style={{ background: "#07070A" }}>
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-500/[0.015] to-transparent" />
                 <div className="container max-w-4xl mx-auto px-6 relative z-10">
                     <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
@@ -383,12 +379,7 @@ export default function Services() {
             {/* ══════════════════════════════════
                 FREE INCLUSIONS
             ══════════════════════════════════ */}
-            <section className="relative py-24 overflow-hidden" style={{
-                background: `
-                    radial-gradient(ellipse 60% 40% at 50% 50%, rgba(16,185,129,0.04) 0%, transparent 60%),
-                    linear-gradient(180deg, #080c18 0%, #0a0f1c 100%)
-                `
-            }}>
+            <section className="relative py-24 overflow-hidden" style={{ background: "#07070A" }}>
                 <div className="container max-w-5xl mx-auto px-6 relative z-10">
                     <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
                         transition={{ duration: 0.7 }} className="text-center mb-14">
@@ -436,7 +427,7 @@ export default function Services() {
             {/* ══════════════════════════════════
                 PPF PRICELIST
             ══════════════════════════════════ */}
-            <section className="relative py-24 overflow-hidden" style={{ background: "#080c18" }}>
+            <section className="relative py-24 overflow-hidden" style={{ background: "#07070A" }}>
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-500/[0.012] to-transparent" />
                 <div className="container max-w-5xl mx-auto px-6 relative z-10">
                     <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}

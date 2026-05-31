@@ -85,6 +85,27 @@ async function saveLastSeen(userDoc) {
   }
 }
 
+const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+
+function serializeUserForAuthResponse(user) {
+  const userObject = user.toObject({ virtuals: true });
+  delete userObject.password;
+  delete userObject._id;
+  delete userObject.__v;
+  attachPhoneForClient(user, userObject);
+  return userObject;
+}
+
+async function issueAuthTokenResponse(user) {
+  const token = jwt.sign(
+    { id: user._id, email: user.email, role: user.role },
+    config.jwtSecret,
+    { expiresIn: '7d' }
+  );
+  await saveLastSeen(user);
+  return { user: serializeUserForAuthResponse(user), token };
+}
+
 const getPublicAppUrl = () => {
   const explicit = process.env.CLIENT_URL || process.env.FRONTEND_URL || process.env.PUBLIC_APP_URL;
   if (explicit) return String(explicit).replace(/\/$/, '');
@@ -203,7 +224,7 @@ const loadPasswordSetupToken = async (rawToken) => {
     return { ok: false, status: 400, message: 'This setup link has expired. Please request a new email.' };
   }
 
-  const user = await User.findById(tokenRecord.userId).select('+password');
+  const user = await User.findById(tokenRecord.userId);
   if (!user || user.isDeleted) {
     return { ok: false, status: 404, message: 'Account not found.' };
   }
@@ -607,16 +628,64 @@ export const verifyOtp = async (req, res, next) => {
 
     // Activate the user account if this was a registration OTP
     const user = await User.findOne({ email });
+    let activated = false;
     if (user && !user.isVerified) {
       user.isVerified = true;
       user.status = 'active';
       await user.save();
+      activated = true;
       console.log(`✅ [verifyOtp] Activated account for ${maskEmail(email)}`);
-      // Send welcome email non-blocking
       sendWelcomeEmail(email, user.name).catch(err => console.warn('⚠️ Welcome email failed:', err.message));
     }
 
+    if (user?.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deleted by an administrator.',
+      });
+    }
+
+    if (user && !user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact an administrator.',
+        code: 'ACCOUNT_INACTIVE',
+      });
+    }
+
     console.log(`✅ OTP verified successfully for ${maskEmail(email)}`);
+
+    // Registration / email verification: return JWT so the client can sign in without a second step.
+    if (user) {
+      await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE });
+      const { user: userObject, token } = await issueAuthTokenResponse(user);
+
+      if (activated) {
+        logActivity({
+          userId: user._id,
+          userName: user.name || email,
+          userRole: user.role,
+          type: 'customer_registered',
+          module: 'Auth',
+          action: 'Registration Verified',
+          description: `${user.name || email} verified email and signed in.`,
+          status: 'success',
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'Email verified. You are now signed in.',
+        data: {
+          email,
+          verified: true,
+          role: user.role || 'customer',
+          isFirstLogin: user.isFirstLogin || false,
+          user: userObject,
+          token,
+        },
+      });
+    }
 
     res.json({
       success: true,
@@ -624,8 +693,8 @@ export const verifyOtp = async (req, res, next) => {
       data: {
         email,
         verified: true,
-        role: user?.role || 'customer',
-        isFirstLogin: user?.isFirstLogin || false,
+        role: 'customer',
+        isFirstLogin: false,
       },
     });
   } catch (error) {
@@ -975,7 +1044,7 @@ export const register = async (req, res, next) => {
         return res.status(200).json({
           success: true,
           message: 'A new verification code has been sent to your email.',
-          data: { email, requiresOtp: true },
+          data: { email, requiresOtp: true, expiresIn: config.otpExpiry },
         });
       }
       return res.status(409).json({
@@ -1102,7 +1171,11 @@ export const register = async (req, res, next) => {
       message: isPreVerified
         ? 'Account created successfully.'
         : 'Account created! Please check your email for a verification code.',
-      data: { email, requiresOtp: !isPreVerified },
+      data: {
+        email,
+        requiresOtp: !isPreVerified,
+        expiresIn: isPreVerified ? undefined : config.otpExpiry,
+      },
     });
   } catch (error) {
     console.error('❌ Registration Error:', error);
@@ -1144,7 +1217,7 @@ export const login = async (req, res, next) => {
     }
 
     // Find user
-    const user = await User.findOne({ email: emailNormalized }).select('+password');
+    const user = await User.findOne({ email: emailNormalized });
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -2172,7 +2245,7 @@ export const changePassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Current password and new password are required.' });
     }
 
-    const user = await User.findById(userId).select('+password');
+    const user = await User.findById(userId);
     if (!user || user.isDeleted || !user.isActive) {
       return res.status(403).json({ success: false, message: 'Account not accessible.' });
     }
@@ -2226,6 +2299,22 @@ export const resendOtp = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ success: false, message: 'No account found with this email.' });
     if (user.isVerified) return res.status(400).json({ success: false, message: 'Account is already verified.' });
+
+    const existingOtp = await findLatestEmailOtp(email, {
+      verified: false,
+      expiresAt: { $gt: new Date() },
+    });
+    if (existingOtp?.lastSentAt) {
+      const elapsed = Date.now() - existingOtp.lastSentAt.getTime();
+      if (elapsed < OTP_RESEND_COOLDOWN_MS) {
+        const retryAfterSeconds = Math.ceil((OTP_RESEND_COOLDOWN_MS - elapsed) / 1000);
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${retryAfterSeconds} second(s) before requesting a new code.`,
+          data: { retryAfterSeconds },
+        });
+      }
+    }
 
     const otp = generateOTP(config.otpLength);
     await OTP.deleteMany({ email, purpose: EMAIL_OTP_PURPOSE });

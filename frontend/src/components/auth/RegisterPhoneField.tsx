@@ -37,6 +37,10 @@ type Props = {
   onNationalDigitsChange: (value: string) => void;
   hasError?: boolean;
   nationalInputId?: string;
+  /** Renders borderless inside a parent field shell (e.g. manual register floating layout). */
+  embedded?: boolean;
+  /** Override placeholder; pass "" when the parent already shows a floating label. */
+  placeholder?: string;
 };
 
 export function RegisterPhoneField({
@@ -46,13 +50,16 @@ export function RegisterPhoneField({
   onNationalDigitsChange,
   hasError,
   nationalInputId,
+  embedded = false,
+  placeholder: placeholderProp,
 }: Props) {
   const [open, setOpen] = useState(false);
   const { priority, rest } = useMemo(() => orderedCountries(), []);
 
   const selected = REGISTER_COUNTRY_DIALS.find((c) => c.iso === countryIso) ?? REGISTER_COUNTRY_DIALS[0];
   const isPh = selected.dial === "63";
-  const placeholder = isPh ? "9XXXXXXXXX" : "Phone number";
+  const placeholder =
+    placeholderProp !== undefined ? placeholderProp : isPh ? "9XXXXXXXXX" : "Phone number";
 
   const onNationalChange = (raw: string) => {
     let digits = raw.replace(/\D/g, "");
@@ -71,26 +78,47 @@ export function RegisterPhoneField({
   return (
     <div
       className={cn(
-        "flex min-h-10 w-full rounded-md border border-input bg-muted/40 transition-colors duration-200",
-        "focus-within:border-primary/70 focus-within:ring-1 focus-within:ring-inset focus-within:ring-primary/30",
-        hasError && "border-red-500/80 focus-within:border-red-500/80 focus-within:ring-red-500/20"
+        "flex w-full transition-colors duration-200",
+        embedded
+          ? "min-h-0 items-center gap-2 rounded-none border-0 bg-transparent shadow-none focus-within:ring-0"
+          : cn(
+              "min-h-10 rounded-md border border-input bg-muted/40",
+              "focus-within:border-primary/70 focus-within:ring-1 focus-within:ring-inset focus-within:ring-primary/30",
+              hasError && "border-red-500/80 focus-within:border-red-500/80 focus-within:ring-red-500/20"
+            )
       )}
     >
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            className={cn(
-              "h-auto min-h-10 shrink-0 rounded-none rounded-l-md border-0 border-r border-border",
-              "bg-transparent px-3 py-2 font-normal text-foreground hover:bg-white/5",
-              "focus-visible:ring-0 focus-visible:ring-offset-0"
-            )}
-            aria-label="Country code"
-          >
-            <span className="text-sm tabular-nums font-medium">+{selected.dial}</span>
-            <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-70" />
-          </Button>
+          {embedded ? (
+            <button
+              type="button"
+              className={cn(
+                "inline-flex shrink-0 items-center gap-0.5 border-0 bg-transparent p-0",
+                "text-sm font-medium tabular-nums text-white shadow-none outline-none",
+                "hover:text-orange-300 focus-visible:text-orange-300",
+                "focus-visible:ring-0 focus-visible:ring-offset-0"
+              )}
+              aria-label="Country code"
+            >
+              <span>+{selected.dial}</span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-white/50" />
+            </button>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              className={cn(
+                "h-auto min-h-10 shrink-0 rounded-none rounded-l-md border-0 border-r border-border",
+                "bg-transparent px-2.5 py-2 font-normal text-foreground hover:bg-white/5",
+                "focus-visible:ring-0 focus-visible:ring-offset-0"
+              )}
+              aria-label="Country code"
+            >
+              <span className="text-sm tabular-nums font-medium">+{selected.dial}</span>
+              <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-70" />
+            </Button>
+          )}
         </PopoverTrigger>
         <PopoverContent align="start" className={popoverSurface} sideOffset={6}>
           <Command
@@ -154,10 +182,16 @@ export function RegisterPhoneField({
         value={nationalDigits}
         onChange={(e) => onNationalChange(e.target.value)}
         placeholder={placeholder}
+        aria-label={
+          placeholder === "" ? (isPh ? "Mobile number, 10 digits" : "Phone number") : undefined
+        }
         className={cn(
-          "min-h-10 flex-1 rounded-none rounded-r-md border-0 bg-transparent shadow-none",
+          "flex-1 rounded-none border-0 bg-transparent text-sm font-medium text-white shadow-none",
           "focus-visible:ring-0 focus-visible:ring-offset-0",
-          "placeholder:text-muted-foreground"
+          "placeholder:text-white/35",
+          embedded
+            ? "min-h-0 min-w-0 flex-1 border-0 py-0 pl-0 pr-0 shadow-none"
+            : "min-h-10 rounded-r-md placeholder:text-muted-foreground"
         )}
       />
     </div>

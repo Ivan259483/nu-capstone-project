@@ -117,11 +117,21 @@ export default function BeforeAfterSlider({
 
             {/* Slider Handle */}
             <div
-                className="absolute top-0 bottom-0 z-10 flex w-0.5 cursor-ew-resize items-center justify-center bg-orange-500 shadow-[0_0_14px_rgba(249,115,22,0.55)]"
+                className="absolute inset-y-0 z-10 -translate-x-1/2"
                 style={{ left: `${sliderPos}%` }}
             >
-                <div className="-ml-4 flex h-8 w-8 items-center justify-center rounded-full border-2 border-orange-500 bg-black/85 shadow-lg shadow-black/50 backdrop-blur-sm transition-transform group-hover:scale-110">
-                    <MoveHorizontal className="h-4 w-4 text-orange-500" />
+                <div
+                    className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-orange-500 shadow-[0_0_14px_rgba(249,115,22,0.55)]"
+                    aria-hidden
+                />
+                <div
+                    className="absolute left-1/2 top-1/2 flex h-10 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-orange-500 bg-black/85 p-0 shadow-lg shadow-black/50 backdrop-blur-sm transition-transform group-hover:scale-110"
+                    aria-hidden
+                >
+                    <MoveHorizontal
+                        className="block h-[18px] w-[18px] shrink-0 text-orange-500"
+                        strokeWidth={2.25}
+                    />
                 </div>
             </div>
             

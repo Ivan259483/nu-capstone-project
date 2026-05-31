@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Users,
   UserCheck,
@@ -32,6 +32,55 @@ interface Props {
   activityLogs: any[];
   bookings?: any[];
   loading: boolean;
+  /** When false (dashboard tab hidden), charts are not mounted — avoids Recharts -1 size warnings. */
+  chartsVisible?: boolean;
+}
+
+const GROWTH_CHART_HEIGHT = 136;
+const ROLE_CHART_HEIGHT = 136;
+const DONUT_CHART_HEIGHT = 188;
+const HOURLY_CHART_HEIGHT = 160;
+const PIPELINE_CHART_HEIGHT = 200;
+
+/** Renders Recharts only after the container has a real layout size (avoids width/height -1). */
+function AdminChartBox({
+  height,
+  children,
+}: {
+  height: number;
+  children: React.ReactElement;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+
+    const update = () => {
+      const { width, height: h } = node.getBoundingClientRect();
+      setReady(width > 0 && h > 0);
+    };
+
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="ah-dashboard-chart-canvas"
+      style={{ width: '100%', height, minHeight: height, minWidth: 0 }}
+    >
+      {ready ? (
+        <ResponsiveContainer width="100%" height={height} minWidth={0}>
+          {children}
+        </ResponsiveContainer>
+      ) : null}
+    </div>
+  );
 }
 
 type PipelineStage = 'pending' | 'confirmed' | 'in_progress' | 'quality_check' | 'completed' | 'cancelled';
@@ -176,7 +225,13 @@ function DashboardTooltip({ active, payload, label }: any) {
   );
 }
 
-export default function AdminDashboardPage({ users, activityLogs: _activityLogs, bookings = [], loading }: Props) {
+export default function AdminDashboardPage({
+  users,
+  activityLogs: _activityLogs,
+  bookings = [],
+  loading,
+  chartsVisible = true,
+}: Props) {
   const stats = useMemo(() => {
     const total = users.length;
     const active = users.filter(u => u.status === 'active').length;
@@ -204,8 +259,6 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
     return weeks;
   }, [users]);
 
-  const growthChartHeight = 136;
-
   /** Canonical role counts + labels — matches User Management / ROLE_LABELS (excludes bootstrap Administrator bar — Office Admin covers ops admin) */
   const roleDistributionData = useMemo(() => {
     const roleMap: Record<string, number> = {};
@@ -223,8 +276,6 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
   }, [users]);
-
-  const roleChartHeight = 136;
 
   const kpiTrends = useMemo(() => {
     const pctChange = (current: number, previous: number) => {
@@ -540,6 +591,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
         })}
       </div>
 
+      {chartsVisible && (
       <div className="ah-dashboard-charts-grid">
         <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-slide-up" style={{ animationDelay: '0.15s' }}>
           <div className="ah-dashboard-chart-head">
@@ -547,7 +599,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
             <p className="ah-dashboard-card-sub">Total vs Active — last 12 weeks</p>
           </div>
           <div className="ah-dashboard-chart-body ah-dashboard-chart-body--growth">
-            <ResponsiveContainer width="100%" height={growthChartHeight}>
+            <AdminChartBox height={GROWTH_CHART_HEIGHT}>
               <AreaChart data={growthData} margin={{ top: 2, right: 4, left: -12, bottom: 0 }}>
                 <defs>
                   <linearGradient id="activeUsersGradient" x1="0" y1="0" x2="0" y2="1">
@@ -563,7 +615,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
                 <Area type="monotone" dataKey="users" name="Total Users" stroke="#2563EB" strokeWidth={2} fill="rgba(37,99,235,.1)" dot={false} />
                 <Area type="monotone" dataKey="active" name="Active Users" stroke="#10B981" strokeWidth={2} fill="url(#activeUsersGradient)" fillOpacity={0.1} dot={false} />
               </AreaChart>
-            </ResponsiveContainer>
+            </AdminChartBox>
           </div>
         </div>
 
@@ -573,7 +625,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
             <p className="ah-dashboard-card-sub">Distribution across system roles</p>
           </div>
           <div className="ah-dashboard-chart-body ah-dashboard-chart-body--roles">
-            <ResponsiveContainer width="100%" height={roleChartHeight}>
+            <AdminChartBox height={ROLE_CHART_HEIGHT}>
               <BarChart
                 data={roleDistributionData}
                 margin={{ top: 2, right: 4, left: -12, bottom: 0 }}
@@ -604,11 +656,13 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
                 />
                 <Bar dataKey="count" name="Users" fill="#2563EB" barSize={40} radius={[3, 3, 0, 0]} />
               </BarChart>
-            </ResponsiveContainer>
+            </AdminChartBox>
           </div>
         </div>
       </div>
+      )}
 
+      {chartsVisible && (
       <div className="ah-dashboard-bottom">
         <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-dashboard-appointment-mix ah-slide-up" style={{ animationDelay: '0.25s' }}>
           <div className="ah-dashboard-chart-head">
@@ -633,7 +687,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
             <div className="ah-dashboard-donut-panel">
               {appointmentTotal > 0 ? (
                 <div className="ah-dashboard-donut-wrap">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <AdminChartBox height={DONUT_CHART_HEIGHT}>
                     <PieChart>
                       <Pie
                         data={appointmentStatusChartData.filter((item) => item.value > 0)}
@@ -651,7 +705,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
                       </Pie>
                       <Tooltip content={<DashboardTooltip />} />
                     </PieChart>
-                  </ResponsiveContainer>
+                  </AdminChartBox>
                   <div className="ah-dashboard-donut-center">
                     <strong className="tabular-nums">{appointmentTotal}</strong>
                     <span>{appointmentScope.centerLabel}</span>
@@ -684,7 +738,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
                 <strong className="tabular-nums">{appointmentTotal} total</strong>
               </div>
               <div className="ah-dashboard-hourly-chart">
-                <ResponsiveContainer width="100%" height="100%">
+                <AdminChartBox height={HOURLY_CHART_HEIGHT}>
                   <BarChart data={appointmentHourlyChartData} margin={{ top: 10, right: 6, left: -14, bottom: 0 }} barCategoryGap="22%">
                     <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
                     <XAxis
@@ -707,7 +761,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
                     <Bar dataKey="in_progress" name="In Progress" stackId="appointments" fill="#f59e0b" maxBarSize={34} />
                     <Bar dataKey="completed" name="Completed" stackId="appointments" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={34} />
                   </BarChart>
-                </ResponsiveContainer>
+                </AdminChartBox>
               </div>
             </div>
           </div>
@@ -739,7 +793,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
             </div>
             {pipelineTotal > 0 ? (
               <div className="ah-dashboard-pipeline-chart">
-                <ResponsiveContainer width="100%" height="100%">
+                <AdminChartBox height={PIPELINE_CHART_HEIGHT}>
                   <BarChart
                     data={pipelineChartData}
                     layout="vertical"
@@ -772,7 +826,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
                       <LabelList dataKey="labelText" position="right" className="ah-dashboard-bar-label" />
                     </Bar>
                   </BarChart>
-                </ResponsiveContainer>
+                </AdminChartBox>
               </div>
             ) : (
               <div className="ah-dashboard-empty-chart ah-dashboard-empty-chart--pipeline" aria-label="No job orders in the pipeline">
@@ -798,6 +852,7 @@ export default function AdminDashboardPage({ users, activityLogs: _activityLogs,
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

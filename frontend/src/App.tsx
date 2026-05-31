@@ -165,13 +165,14 @@ function AppRoutes() {
 
     // Hide the public Navbar on dashboard routes — they have their own navigation
     const isDashboardRoute = /^\/(customer|detailer|admin|sales|inventory|ops)/.test(location.pathname);
-    const isStandaloneRoute = /^\/(verify-otp|set-password|track)/.test(location.pathname);
+    const isAuthRoute = /^\/(login|verify-otp|set-password)/.test(location.pathname);
+    const isStandaloneRoute = /^\/track/.test(location.pathname);
 
     return (
         <ErrorBoundary>
             <ScrollToTop />
             <ActivityHeartbeatHost />
-            {!isDashboardRoute && !isStandaloneRoute && <Navbar />}
+            {!isDashboardRoute && !isAuthRoute && !isStandaloneRoute && <Navbar />}
             <Suspense fallback={<RoutePageSkeleton />}>
                 <Routes>
                     <Route path="/" element={<Home />} />

@@ -13,15 +13,15 @@ import {
     AlertTriangle,
     LockKeyhole,
     Clock,
-    Bot,
-    MessageCircle,
     UserPlus,
     CheckCircle2,
     XCircle,
 } from "lucide-react";
 
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { NAV_ACTIVE_PILL_TRANSITION } from "@/components/ui/floating-navbar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,7 @@ import { auth } from "@/config/firebase";
 import { buildRegisterE164, validateRegisterNationalDigits } from "@/lib/phone";
 import { REGISTER_COUNTRY_DIALS } from "@/lib/countries-dial-data";
 import { RegisterPhoneField } from "@/components/auth/RegisterPhoneField";
+import { LoginAuthFormSwitcher } from "@/components/auth/LoginAuthFormSwitcher";
 import { ManualRegisterForm } from "@/components/auth/ManualRegisterForm";
 import {
     PpfTermsAcceptanceDialog,
@@ -51,6 +52,11 @@ import {
     DialogDescription,
 } from "@/components/ui/dialog";
 const DEFAULT_LOGIN_REDIRECT = "/customer/dashboard";
+
+const LOGIN_TAB_CONTENT_TRANSITION = {
+    duration: 0.42,
+    ease: [0.22, 1, 0.36, 1] as const,
+};
 
 function getSafeLoginRedirect(value: string | null): string {
     if (!value) return "";
@@ -168,9 +174,8 @@ export default function Login() {
 
     /* ── Tab ── */
     const [tab, setTab] = useState<"login" | "register">("login");
-    const [registerView, setRegisterView] = useState<"ai" | "manual">("ai");
 
-    /* ── Register form ── */
+    /* ── Register form (legacy inline — disabled; ManualRegisterForm is used) ── */
     const [registerForm, setRegisterForm] = useState({
         firstName: "",
         lastName: "",
@@ -210,10 +215,6 @@ export default function Login() {
     useEffect(() => {
         if (tab === "register" && prevTabRef.current !== "register") {
             legal.resetLegalAcknowledgement();
-            setRegisterView("ai");
-        }
-        if (tab !== "register") {
-            setRegisterView("ai");
         }
         prevTabRef.current = tab;
     }, [tab, legal.resetLegalAcknowledgement]);
@@ -442,8 +443,8 @@ export default function Login() {
                 toast.error(data.message || "Registration failed.");
                 return;
             }
-            toast.success("Account created! Please check your email for a verification code.");
-            navigate(`/verify-otp?email=${encodeURIComponent(emailNorm)}`);
+            toast.success("Check your email for the verification code.");
+            navigate(`/verify-otp?email=${encodeURIComponent(emailNorm)}&from=register`);
         } catch {
             toast.error("Registration failed. Please try again.");
         } finally {
@@ -723,35 +724,24 @@ export default function Login() {
         }
     };
 
-    const openRegistrationChat = () => {
-        window.dispatchEvent(new CustomEvent("autospf:open-chat-registration"));
-        toast.success("AutoSPF+ concierge is ready", {
-            description: "Tell the chatbot the four details it asks for. Your password will be created from the secure email link.",
-        });
-    };
-
-
     /* ═══════════════════════════════════════════════════════
        RENDER
     ═══════════════════════════════════════════════════════ */
     return (
-        <div className="min-h-screen flex flex-col bg-background">
-            {/* Navbar is rendered globally by App.tsx for all public routes including /login */}
-
+        <div className="flex min-h-screen flex-col overflow-y-auto bg-background">
             {/* ── Ambient Background ── */}
             <div className="absolute inset-0 bg-hero-pattern pointer-events-none" />
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute top-1/4 -left-32 w-80 h-80 rounded-full border border-orange-500/10 animate-spin-slow" />
-                <div
-                    className="absolute bottom-1/4 -right-32 w-96 h-96 rounded-full border border-orange-500/10"
-                    style={{ animation: "spin-slow 20s linear infinite reverse" }}
-                />
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(249,115,22,0.12)_0%,transparent_70%)] opacity-40" />
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                <div className="absolute top-1/2 left-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(249,115,22,0.12)_0%,transparent_70%)] opacity-40" />
             </div>
 
-            {/* ── Main Content — equal top/bottom padding so logo + card sit visually centered under the fixed navbar ── */}
-            <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 pt-24 pb-24 sm:pt-28 sm:pb-28 md:pt-32 md:pb-32">
-                <div className="w-full max-w-md animate-scale-in">
+            <div
+                className={cn(
+                    "relative z-10 flex w-full flex-1 flex-col items-center px-6 py-10 sm:py-12",
+                    tab === "register" ? "justify-start" : "justify-center"
+                )}
+            >
+                <div className="w-full max-w-md animate-scale-in pb-8">
                     {/* Logo */}
                     <div className="text-center mb-10">
                         <Link to="/" className="inline-flex items-center justify-center group mb-5">
@@ -761,381 +751,96 @@ export default function Login() {
                                 className="h-28 w-auto max-w-[min(100%,280px)] object-contain sm:h-32 md:h-36 md:max-w-[min(100%,340px)] group-hover:scale-[1.03] transition-transform duration-200"
                             />
                         </Link>
-                        <h1 className="text-2xl font-bold text-foreground mt-2">
-                            {t("login.title")}
-                        </h1>
-                        <p className="text-sm text-muted-foreground mt-1">
-                            {t("login.subtitle")}
-                        </p>
+                        <AnimatePresence initial={false} mode="sync">
+                            <motion.h1
+                                key={tab === "register" ? "register-title" : "login-title"}
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                transition={LOGIN_TAB_CONTENT_TRANSITION}
+                                className="text-2xl font-bold text-foreground mt-2"
+                            >
+                                {tab === "register" ? t("login.registerTitle") : t("login.title")}
+                            </motion.h1>
+                        </AnimatePresence>
+                        <AnimatePresence initial={false} mode="sync">
+                            <motion.p
+                                key={tab === "register" ? "register-sub" : "login-sub"}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ ...LOGIN_TAB_CONTENT_TRANSITION, duration: 0.4 }}
+                                className="text-sm text-muted-foreground mt-1"
+                            >
+                                {tab === "register" ? t("login.registerSubtitle") : t("login.subtitle")}
+                            </motion.p>
+                        </AnimatePresence>
                     </div>
 
                     {/* ── Glass Card ── */}
-                    <div className="glass rounded-3xl p-8 border border-orange-500/15">
-
+                    <div className="glass rounded-3xl border border-orange-500/15 p-8">
                         {/* ── Tab switcher ── */}
                         {loginOtpStep === "form" && (
-                            <div className="flex rounded-2xl bg-muted/30 p-1 mb-6 gap-1">
-                                <button
-                                    id="tab-login"
-                                    onClick={() => setTab("login")}
-                                    className={cn(
-                                        "flex-1 py-2 text-sm font-semibold rounded-xl transition-all",
-                                        tab === "login"
-                                            ? "bg-orange-600 text-white shadow-md shadow-orange-600/25"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    )}
-                                >
-                                    Sign In
-                                </button>
-                                <button
-                                    id="tab-register"
-                                    onClick={() => setTab("register")}
-                                    className={cn(
-                                        "flex-1 py-2 text-sm font-semibold rounded-xl transition-all",
-                                        tab === "register"
-                                            ? "bg-orange-600 text-white shadow-md shadow-orange-600/25"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    )}
-                                >
-                                    Register
-                                </button>
-                            </div>
-                        )}
-
-                        {/* ══ Form content ══ */}
-
-                        {/* ══════════ MANUAL REGISTER FORM ══════════ */}
-                        {loginOtpStep === "form" && tab === "register" && registerView === "manual" && (
-                            <ManualRegisterForm
-                                onBack={() => setRegisterView("ai")}
-                                onSignIn={() => setTab("login")}
-                            />
-                        )}
-
-                        {/* ══════════ AI REGISTER ENTRY ══════════ */}
-                        {loginOtpStep === "form" && tab === "register" && registerView === "ai" && (
-                            <div className="space-y-5 animate-slide-up">
-                                <div className="relative overflow-hidden rounded-3xl border border-orange-500/20 bg-gradient-to-br from-slate-950/95 via-slate-900/90 to-black/95 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_28px_80px_-36px_rgba(249,115,22,0.45)]">
-                                    <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-orange-500/50 to-transparent" />
-                                    <div className="pointer-events-none absolute -right-20 -top-20 h-52 w-52 rounded-full bg-orange-500/15 blur-3xl" />
-                                    <div className="pointer-events-none absolute -left-24 bottom-0 h-48 w-48 rounded-full bg-cyan-400/10 blur-3xl" />
-
-                                    <div className="relative flex items-start gap-4">
-                                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-orange-600 text-white shadow-lg shadow-orange-600/30 ring-1 ring-orange-400/25">
-                                            <Bot className="h-6 w-6" />
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-orange-400">
-                                                AI-assisted onboarding
-                                            </p>
-                                            <h2 className="mt-2 text-xl font-black tracking-tight text-white">
-                                                Create your AutoSPF+ account with the concierge
-                                            </h2>
-                                            <p className="mt-2 text-sm leading-relaxed text-white/55">
-                                                The chatbot will ask only for your first name, last name, email address, and mobile number. Your password is created later from a secure email link.
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <div className="relative mt-5 grid grid-cols-2 gap-2">
-                                        {[
-                                            "Conversational setup",
-                                            "Secure email link",
-                                            "No AI passwords",
-                                            "Customer dashboard access",
-                                        ].map((item) => (
-                                            <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-2 text-[11px] font-semibold text-white/60">
-                                                {item}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <Button
-                                    id="open-ai-register"
-                                    onClick={openRegistrationChat}
-                                    className="h-12 w-full rounded-2xl bg-orange-600 text-sm font-bold text-white shadow-md shadow-orange-600/25 hover:bg-orange-500"
-                                >
-                                    <MessageCircle className="mr-2 h-4 w-4" />
-                                    Start with AI Concierge
-                                </Button>
-
-                                <button
-                                    type="button"
-                                    id="continue-manual-register"
-                                    onClick={() => setRegisterView("manual")}
-                                    className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-white/70 backdrop-blur-md transition-all duration-300 hover:border-orange-400/35 hover:bg-white/[0.07] hover:text-white"
-                                >
-                                    Continue manually
-                                </button>
-
-                                <p className="text-center text-xs leading-relaxed text-muted-foreground">
-                                    Already received a setup email? Open the link in your inbox to create your password.
-                                </p>
-                            </div>
-                        )}
-
-                        {/* ══════════ REGISTER FORM ══════════ */}
-                        {false && loginOtpStep === "form" && tab === "register" && (
-                            <div className="space-y-4">
-                                {/* First Name */}
-                                <div>
-                                    <Label htmlFor="reg-first-name" className="text-sm text-muted-foreground mb-1.5 block">First Name</Label>
-                                    <div className="relative">
-                                        <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                        <Input
-                                            id="reg-first-name"
-                                            type="text"
-                                            value={registerForm.firstName}
-                                            onChange={(e) => setRegisterForm((f) => ({ ...f, firstName: e.target.value }))}
-                                            placeholder="First name"
-                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
-                                        />
-                                    </div>
-                                </div>
-                                {/* Last Name */}
-                                <div>
-                                    <Label htmlFor="reg-last-name" className="text-sm text-muted-foreground mb-1.5 block">Last Name</Label>
-                                    <div className="relative">
-                                        <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                        <Input
-                                            id="reg-last-name"
-                                            type="text"
-                                            value={registerForm.lastName}
-                                            onChange={(e) => setRegisterForm((f) => ({ ...f, lastName: e.target.value }))}
-                                            placeholder="Last name"
-                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
-                                        />
-                                    </div>
-                                </div>
-                                {/* Phone Number */}
-                                <div>
-                                    <Label htmlFor="reg-phone-national" className="text-sm text-muted-foreground mb-1.5 block">
-                                        Phone Number <span className="text-red-500">*</span>
-                                    </Label>
-                                    <RegisterPhoneField
-                                        countryIso={registerPhoneCountryIso}
-                                        onCountryIsoChange={(iso) => {
-                                            setRegisterPhoneCountryIso(iso);
-                                            if (registerPhoneError) setRegisterPhoneError("");
-                                        }}
-                                        nationalDigits={registerPhoneNational}
-                                        onNationalDigitsChange={(v) => {
-                                            setRegisterPhoneNational(v);
-                                            if (registerPhoneError) setRegisterPhoneError("");
-                                        }}
-                                        hasError={Boolean(registerPhoneError)}
-                                        nationalInputId="reg-phone-national"
-                                    />
-                                    {registerPhoneError ? (
-                                        <p className="mt-1 text-xs text-red-600">{registerPhoneError}</p>
-                                    ) : null}
-                                </div>
-                                {/* Email */}
-                                <div>
-                                    <Label htmlFor="reg-email" className="text-sm text-muted-foreground mb-1.5 block">Email Address</Label>
-                                    <div className="relative">
-                                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                        <Input
-                                            id="reg-email"
-                                            type="email"
-                                            value={registerForm.email}
-                                            onChange={(e) => setRegisterForm((f) => ({ ...f, email: e.target.value }))}
-                                            placeholder="Email address"
-                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
-                                        />
-                                    </div>
-                                </div>
-                                {/* Create password + confirm */}
-                                <div>
-                                    <Label htmlFor="reg-password" className="text-sm text-muted-foreground mb-1.5 block">
-                                        Create Password <span className="text-red-500">*</span>
-                                    </Label>
-                                    <div className="relative">
-                                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                        <Input
-                                            id="reg-password"
-                                            autoComplete="new-password"
-                                            type={showRegisterPassword ? "text" : "password"}
-                                            value={registerForm.password}
-                                            onChange={(e) => setRegisterForm((f) => ({ ...f, password: e.target.value }))}
-                                            placeholder="Password"
-                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
-                                            onKeyDown={(e) => e.key === "Enter" && handleRegisterSubmit()}
-                                        />
-                                    </div>
-                                    {registerForm.password.length > 0 ? (
-                                        <div className="relative mt-3 overflow-hidden rounded-2xl border border-orange-500/30 bg-gradient-to-br from-slate-950/[0.96] via-slate-900/95 to-slate-950/[0.94] px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_16px_48px_-20px_rgba(0,0,0,0.55)] backdrop-blur-md">
-                                            <div
-                                                className="pointer-events-none absolute -right-8 -top-12 h-36 w-36 rounded-full opacity-25 blur-2xl"
-                                                style={{ background: "radial-gradient(circle at center, rgba(249,115,22,0.45), transparent 65%)" }}
-                                            />
-                                            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-orange-500/40 to-transparent" />
-                                            <div className="relative space-y-3">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-orange-500/35 bg-orange-500/15">
-                                                        <ShieldCheck className="h-3.5 w-3.5 text-orange-400" aria-hidden />
-                                                    </div>
-                                                    <div className="min-w-0 flex-1">
-                                                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-200/85">
-                                                            Secure password
-                                                        </p>
-                                                        {registerPwStrength ? (
-                                                            <div className="mt-1 flex items-center justify-between gap-2">
-                                                                <span className="text-[11px] font-medium text-white/50">Strength</span>
-                                                                <span
-                                                                    className={cn(
-                                                                        "text-[11px] font-semibold tracking-tight",
-                                                                        registerPwStrength.textClass
-                                                                    )}
-                                                                >
-                                                                    {registerPwStrength.text}
-                                                                </span>
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                </div>
-                                                {registerPwStrength ? (
-                                                    <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08] ring-1 ring-orange-500/15">
-                                                        <div
-                                                            className={cn(
-                                                                "h-full rounded-full motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-out",
-                                                                registerPwStrength.barClass,
-                                                                registerPwStrength.text === "Weak" && "w-[22%]",
-                                                                registerPwStrength.text === "Medium" && "w-[58%]",
-                                                                registerPwStrength.text === "Strong" && "w-[88%]",
-                                                                registerPwStrength.text === "Very strong" && "w-full"
-                                                            )}
-                                                            style={{
-                                                                boxShadow:
-                                                                    registerPwStrength.text === "Weak"
-                                                                        ? "0 0 10px rgba(148,163,184,0.25)"
-                                                                        : "0 0 14px rgba(249,115,22,0.35)",
-                                                            }}
-                                                        />
-                                                    </div>
-                                                ) : null}
-                                                <ul className="space-y-1.5 border-t border-white/[0.08] pt-2.5" aria-label="Password requirements">
-                                                    {(
-                                                        [
-                                                            [registerPwRules.length, "8+ characters"] as const,
-                                                            [registerPwRules.upper, "Uppercase letter (A–Z)"] as const,
-                                                            [registerPwRules.lower, "Lowercase letter (a–z)"] as const,
-                                                            [registerPwRules.number, "Number (0–9)"] as const,
-                                                            [
-                                                                registerPwRules.special,
-                                                                "Special character (!@#$…)",
-                                                            ] as const,
-                                                        ] as const
-                                                    ).map(([met, label]) => (
-                                                        <li
-                                                            key={label}
-                                                            className={cn(
-                                                                "flex items-center gap-2.5 rounded-lg px-2 py-1 text-[11px] font-medium leading-snug transition-colors",
-                                                                met
-                                                                    ? "bg-orange-500/15 text-orange-100/95 ring-1 ring-orange-500/20"
-                                                                    : "text-white/45"
-                                                            )}
-                                                        >
-                                                            {met ? (
-                                                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-orange-400" aria-hidden />
-                                                            ) : (
-                                                                <XCircle className="h-3.5 w-3.5 shrink-0 text-orange-300/50" aria-hidden />
-                                                            )}
-                                                            <span>{label}</span>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                </div>
-                                <div>
-                                    <Label htmlFor="reg-password-confirm" className="text-sm text-muted-foreground mb-1.5 block">
-                                        Confirm Password <span className="text-red-500">*</span>
-                                    </Label>
-                                    <div className="relative">
-                                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                        <Input
-                                            id="reg-password-confirm"
-                                            autoComplete="new-password"
-                                            type={showRegisterPassword ? "text" : "password"}
-                                            value={registerForm.confirmPassword}
-                                            onChange={(e) => setRegisterForm((f) => ({ ...f, confirmPassword: e.target.value }))}
-                                            placeholder="Confirm password"
-                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
-                                            onKeyDown={(e) => e.key === "Enter" && handleRegisterSubmit()}
-                                        />
-                                    </div>
-                                </div>
-                                <div
-                                    className={cn(
-                                        "flex items-center gap-2 overflow-hidden motion-safe:transition-opacity motion-safe:duration-200 motion-safe:ease-in-out",
-                                        registerForm.password.length > 0
-                                            ? "pointer-events-auto mt-[10px] max-h-14 opacity-100"
-                                            : "pointer-events-none mt-0 max-h-0 opacity-0"
-                                    )}
-                                    aria-hidden={registerForm.password.length === 0}
-                                >
-                                    <Checkbox
-                                        id="reg-show-passwords"
-                                        checked={showRegisterPassword}
-                                        onCheckedChange={(c) => setShowRegisterPassword(c === true)}
+                            <LayoutGroup id="login-auth-tabs">
+                                <div className="relative mb-6 flex gap-1 rounded-2xl bg-muted/30 p-1">
+                                    <button
+                                        id="tab-login"
+                                        type="button"
+                                        onClick={() => setTab("login")}
                                         className={cn(
-                                            "h-4 w-4 shrink-0 rounded-[4px] border shadow-none ring-offset-0",
-                                            "border-[rgba(255,255,255,0.3)] bg-transparent",
-                                            "data-[state=checked]:border-[#F97316] data-[state=checked]:bg-[#F97316]",
-                                            "data-[state=checked]:text-white data-[state=unchecked]:bg-transparent",
-                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F97316]/40 focus-visible:ring-offset-0",
-                                            "[&_svg]:h-3 [&_svg]:w-3 [&_svg]:stroke-[3]"
+                                            "relative z-[1] flex-1 rounded-xl py-2 text-sm font-semibold transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                                            tab === "login"
+                                                ? "text-white"
+                                                : "text-muted-foreground hover:text-foreground"
                                         )}
-                                    />
-                                    <Label
-                                        htmlFor="reg-show-passwords"
-                                        className="cursor-pointer text-[13px] font-normal leading-none text-[rgba(255,255,255,0.6)]"
                                     >
-                                        Show passwords
-                                    </Label>
+                                        {tab === "login" && (
+                                            <motion.span
+                                                layoutId="login-auth-tab-pill"
+                                                className="absolute inset-0 rounded-xl bg-orange-600 shadow-md shadow-orange-600/25"
+                                                transition={NAV_ACTIVE_PILL_TRANSITION}
+                                                aria-hidden
+                                            />
+                                        )}
+                                        <span className="relative z-[2]">Sign In</span>
+                                    </button>
+                                    <button
+                                        id="tab-register"
+                                        type="button"
+                                        onClick={() => setTab("register")}
+                                        className={cn(
+                                            "relative z-[1] flex-1 rounded-xl py-2 text-sm font-semibold transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                                            tab === "register"
+                                                ? "text-white"
+                                                : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                    >
+                                        {tab === "register" && (
+                                            <motion.span
+                                                layoutId="login-auth-tab-pill"
+                                                className="absolute inset-0 rounded-xl bg-orange-600 shadow-md shadow-orange-600/25"
+                                                transition={NAV_ACTIVE_PILL_TRANSITION}
+                                                aria-hidden
+                                            />
+                                        )}
+                                        <span className="relative z-[2]">Register</span>
+                                    </button>
                                 </div>
-
-                                <Button
-                                    id="register-submit"
-                                    onClick={handleRegisterSubmit}
-                                    className="w-full bg-orange-600 text-white hover:bg-orange-700 shadow-md shadow-orange-600/20 font-semibold mt-2 group"
-                                    disabled={
-                                        !registerForm.firstName ||
-                                        !registerForm.lastName ||
-                                        !registerPhoneNational.replace(/\D/g, "").length ||
-                                        !registerForm.email ||
-                                        !registerForm.password ||
-                                        !registerForm.confirmPassword ||
-                                        !registerPwAllValid ||
-                                        !legal.legalAcknowledged ||
-                                        registerLoading
-                                    }
-                                >
-                                    {registerLoading ? (
-                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                    ) : (
-                                        <UserPlus className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
-                                    )}
-                                    {registerLoading ? "Creating Account..." : "Create Account"}
-                                </Button>
-
-                                <RegisterLegalCheckboxes
-                                    ppfTermsAgreed={legal.ppfTermsAgreed}
-                                    setPpfTermsAgreed={legal.setPpfTermsAgreed}
-                                    registerWebsiteTermsAgreed={legal.registerWebsiteTermsAgreed}
-                                    setRegisterWebsiteTermsAgreed={legal.setRegisterWebsiteTermsAgreed}
-                                    onOpenPpfTermsModal={legal.openPpfTermsModal}
-                                />
-                            </div>
+                            </LayoutGroup>
                         )}
 
-                        {/* ══════════ LOGIN FORM ══════════ */}
-                        {loginOtpStep === "form" && tab === "login" && (
-
-                            <div className="space-y-4">
+                        {/* ══ Form content — crossfade + animated height ══ */}
+                        <LoginAuthFormSwitcher
+                            activeTab={tab}
+                            visible={loginOtpStep === "form"}
+                            registerPanel={
+                                <ManualRegisterForm
+                                    onSignIn={() => setTab("login")}
+                                    onRegistrationComplete={(role) => performRedirect(role)}
+                                />
+                            }
+                            loginPanel={
+                                <div className="space-y-4">
                                 {/* Email */}
                                 <div>
                                     <div className="relative">
@@ -1243,8 +948,9 @@ export default function Login() {
                                     )}
                                     {isLoading ? "Signing in..." : t("login.signIn")}
                                 </Button>
-                            </div>
-                        )}
+                                </div>
+                            }
+                        />
 
                         {/* ══════════ LOGIN 2FA OTP SCREEN ══════════ */}
                         {loginOtpStep === "otp" && (
