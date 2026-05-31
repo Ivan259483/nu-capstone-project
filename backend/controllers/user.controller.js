@@ -817,7 +817,7 @@ export const changePassword = async (req, res, next) => {
       });
     }
 
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.id).select('+password');
     if (!user) {
       return res.status(404).json({
         success: false,

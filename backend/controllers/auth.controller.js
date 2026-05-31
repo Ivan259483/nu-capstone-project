@@ -203,7 +203,7 @@ const loadPasswordSetupToken = async (rawToken) => {
     return { ok: false, status: 400, message: 'This setup link has expired. Please request a new email.' };
   }
 
-  const user = await User.findById(tokenRecord.userId);
+  const user = await User.findById(tokenRecord.userId).select('+password');
   if (!user || user.isDeleted) {
     return { ok: false, status: 404, message: 'Account not found.' };
   }
@@ -1144,7 +1144,7 @@ export const login = async (req, res, next) => {
     }
 
     // Find user
-    const user = await User.findOne({ email: emailNormalized });
+    const user = await User.findOne({ email: emailNormalized }).select('+password');
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -2172,7 +2172,7 @@ export const changePassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Current password and new password are required.' });
     }
 
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).select('+password');
     if (!user || user.isDeleted || !user.isActive) {
       return res.status(403).json({ success: false, message: 'Account not accessible.' });
     }

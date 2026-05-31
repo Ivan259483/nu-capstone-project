@@ -6,7 +6,10 @@ import { isFullAdminRole } from '../constants/roles.js';
  */
 export const getAllStores = async (req, res, next) => {
   try {
-    const stores = await Store.find({ isActive: true }).populate('manager');
+    const stores = await Store.find({ isActive: true }).populate({
+      path: 'manager',
+      select: 'name email role',
+    });
 
     res.json({
       success: true,
@@ -22,7 +25,10 @@ export const getAllStores = async (req, res, next) => {
  */
 export const getStoreById = async (req, res, next) => {
   try {
-    const store = await Store.findById(req.params.id).populate('manager');
+    const store = await Store.findById(req.params.id).populate({
+      path: 'manager',
+      select: 'name email role',
+    });
 
     if (!store) {
       return res.status(404).json({
