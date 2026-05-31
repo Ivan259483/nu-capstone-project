@@ -28,12 +28,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const LANGUAGES = [
-    { code: "en" as const, label: "EN", name: "English" },
-    { code: "fil" as const, label: "FIL", name: "Filipino" },
+    { code: "en" as const, label: "EN", nameKey: "language.english" as const },
+    { code: "fil" as const, label: "FIL", nameKey: "language.filipino" as const },
 ];
 
 function LanguageSwitcher({ className }: { className?: string }) {
-    const { lang, setLang } = useLanguage();
+    const { lang, setLang, t } = useLanguage();
     const current = LANGUAGES.find((l) => l.code === lang) ?? LANGUAGES[0];
 
     return (
@@ -41,7 +41,7 @@ function LanguageSwitcher({ className }: { className?: string }) {
             <DropdownMenuTrigger asChild>
                 <button
                     type="button"
-                    aria-label="Select language"
+                    aria-label={t("language.select")}
                     className={cn(
                         "flex min-h-9 items-center gap-1.5 rounded-full px-2.5 py-2",
                         "text-[#e0a020] text-xs font-semibold uppercase tracking-wide",
@@ -67,7 +67,7 @@ function LanguageSwitcher({ className }: { className?: string }) {
                         className="cursor-pointer gap-2 rounded-lg border-0 px-3 py-2.5 text-white focus:bg-white/[0.08] focus:text-white data-[highlighted]:bg-white/[0.08] data-[highlighted]:text-white"
                     >
                         <span className="w-7 font-semibold text-[#f4c96b]">{language.label}</span>
-                        <span className="text-white/55">{language.name}</span>
+                        <span className="text-white/55">{t(language.nameKey)}</span>
                         {lang === language.code && (
                             <IconCheck className="ml-auto h-4 w-4 text-[#e0a020]" stroke={2.5} />
                         )}

@@ -1,52 +1,42 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Star } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { en } from "@/translations/en";
+import { fil } from "@/translations/fil";
 
-const TYPING_WORDS = [
-    "Prestige.",
-    "Excellence.",
-    "Perfection.",
-    "The Best.",
-    "Protection.",
-    "Brilliance.",
-    "Precision.",
-    "The Finest.",
-    "Pure Detail.",
-    "Mirror Shine.",
-    "Elite Care.",
-    "Flawless.",
-    "Spotless.",
-    "Ceramic Pro.",
-    "Zero Flaws.",
-    "PPF Ready.",
-    "Obsession.",
-    "The Standard.",
-    "Bold Finish.",
-    "Next Level.",
-];
 const TYPING_SPEED = 55;
 const DELETING_SPEED = 30;
 const PAUSE_AFTER_WORD = 1400;
 const PAUSE_BEFORE_TYPE = 200;
 
+const SERVICE_KEYS = [
+    "ceramicCoating",
+    "fullDetail",
+    "paintCorrection",
+    "ppf",
+    "interiorDetail",
+    "tinting",
+] as const;
+
 export default function HeroSection() {
-    const { t } = useLanguage();
-    const [activeService, setActiveService] = useState("Ceramic Coating");
+    const { lang, t } = useLanguage();
+    const typingWords = useMemo(
+        () => (lang === "fil" ? fil.hero.typingWords : en.hero.typingWords),
+        [lang]
+    );
+    const [activeServiceKey, setActiveServiceKey] = useState<(typeof SERVICE_KEYS)[number]>("ceramicCoating");
     const [displayText, setDisplayText] = useState("");
     const [wordIndex, setWordIndex] = useState(0);
     const [isDeleting, setIsDeleting] = useState(false);
     const [showCursor, setShowCursor] = useState(true);
 
-    const services = [
-        "Ceramic Coating",
-        "Full Detail",
-        "Paint Correction",
-        "PPF",
-        "Interior Detail",
-        "Tinting"
-    ];
+    useEffect(() => {
+        setWordIndex(0);
+        setDisplayText("");
+        setIsDeleting(false);
+    }, [lang, typingWords]);
 
     // Cursor blink
     useEffect(() => {
@@ -56,7 +46,7 @@ export default function HeroSection() {
 
     // Typing engine
     useEffect(() => {
-        const currentWord = TYPING_WORDS[wordIndex];
+        const currentWord = typingWords[wordIndex] ?? "";
         let timeout: ReturnType<typeof setTimeout>;
 
         if (!isDeleting) {
@@ -73,16 +63,15 @@ export default function HeroSection() {
                     setDisplayText(currentWord.slice(0, displayText.length - 1));
                 }, DELETING_SPEED);
             } else {
-                // Move to next word and start typing in one update
                 timeout = setTimeout(() => {
                     setIsDeleting(false);
-                    setWordIndex((i) => (i + 1) % TYPING_WORDS.length);
+                    setWordIndex((i) => (i + 1) % typingWords.length);
                 }, PAUSE_BEFORE_TYPE);
             }
         }
 
         return () => clearTimeout(timeout);
-    }, [displayText, isDeleting, wordIndex]);
+    }, [displayText, isDeleting, wordIndex, typingWords]);
 
     return (
         <section className="relative min-h-screen w-full flex items-center overflow-hidden" style={{ backgroundColor: "#07070A" }}>
@@ -91,7 +80,7 @@ export default function HeroSection() {
             <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden border-0">
                 <img
                     src="https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?q=80&w=2670&auto=format&fit=crop"
-                    alt="Luxury Car Detailing"
+                    alt={t("hero.imageAlt")}
                     className="h-full w-full object-cover object-center opacity-40 lg:opacity-100 lg:object-[72%_center]"
                     style={{ animation: "hero-car-drift 25s ease-in-out infinite", transformOrigin: "center center" }}
                 />
@@ -125,8 +114,8 @@ export default function HeroSection() {
                         className="text-5xl sm:text-6xl lg:text-[76px] font-serif font-medium leading-[1.05] mb-8 text-white flex flex-col animate-slide-up"
                         style={{ animationDelay: "0.2s" }}
                     >
-                        <span className="tracking-tight pb-1">Your Car</span>
-                        <span className="tracking-tight pb-1">Deserves</span>
+                        <span className="tracking-tight pb-1">{t("hero.titleLine1")}</span>
+                        <span className="tracking-tight pb-1">{t("hero.titleLine2")}</span>
                         <span className="italic font-bold" style={{ color: "#F0A500" }}>
                             {displayText.split("").map((char, i) => (
                                 <motion.span
@@ -157,7 +146,7 @@ export default function HeroSection() {
 
                     {/* Subtitle */}
                     <p className="text-[15px] leading-relaxed max-w-md mb-10 font-sans animate-slide-up" style={{ color: "rgba(255,255,255,0.6)", animationDelay: "0.4s" }}>
-                        {t("hero.subtitle") || "Professional detailing services that bring out the brilliance in every vehicle. We treat your car like our own with premium protection and unmatched aesthetic perfection."}
+                        {t("hero.subtitle")}
                     </p>
 
                     {/* Star rating row — 4.9 aligned to star row; reviews under stars */}
@@ -175,7 +164,7 @@ export default function HeroSection() {
                                 ))}
                             </div>
                             <span className="col-start-2 text-[10px] font-sans uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
-                                2,400+ Reviews
+                                {t("hero.reviews")}
                             </span>
                         </div>
                     </div>
@@ -191,7 +180,6 @@ export default function HeroSection() {
                                     boxShadow: "0 0 30px rgba(240,165,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2)"
                                 }}
                             >
-                                {/* Shimmer sweep */}
                                 <span
                                     className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
                                     style={{
@@ -200,7 +188,7 @@ export default function HeroSection() {
                                     }}
                                 />
                                 <span className="relative z-10 flex items-center gap-2">
-                                    Book a Service
+                                    {t("hero.cta")}
                                     <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" />
                                 </span>
                             </button>
@@ -220,25 +208,25 @@ export default function HeroSection() {
                                 aria-hidden
                             />
                             <span className="relative z-10 group-hover:text-[#F0A500] transition-colors duration-300">
-                                View Work
+                                {t("hero.viewWork")}
                             </span>
                         </a>
                     </div>
 
                     {/* Service tags */}
                     <div className="flex flex-wrap items-center gap-x-1 gap-y-2 max-w-[560px] animate-slide-up font-sans" style={{ animationDelay: "0.7s" }}>
-                        {services.map((service, index) => (
-                            <div key={service} className="flex items-center">
+                        {SERVICE_KEYS.map((key, index) => (
+                            <div key={key} className="flex items-center">
                                 <button
-                                    onClick={() => setActiveService(service)}
-                                    className={`px-3 py-1.5 text-[10px] tracking-[0.18em] uppercase transition-all duration-400 ${activeService === service
+                                    onClick={() => setActiveServiceKey(key)}
+                                    className={`px-3 py-1.5 text-[10px] tracking-[0.18em] uppercase transition-all duration-400 ${activeServiceKey === key
                                         ? "text-[#F0A500]"
                                         : "text-[rgba(255,255,255,0.35)] hover:text-[rgba(255,255,255,0.8)]"
                                         }`}
                                 >
-                                    {service}
+                                    {t(`hero.serviceTags.${key}`)}
                                 </button>
-                                {index < services.length - 1 && (
+                                {index < SERVICE_KEYS.length - 1 && (
                                     <span className="text-[rgba(255,255,255,0.1)] text-[8px] select-none">/</span>
                                 )}
                             </div>
@@ -249,17 +237,12 @@ export default function HeroSection() {
                 {/* Right Column (Floating Elements) - Hidden on mobile */}
                 <div className="hidden lg:flex w-[45%] relative h-screen flex-col justify-center items-end pr-0 xl:pr-10">
 
-                    {/* Architectural framing - Corners */}
                     <div className="absolute top-[25%] right-[-10px] w-8 h-8 border-t border-r border-[#F0A500] opacity-80" />
                     <div className="absolute bottom-[25%] left-10 w-8 h-8 border-b border-l border-[#F0A500] opacity-80" />
 
-
-
-
-                    {/* Vertical text stamp */}
                     <div className="absolute top-1/2 right-[-60px] rotate-[270deg] origin-center z-10 animate-fade-in translate-y-[-50%]">
                         <span className="text-[10px] uppercase tracking-[0.4em] text-[rgba(255,255,255,0.25)] font-sans whitespace-nowrap">
-                            AutoSPF+ Premium · 2026
+                            {t("hero.brandStamp")}
                         </span>
                     </div>
 

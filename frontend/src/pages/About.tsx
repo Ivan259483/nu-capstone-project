@@ -120,9 +120,9 @@ export default function About() {
                             variants={fadeUp}
                             className="text-5xl sm:text-6xl lg:text-7xl font-serif font-medium text-white tracking-tight mb-5 leading-[1.05]"
                         >
-                            About{" "}
+                            {t("about.headlineLead")}{" "}
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">
-                                AutoSPF+
+                                {t("about.headlineBrand")}
                             </span>
                         </motion.h1>
 
@@ -139,12 +139,12 @@ export default function About() {
                             variants={fadeUp}
                             className="flex items-center justify-center gap-6 mt-8"
                         >
-                            {["Since 2011", "Las Piñas City", "500+ Cars"].map((item) => (
+                            {(["pillSince", "pillLocation", "pillCars"] as const).map((key) => (
                                 <span
-                                    key={item}
+                                    key={key}
                                     className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20 px-3 py-1.5 rounded-full border border-white/5"
                                 >
-                                    {item}
+                                    {t(`about.${key}`)}
                                 </span>
                             ))}
                         </motion.div>
@@ -179,26 +179,20 @@ export default function About() {
                             variants={slideLeft}
                             className="text-3xl sm:text-4xl font-serif font-medium text-white mb-6 leading-tight tracking-tight"
                         >
-                            Built on{" "}
+                            {t("about.storyTitleLead")}{" "}
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">
-                                Passion
+                                {t("about.storyTitleHighlight")}
                             </span>{" "}
-                            & Precision
+                            {t("about.storyTitleSuffix")}
                         </motion.h2>
 
                         <motion.div
                             variants={slideLeft}
                             className="text-white/40 leading-[1.85] text-[15px] space-y-4 font-light mb-8"
                         >
-                            <p>
-                                AutoSPF+ is a premium automotive care and protection specialist based in <strong className="text-white/60 font-semibold">Las Piñas, Philippines</strong>, dedicated to delivering high-quality detailing and vehicle protection services.
-                            </p>
-                            <p>
-                                We specialize in <strong className="text-white/60 font-semibold">Paint Protection Film (PPF), Ceramic Coating, Window Tinting, and Premium Auto Detailing</strong>, helping vehicle owners preserve the beauty, protection, and long-term value of their cars.
-                            </p>
-                            <p>
-                                Our mission is to provide professional-grade workmanship, premium materials, and exceptional customer service to ensure every vehicle leaves with a showroom-quality finish.
-                            </p>
+                            <p>{t("about.storyP1")}</p>
+                            <p>{t("about.storyP2")}</p>
+                            <p>{t("about.storyP3")}</p>
                         </motion.div>
 
                         {/* Mini Stats */}
@@ -207,9 +201,9 @@ export default function About() {
                             className="flex items-center gap-8 flex-wrap"
                         >
                             {[
-                                { value: "2011", label: "Founded" },
-                                { value: "3", label: "Locations" },
-                                { value: "5K+", label: "Cars Detailed" },
+                                { value: "2011", label: t("about.miniFounded") },
+                                { value: "3", label: t("about.miniLocations") },
+                                { value: "5K+", label: t("about.miniCars") },
                             ].map(({ value, label }) => (
                                 <div key={label} className="group">
                                     <p className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 tracking-tight">{value}</p>
@@ -265,7 +259,7 @@ export default function About() {
                                 </motion.div>
                                 <h3 className="sr-only">AutoSPF+</h3>
 
-                                <p className="text-sm text-white/35 mb-2 leading-snug -mt-0.5">Premium Auto Detailing</p>
+                                <p className="text-sm text-white/35 mb-2 leading-snug -mt-0.5">{t("about.brandTagline")}</p>
 
                                 <div className="flex justify-center gap-1 mb-3">
                                     {[...Array(5)].map((_, i) => (
@@ -284,9 +278,9 @@ export default function About() {
 
                             {/* Badge pills */}
                             <div className="relative z-10 flex flex-wrap items-center justify-center gap-2">
-                                {["SONAX Certified", "PPF Installer", "Vinyl Frog Partner"].map((badge) => (
-                                    <span key={badge} className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/35 px-3 py-1.5 rounded-full border-0 bg-white/[0.06] shadow-[0_2px_12px_rgba(0,0,0,0.2)]">
-                                        {badge}
+                                {(["badgeSonax", "badgePpf", "badgeVinyl"] as const).map((key) => (
+                                    <span key={key} className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/35 px-3 py-1.5 rounded-full border-0 bg-white/[0.06] shadow-[0_2px_12px_rgba(0,0,0,0.2)]">
+                                        {t(`about.${key}`)}
                                     </span>
                                 ))}
                             </div>

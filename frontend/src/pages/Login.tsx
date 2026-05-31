@@ -34,12 +34,16 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/config/firebase";
 import { buildRegisterE164, validateRegisterNationalDigits } from "@/lib/phone";
 import { REGISTER_COUNTRY_DIALS } from "@/lib/countries-dial-data";
+import {
+    registerPasswordPolicyError,
+    registerPasswordRules,
+    registerPasswordStrength,
+} from "@/lib/register-validation";
 import { RegisterPhoneField } from "@/components/auth/RegisterPhoneField";
 import { LoginAuthFormSwitcher } from "@/components/auth/LoginAuthFormSwitcher";
 import { ManualRegisterForm } from "@/components/auth/ManualRegisterForm";
 import {
     PpfTermsAcceptanceDialog,
-    REGISTER_LEGAL_TOAST_MESSAGE,
     RegisterLegalCheckboxes,
     useRegisterLegalAcknowledgement,
 } from "@/components/auth/RegisterLegalAcknowledgement";
@@ -68,42 +72,6 @@ function getSafeLoginRedirect(value: string | null): string {
     }
     if (!path.startsWith("/") || path.startsWith("//")) return "";
     return path;
-}
-
-/* Must match backend register password policy (validation.middleware.js, auth.controller.js). */
-const REGISTER_PASSWORD_SPECIAL_RE = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/;
-
-function registerPasswordRules(password: string) {
-    return {
-        length: password.length >= 8,
-        upper: /[A-Z]/.test(password),
-        lower: /[a-z]/.test(password),
-        number: /[0-9]/.test(password),
-        special: REGISTER_PASSWORD_SPECIAL_RE.test(password),
-    };
-}
-
-function registerPasswordPolicyError(password: string): string | null {
-    if (password.length < 8) return "Password must be at least 8 characters.";
-    if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter.";
-    if (!/[a-z]/.test(password)) return "Password must contain at least one lowercase letter.";
-    if (!/[0-9]/.test(password)) return "Password must contain at least one number.";
-    if (!REGISTER_PASSWORD_SPECIAL_RE.test(password))
-        return "Password must contain at least one special character (!@#$%^&* etc.).";
-    return null;
-}
-
-function registerPasswordStrength(
-    password: string,
-    rules: ReturnType<typeof registerPasswordRules>
-): { text: string; barClass: string; textClass: string } | null {
-    if (!password.length) return null;
-    const met = [rules.length, rules.upper, rules.lower, rules.number, rules.special].filter(Boolean).length;
-    if (met < 3) return { text: "Weak", barClass: "bg-gradient-to-r from-slate-600 to-slate-500", textClass: "text-slate-400" };
-    if (met < 5) return { text: "Medium", barClass: "bg-gradient-to-r from-orange-800 to-orange-600", textClass: "text-orange-300" };
-    if (password.length >= 12)
-        return { text: "Very strong", barClass: "bg-gradient-to-r from-orange-400 to-amber-300", textClass: "text-orange-200" };
-    return { text: "Strong", barClass: "bg-gradient-to-r from-orange-600 to-orange-400", textClass: "text-orange-200" };
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -204,8 +172,8 @@ export default function Login() {
         [registerPwRules]
     );
     const registerPwStrength = useMemo(
-        () => registerPasswordStrength(registerForm.password, registerPwRules),
-        [registerForm.password, registerPwRules]
+        () => registerPasswordStrength(registerForm.password, registerPwRules, t),
+        [registerForm.password, registerPwRules, t]
     );
 
     useEffect(() => {
@@ -315,7 +283,7 @@ export default function Login() {
     /* ── Login submit ── */
     const handleLoginSubmit = async () => {
         if (!loginForm.email || !loginForm.password) {
-            toast.error("Please fill in all fields.");
+            toast.error(t("validation.fillAllFields"));
             return;
         }
         if (isLocked) {
@@ -331,7 +299,7 @@ export default function Login() {
             if (result.requiresOtp || result.data?.requiresOtp) {
                 const emailToVerify = result.data?.email || emailNorm;
                 navigate(`/verify-otp?email=${encodeURIComponent(emailToVerify)}`);
-                toast.info("Please verify your email to continue.");
+                toast.info(t("auth.verifyEmailContinue"));
                 return;
             }
 
@@ -340,7 +308,7 @@ export default function Login() {
                 const tempToken = result.data?.token || result.token;
                 if (tempToken) localStorage.setItem("autospf_set_password_token", tempToken);
                 navigate("/set-password");
-                toast.info("Please set your own password to continue.");
+                toast.info(t("auth.setPasswordContinue"));
                 return;
             }
 
@@ -353,7 +321,7 @@ export default function Login() {
                 setLoginOtpResend(60);  // 60 s cooldown
                 setLoginOtpError("");
                 setLoginOtpStep("otp");
-                toast.success("Verification code sent to your email.");
+                toast.success(t("auth.codeSent"));
                 setTimeout(() => loginOtpInputRefs.current[0]?.focus(), 120);
                 return;
             }
@@ -365,13 +333,13 @@ export default function Login() {
                     setLockUntilMs(result.data.lockUntilMs ?? Date.now() + 15 * 60 * 1000);
                     setLoginAttempts(0);
                     setRemainingAttempts(0);
-                    toast.error(result.message || "Account locked.");
+                    toast.error(result.message || t("auth.accountLocked"));
                 } else if (result.data?.remainingAttempts !== undefined) {
                     setLoginAttempts(result.data.loginAttempts ?? loginAttempts + 1);
                     setRemainingAttempts(result.data.remainingAttempts);
-                    toast.error(result.message || "Invalid credentials.");
+                    toast.error(result.message || t("auth.invalidCredentials"));
                 } else {
-                    toast.error(result.message || "Invalid credentials.");
+                    toast.error(result.message || t("auth.invalidCredentials"));
                 }
                 return;
             }
@@ -382,10 +350,10 @@ export default function Login() {
             setLockUntilMs(null);
             if (rememberMe) localStorage.setItem("remembered_email", emailNorm);
             else localStorage.removeItem("remembered_email");
-            toast.success("Welcome back.");
+            toast.success(t("auth.welcomeBack"));
             performRedirect(getSafeUserRole(result.role || user?.role || "customer"));
         } catch {
-            toast.error("Login failed");
+            toast.error(t("auth.loginFailed"));
         } finally {
             setIsLoading(false);
         }
@@ -399,32 +367,34 @@ export default function Login() {
             REGISTER_COUNTRY_DIALS.find((c) => c.iso === registerPhoneCountryIso)?.dial ?? "63";
 
         if (!firstName || !lastName || !emailNorm || !password || !confirmPassword) {
-            toast.error("Please fill in all required fields.");
+            toast.error(t("validation.fillRequired"));
             return;
         }
         if (password !== confirmPassword) {
-            toast.error("Passwords do not match.");
+            toast.error(t("validation.passwordMismatch"));
             return;
         }
         if (!registerPhoneNational.replace(/\D/g, "").length) {
-            setRegisterPhoneError("Phone number is required.");
-            toast.error("Please enter your phone number.");
+            setRegisterPhoneError(t("validation.phoneRequired"));
+            toast.error(t("validation.phoneRequired"));
             return;
         }
         const phoneCheck = validateRegisterNationalDigits(dial, registerPhoneNational);
         if (!phoneCheck.ok) {
-            setRegisterPhoneError(phoneCheck.message || "Invalid phone number.");
-            toast.error(phoneCheck.message || "Invalid phone number format.");
+            const phoneMsg =
+                phoneCheck.code === "ph_mobile" ? t("validation.phPhone") : t("validation.phoneLength");
+            setRegisterPhoneError(phoneMsg);
+            toast.error(phoneMsg);
             return;
         }
         setRegisterPhoneError("");
-        const pwErr = registerPasswordPolicyError(password);
+        const pwErr = registerPasswordPolicyError(password, t);
         if (pwErr) {
             toast.error(pwErr);
             return;
         }
         if (!legal.legalAcknowledged) {
-            toast.error(REGISTER_LEGAL_TOAST_MESSAGE);
+            toast.error(t("register.legalRequiredToast"));
             return;
         }
 
@@ -440,13 +410,13 @@ export default function Login() {
             });
             const data = await res.json();
             if (!res.ok || !data.success) {
-                toast.error(data.message || "Registration failed.");
+                toast.error(data.message || t("auth.registrationFailed"));
                 return;
             }
-            toast.success("Check your email for the verification code.");
+            toast.success(t("auth.checkEmailCode"));
             navigate(`/verify-otp?email=${encodeURIComponent(emailNorm)}&from=register`);
         } catch {
-            toast.error("Registration failed. Please try again.");
+            toast.error(t("auth.registrationFailed"));
         } finally {
             setRegisterLoading(false);
         }
@@ -485,7 +455,7 @@ export default function Login() {
     const handleVerifyLoginOtp = async () => {
         const code = loginOtpDigits.join("");
         if (code.length !== 6) {
-            setLoginOtpError("Please enter the complete 6-digit code.");
+            setLoginOtpError(t("validation.otpIncomplete"));
             return;
         }
         setLoginOtpVerifying(true);
@@ -508,9 +478,9 @@ export default function Login() {
                 setTimeout(() => loginOtpInputRefs.current[0]?.focus(), 50);
 
                 if (resp.status === 429) {
-                    setLoginOtpError(json.message || "Too many failed attempts. Request a new code.");
+                    setLoginOtpError(json.message || t("auth.tooManyAttempts"));
                 } else {
-                    setLoginOtpError(json.message || "Invalid code. Please try again.");
+                    setLoginOtpError(json.message || t("auth.invalidCode"));
                 }
                 return;
             }
@@ -551,13 +521,13 @@ export default function Login() {
 
             const role = getSafeUserRole(backendUser?.role);
             if (rememberMe) localStorage.setItem("remembered_email", loginForm.email);
-            toast.success("Verification successful. Welcome!");
+            toast.success(t("auth.verifySuccess"));
             setLoginOtpStep("form");
             setPendingUserId("");
             setLoginMaskedEmail("");
             performRedirect(role);
         } catch {
-            setLoginOtpError("Verification failed. Please try again.");
+            setLoginOtpError(t("auth.verifyFailed"));
         } finally {
             setLoginOtpVerifying(false);
         }
@@ -577,17 +547,17 @@ export default function Login() {
             });
             const json = await resp.json();
             if (resp.ok && json.success) {
-                toast.success("New verification code sent!");
+                toast.success(t("auth.codeSent"));
                 setLoginOtpDigits(["", "", "", "", "", ""]);
                 setLoginOtpExpiry(300);
                 setLoginOtpResend(60);
                 setLoginOtpError("");
                 setTimeout(() => loginOtpInputRefs.current[0]?.focus(), 50);
             } else {
-                toast.error(json.message || "Failed to resend code.");
+                toast.error(json.message || t("auth.resendFailed"));
             }
         } catch {
-            toast.error("Failed to resend code. Please try again.");
+            toast.error(t("auth.resendFailed"));
         } finally {
             setLoginOtpResending(false);
         }
@@ -599,7 +569,7 @@ export default function Login() {
     const handleForgotSendOtp = async () => {
         const emailNorm = forgotEmail.trim().toLowerCase();
         if (!emailNorm) {
-            toast.error("Enter your email address");
+            toast.error(t("validation.enterEmail"));
             return;
         }
         setForgotLoading(true);
@@ -613,16 +583,16 @@ export default function Login() {
             });
             const json = await resp.json();
             if (!resp.ok || !json.success) {
-                toast.error(json.message || "Failed to send reset code");
+                toast.error(json.message || t("auth.resetSendFailed"));
                 return;
             }
             setForgotEmail(emailNorm);
             setForgotStep("otp");
             setForgotOtpDigits(["", "", "", "", "", ""]);
-            toast.success("Reset code sent! Check your inbox (and spam).");
+            toast.success(t("auth.resetSent"));
             setTimeout(() => forgotOtpInputRefs.current[0]?.focus(), 120);
         } catch {
-            toast.error("Failed to send reset code. Please try again.");
+            toast.error(t("auth.resetSendFailed"));
         } finally {
             setForgotLoading(false);
         }
@@ -657,7 +627,7 @@ export default function Login() {
     const handleForgotVerifyOtp = async () => {
         const code = forgotOtpDigits.join("");
         if (code.length !== 6) {
-            setForgotOtpError("Please enter the complete 6-digit code.");
+            setForgotOtpError(t("validation.otpIncomplete"));
             return;
         }
         setForgotLoading(true);
@@ -674,13 +644,13 @@ export default function Login() {
                 setForgotOtpShake(true);
                 setTimeout(() => setForgotOtpShake(false), 600);
                 setForgotOtpDigits(["", "", "", "", "", ""]);
-                setForgotOtpError(json.message || "Invalid code. Please try again.");
+                setForgotOtpError(json.message || t("auth.invalidCode"));
                 setTimeout(() => forgotOtpInputRefs.current[0]?.focus(), 50);
                 return;
             }
             setForgotStep("password");
         } catch {
-            setForgotOtpError("Verification failed. Please try again.");
+            setForgotOtpError(t("auth.verifyFailed"));
         } finally {
             setForgotLoading(false);
         }
@@ -688,13 +658,13 @@ export default function Login() {
 
     /* ── Forgot password: set new password ── */
     const handleForgotResetPassword = async () => {
-        const policyError = registerPasswordPolicyError(forgotNewPassword);
+        const policyError = registerPasswordPolicyError(forgotNewPassword, t);
         if (policyError) {
             toast.error(policyError);
             return;
         }
         if (forgotNewPassword !== forgotConfirmPassword) {
-            toast.error("Passwords do not match.");
+            toast.error(t("validation.passwordMismatch"));
             return;
         }
         setForgotLoading(true);
@@ -711,14 +681,14 @@ export default function Login() {
             });
             const json = await resp.json();
             if (!resp.ok || !json.success) {
-                toast.error(json.message || "Failed to reset password");
+                toast.error(json.message || t("auth.resetFailed"));
                 return;
             }
-            toast.success("Password updated. You can sign in now.");
+            toast.success(t("auth.passwordUpdated"));
             setShowForgotModal(false);
             resetForgotModal();
         } catch {
-            toast.error("Failed to reset password. Please try again.");
+            toast.error(t("auth.resetFailed"));
         } finally {
             setForgotLoading(false);
         }
@@ -802,7 +772,7 @@ export default function Login() {
                                                 aria-hidden
                                             />
                                         )}
-                                        <span className="relative z-[2]">Sign In</span>
+                                        <span className="relative z-[2]">{t("login.tabLogin")}</span>
                                     </button>
                                     <button
                                         id="tab-register"
@@ -823,7 +793,7 @@ export default function Login() {
                                                 aria-hidden
                                             />
                                         )}
-                                        <span className="relative z-[2]">Register</span>
+                                        <span className="relative z-[2]">{t("login.tabRegister")}</span>
                                     </button>
                                 </div>
                             </LayoutGroup>
@@ -897,10 +867,14 @@ export default function Login() {
                                         <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                                         <div>
                                             <p className="font-semibold text-amber-300">
-                                                {loginAttempts} failed attempt{loginAttempts !== 1 ? "s" : ""}
+                                                {loginAttempts === 1
+                                                    ? t("login.failedAttemptOne")
+                                                    : t("login.failedAttemptMany").replace("{n}", String(loginAttempts))}
                                             </p>
                                             <p className="text-amber-400/80 mt-0.5">
-                                                {remainingAttempts} attempt{remainingAttempts !== 1 ? "s" : ""} remaining before your account is locked for 15 minutes.
+                                                {remainingAttempts === 1
+                                                    ? t("login.remainingAttemptOne")
+                                                    : t("login.remainingAttemptMany").replace("{n}", String(remainingAttempts ?? 0))}
                                             </p>
                                         </div>
                                     </div>
@@ -911,9 +885,9 @@ export default function Login() {
                                     <div className="flex items-start gap-2.5 rounded-xl border border-red-500/40 bg-red-500/10 px-3.5 py-3 text-xs animate-slide-up">
                                         <LockKeyhole className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
                                         <div className="flex-1">
-                                            <p className="font-semibold text-red-300">Account Temporarily Locked</p>
+                                            <p className="font-semibold text-red-300">{t("login.accountLockedTitle")}</p>
                                             <p className="text-red-400/80 mt-0.5">
-                                                Too many failed attempts. Try again in{" "}
+                                                {t("login.accountLockedTryAgain")}{" "}
                                                 <span className="font-mono font-bold text-red-300">{lockCountdown || "15:00"}</span>.
                                             </p>
                                         </div>
@@ -932,7 +906,7 @@ export default function Login() {
                                     >
                                         {rememberMe && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
                                     </div>
-                                    <span className="text-xs text-muted-foreground">Remember me</span>
+                                    <span className="text-xs text-muted-foreground">{t("login.rememberMe")}</span>
                                 </label>
 
                                 {/* Submit */}
@@ -946,7 +920,7 @@ export default function Login() {
                                     ) : (
                                         <LogIn className="w-4 h-4 mr-2 group-hover:translate-x-0.5 transition-transform" />
                                     )}
-                                    {isLoading ? "Signing in..." : t("login.signIn")}
+                                    {isLoading ? t("login.signingIn") : t("login.signIn")}
                                 </Button>
                                 </div>
                             }
@@ -960,9 +934,9 @@ export default function Login() {
                                     <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-500/20 to-orange-600/5 border border-orange-500/20 mb-1">
                                         <ShieldCheck className="w-7 h-7 text-orange-500" />
                                     </div>
-                                    <h2 className="text-lg font-bold text-foreground">Two-Factor Verification</h2>
+                                    <h2 className="text-lg font-bold text-foreground">{t("login.otpTitle")}</h2>
                                     <p className="text-sm text-muted-foreground">
-                                        We sent a 6-digit code to{" "}
+                                        {t("login.otpSent")}{" "}
                                         <span className="font-semibold text-foreground">{loginMaskedEmail}</span>
                                     </p>
                                 </div>
@@ -971,7 +945,7 @@ export default function Login() {
                                 {loginOtpExpiry > 0 && (
                                     <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
                                         <Clock className="w-3.5 h-3.5" />
-                                        <span>Code expires in{" "}
+                                        <span>{t("login.otpExpires")}{" "}
                                             <span className={cn("font-mono font-semibold", loginOtpExpiry <= 60 ? "text-red-400" : "text-foreground")}>
                                                 {String(Math.floor(loginOtpExpiry / 60)).padStart(2, "0")}:{String(loginOtpExpiry % 60).padStart(2, "0")}
                                             </span>
@@ -979,7 +953,7 @@ export default function Login() {
                                     </div>
                                 )}
                                 {loginOtpExpiry === 0 && (
-                                    <p className="text-center text-xs text-red-400">Code expired. Please resend.</p>
+                                    <p className="text-center text-xs text-red-400">{t("login.otpExpired")}</p>
                                 )}
 
                                 {/* Digit inputs */}
@@ -1039,7 +1013,7 @@ export default function Login() {
                                     ) : (
                                         <ShieldCheck className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
                                     )}
-                                    {loginOtpVerifying ? "Verifying..." : "Verify Access"}
+                                    {loginOtpVerifying ? t("login.otpVerifying") : t("login.otpVerify")}
                                 </Button>
 
                                 {/* Resend + back */}
@@ -1055,7 +1029,7 @@ export default function Login() {
                                         className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
                                     >
                                         <ArrowLeft className="w-3.5 h-3.5" />
-                                        Back to login
+                                        {t("login.otpBack")}
                                     </button>
 
                                     <button
@@ -1073,7 +1047,9 @@ export default function Login() {
                                         ) : (
                                             <RefreshCw className="w-3.5 h-3.5" />
                                         )}
-                                        {loginOtpResend > 0 ? `Resend in ${loginOtpResend}s` : "Resend code"}
+                                        {loginOtpResend > 0
+                                            ? t("login.otpResendCountdown").replace("{n}", String(loginOtpResend))
+                                            : t("login.otpResend")}
                                     </button>
                                 </div>
                             </div>
@@ -1109,13 +1085,12 @@ export default function Login() {
             >
                 <DialogContent className="glass border-orange-500/15 sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle className="text-foreground">Reset Password</DialogTitle>
+                        <DialogTitle className="text-foreground">{t("login.forgotTitle")}</DialogTitle>
                         <DialogDescription className="text-muted-foreground">
-                            {forgotStep === "email" &&
-                                "Enter your email and we'll send a 6-digit reset code (valid 10 minutes)."}
+                            {forgotStep === "email" && t("login.forgotEmailStep")}
                             {forgotStep === "otp" &&
-                                `Enter the code we sent to ${forgotEmail}. Check spam if you don't see it.`}
-                            {forgotStep === "password" && "Choose a new password for your account."}
+                                t("login.forgotOtpStep").replace("{email}", forgotEmail)}
+                            {forgotStep === "password" && t("login.forgotPasswordStep")}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1142,7 +1117,7 @@ export default function Login() {
                                 ) : (
                                     <Mail className="w-4 h-4 mr-2" />
                                 )}
-                                {forgotLoading ? "Sending..." : "Send reset code"}
+                                {forgotLoading ? t("login.forgotSending") : t("login.forgotSend")}
                             </Button>
                         </div>
                     )}
@@ -1183,7 +1158,7 @@ export default function Login() {
                                 {forgotLoading ? (
                                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                                 ) : null}
-                                {forgotLoading ? "Verifying..." : "Verify code"}
+                                {forgotLoading ? t("login.otpVerifying") : t("login.forgotVerify")}
                             </Button>
                             <button
                                 type="button"
@@ -1194,7 +1169,7 @@ export default function Login() {
                                     setForgotOtpError("");
                                 }}
                             >
-                                Use a different email
+                                {t("login.forgotDifferentEmail")}
                             </button>
                         </div>
                     )}
@@ -1207,7 +1182,7 @@ export default function Login() {
                                     type={forgotShowPassword ? "text" : "password"}
                                     value={forgotNewPassword}
                                     onChange={(e) => setForgotNewPassword(e.target.value)}
-                                    placeholder="New password"
+                                    placeholder={t("login.forgotNewPassword")}
                                     className="pl-9 pr-9 bg-muted/40 border-border"
                                 />
                                 <button
@@ -1228,7 +1203,7 @@ export default function Login() {
                                     type={forgotShowPassword ? "text" : "password"}
                                     value={forgotConfirmPassword}
                                     onChange={(e) => setForgotConfirmPassword(e.target.value)}
-                                    placeholder="Confirm new password"
+                                    placeholder={t("login.forgotConfirmPassword")}
                                     className="pl-9 bg-muted/40 border-border"
                                     onKeyDown={(e) => e.key === "Enter" && handleForgotResetPassword()}
                                 />
@@ -1241,7 +1216,7 @@ export default function Login() {
                                 {forgotLoading ? (
                                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                                 ) : null}
-                                {forgotLoading ? "Updating..." : "Update password"}
+                                {forgotLoading ? t("login.forgotUpdating") : t("login.forgotUpdate")}
                             </Button>
                         </div>
                     )}

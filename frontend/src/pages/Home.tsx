@@ -1,6 +1,7 @@
 import PageLayout from "@/components/PageLayout";
 import HeroSection from "@/components/HeroSection";
 import { HeroParallax, type HeroParallaxProduct } from "@/components/ui/hero-parallax";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 import TransformationsSection from "@/components/TransformationsSection";
 import TestimonialsSection from "@/components/TestimonialsSection";
@@ -24,19 +25,18 @@ const PARALLAX_PRODUCTS: HeroParallaxProduct[] = [
     { title: "Engine Bay Detailing", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1605437241278-c1806d14a4d9?auto=format&fit=crop&q=80&w=800" },
 ];
 
-const transformationTitle = (
-    <>
-        See the <br />
-        <span className="italic text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-amber-300 to-orange-500">
-            Transformation
-        </span>
-    </>
-);
-
-const transformationDescription =
-    "Before and after — real results from real vehicles. Every image showcases our commitment to precision, protection, and perfection.";
-
 export default function Home() {
+    const { t } = useLanguage();
+
+    const transformationTitle = (
+        <>
+            {t("home.transformationTitleLead")} <br />
+            <span className="italic text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-amber-300 to-orange-500">
+                {t("home.transformationTitleHighlight")}
+            </span>
+        </>
+    );
+
     return (
         <PageLayout>
             <HeroSection />
@@ -44,7 +44,7 @@ export default function Home() {
                 sectionId="transformation"
                 products={PARALLAX_PRODUCTS}
                 title={transformationTitle}
-                description={transformationDescription}
+                description={t("home.transformationDescription")}
                 titleSerif
             />
 

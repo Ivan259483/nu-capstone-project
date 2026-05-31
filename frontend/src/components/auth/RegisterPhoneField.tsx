@@ -190,7 +190,7 @@ export function RegisterPhoneField({
           "focus-visible:ring-0 focus-visible:ring-offset-0",
           "placeholder:text-white/35",
           embedded
-            ? "min-h-0 min-w-0 flex-1 border-0 py-0 pl-0 pr-0 shadow-none"
+            ? "h-auto min-h-0 min-w-0 flex-1 border-0 py-0 pl-0 pr-0 shadow-none"
             : "min-h-10 rounded-r-md placeholder:text-muted-foreground"
         )}
       />

@@ -6,14 +6,23 @@ import { Button } from "@/components/ui/button";
 import { FloatingLabelField } from "@/components/auth/FloatingLabelField";
 import {
     PpfTermsAcceptanceDialog,
-    REGISTER_LEGAL_TOAST_MESSAGE,
     RegisterLegalCheckboxes,
     useRegisterLegalAcknowledgement,
 } from "@/components/auth/RegisterLegalAcknowledgement";
 import { RegisterPhoneField } from "@/components/auth/RegisterPhoneField";
 import { RegisterOtpModal, type RegisterOtpVerifiedPayload } from "@/components/auth/RegisterOtpModal";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { getBaseApiUrl } from "@/lib/api";
+import {
+    registerPasswordPolicyError,
+    registerPasswordRules,
+    registerPasswordStrength,
+    validateConfirmPassword,
+    validateEmail,
+    validateFirstName,
+    validateLastName,
+} from "@/lib/register-validation";
 import { TOKEN_KEY, persistBackendUser, safeLocalStorageSet } from "@/lib/auth-storage";
 import { cn } from "@/lib/utils";
 import { buildRegisterE164, validateRegisterNationalDigits } from "@/lib/phone";
@@ -22,74 +31,16 @@ import { getSafeUserRole } from "@/lib/roles";
 import { signOut } from "firebase/auth";
 import { auth } from "@/config/firebase";
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const NAME_PART_REGEX = /^[a-zA-ZÀ-ÿ\s.\-']+$/;
-const REGISTER_PASSWORD_SPECIAL_RE = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/;
-
 type FieldKey = "firstName" | "lastName" | "email" | "password" | "confirmPassword";
 type FieldErrors = Partial<Record<FieldKey | "phone", string>>;
 
-function registerPasswordRules(password: string) {
-    return {
-        length: password.length >= 8,
-        upper: /[A-Z]/.test(password),
-        lower: /[a-z]/.test(password),
-        number: /[0-9]/.test(password),
-        special: REGISTER_PASSWORD_SPECIAL_RE.test(password),
-    };
-}
-
-function registerPasswordPolicyError(password: string): string | null {
-    if (!password) return "Password is required.";
-    if (password.length < 8) return "Password must be at least 8 characters.";
-    if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter.";
-    if (!/[a-z]/.test(password)) return "Password must contain at least one lowercase letter.";
-    if (!/[0-9]/.test(password)) return "Password must contain at least one number.";
-    if (!REGISTER_PASSWORD_SPECIAL_RE.test(password))
-        return "Password must contain at least one special character (!@#$%^&* etc.).";
-    return null;
-}
-
-function registerPasswordStrength(
-    password: string,
-    rules: ReturnType<typeof registerPasswordRules>
-): { text: string; barClass: string; textClass: string } | null {
-    if (!password.length) return null;
-    const met = [rules.length, rules.upper, rules.lower, rules.number, rules.special].filter(Boolean).length;
-    if (met < 3) return { text: "Weak", barClass: "bg-gradient-to-r from-slate-600 to-slate-500", textClass: "text-slate-400" };
-    if (met < 5) return { text: "Medium", barClass: "bg-gradient-to-r from-orange-800 to-orange-600", textClass: "text-orange-300" };
-    if (password.length >= 12)
-        return { text: "Very strong", barClass: "bg-gradient-to-r from-orange-400 to-amber-300", textClass: "text-orange-200" };
-    return { text: "Strong", barClass: "bg-gradient-to-r from-orange-600 to-orange-400", textClass: "text-orange-200" };
-}
-
-function validateFirstName(value: string): string | undefined {
-    const v = value.trim().replace(/\s+/g, " ");
-    if (!v) return "First name is required.";
-    if (v.length > 40) return "First name must be 40 characters or fewer.";
-    if (!NAME_PART_REGEX.test(v)) return "Please enter a valid first name.";
-    return undefined;
-}
-
-function validateLastName(value: string): string | undefined {
-    const v = value.trim().replace(/\s+/g, " ");
-    if (!v) return "Last name is required.";
-    if (v.length > 40) return "Last name must be 40 characters or fewer.";
-    if (!NAME_PART_REGEX.test(v)) return "Please enter a valid last name.";
-    return undefined;
-}
-
-function validateEmail(value: string): string | undefined {
-    const v = value.trim().toLowerCase();
-    if (!v) return "Email address is required.";
-    if (!EMAIL_REGEX.test(v)) return "Please enter a valid email address.";
-    return undefined;
-}
-
-function validateConfirmPassword(password: string, confirmPassword: string): string | undefined {
-    if (!confirmPassword) return "Please confirm your password.";
-    if (confirmPassword !== password) return "Passwords do not match.";
-    return undefined;
+function phoneValidationMessage(
+    code: "ph_mobile" | "invalid_length" | undefined,
+    t: (path: string) => string
+): string | undefined {
+    if (!code) return undefined;
+    if (code === "ph_mobile") return t("validation.phPhone");
+    return t("validation.phoneLength");
 }
 
 type ManualRegisterFormProps = {
@@ -98,6 +49,7 @@ type ManualRegisterFormProps = {
 };
 
 export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualRegisterFormProps) {
+    const { t } = useLanguage();
     const { setAuthUser } = useAuth();
 
     const [firstName, setFirstName] = useState("");
@@ -132,27 +84,27 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
         () => pwRules.length && pwRules.upper && pwRules.lower && pwRules.number && pwRules.special,
         [pwRules]
     );
-    const pwStrength = useMemo(() => registerPasswordStrength(password, pwRules), [password, pwRules]);
+    const pwStrength = useMemo(() => registerPasswordStrength(password, pwRules, t), [password, pwRules, t]);
     const passwordsMatch = password.length > 0 && confirmPassword.length > 0 && password === confirmPassword;
 
     const phoneError = useMemo(() => {
         if (!phoneNational.replace(/\D/g, "").length) {
-            return touched.phone ? "Phone number is required." : undefined;
+            return touched.phone ? t("validation.phoneRequired") : undefined;
         }
         const check = validateRegisterNationalDigits(dial, phoneNational);
-        return check.ok ? undefined : check.message;
-    }, [dial, phoneNational, touched.phone]);
+        return check.ok ? undefined : phoneValidationMessage(check.code, t);
+    }, [dial, phoneNational, touched.phone, t]);
 
     const fieldValidators = useMemo(
         () => ({
-            firstName: () => validateFirstName(firstName),
-            lastName: () => validateLastName(lastName),
-            email: () => validateEmail(email),
+            firstName: () => validateFirstName(firstName, t),
+            lastName: () => validateLastName(lastName, t),
+            email: () => validateEmail(email, t),
             phone: () => phoneError,
-            password: () => registerPasswordPolicyError(password) || undefined,
-            confirmPassword: () => validateConfirmPassword(password, confirmPassword),
+            password: () => registerPasswordPolicyError(password, t) || undefined,
+            confirmPassword: () => validateConfirmPassword(password, confirmPassword, t),
         }),
-        [confirmPassword, email, firstName, lastName, password, phoneError]
+        [confirmPassword, email, firstName, lastName, password, phoneError, t]
     );
 
     const runFieldValidation = useCallback(
@@ -243,13 +195,13 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                 confirmPassword: true,
             });
             setAttemptedSubmit(true);
-            toast.error("Please complete all required fields.");
+            toast.error(t("validation.fillRequired"));
             scrollToFirstInvalid(nextErrors);
             return;
         }
         setErrors({});
         if (!legal.legalAcknowledged) {
-            toast.error(REGISTER_LEGAL_TOAST_MESSAGE);
+            toast.error(t("register.legalRequiredToast"));
             return;
         }
 
@@ -273,7 +225,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
             const data = await res.json();
 
             if (!res.ok || !data.success) {
-                const message = data.message || "Registration failed. Please try again.";
+                const message = data.message || t("auth.registrationFailedGeneric");
                 toast.error(message);
                 if (res.status === 409) {
                     setErrors((prev) => ({ ...prev, email: message }));
@@ -284,18 +236,18 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
             const sentEmail = (data.data?.email as string) || emailNorm;
             const expiresIn = typeof data.data?.expiresIn === "number" ? data.data.expiresIn : 600;
             if (data.data?.requiresOtp === false) {
-                toast.error("This account is already verified. Please sign in.");
+                toast.error(t("auth.alreadyVerified"));
                 return;
             }
 
             setOtpEmail(sentEmail);
             setOtpExpiresIn(expiresIn);
             setOtpOpen(true);
-            toast.success("Verification code sent", {
-                description: "Enter the 6-digit code we emailed you to finish signing up.",
+            toast.success(t("auth.codeSentSignup"), {
+                description: t("auth.codeSentSignupDesc"),
             });
         } catch {
-            toast.error("Registration failed. Check your connection and try again.");
+            toast.error(t("auth.networkError"));
         } finally {
             setIsSubmitting(false);
         }
@@ -318,7 +270,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                         className="rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-[11px] leading-snug text-red-300"
                         role="status"
                     >
-                        Some fields need your attention — check the items marked below.
+                        {t("register.summaryError")}
                     </p>
                 ) : null}
 
@@ -326,7 +278,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                     <FloatingLabelField
                         compactError
                         id="manual-reg-first-name"
-                            label="First name"
+                            label={t("register.firstName")}
                             autoComplete="given-name"
                             value={firstName}
                             onChange={(v) => {
@@ -343,7 +295,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                     <FloatingLabelField
                         compactError
                         id="manual-reg-last-name"
-                            label="Last name"
+                            label={t("register.lastName")}
                             autoComplete="family-name"
                             value={lastName}
                             onChange={(v) => {
@@ -362,7 +314,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                 <FloatingLabelField
                     compactError
                     id="manual-reg-email"
-                        label="Email address"
+                        label={t("register.email")}
                         type="email"
                         autoComplete="email"
                         inputMode="email"
@@ -382,7 +334,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                 <div
                     className={cn(
                         "relative overflow-hidden rounded-2xl border bg-white/[0.04] backdrop-blur-md transition-colors",
-                        "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+                        "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] px-4 pb-2.5 pt-6",
                         phoneError && touched.phone
                             ? "border-red-500/60 ring-1 ring-red-500/15"
                             : "border-white/10 focus-within:border-orange-400/55 focus-within:ring-1 focus-within:ring-orange-500/20"
@@ -395,26 +347,24 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                     }}
                 >
                     <span className="pointer-events-none absolute left-4 top-2 z-[1] text-[10px] font-semibold uppercase tracking-[0.14em] text-orange-400/90">
-                        Phone number
+                        {t("register.phone")}
                     </span>
-                    <div className="px-4 pb-2.5 pt-6">
-                        <RegisterPhoneField
-                            embedded
-                            placeholder=""
-                            countryIso={phoneCountryIso}
-                            onCountryIsoChange={(iso) => {
-                                setPhoneCountryIso(iso);
-                                if (touched.phone) runFieldValidation("phone");
-                            }}
-                            nationalDigits={phoneNational}
-                            onNationalDigitsChange={(v) => {
-                                setPhoneNational(v);
-                                if (touched.phone) runFieldValidation("phone");
-                            }}
-                            hasError={Boolean(phoneError && touched.phone)}
-                            nationalInputId="manual-reg-phone"
-                        />
-                    </div>
+                    <RegisterPhoneField
+                        embedded
+                        placeholder=""
+                        countryIso={phoneCountryIso}
+                        onCountryIsoChange={(iso) => {
+                            setPhoneCountryIso(iso);
+                            if (touched.phone) runFieldValidation("phone");
+                        }}
+                        nationalDigits={phoneNational}
+                        onNationalDigitsChange={(v) => {
+                            setPhoneNational(v);
+                            if (touched.phone) runFieldValidation("phone");
+                        }}
+                        hasError={Boolean(phoneError && touched.phone)}
+                        nationalInputId="manual-reg-phone"
+                    />
                 </div>
                 {showFieldError("phone") && phoneError ? (
                     <p className="-mt-1.5 px-1 text-[11px] leading-tight font-medium text-red-400" role="alert">
@@ -425,7 +375,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                 <FloatingLabelField
                     compactError
                     id="manual-reg-password"
-                    label="Password"
+                    label={t("register.password")}
                     type={showPasswords ? "text" : "password"}
                     autoComplete="new-password"
                     value={password}
@@ -445,7 +395,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                             type="button"
                             className="text-white/45 hover:text-white/80"
                             onClick={() => setShowPasswords((v) => !v)}
-                            aria-label={showPasswords ? "Hide passwords" : "Show passwords"}
+                            aria-label={showPasswords ? t("register.hidePasswords") : t("register.showPasswords")}
                             tabIndex={-1}
                         >
                             {showPasswords ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -456,7 +406,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                 <FloatingLabelField
                     compactError
                     id="manual-reg-confirm-password"
-                    label="Confirm password"
+                    label={t("register.confirmPassword")}
                     type={showPasswords ? "text" : "password"}
                     autoComplete="new-password"
                     value={confirmPassword}
@@ -479,7 +429,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                                 type="button"
                                 className="text-white/45 hover:text-white/80"
                                 onClick={() => setShowPasswords((v) => !v)}
-                                aria-label={showPasswords ? "Hide passwords" : "Show passwords"}
+                                aria-label={showPasswords ? t("register.hidePasswords") : t("register.showPasswords")}
                                 tabIndex={-1}
                             >
                                 {showPasswords ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -490,7 +440,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
 
                 {password.length > 0 && pwStrength ? (
                     <p className={cn("px-0.5 text-[11px] font-semibold", pwStrength.textClass)}>
-                        Password strength: {pwStrength.text}
+                        {t("register.strengthLabel")} {pwStrength.text}
                     </p>
                 ) : null}
 
@@ -523,7 +473,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                 <div className="space-y-2.5 pt-0.5">
                     <RegisterLegalCheckboxes
                         idPrefix="manual-reg"
-                        submitActionLabel="Create Account"
+                        submitActionLabel={t("register.createAccount")}
                         ppfTermsAgreed={legal.ppfTermsAgreed}
                         setPpfTermsAgreed={legal.setPpfTermsAgreed}
                         registerWebsiteTermsAgreed={legal.registerWebsiteTermsAgreed}
@@ -539,24 +489,24 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                         {isSubmitting ? (
                             <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Sending verification code…
+                                {t("register.sendingCode")}
                             </>
                         ) : (
                             <>
                                 <UserPlus className="mr-2 h-4 w-4" />
-                                Create Account
+                                {t("register.createAccount")}
                             </>
                         )}
                     </Button>
 
                     <p className="text-center text-xs text-muted-foreground">
-                        Already have an account?{" "}
+                        {t("register.haveAccount")}{" "}
                         <button
                             type="button"
                             onClick={onSignIn}
                             className="font-semibold text-orange-500 hover:text-orange-400"
                         >
-                            Sign in
+                            {t("register.signInLink")}
                         </button>
                     </p>
                 </div>

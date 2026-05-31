@@ -104,9 +104,9 @@ export default function Contact() {
                             variants={fadeUp}
                             className="text-5xl sm:text-6xl lg:text-7xl font-serif font-medium text-white tracking-tight mb-5 leading-[1.05]"
                         >
-                            Get in{" "}
+                            {t("contact.titleLead")}{" "}
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">
-                                Touch
+                                {t("contact.titleHighlight")}
                             </span>
                         </motion.h1>
 
@@ -123,12 +123,12 @@ export default function Contact() {
                             variants={fadeUp}
                             className="flex items-center justify-center gap-6 mt-8"
                         >
-                            {["Las Piñas City", "Same-Day Reply", "Free Consultation"].map((item) => (
+                            {(["pillLocation", "pillReply", "pillConsult"] as const).map((key) => (
                                 <span
-                                    key={item}
+                                    key={key}
                                     className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20 px-3 py-1.5 rounded-full border border-white/5"
                                 >
-                                    {item}
+                                    {t(`contact.${key}`)}
                                 </span>
                             ))}
                         </motion.div>

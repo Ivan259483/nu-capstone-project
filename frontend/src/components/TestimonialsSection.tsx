@@ -367,7 +367,7 @@ export default function TestimonialsSection() {
                         className="inline-flex items-center gap-2.5 rounded-full border border-orange-500/25 bg-orange-500/[0.06] px-6 py-2.5 text-[11px] font-bold tracking-[0.25em] text-orange-500 uppercase backdrop-blur-sm mb-8"
                     >
                         <MessageSquareQuote className="w-3.5 h-3.5" />
-                        Client Stories
+                        {t("testimonialsPublic.badge")}
                     </motion.div>
 
                     {/* Title */}
@@ -378,7 +378,7 @@ export default function TestimonialsSection() {
                             transition={{ duration: 0.8, ease: EASE, delay: 0.15 }}
                             className="text-4xl font-serif font-medium leading-[1.05] tracking-tight text-foreground sm:text-5xl md:text-6xl lg:text-[68px]"
                         >
-                            Trusted by
+                            {t("testimonialsPublic.title")}
                         </motion.h2>
                     </div>
                     <div className="overflow-hidden mb-7">
@@ -389,7 +389,7 @@ export default function TestimonialsSection() {
                             className="text-4xl sm:text-5xl md:text-6xl lg:text-[68px] font-serif font-medium leading-[1.05] tracking-tight italic"
                         >
                             <span className="animate-shimmer bg-gradient-to-r from-orange-500 via-amber-300 to-orange-500 bg-[length:200%_100%] bg-clip-text text-transparent">
-                                Car Enthusiasts
+                                {t("testimonialsPublic.titleHighlight")}
                             </span>
                         </motion.h2>
                     </div>
@@ -401,7 +401,7 @@ export default function TestimonialsSection() {
                         transition={{ duration: 0.6, ease: EASE, delay: 0.45 }}
                         className="mx-auto max-w-lg text-sm leading-relaxed font-light text-muted-foreground sm:text-base"
                     >
-                        Don't take our word for it — hear from the owners who trust us with their prized rides.
+                        {t("testimonialsPublic.subtitle")}
                     </motion.p>
 
                     {/* Accent divider */}

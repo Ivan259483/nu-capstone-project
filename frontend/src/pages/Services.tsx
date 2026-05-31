@@ -98,15 +98,18 @@ export default function Services() {
     const [vehicleType, setVehicleType] = useState<VehicleType>("sedan");
     const [publishedServices, setPublishedServices] = useState<PublishedServicePricingSource[]>([]);
 
-    const vehicleOptions: { type: VehicleType; label: string; icon: React.ElementType }[] = [
-        { type: "hatchback", label: "Hatchback", icon: CarFront },
-        { type: "sedan", label: "Sedan", icon: Car },
-        { type: "midsized", label: "Midsized", icon: Car },
-        { type: "suv", label: "SUV", icon: Truck },
-        { type: "pickup", label: "Pick Up", icon: Truck },
-        { type: "largesuv", label: "Large SUV / Van", icon: Truck },
-        { type: "highend", label: "Highend Sedan", icon: Crown },
-    ];
+    const vehicleOptions: { type: VehicleType; label: string; icon: React.ElementType }[] = useMemo(
+        () => [
+            { type: "hatchback", label: t("servicesPage.vehicles.hatchback"), icon: CarFront },
+            { type: "sedan", label: t("servicesPage.vehicles.sedan"), icon: Car },
+            { type: "midsized", label: t("servicesPage.vehicles.midsized"), icon: Car },
+            { type: "suv", label: t("servicesPage.vehicles.suv"), icon: Truck },
+            { type: "pickup", label: t("servicesPage.vehicles.pickup"), icon: Truck },
+            { type: "largesuv", label: t("servicesPage.vehicles.largesuv"), icon: Truck },
+            { type: "highend", label: t("servicesPage.vehicles.highend"), icon: Crown },
+        ],
+        [t]
+    );
 
     useEffect(() => {
         let active = true;
@@ -191,7 +194,7 @@ export default function Services() {
                                 <Gem className="w-4 h-4 text-amber-400" />
                             </motion.div>
                             <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-amber-400/90">
-                                Premium Ceramic Coating
+                                {t("servicesPage.badge")}
                             </span>
                         </motion.div>
 
@@ -199,11 +202,11 @@ export default function Services() {
                         <motion.h1 variants={fadeUp}
                             className="text-5xl sm:text-6xl lg:text-[76px] font-serif font-medium text-white tracking-tight mb-6 leading-[1.05]"
                         >
-                            Unmatched Vehicle{" "}
+                            {t("servicesPage.title")}{" "}
                             <br className="hidden sm:block" />
                             <span className="relative inline-block">
                                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-orange-400 to-amber-500 italic">
-                                    Protection
+                                    {t("servicesPage.titleHighlight")}
                                 </span>
                                 {/* Underline accent */}
                                 <motion.div
@@ -220,17 +223,17 @@ export default function Services() {
                         <motion.p variants={fadeUp}
                             className="text-white/40 text-lg md:text-xl max-w-2xl mx-auto font-light leading-relaxed mb-10"
                         >
-                            Industry-leading graphene ceramic coating with up to{" "}
-                            <span className="text-amber-400/60 font-medium">10 years of protection</span>.
-                            Select your vehicle for accurate pricing.
+                            {t("servicesPage.subtitle")}{" "}
+                            <span className="text-amber-400/60 font-medium">{t("servicesPage.subtitleHighlight")}</span>.
+                            {" "}{t("servicesPage.subtitleSuffix")}
                         </motion.p>
 
                         {/* Trust badges */}
                         <motion.div variants={fadeUp} className="flex flex-wrap items-center justify-center gap-4">
                             {[
-                                { label: "SONAX Germany", icon: Award, color: "#f59e0b" },
-                                { label: "PPF Certified", icon: Shield, color: "#3b82f6" },
-                                { label: "Vinyl Frog", icon: Gem, color: "#10b981" },
+                                { label: t("servicesPage.trustSonax"), icon: Award, color: "#f59e0b" },
+                                { label: t("servicesPage.trustPpf"), icon: Shield, color: "#3b82f6" },
+                                { label: t("servicesPage.trustVinyl"), icon: Gem, color: "#10b981" },
                             ].map(({ label, icon: TIcon, color }) => (
                                 <span key={label} className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.15em] text-white/30 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] hover:border-white/[0.12] transition-all duration-300">
                                     <TIcon className="w-3.5 h-3.5" style={{ color: color + "80" }} />

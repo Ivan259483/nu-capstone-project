@@ -19,20 +19,22 @@ export function iso2ToFlagEmoji(iso2: string): string {
 }
 
 /** National digits only (no country code). dialDigits is numeric string e.g. "63". */
+export type RegisterPhoneValidationCode = 'ph_mobile' | 'invalid_length';
+
 export function validateRegisterNationalDigits(
   dialDigits: string,
   nationalRaw: string
-): { ok: boolean; message?: string } {
+): { ok: true } | { ok: false; code: RegisterPhoneValidationCode } {
   let digits = nationalRaw.replace(/\D/g, '');
   if (dialDigits === '63') {
     if (digits.startsWith('0')) digits = digits.slice(1);
     if (!/^9\d{9}$/.test(digits)) {
-      return { ok: false, message: 'Philippine mobile must be 10 digits starting with 9.' };
+      return { ok: false, code: 'ph_mobile' };
     }
     return { ok: true };
   }
   if (digits.length < 7 || digits.length > 15) {
-    return { ok: false, message: 'Enter a valid phone number (7–15 digits).' };
+    return { ok: false, code: 'invalid_length' };
   }
   return { ok: true };
 }

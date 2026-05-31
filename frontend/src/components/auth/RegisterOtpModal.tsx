@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { getBaseApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const OTP_LENGTH = 6;
 const DEFAULT_OTP_EXPIRY_SEC = 600;
@@ -49,6 +50,7 @@ export function RegisterOtpModal({
     onOpenChange,
     onVerified,
 }: RegisterOtpModalProps) {
+    const { t } = useLanguage();
     const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(""));
     const [expirySec, setExpirySec] = useState(expiresInSeconds);
     const [resendSec, setResendSec] = useState(RESEND_COOLDOWN_SEC);
@@ -136,11 +138,11 @@ export function RegisterOtpModal({
         if (isVerifying) return;
         const otp = normalizeOtp(digits.join(""));
         if (!normalizedEmail) {
-            setError("Email is missing. Close this dialog and try again.");
+            setError(t("register.otpEmailMissing"));
             return;
         }
         if (otp.length < OTP_LENGTH) {
-            setError("Please enter the complete 6-digit code.");
+            setError(t("validation.otpIncomplete"));
             return;
         }
 
@@ -157,29 +159,29 @@ export function RegisterOtpModal({
 
             if (!res.ok || !data.success) {
                 shakeAndClear();
-                setError(data.message || "Invalid or expired code. Please try again.");
+                setError(data.message || t("register.otpInvalidExpired"));
                 return;
             }
 
             const backendUser = data.data?.user as Record<string, unknown> | undefined;
             const backendToken = data.data?.token as string | undefined;
             if (!backendToken || !backendUser) {
-                setError("Verification succeeded but sign-in failed. Please sign in with your password.");
+                setError(t("register.otpSuccessNoToken"));
                 return;
             }
 
-            toast.success("Email verified. Welcome to AutoSPF+!");
+            toast.success(t("register.otpVerifiedWelcome"));
             onVerified({
                 user: backendUser,
                 token: backendToken,
                 role: String(data.data?.role || backendUser.role || "customer"),
             });
         } catch {
-            setError("Network error. Please check your connection and try again.");
+            setError(t("auth.networkError"));
         } finally {
             setIsVerifying(false);
         }
-    }, [digits, isVerifying, normalizedEmail, onVerified, shakeAndClear]);
+    }, [digits, isVerifying, normalizedEmail, onVerified, shakeAndClear, t]);
 
     useEffect(() => {
         if (!open || isVerifying) return;
@@ -207,7 +209,7 @@ export function RegisterOtpModal({
             if (!res.ok || !data.success) {
                 const waitSeconds = data.data?.retryAfterSeconds as number | undefined;
                 if (waitSeconds) setResendSec(waitSeconds);
-                setError(data.message || "Could not resend code. Please try again.");
+                setError(data.message || t("register.otpResendFailed"));
                 return;
             }
             const nextExpiry =
@@ -217,9 +219,9 @@ export function RegisterOtpModal({
             setDigits(Array(OTP_LENGTH).fill(""));
             autoSubmitRef.current = false;
             inputRefs.current[0]?.focus();
-            toast.success("A new code was sent to your email.");
+            toast.success(t("register.otpResendSuccess"));
         } catch {
-            setError("Could not resend code. Please try again.");
+            setError(t("register.otpResendFailed"));
         } finally {
             setIsResending(false);
         }
@@ -240,10 +242,10 @@ export function RegisterOtpModal({
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-foreground">
                         <ShieldCheck className="h-5 w-5 text-orange-500" />
-                        Verify your email
+                        {t("register.otpTitle")}
                     </DialogTitle>
                     <DialogDescription className="text-muted-foreground">
-                        Enter the 6-digit code we sent to{" "}
+                        {t("register.otpDescription")}{" "}
                         <span className="font-semibold text-foreground">{maskEmail(normalizedEmail)}</span>
                     </DialogDescription>
                 </DialogHeader>
@@ -295,7 +297,7 @@ export function RegisterOtpModal({
                             expirySec <= 60 ? "text-red-400" : "text-muted-foreground"
                         )}
                     >
-                        Code expires in {formatTime(Math.max(0, expirySec))}
+                        {t("register.otpExpiresLabel")} {formatTime(Math.max(0, expirySec))}
                     </p>
 
                     {error ? (
@@ -314,12 +316,12 @@ export function RegisterOtpModal({
                         {isVerifying ? (
                             <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Verifying…
+                                {t("login.otpVerifying")}
                             </>
                         ) : (
                             <>
                                 <ShieldCheck className="mr-2 h-4 w-4" />
-                                Confirm & continue
+                                {t("register.otpConfirm")}
                             </>
                         )}
                     </Button>
@@ -341,7 +343,9 @@ export function RegisterOtpModal({
                             ) : (
                                 <RefreshCw className="h-3.5 w-3.5" />
                             )}
-                            {resendSec > 0 ? `Resend code in ${resendSec}s` : "Resend code"}
+                            {resendSec > 0
+                                ? t("register.otpResendCountdown").replace("{n}", String(resendSec))
+                                : t("register.otpResend")}
                         </button>
                     </div>
                 </div>
