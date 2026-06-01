@@ -170,7 +170,16 @@ export default function HeroSection() {
                         <div className="flex flex-col gap-1.5">
                             <div className="flex items-center gap-0.5 text-[#f4b43f]">
                                 {[...Array(5)].map((_, i) => (
-                                    <Star key={i} className="h-[15px] w-[15px] shrink-0 fill-current" />
+                                    <motion.div
+                                        key={i}
+                                        initial={{ opacity: 0, scale: 0 }}
+                                        whileInView={{ opacity: 1, scale: 1 }}
+                                        viewport={{ once: true }}
+                                        transition={{ delay: 0.5 + i * 0.08, type: "spring", stiffness: 300 }}
+                                        className="shrink-0"
+                                    >
+                                        <Star className="h-[15px] w-[15px] fill-current" />
+                                    </motion.div>
                                 ))}
                             </div>
                             <span className="text-[11px] font-sans uppercase tracking-[0.14em] text-white/62">
