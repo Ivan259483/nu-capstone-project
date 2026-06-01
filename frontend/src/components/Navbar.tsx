@@ -7,14 +7,12 @@ import {
     IconChevronDown,
     IconHome,
     IconInfoCircle,
-    IconLanguage,
     IconMail,
     IconMenu2,
     IconX,
 } from "@tabler/icons-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import {
     FloatingNav,
     NAV_ACTIVE_PILL_TRANSITION,
@@ -43,22 +41,21 @@ function LanguageSwitcher({ className }: { className?: string }) {
                     type="button"
                     aria-label={t("language.select")}
                     className={cn(
-                        "flex min-h-9 items-center gap-1.5 rounded-full px-2.5 py-2",
-                        "text-[#e0a020] text-xs font-semibold uppercase tracking-wide",
-                        "transition-colors hover:bg-white/[0.06] hover:text-[#f4c96b]",
+                        "inline-flex h-9 min-w-[3.75rem] items-center justify-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.03] px-3",
+                        "text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-white/75",
+                        "shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] transition-colors hover:border-[#e0a020]/35 hover:bg-white/[0.06] hover:text-[#f4c96b]",
                         "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/50 focus-visible:ring-offset-0",
                         className
                     )}
                 >
-                    <IconLanguage className="h-4 w-4 shrink-0" stroke={2} />
                     <span>{current.label}</span>
-                    <IconChevronDown className="h-3.5 w-3.5 shrink-0 opacity-90" stroke={2.5} />
+                    <IconChevronDown className="h-3 w-3 shrink-0 opacity-75" stroke={2.5} />
                 </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
                 align="end"
                 sideOffset={8}
-                className="z-[5010] flex min-w-[10.5rem] flex-col gap-1 border-white/10 bg-[#0c1018]/98 p-1.5 text-white shadow-[0_18px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+                className="z-[5010] flex min-w-[10.5rem] flex-col gap-1 rounded-2xl border-white/10 bg-[#0c1018]/98 p-1.5 text-white shadow-[0_18px_50px_rgba(0,0,0,0.38)] backdrop-blur-xl"
             >
                 {LANGUAGES.map((language) => (
                     <DropdownMenuItem
@@ -128,11 +125,15 @@ export default function Navbar() {
     );
 
     const logo = (
-        <Link to="/" className="flex items-center transition-opacity hover:opacity-85">
+        <Link
+            to="/"
+            aria-label="AutoSPF+ home"
+            className="flex h-full items-center justify-center px-2 transition-opacity hover:opacity-90"
+        >
             <img
                 src="/images/autospf-logo.png"
                 alt="AutoSPF+"
-                className="h-9 w-auto object-contain sm:h-10"
+                className="h-[35px] w-auto max-w-[100px] object-contain"
             />
         </Link>
     );
@@ -141,28 +142,27 @@ export default function Navbar() {
         <>
             <LanguageSwitcher />
 
+            <span aria-hidden className="h-6 w-px bg-white/10" />
+
             <Link
                 to="/login"
-                className="whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium text-[#e0a020] transition-colors hover:bg-white/[0.06] hover:text-[#f4c96b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/45"
+                className="whitespace-nowrap rounded-full px-2 py-2 text-sm font-medium text-white/66 transition-colors hover:text-[#f4c96b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/45"
             >
                 {t("nav.login")}
             </Link>
 
-            <Button
-                asChild
-                size="sm"
-                className="h-9 shrink-0 rounded-full bg-[#e0a020] px-4 text-sm font-semibold text-[#0a0c10] shadow-none transition-colors hover:bg-[#f0b832] focus-visible:ring-[#e0a020]/50 focus-visible:ring-offset-0"
+            <Link
+                to="/login"
+                className="public-luxury-cta public-luxury-cta--primary public-luxury-cta--nav whitespace-nowrap"
             >
-                <Link to="/login" className="whitespace-nowrap">
-                    {t("nav.booking")}
-                </Link>
-            </Button>
+                {t("nav.booking")}
+            </Link>
         </>
     );
 
     const mobileActions = (
         <>
-            <LanguageSwitcher className="min-h-10 px-3" />
+            <LanguageSwitcher className="h-10 min-w-[4rem] px-3" />
             <button
                 type="button"
                 onClick={() => setMenuOpen((open) => !open)}
@@ -239,23 +239,18 @@ export default function Navbar() {
                     </LayoutGroup>
 
                     <div className="mt-4 grid gap-3 border-t border-white/10 pt-4">
-                        <Button
-                            asChild
-                            variant="outline"
-                            className="min-h-11 w-full rounded-full border-[#e0a020]/35 bg-transparent text-[#f4c96b] hover:bg-[#e0a020]/10 hover:text-white"
+                        <Link
+                            to="/login"
+                            className="public-luxury-cta public-luxury-cta--secondary min-h-11 w-full"
                         >
-                            <Link to="/login">
-                                {t("nav.login")}
-                            </Link>
-                        </Button>
-                        <Button
-                            asChild
-                            className="min-h-11 w-full rounded-full bg-[#e0a020] font-semibold text-white hover:bg-[#c98d17]"
+                            {t("nav.login")}
+                        </Link>
+                        <Link
+                            to="/login"
+                            className="public-luxury-cta public-luxury-cta--primary min-h-11 w-full"
                         >
-                            <Link to="/login">
-                                {t("nav.booking")}
-                            </Link>
-                        </Button>
+                            {t("nav.booking")}
+                        </Link>
                     </div>
                 </div>
             </div>

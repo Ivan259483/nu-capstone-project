@@ -38,10 +38,10 @@ export const en = {
         typingWords: [
             "Perfection.",
             "Excellence.",
-            "Prestige.",
+            "Precision.",
             "Protection.",
             "Brilliance.",
-            "Precision.",
+            "Craftsmanship.",
             "The Best.",
         ],
         brandStamp: "AutoSPF+ Premium · 2026",

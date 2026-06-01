@@ -97,21 +97,21 @@ export const FloatingNav = ({
                     duration: 0.2,
                 }}
                 className={cn(
-                    "fixed inset-x-0 top-4 z-[5000] mx-auto flex w-[calc(100%-1.5rem)] max-w-[72rem] items-center justify-center sm:top-6",
+                    "fixed inset-x-0 top-4 z-[5000] mx-auto flex w-[calc(100%-1.25rem)] max-w-[72rem] items-center justify-center sm:top-6",
                     className
                 )}
             >
-                <div className="floating-nav-shell relative isolate flex min-h-[3.25rem] w-full items-center overflow-hidden rounded-full bg-[#070a12]/92 px-3 py-1.5 backdrop-blur-xl supports-[backdrop-filter]:bg-[#070a12]/88 sm:min-h-[3.5rem] sm:px-4 sm:py-2">
+                <div className="floating-nav-shell relative isolate flex min-h-[3.5rem] w-full items-center overflow-hidden rounded-full bg-[#070a12]/90 px-4 py-2 backdrop-blur-xl supports-[backdrop-filter]:bg-[#070a12]/86 sm:min-h-[3.625rem] sm:px-[1.125rem]">
                     {logo && (
-                        <div className="relative z-[2] flex shrink-0 items-center">{logo}</div>
+                        <div className="relative z-[2] flex shrink-0 self-stretch items-center">{logo}</div>
                     )}
 
                     <div className="public-nav-links-group pointer-events-none absolute inset-0 z-[1] hidden items-center justify-center lg:flex">
                         <LayoutGroup id="public-nav-desktop">
-                            <div className="pointer-events-auto flex items-center gap-0.5 rounded-full p-0.5">
+                            <div className="pointer-events-auto flex items-center gap-1 rounded-full p-0.5">
                                 {navItems.map((navItem) => {
                                     const itemClassName = cn(
-                                        "public-nav-link relative flex items-center whitespace-nowrap rounded-full border-0 px-3.5 py-2 text-[0.8125rem] font-medium tracking-[0.01em] shadow-none outline-none",
+                                        "public-nav-link relative flex items-center whitespace-nowrap rounded-full border-0 px-3.5 py-2 text-[0.8125rem] font-medium shadow-none outline-none",
                                         "no-underline decoration-transparent decoration-0 underline-offset-0",
                                         "transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                                         "focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/45 focus-visible:ring-offset-0",
@@ -151,9 +151,9 @@ export const FloatingNav = ({
                         </LayoutGroup>
                     </div>
 
-                    <div className="relative z-[2] ml-auto flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-2">
+                    <div className="relative z-[2] ml-auto flex min-w-0 shrink-0 items-center gap-2.5">
                         {actions && (
-                            <div className="hidden min-w-0 items-center gap-1.5 sm:gap-2 lg:flex">
+                            <div className="hidden min-w-0 items-center gap-2.5 lg:flex">
                                 {actions}
                             </div>
                         )}

@@ -38,10 +38,10 @@ export const fil = {
         typingWords: [
             "Perpeksyon.",
             "Kahusayan.",
-            "Prestihiyo.",
+            "Presisyon.",
             "Proteksyon.",
             "Kintab.",
-            "Presisyon.",
+            "Husay.",
             "Pinakamahusay.",
         ],
         brandStamp: "AutoSPF+ Premium · 2026",

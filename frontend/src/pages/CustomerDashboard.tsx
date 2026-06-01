@@ -168,16 +168,16 @@ type CustomerVehicleColorTheme = {
 };
 
 const CUSTOMER_VEHICLE_COLOR_THEMES: Record<string, CustomerVehicleColorTheme> = {
-  white: { from: '#e2e8f0', to: '#94a3b8', glow: 'rgba(148,163,184,0.35)', text: '#334155', border: '#94A3B8', tint: '#F8FAFC' },
-  black: { from: '#1e293b', to: '#0f172a', glow: 'rgba(30,41,59,0.5)', text: '#94a3b8', border: '#0F172A', tint: '#F1F5F9' },
-  silver: { from: '#cbd5e1', to: '#64748b', glow: 'rgba(100,116,139,0.4)', text: '#1e293b', border: '#64748B', tint: '#F8FAFC' },
-  gray: { from: '#94a3b8', to: '#475569', glow: 'rgba(71,85,105,0.4)', text: '#f1f5f9', border: '#64748B', tint: '#F1F5F9' },
-  blue: { from: '#3b82f6', to: '#1d4ed8', glow: 'rgba(59,130,246,0.4)', text: '#eff6ff', border: '#3B82F6', tint: '#EFF6FF' },
-  red: { from: '#ef4444', to: '#b91c1c', glow: 'rgba(239,68,68,0.4)', text: '#fff1f2', border: '#EF4444', tint: '#FEF2F2' },
-  green: { from: '#22c55e', to: '#15803d', glow: 'rgba(34,197,94,0.4)', text: '#f0fdf4', border: '#10B981', tint: '#ECFDF5' },
-  yellow: { from: '#f59e0b', to: '#d97706', glow: 'rgba(245,158,11,0.4)', text: '#1c1917', border: '#F59E0B', tint: '#FFFBEB' },
-  orange: { from: '#f97316', to: '#c2410c', glow: 'rgba(249,115,22,0.4)', text: '#fff7ed', border: '#F97316', tint: '#FFF7ED' },
-  brown: { from: '#92400e', to: '#78350f', glow: 'rgba(146,64,14,0.4)', text: '#fffbeb', border: '#92400E', tint: '#FFFBEB' },
+  white: { from: '#f6f1ea', to: '#d9d1c7', glow: 'rgba(213,198,180,0.22)', text: '#4b5563', border: '#C9BCAF', tint: '#FBF8F3' },
+  black: { from: '#8c8791', to: '#59545f', glow: 'rgba(130,122,138,0.22)', text: '#f8fafc', border: '#7A7480', tint: '#F5F2F5' },
+  silver: { from: '#d8d6d3', to: '#a7a2a3', glow: 'rgba(167,162,163,0.22)', text: '#374151', border: '#A7A2A3', tint: '#F8F6F4' },
+  gray: { from: '#b2abb4', to: '#77717c', glow: 'rgba(129,121,135,0.22)', text: '#f8fafc', border: '#8A8290', tint: '#F5F2F5' },
+  blue: { from: '#aab4cf', to: '#6f7fa5', glow: 'rgba(129,140,177,0.2)', text: '#f8fbff', border: '#7D8DB7', tint: '#F4F6FC' },
+  red: { from: '#c7a2a0', to: '#926e72', glow: 'rgba(183,125,128,0.18)', text: '#fff7f7', border: '#B78384', tint: '#FCF4F3' },
+  green: { from: '#9aaf9e', to: '#637b69', glow: 'rgba(116,146,124,0.18)', text: '#f7fff9', border: '#7B977F', tint: '#F4F8F3' },
+  yellow: { from: '#d7be82', to: '#9f8350', glow: 'rgba(198,162,89,0.18)', text: '#2c2518', border: '#C2A25F', tint: '#FBF6EA' },
+  orange: { from: '#c39a78', to: '#936c52', glow: 'rgba(180,126,86,0.17)', text: '#fff8f2', border: '#B98462', tint: '#FAF2EC' },
+  brown: { from: '#9b8170', to: '#685449', glow: 'rgba(139,103,82,0.18)', text: '#fffaf5', border: '#927463', tint: '#F8F2ED' },
 };
 
 const CUSTOMER_VEHICLE_TYPE_ICONS: Record<string, string> = {
@@ -2768,10 +2768,10 @@ export default function CustomerDashboard() {
           className={`customer-sidebar ${sidebarCollapsed ? 'is-collapsed' : 'is-expanded'} ${sidebarLabelsHidden ? 'is-labels-hidden' : ''} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} fixed inset-y-0 left-0 z-30 flex flex-col bg-white ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
             }`}
         >
-          <div className="flex h-16 shrink-0 items-center gap-1 border-b border-slate-100 px-3 overflow-hidden">
+          <div className="customer-sidebar-brand-row flex h-16 shrink-0 items-center gap-1 border-b border-slate-100 px-3 overflow-hidden">
             <div className="customer-sidebar-user-header min-w-0 flex-1">
               <div
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-700 text-sm font-bold text-white shadow-sm"
+                className="customer-sidebar-avatar flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-700 text-sm font-bold text-white shadow-sm"
                 aria-hidden
               >
                 {(sidebarDisplayName || sidebarUserEmail || '?').charAt(0).toUpperCase()}
@@ -2914,7 +2914,7 @@ export default function CustomerDashboard() {
         <div className={`customer-main-shell ${sidebarCollapsed ? 'is-sidebar-collapsed' : 'is-sidebar-expanded'} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} ${bookingOpen ? 'is-booking-modal-open' : ''} ${customerModalOpen ? 'is-customer-modal-open' : ''} flex flex-1 flex-col min-w-0`}>
 
           {/* Header */}
-          <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-10">
+          <header className="customer-dashboard-header h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-10">
             <div className="flex items-center gap-4">
               <button
                 className="md:hidden text-slate-500 hover:text-slate-900"
@@ -2936,7 +2936,7 @@ export default function CustomerDashboard() {
               {activeSection !== 'bookings' && (
                 <button
                   onClick={() => void openBookingModal()}
-                  className="hidden sm:flex items-center justify-center px-4 py-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-md font-medium transition-colors shadow-sm"
+                  className="customer-dashboard-header-action hidden sm:flex items-center justify-center px-4 py-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-md font-medium transition-colors shadow-sm"
                 >
                   Book Service
                 </button>
@@ -2949,7 +2949,7 @@ export default function CustomerDashboard() {
                 <button
                   type="button"
                   onClick={() => setNotificationsOpen(!notificationsOpen)}
-                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35"
+                  className="customer-notification-trigger relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35"
                   aria-label={unreadNotificationCount > 0 ? `Notifications, ${unreadNotificationCount} unread` : 'Notifications'}
                 >
                   <span
@@ -2973,8 +2973,8 @@ export default function CustomerDashboard() {
                 {notificationsOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setNotificationsOpen(false)} />
-                    <div className="absolute right-0 top-11 w-80 bg-white rounded-xl z-50 shadow-2xl overflow-hidden" style={{ border: '1px solid rgba(0,0,0,.04)' }}>
-                      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                    <div className="customer-notification-popover absolute right-0 top-11 w-80 bg-white rounded-xl z-50 shadow-2xl overflow-hidden" style={{ border: '1px solid rgba(0,0,0,.04)' }}>
+                      <div className="customer-notification-header px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
                         <h3 className="font-bold text-[15px] text-slate-900 tracking-tight">Notifications</h3>
                         {notifications.some(n => !n.isRead) && (
                           <button onClick={markAllNotificationsAsRead} className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors">
@@ -2983,7 +2983,7 @@ export default function CustomerDashboard() {
                         )}
                       </div>
                       <div
-                        className="max-h-[400px] overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                        className="customer-notification-list max-h-[400px] overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
                         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}
                       >
                         {notificationsLoading ? (
@@ -3002,7 +3002,7 @@ export default function CustomerDashboard() {
                         ) : (
                           <div className="divide-y divide-slate-50">
                             {notifications.map(n => (
-                              <button key={n.id || n._id} onClick={() => void handleCustomerNotificationClick(n)} className={`w-full text-left p-4 hover:bg-slate-50 transition-colors flex gap-3 ${!n.isRead ? 'bg-slate-50/50' : ''}`}>
+                              <button key={n.id || n._id} onClick={() => void handleCustomerNotificationClick(n)} className={`customer-notification-item w-full text-left p-4 hover:bg-slate-50 transition-colors flex gap-3 ${!n.isRead ? 'bg-slate-50/50' : ''}`}>
                                 <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!n.isRead ? 'bg-blue-500' : 'bg-transparent'}`}></div>
                                 <div className="flex-1 min-w-0">
                                   <p className={`text-[13px] text-slate-900 truncate ${!n.isRead ? 'font-semibold' : 'font-medium'}`}>{n.title}</p>
@@ -3240,7 +3240,7 @@ export default function CustomerDashboard() {
           </header>
 
           {/* Scrollable Area */}
-          <main className="customer-dashboard-scroll-root flex-1 overflow-y-auto p-3 sm:p-5 lg:p-6 bg-slate-50">
+          <main className="customer-dashboard-scroll-root customer-dashboard-main flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5 bg-slate-50">
 
             {activeSection === 'bookings' ? (
               bookingsSectionLoading ? (
@@ -5240,7 +5240,7 @@ export default function CustomerDashboard() {
             ) : dashboardSectionLoading ? (
               <CustomerDashboardHomeSkeleton />
             ) : (
-              <div className="customer-content-fade-in w-full max-w-none space-y-5">
+              <div className="customer-content-fade-in customer-dashboard-home w-full max-w-none space-y-4">
 
                 {/* Service Overview Strip */}
                 <CustomerDashboardOverviewStrip cards={dashboardOverviewCards} rewardTierProgressPct={rewardTierProgressPct} />
@@ -5799,29 +5799,29 @@ export default function CustomerDashboard() {
 
 
                 {/* Your Vehicles */}
-                <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-4 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.28)] sm:p-5">
-                  <div className="mb-4 flex items-center justify-between gap-4 border-b border-slate-100 pb-3">
+                <section className="customer-home-section customer-garage-section rounded-2xl border border-slate-200/80 bg-white/80 p-3.5 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.28)] sm:p-4">
+                  <div className="customer-section-header mb-3 flex items-center justify-between gap-3 border-b border-slate-100 pb-2.5">
                     <div>
                       <p className="text-[11px] font-bold tracking-[0.08em] text-slate-500">Garage</p>
                       <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Your Garage</h2>
                     </div>
                     <button
                       onClick={() => setAddVehicleOpen(true)}
-                      className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3.5 py-2 text-sm font-semibold text-blue-700 ring-1 ring-blue-100 transition-colors hover:bg-blue-100"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 ring-1 ring-blue-100 transition-colors hover:bg-blue-100"
                     >
                       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>
                       Add Vehicle
                     </button>
                   </div>
 
-                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.85fr)] xl:items-start">
+                  <div className="customer-garage-layout grid gap-3.5 xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] xl:items-start">
                     <div className="min-w-0">
                   {vehicles.length === 0 ? (
-                    <div className="rounded-3xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #1e3a8a 100%)', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
-                      <div className="relative px-8 py-10 flex flex-col items-center text-center overflow-hidden">
+                    <div className="customer-garage-empty-state rounded-3xl overflow-hidden">
+                      <div className="relative px-6 py-8 flex flex-col items-center text-center overflow-hidden sm:px-8">
                         {/* Glow orbs */}
-                        <div className="absolute -left-8 -top-8 w-36 h-36 rounded-full blur-3xl opacity-30 pointer-events-none" style={{ background: '#60a5fa' }} />
-                        <div className="absolute -right-8 -bottom-8 w-36 h-36 rounded-full blur-3xl opacity-20 pointer-events-none" style={{ background: '#2563eb' }} />
+                        <div className="absolute -left-8 -top-8 w-36 h-36 rounded-full blur-3xl opacity-30 pointer-events-none" style={{ background: '#d8b66f' }} />
+                        <div className="absolute -right-8 -bottom-8 w-36 h-36 rounded-full blur-3xl opacity-20 pointer-events-none" style={{ background: '#93b3df' }} />
                         {/* Brand logo — image only, above empty state */}
                         <div className="relative z-10 flex justify-center mb-5">
                           <img
@@ -5830,19 +5830,19 @@ export default function CustomerDashboard() {
                             className="h-14 w-auto max-w-[180px] object-contain"
                           />
                         </div>
-                        <h3 className="text-white font-black text-[18px] mb-2">Your Garage is Empty</h3>
-                        <p className="text-slate-400 text-[13px] font-medium mb-6 max-w-[260px] leading-relaxed">
+                        <h3 className="text-slate-950 font-black text-[18px] mb-2">Your Garage is Empty</h3>
+                        <p className="text-slate-500 text-[13px] font-medium mb-5 max-w-[280px] leading-relaxed">
                           Add your vehicle first — it auto-fills your details every time you book. Fast, easy, no repeat typing.
                         </p>
                         {/* Steps hint */}
-                        <div className="flex items-center gap-2 mb-6">
+                        <div className="flex flex-wrap items-center justify-center gap-2 mb-5">
                           {['Add Vehicle', 'Book Service', 'Track Live'].map((s, i) => (
                             <div key={s} className="flex items-center gap-2">
-                              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl" style={i === 0 ? { background: 'rgba(37,99,235,0.35)', border: '1px solid rgba(37,99,235,0.5)' } : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                                <span className="text-[10px] font-bold" style={{ color: i === 0 ? '#93c5fd' : '#475569' }}>{i + 1}</span>
-                                <span className="text-[11px] font-semibold" style={{ color: i === 0 ? '#bfdbfe' : '#475569' }}>{s}</span>
+                              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl" style={i === 0 ? { background: 'rgba(37,99,235,0.10)', border: '1px solid rgba(37,99,235,0.18)' } : { background: 'rgba(255,255,255,0.68)', border: '1px solid rgba(203,213,225,0.62)' }}>
+                                <span className="text-[10px] font-bold" style={{ color: i === 0 ? '#1d4ed8' : '#8a7580' }}>{i + 1}</span>
+                                <span className="text-[11px] font-semibold" style={{ color: i === 0 ? '#1e40af' : '#64748b' }}>{s}</span>
                               </div>
-                              {i < 2 && <iconify-icon icon="solar:arrow-right-bold" width="12" style={{ color: '#334155' }}></iconify-icon>}
+                              {i < 2 && <iconify-icon icon="solar:arrow-right-bold" width="12" style={{ color: '#c2a25f' }}></iconify-icon>}
                             </div>
                           ))}
                         </div>
@@ -5857,7 +5857,7 @@ export default function CustomerDashboard() {
                       </div>
                     </div>
                   ) : (
-                    <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(260px,1fr))]">
+                    <div className="customer-garage-grid grid gap-4 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
                       {vehicles.map((v, i) => {
                         const theme = getCustomerVehicleColorTheme(v.color);
 
@@ -5866,25 +5866,23 @@ export default function CustomerDashboard() {
                             key={i}
                             className="customer-garage-card rounded-[28px] overflow-hidden flex flex-col group border border-white/65 backdrop-blur-2xl"
                             style={{
-                              background: 'linear-gradient(180deg, rgba(255,255,255,0.62), rgba(248,250,252,0.34))',
-                              boxShadow: '0 22px 70px -34px rgba(15,23,42,0.32), 0 8px 28px -24px rgba(15,23,42,0.22), inset 0 1px 0 rgba(255,255,255,0.86)',
-                              transition: 'box-shadow 0.3s ease, transform 0.3s ease',
-                              WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-                              backdropFilter: 'blur(24px) saturate(180%)',
-                            }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = `0 30px 86px -34px ${theme.glow}, 0 16px 42px -28px rgba(15,23,42,0.34), inset 0 1px 0 rgba(255,255,255,0.92)`; (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 22px 70px -34px rgba(15,23,42,0.32), 0 8px 28px -24px rgba(15,23,42,0.22), inset 0 1px 0 rgba(255,255,255,0.86)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
+                              '--vehicle-accent': theme.from,
+                              '--vehicle-accent-strong': theme.to,
+                              '--vehicle-accent-glow': theme.glow,
+                              '--vehicle-accent-border': theme.border,
+                            } as React.CSSProperties}
                           >
+                            <div className="customer-garage-card-frame">
                             {/* ── Card Banner ── */}
                             <div
-                              className="customer-garage-card-banner relative h-36 flex items-center justify-center overflow-hidden"
+                              className="customer-garage-card-banner relative h-32 flex items-center justify-center overflow-hidden"
                               style={{ background: `linear-gradient(135deg, ${theme.from}e6 0%, ${theme.to}d9 100%)` }}
                             >
                               {/* Decorative circles */}
                               <div className="absolute -top-6 -right-6 w-32 h-32 rounded-full opacity-20" style={{ background: 'rgba(255,255,255,0.3)' }}></div>
                               <div className="absolute -bottom-8 -left-8 w-28 h-28 rounded-full opacity-10" style={{ background: 'rgba(255,255,255,0.4)' }}></div>
 	                              {/* Car silhouette — bundled side-profile SVG per body type */}
-	                              <div className="customer-garage-card-banner-icon relative z-[3] flex flex-col items-center justify-center">
+	                              <div className="customer-garage-card-banner-icon customer-garage-vehicle-visual relative z-[3] flex flex-col items-center justify-center">
 	                                <CustomerGarageVehicleSilhouette type={v.type} color={v.color} />
 	                              </div>
                               {/* Edit pencil — top-left */}
@@ -5906,12 +5904,12 @@ export default function CustomerDashboard() {
                                 <iconify-icon icon="solar:trash-bin-minimalistic-bold" width="13" style={{ color: theme.text }}></iconify-icon>
                               </button>
                               {/* Plate number bottom-left */}
-                              <div className="absolute bottom-3 left-3 bg-white/78 backdrop-blur-xl border border-white/70 px-2.5 py-1 rounded-xl text-xs font-bold text-slate-800 tracking-widest shadow-[0_12px_28px_-20px_rgba(15,23,42,0.45),inset_0_1px_0_rgba(255,255,255,0.8)]">
+                              <div className="customer-garage-plate-badge absolute bottom-3 left-3 bg-white/78 backdrop-blur-xl border border-white/70 px-2.5 py-1 rounded-xl text-xs font-bold text-slate-800 tracking-widest shadow-[0_12px_28px_-20px_rgba(15,23,42,0.45),inset_0_1px_0_rgba(255,255,255,0.8)]">
                                 {v.plate}
                               </div>
                               {/* Type badge bottom-right */}
                               {v.type && (
-                                <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase"
+                                <div className="customer-garage-type-badge absolute bottom-3 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase"
                                   style={{ background: 'rgba(255,255,255,0.28)', color: theme.text, backdropFilter: 'blur(14px) saturate(170%)', WebkitBackdropFilter: 'blur(14px) saturate(170%)', border: '1px solid rgba(255,255,255,0.42)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.42), 0 10px 28px -22px rgba(15,23,42,0.45)' }}>
                                   {v.type}
                                 </div>
@@ -5952,31 +5950,32 @@ export default function CustomerDashboard() {
                             </div>
 
                             {/* ── Card Body ── */}
-                            <div className="customer-garage-card-body p-4 flex-1 flex flex-col bg-white/58 backdrop-blur-xl">
+                            <div className="customer-garage-card-body p-3.5 flex-1 flex flex-col bg-white/58 backdrop-blur-xl">
                               <h3 className="font-bold text-[15px] text-slate-900 leading-tight">{v.name}</h3>
                               <div className="flex items-center gap-1.5 mt-1">
-                                <div className="w-3 h-3 rounded-full border border-slate-200 shadow-sm" style={{ background: theme.from }}></div>
+                                <div className="customer-garage-color-dot w-3 h-3 rounded-full border border-slate-200 shadow-sm" style={{ background: theme.border }}></div>
                                 <p className="text-xs text-slate-400">{v.color || 'No color'}</p>
                               </div>
 
                               {/* Actions */}
-                              <div className="customer-garage-actions mt-4 grid grid-cols-2 gap-1.5 pt-3">
+                              <div className="customer-garage-actions mt-3 grid grid-cols-2 gap-1.5 pt-2.5">
 	                                <button
 	                                  type="button"
 	                                  onClick={() => openBookingModal(v)}
-	                                  className="flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-2xl bg-blue-600 px-1 py-2 font-medium text-white shadow-[0_12px_28px_-18px_rgba(37,99,235,0.72)] transition-all hover:-translate-y-0.5 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+	                                  className="customer-garage-book-button flex min-h-[46px] flex-col items-center justify-center gap-1 rounded-2xl bg-blue-600 px-1 py-2 font-medium text-white shadow-[0_12px_28px_-18px_rgba(37,99,235,0.72)] transition-all hover:-translate-y-0.5 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
 	                                >
                                   <iconify-icon icon="solar:calendar-add-linear" width="17"></iconify-icon>
                                   <span className="text-[10px] font-semibold text-center leading-tight">Book Service</span>
                                 </button>
                                 <button
                                   onClick={() => openVehicleHistory(v)}
-                                  className="flex flex-col items-center justify-center gap-1 min-h-[52px] py-2 px-1 text-slate-400 hover:text-slate-700 transition-colors rounded-2xl hover:bg-white/56"
+                                  className="flex flex-col items-center justify-center gap-1 min-h-[46px] py-2 px-1 text-slate-400 hover:text-slate-700 transition-colors rounded-2xl hover:bg-white/56"
                                 >
                                   <iconify-icon icon="solar:history-linear" width="17"></iconify-icon>
                                   <span className="text-[10px] font-semibold text-center leading-tight">View Vehicle History</span>
                                 </button>
                               </div>
+                            </div>
                             </div>
                           </div>
                         );
@@ -5987,7 +5986,7 @@ export default function CustomerDashboard() {
                           onClick={() => setAddVehicleOpen(true)}
                           className="customer-garage-add-card flex h-full min-h-0 w-full cursor-pointer flex-col overflow-hidden rounded-[28px] border-2 border-dashed border-[#CBD5E1] bg-[#F8FAFC] text-left transition-all hover:border-solid hover:border-slate-400 hover:bg-slate-100/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                         >
-                          <div className="relative flex h-36 items-center justify-center">
+                          <div className="relative flex h-32 items-center justify-center">
                             <iconify-icon
                               icon="solar:add-circle-linear"
                               width="48"
@@ -5999,7 +5998,7 @@ export default function CustomerDashboard() {
                             <p className="mt-1 max-w-[200px] text-xs leading-relaxed text-slate-400">
                               Register another car to your garage
                             </p>
-                            <div className="mt-4 min-h-[52px] w-full" aria-hidden="true" />
+                            <div className="mt-3 min-h-[46px] w-full" aria-hidden="true" />
                           </div>
                         </button>
                       )}
@@ -6007,11 +6006,11 @@ export default function CustomerDashboard() {
                   )}
                     </div>
 
-                    <aside className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1">
-                      <div className="relative overflow-hidden rounded-[28px] border border-blue-100 bg-white p-5 shadow-[0_18px_48px_-30px_rgba(37,99,235,0.34)]">
+                    <aside className="customer-garage-rail grid gap-3 lg:grid-cols-2 xl:grid-cols-1">
+                      <div className="customer-side-card customer-recommendation-card relative overflow-hidden rounded-[28px] border border-blue-100 bg-white p-4 shadow-[0_18px_48px_-30px_rgba(37,99,235,0.34)]">
                         <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-blue-100/80 blur-3xl" />
                         <div className="relative">
-                          <div className="mb-4 flex items-start justify-between gap-3">
+                          <div className="mb-3 flex items-start justify-between gap-3">
                             <div>
                               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Recommended for You</p>
                               <h3 className="mt-2 text-xl font-black tracking-tight text-slate-950">
@@ -6023,13 +6022,25 @@ export default function CustomerDashboard() {
                             </div>
                           </div>
                           <p className="text-sm leading-relaxed text-slate-600">Ready to protect your ride?</p>
-                          <div className="mt-5 rounded-2xl bg-slate-50/90 p-4 ring-1 ring-slate-100">
+                          <ul className="customer-recommendation-benefits mt-4">
+                            {[
+                              'Paint-safe prep and inspection',
+                              'Premium protection consultation',
+                              'Priority-ready booking handoff',
+                            ].map((item) => (
+                              <li key={item}>
+                                <iconify-icon icon="solar:check-circle-bold" width="13"></iconify-icon>
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="mt-4 rounded-2xl bg-slate-50/90 p-3.5 ring-1 ring-slate-100">
                             <div className="flex items-end justify-between gap-3">
                               <div>
                                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
                                   From · {recommendationVehicleLabel}
                                 </p>
-	                                <p className="mt-1 text-[28px] font-bold tracking-tight text-blue-600">
+	                                <p className="mt-1 text-[25px] font-bold tracking-tight text-blue-600">
                                   {recommendedPackage ? `₱${recommendedPackage.price.toLocaleString()}` : 'See pricing'}
                                 </p>
                               </div>
@@ -6044,7 +6055,7 @@ export default function CustomerDashboard() {
                           <button
                             type="button"
                             onClick={() => nav('services')}
-	                            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:-translate-y-0.5 hover:bg-blue-700"
+	                            className="customer-recommendation-service-button mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:-translate-y-0.5 hover:bg-blue-700"
                           >
                             View Services
                             <iconify-icon icon="solar:arrow-right-linear" width="17"></iconify-icon>
@@ -6052,8 +6063,8 @@ export default function CustomerDashboard() {
                         </div>
                       </div>
 
-                      <div className="rounded-[28px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.28)]">
-                        <div className="mb-4 flex items-center justify-between gap-3">
+                      <div className="customer-side-card customer-quick-actions-card rounded-[28px] border border-slate-200/80 bg-white p-4 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.28)]">
+                        <div className="mb-3 flex items-center justify-between gap-3">
                           <div>
                             <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Shortcuts</p>
                             <h3 className="mt-1 text-base font-black tracking-tight text-slate-900">Quick Actions</h3>
@@ -6072,10 +6083,10 @@ export default function CustomerDashboard() {
                               key={action.label}
                               type="button"
                               onClick={action.onClick}
-                              className="group flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-left transition-all hover:border-blue-100 hover:bg-blue-50/70 hover:shadow-sm"
+                              className="customer-quick-action group flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/70 px-3.5 py-2.5 text-left transition-all hover:border-blue-100 hover:bg-blue-50/70 hover:shadow-sm"
                             >
                               <span className="flex min-w-0 items-center gap-3">
-                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm ring-1 ring-slate-100 transition-colors group-hover:ring-blue-100">
+                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm ring-1 ring-slate-100 transition-colors group-hover:ring-blue-100">
                                   <iconify-icon icon={action.icon} width="18"></iconify-icon>
                                 </span>
                                 <span className="truncate text-sm font-bold text-slate-800 group-hover:text-blue-800">{action.label}</span>
@@ -6090,7 +6101,7 @@ export default function CustomerDashboard() {
                 </section>
 
                 {/* Documents + Activity — single panel so columns share height without dead space */}
-                <section className="w-full rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.28)] sm:p-5">
+                <section className="customer-home-section customer-docs-activity-section w-full rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.28)] sm:p-5">
                   <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2 lg:gap-6">
                     <div className="min-w-0">
                       <div className="flex items-center justify-between gap-3">
@@ -6109,7 +6120,7 @@ export default function CustomerDashboard() {
                         </button>
                       </div>
 
-                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-100 bg-slate-50/60">
+                      <div className="customer-dashboard-list-shell mt-3 overflow-hidden rounded-xl border border-slate-100 bg-slate-50/60">
                         {documents.length === 0 ? (
                           <div className="flex flex-col items-center justify-center px-4 py-7 text-center">
                             <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 ring-1 ring-slate-100">
@@ -6180,7 +6191,7 @@ export default function CustomerDashboard() {
                         </button>
                       </div>
 
-                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-100 bg-slate-50/60">
+                      <div className="customer-dashboard-list-shell mt-3 overflow-hidden rounded-xl border border-slate-100 bg-slate-50/60">
                         {activities.length === 0 ? (
                           <div className="flex flex-col items-center justify-center px-4 py-7 text-center">
                             <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 ring-1 ring-slate-100">
@@ -6455,8 +6466,8 @@ export default function CustomerDashboard() {
 
             {/* Progress bar */}
             {!bookingDone && (
-              <div className="shrink-0 border-0 border-t border-slate-100 bg-slate-50/90 px-5 py-3 sm:px-6">
-                <div className="grid grid-cols-6 gap-1.5" aria-label={`Booking step ${bookingStep} of 6`}>
+              <div className={`shrink-0 border-0 border-t border-slate-100 bg-slate-50/90 ${bookingStep === 3 ? 'px-4 py-2 sm:px-5' : 'px-5 py-3 sm:px-6'}`}>
+                <div className={`grid grid-cols-6 ${bookingStep === 3 ? 'gap-1' : 'gap-1.5'}`} aria-label={`Booking step ${bookingStep} of 6`}>
                   {Array.from({ length: 6 }, (_, index) => {
                     const stepNumber = index + 1;
                     const isCompleted = stepNumber < bookingStep;
@@ -6464,7 +6475,7 @@ export default function CustomerDashboard() {
                     return (
                       <div
                         key={index}
-                        className="h-1.5 rounded-full transition-all duration-300"
+                        className={`${bookingStep === 3 ? 'h-1' : 'h-1.5'} rounded-full transition-all duration-300`}
                         style={{
                           background: isCompleted ? CUSTOMER_UI.success : isActive ? CUSTOMER_UI.primary : '#DBEAFE',
                           boxShadow: isCompleted
@@ -6477,13 +6488,13 @@ export default function CustomerDashboard() {
                     );
                   })}
                 </div>
-                <div className="mt-2 hidden grid-cols-6 gap-1.5 sm:grid">
+                <div className={`${bookingStep === 3 ? 'mt-1.5' : 'mt-2'} hidden grid-cols-6 gap-1.5 sm:grid`}>
                   {['Service', 'Details', 'Schedule', 'Review', 'Terms', 'Payment'].map((label, index) => {
                     const stepNumber = index + 1;
                     return (
                       <span
                         key={label}
-                        className={`truncate text-center text-[10px] font-bold ${stepNumber === bookingStep ? 'text-blue-700' : stepNumber < bookingStep ? 'text-emerald-600' : 'text-slate-300'}`}
+                        className={`truncate text-center ${bookingStep === 3 ? 'text-[9px]' : 'text-[10px]'} font-bold ${stepNumber === bookingStep ? 'text-blue-700' : stepNumber < bookingStep ? 'text-emerald-600' : 'text-slate-300'}`}
                         >
                         {label}
                       </span>
@@ -7168,9 +7179,6 @@ export default function CustomerDashboard() {
                 (() => {
                   const monthLabel = bookingCalMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
                   const selectedDate = bookingForm.date ? new Date(`${bookingForm.date}T00:00:00`) : null;
-                  const selectedDateLabel = selectedDate
-                    ? selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
-                    : 'Date pending';
                   const selectedDateFullLabel = selectedDate
                     ? selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
                     : 'Select from calendar';
@@ -7196,7 +7204,6 @@ export default function CustomerDashboard() {
                       slotsLoading ? 'Syncing slots' :
                         slotStatuses.length === 0 ? 'No slots posted' :
                           `${openSlots} open slot${openSlots === 1 ? '' : 's'}`;
-                  const scheduleReady = !!bookingForm.date && !!bookingForm.time && !slotError;
                   const slotFillPct = slotStatuses.length > 0
                     ? Math.max(8, Math.round((openSlots / slotStatuses.length) * 100))
                     : 0;
@@ -7279,42 +7286,12 @@ export default function CustomerDashboard() {
 
                   return (
                     <div className="booking-step3" data-testid="booking-step3">
-                      <section className={`booking-step3-hero ${scheduleReady ? 'is-ready' : ''}`}>
+                      <section className="booking-step3-hero" aria-labelledby="booking-step3-title">
                         <div className="booking-step3-hero-copy">
-                          <span className="booking-step3-eyebrow">
-                            <iconify-icon icon="solar:calendar-mark-bold" width="15"></iconify-icon>
-                            Priority Scheduling
-                          </span>
-                          <h3>Choose your appointment window.</h3>
-                          <div className="booking-step3-trust-row" aria-label="Schedule metadata">
-                            <span><iconify-icon icon="solar:global-bold" width="13"></iconify-icon>Asia/Manila</span>
-                            <span><iconify-icon icon="solar:shield-check-bold" width="13"></iconify-icon>Live availability</span>
-                            <span><iconify-icon icon="solar:clock-circle-bold" width="13"></iconify-icon>Secure hold</span>
-                          </div>
-                          <div className="booking-step3-live-rail" aria-hidden>
-                            <span />
-                          </div>
-                        </div>
-                        <div className="booking-step3-selected-panel" aria-label="Selected appointment">
-                          <iconify-icon icon={scheduleReady ? 'solar:verified-check-bold' : 'solar:calendar-search-bold'} width="17"></iconify-icon>
-                          <span className="booking-step3-selected-kicker">{scheduleReady ? 'Ready for review' : selectedDateStatus}</span>
-                          <strong>{selectedDateLabel}</strong>
-                          <span>{bookingForm.time || 'Time pending'}</span>
+                          <h3 id="booking-step3-title">Choose Date &amp; Time</h3>
+                          <p>Select an available date, then choose your preferred time slot.</p>
                         </div>
                       </section>
-
-                      <div className="booking-step3-executive-strip" aria-label="Appointment itinerary summary">
-                        {[
-                          { icon: 'solar:earth-bold', label: 'Timezone', value: 'Asia/Manila' },
-                          { icon: 'solar:calendar-date-bold', label: 'Appointment', value: selectedDateLabel },
-                          { icon: 'solar:clock-circle-bold', label: 'Slots', value: slotStatusLabel },
-                        ].map(item => (
-                          <div key={item.label} className="booking-step3-executive-item">
-                            <span><iconify-icon icon={item.icon} width="15"></iconify-icon>{item.label}</span>
-                            <strong>{item.value}</strong>
-                          </div>
-                        ))}
-                      </div>
 
                       <div className="booking-step3-layout">
                         <section className="booking-step3-calendar-shell" aria-label="Appointment calendar">
@@ -7487,7 +7464,7 @@ export default function CustomerDashboard() {
                               <strong className={bookingForm.notes.length > 180 ? 'is-limit' : ''}>{bookingForm.notes.length}/200</strong>
                             </div>
                             <textarea
-                              rows={3}
+                              rows={2}
                               maxLength={200}
                               value={bookingForm.notes}
                               onChange={e => setBookingForm(f => ({ ...f, notes: e.target.value }))}

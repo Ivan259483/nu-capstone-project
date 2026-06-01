@@ -439,17 +439,6 @@ export default function QCDashboardPanel() {
   const [globalSearch, setGlobalSearch] = useState('');
   const loadQcSummary = activeView !== 'live-tracker';
 
-  const jobsForView = useMemo(
-    () => filterQCJobsBySearch(jobs, globalSearch),
-    [jobs, globalSearch],
-  );
-
-  // Persist active view so remounts don't reset to dashboard
-  const navigateTo = useCallback((view: QCView) => {
-    try { sessionStorage.setItem(QC_VIEW_KEY, view); } catch { /* ignore */ }
-    setActiveView(view);
-  }, []);
-
   const {
     jobs,
     jobsLoading,
@@ -468,6 +457,17 @@ export default function QCDashboardPanel() {
     addStaffNote,
     refetchAll,
   } = useQCData({ loadSummary: loadQcSummary });
+
+  const jobsForView = useMemo(
+    () => filterQCJobsBySearch(jobs, globalSearch),
+    [jobs, globalSearch],
+  );
+
+  // Persist active view so remounts don't reset to dashboard
+  const navigateTo = useCallback((view: QCView) => {
+    try { sessionStorage.setItem(QC_VIEW_KEY, view); } catch { /* ignore */ }
+    setActiveView(view);
+  }, []);
 
   // Pending count for sidebar badge — only jobs not yet approved
   const pendingCount = jobs.filter((j) => j.status === 'pending-review' || j.status === 'in-review').length;
