@@ -146,7 +146,7 @@ function FeatureCard({
                 <motion.span
                     className="absolute top-5 right-5 text-[11px] font-bold tracking-[0.3em] uppercase font-mono"
                     animate={{
-                        color: hovered ? "#E8650A" : "rgba(255,255,255,0.25)",
+                        color: hovered ? "#F4B63D" : "rgba(255,255,255,0.25)",
                         opacity: hovered ? 1 : 0.5,
                     }}
                     transition={{ duration: 0.3 }}
@@ -162,7 +162,7 @@ function FeatureCard({
                         animate={{
                             width: hovered ? 44 : 22,
                             background: hovered
-                                ? "linear-gradient(90deg, #E8650A, #f59e0b)"
+                                ? "linear-gradient(90deg, #F4B63D, #D58A12)"
                                 : "rgba(255,255,255,0.15)",
                         }}
                         transition={{ duration: 0.5, ease: EASE }}
@@ -183,12 +183,12 @@ function FeatureCard({
                         <div
                             className="w-10 h-10 rounded-xl flex items-center justify-center backdrop-blur-md"
                             style={{
-                                background: "rgba(232,101,10,0.12)",
-                                border: "1px solid rgba(232,101,10,0.3)",
-                                boxShadow: "0 8px 25px rgba(232,101,10,0.15)",
+                                background: "rgba(244,182,61,0.10)",
+                                border: "1px solid rgba(244,182,61,0.3)",
+                                boxShadow: "0 8px 25px rgba(244,182,61,0.15)",
                             }}
                         >
-                            <Icon className="w-[18px] h-[18px] text-[#E8650A]" />
+                            <Icon className="w-[18px] h-[18px] text-[#F4B63D]" />
                         </div>
                     </motion.div>
 
@@ -231,7 +231,7 @@ function FeatureCard({
                     className="absolute inset-0 rounded-[22px] pointer-events-none"
                     animate={{
                         boxShadow: hovered
-                            ? "inset 0 0 0 2px #E8650A, 0 0 50px rgba(232,101,10,0.12), 0 30px 80px rgba(0,0,0,0.4)"
+                            ? "inset 0 0 0 2px #F4B63D, 0 0 50px rgba(244,182,61,0.12), 0 30px 80px rgba(0,0,0,0.4)"
                             : "inset 0 0 0 1px rgba(255,255,255,0.05), 0 10px 30px rgba(0,0,0,0.1)",
                     }}
                     transition={{ duration: 0.4 }}
@@ -239,22 +239,22 @@ function FeatureCard({
 
                 {/* Corner accents */}
                 <motion.div
-                    className="absolute top-0 left-0 bg-[#E8650A] pointer-events-none"
+                    className="absolute top-0 left-0 bg-[#F4B63D] pointer-events-none"
                     animate={{ width: hovered ? 50 : 0, height: 2 }}
                     transition={{ duration: 0.5, ease: EASE }}
                 />
                 <motion.div
-                    className="absolute top-0 left-0 bg-[#E8650A] pointer-events-none"
+                    className="absolute top-0 left-0 bg-[#F4B63D] pointer-events-none"
                     animate={{ width: 2, height: hovered ? 50 : 0 }}
                     transition={{ duration: 0.5, ease: EASE }}
                 />
                 <motion.div
-                    className="absolute bottom-0 right-0 bg-[#E8650A] pointer-events-none"
+                    className="absolute bottom-0 right-0 bg-[#F4B63D] pointer-events-none"
                     animate={{ width: hovered ? 50 : 0, height: 2 }}
                     transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}
                 />
                 <motion.div
-                    className="absolute bottom-0 right-0 bg-[#E8650A] pointer-events-none"
+                    className="absolute bottom-0 right-0 bg-[#F4B63D] pointer-events-none"
                     animate={{ width: 2, height: hovered ? 50 : 0 }}
                     transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}
                 />
@@ -275,7 +275,7 @@ function FloatingParticle({ delay, x, y, size }: { delay: number; x: string; y: 
                 top: y,
                 width: size,
                 height: size,
-                background: "radial-gradient(circle, rgba(232,101,10,0.3), transparent 70%)",
+                background: "radial-gradient(circle, rgba(244,182,61,0.25), transparent 70%)",
             }}
             animate={{
                 y: [0, -20, 0],
@@ -327,7 +327,7 @@ export default function GallerySection({ items }: GallerySectionProps) {
             <FloatingParticle delay={3} x="50%" y="15%" size={3} />
 
             {/* Decorative top border */}
-            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#E8650A]/25 to-transparent" />
+            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#F4B63D]/25 to-transparent" />
 
             <div className="container max-w-7xl mx-auto px-6 relative z-10">
                 {/* ── Heading ── */}
@@ -337,7 +337,7 @@ export default function GallerySection({ items }: GallerySectionProps) {
                         initial={{ opacity: 0, y: 20, scale: 0.9 }}
                         animate={isInView ? { opacity: 1, y: 0, scale: 1 } : {}}
                         transition={{ duration: 0.6, ease: EASE }}
-                        className="inline-flex items-center gap-2.5 px-6 py-2.5 rounded-full border border-[#E8650A]/25 bg-[#E8650A]/[0.06] text-[11px] font-bold uppercase tracking-[0.25em] text-[#E8650A] mb-8 backdrop-blur-sm"
+                        className="inline-flex items-center gap-2.5 px-6 py-2.5 rounded-full border border-[#F4B63D]/25 bg-[#F4B63D]/[0.06] text-[11px] font-bold uppercase tracking-[0.25em] text-[#F4B63D] mb-8 backdrop-blur-sm"
                     >
                         <Award className="w-3.5 h-3.5" />
                         Why Choose AutoSPF+?
@@ -349,7 +349,7 @@ export default function GallerySection({ items }: GallerySectionProps) {
                             initial={{ opacity: 0, y: 60 }}
                             animate={isInView ? { opacity: 1, y: 0 } : {}}
                             transition={{ duration: 0.8, ease: EASE, delay: 0.15 }}
-                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[76px] font-serif font-medium text-white leading-[1.05] tracking-tight"
+                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[76px] font-serif font-medium text-[#F8F7F2] leading-[1.05] tracking-tight"
                         >
                             Unparalleled Quality,
                         </motion.h2>
@@ -359,9 +359,9 @@ export default function GallerySection({ items }: GallerySectionProps) {
                             initial={{ opacity: 0, y: 60 }}
                             animate={isInView ? { opacity: 1, y: 0 } : {}}
                             transition={{ duration: 0.8, ease: EASE, delay: 0.3 }}
-                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[76px] font-serif font-medium text-white leading-[1.05] tracking-tight italic"
+                            className="text-4xl sm:text-5xl md:text-6xl lg:text-[76px] font-serif font-medium text-[#F8F7F2] leading-[1.05] tracking-tight italic"
                         >
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#E8650A] via-amber-400 to-[#E8650A] bg-[length:200%_100%] animate-shimmer">
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#F4B63D] via-amber-200 to-[#D58A12] bg-[length:200%_100%] animate-shimmer">
                                 Every Time
                             </span>
                         </motion.h2>
@@ -372,7 +372,7 @@ export default function GallerySection({ items }: GallerySectionProps) {
                         initial={{ opacity: 0, y: 20 }}
                         animate={isInView ? { opacity: 1, y: 0 } : {}}
                         transition={{ duration: 0.6, ease: EASE, delay: 0.45 }}
-                        className="text-white/30 text-sm sm:text-base max-w-lg mx-auto font-light leading-relaxed"
+                        className="text-[#B8BEC8] text-sm sm:text-base max-w-lg mx-auto font-light leading-relaxed"
                     >
                         We don't just clean cars — we transform them. Here's what sets us apart.
                     </motion.p>
@@ -391,10 +391,10 @@ export default function GallerySection({ items }: GallerySectionProps) {
                             transition={{ duration: 0.8, ease: EASE, delay: 0.6 }}
                         />
                         <motion.div
-                            className="w-2.5 h-2.5 rounded-full border border-[#E8650A]/40"
-                            animate={{ boxShadow: ["0 0 0 0 rgba(232,101,10,0)", "0 0 0 6px rgba(232,101,10,0.1)", "0 0 0 0 rgba(232,101,10,0)"] }}
+                            className="w-2.5 h-2.5 rounded-full border border-[#F4B63D]/40"
+                            animate={{ boxShadow: ["0 0 0 0 rgba(244,182,61,0)", "0 0 0 6px rgba(244,182,61,0.1)", "0 0 0 0 rgba(244,182,61,0)"] }}
                             transition={{ duration: 2.5, repeat: Infinity }}
-                            style={{ background: "rgba(232,101,10,0.3)" }}
+                            style={{ background: "rgba(244,182,61,0.3)" }}
                         />
                         <motion.div
                             className="h-px bg-gradient-to-l from-transparent to-white/15"
@@ -422,9 +422,9 @@ export default function GallerySection({ items }: GallerySectionProps) {
                 >
                     <Link to="/gallery">
                         <motion.button
-                            whileHover={{ scale: 1.05, boxShadow: "0 0 50px rgba(232,101,10,0.3)" }}
+                            whileHover={{ scale: 1.05, boxShadow: "0 0 50px rgba(244,182,61,0.3)" }}
                             whileTap={{ scale: 0.97 }}
-                            className="relative inline-flex items-center gap-3 px-10 py-4.5 rounded-full text-sm font-bold uppercase tracking-[0.2em] bg-[#E8650A] text-white shadow-lg shadow-[#E8650A]/25 overflow-hidden group"
+                            className="relative inline-flex items-center gap-3 px-10 py-4.5 rounded-full text-sm font-bold uppercase tracking-[0.2em] bg-gradient-to-r from-[#F4B63D] to-[#D58A12] text-black shadow-lg shadow-[#F4B63D]/25 overflow-hidden group"
                         >
                             {/* Button shine sweep */}
                             <motion.div
@@ -444,7 +444,7 @@ export default function GallerySection({ items }: GallerySectionProps) {
             </div>
 
             {/* Decorative bottom border */}
-            <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#E8650A]/25 to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#F4B63D]/25 to-transparent" />
         </section>
     );
 }

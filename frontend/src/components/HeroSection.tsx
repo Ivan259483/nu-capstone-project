@@ -163,7 +163,7 @@ export default function HeroSection() {
                         style={{ animationDelay: "0.5s" }}
                         aria-label={`${t("stats.rating")}: 4.9, ${t("hero.reviews")}`}
                     >
-                        <span className="text-[34px] font-serif font-light leading-none text-white tabular-nums">
+                        <span className="text-[34px] font-serif font-light leading-none text-white tabular-nums relative -translate-y-[6px]">
                             4.9
                         </span>
                         <span className="h-8 w-px bg-white/10" aria-hidden />

@@ -77,7 +77,7 @@ export default function AboutSection() {
 
                         {/* Headline */}
                         <motion.h2 variants={slideLeft}
-                            className="text-4xl md:text-5xl lg:text-6xl font-serif font-medium tracking-tight leading-[1.05] mb-5">
+                            className="text-4xl md:text-5xl lg:text-6xl font-serif font-medium text-[#F8F7F2] tracking-tight leading-[1.05] mb-5">
                             The{' '}
                             <span className="text-transparent bg-clip-text bg-gradient-gold italic">
                                 AutoSPF+

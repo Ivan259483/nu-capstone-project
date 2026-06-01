@@ -74,10 +74,10 @@ export const SERVICES = [
         desc: 'Military-grade self-healing urethane film that shields against rock chips, scratches, and UV degradation — virtually invisible, infinitely durable.',
         image: COATING_IMG,
         badge: 'Most Popular',
-        badgeColor: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+        badgeColor: 'bg-[#F4B63D]/20 text-[#F4B63D] border-[#F4B63D]/30',
         features: ['Self-healing top coat', '10-year warranty', 'Hydrophobic surface'],
         icon: Shield,
-        glow: 'rgba(249,115,22,0.15)',
+        glow: 'rgba(244,182,61,0.15)',
     },
     {
         title: 'Interior Detailing',
@@ -151,7 +151,7 @@ const PROCESS_STEPS = [
         title: 'Consultation',
         desc: "We assess your vehicle's condition, discuss your goals, and recommend the ideal service package.",
         icon: Eye,
-        accent: 'from-orange-500 to-amber-600',
+        accent: 'from-[#F4B63D] to-[#D58A12]',
     },
     {
         num: '02',
@@ -218,7 +218,7 @@ export default function LandingPage() {
     };
 
     return (
-        <div className="bg-[#0B1120] text-white font-sans selection:bg-orange-500/30 overflow-x-hidden">
+        <div className="bg-[#0B1120] text-white font-sans selection:bg-[#F4B63D]/30 overflow-x-hidden">
             {/* ══════════════════════════════════════
                 HERO — full-screen immersive
             ══════════════════════════════════════ */}
@@ -278,7 +278,7 @@ export default function LandingPage() {
                     <div className="flex items-center justify-center gap-4 flex-wrap">
                         <Link to="/login">
                             <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
-                                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 shadow-xl shadow-orange-500/30 transition-all duration-200 cursor-pointer"
+                                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-[#F4B63D] to-[#D58A12] hover:from-[#F4B63D]/90 hover:to-[#D58A12]/90 shadow-xl shadow-[#F4B63D]/20 transition-all duration-200 cursor-pointer"
                             >
                                 Book Now <ArrowRight className="w-4 h-4" />
                             </motion.div>
@@ -302,7 +302,7 @@ export default function LandingPage() {
                         Scroll to Explore
                     </span>
                     <motion.div animate={{ y: [0, 6, 0] }} transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}>
-                        <ChevronDown className="w-5 h-5 text-white/25 group-hover:text-orange-400 transition-colors" />
+                        <ChevronDown className="w-5 h-5 text-white/25 group-hover:text-[#F4B63D] transition-colors" />
                     </motion.div>
                 </motion.button>
             </section>
@@ -311,7 +311,7 @@ export default function LandingPage() {
                 STATS STRIP
             ══════════════════════════════════════ */}
             <section className="relative py-14 border-y border-white/5 overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-orange-500/3 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#F4B63D]/3 to-transparent" />
                 <motion.div
                     variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}
                     className="max-w-5xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8"
@@ -320,8 +320,8 @@ export default function LandingPage() {
                         const Icon = getDynamicIcon(icon, Star);
                         return (
                             <motion.div key={label} variants={fadeUp} className="text-center group">
-                                <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center mx-auto mb-3 group-hover:bg-orange-500/10 group-hover:border-orange-500/20 transition-all duration-300">
-                                    <Icon className="w-5 h-5 text-white/30 group-hover:text-orange-400 transition-colors" />
+                                <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center mx-auto mb-3 group-hover:bg-[#F4B63D]/10 group-hover:border-[#F4B63D]/20 transition-all duration-300">
+                                    <Icon className="w-5 h-5 text-white/30 group-hover:text-[#F4B63D] transition-colors" />
                                 </div>
                                 <p className="text-3xl font-bold tracking-tight text-white mb-1">{value}</p>
                                 <p className="text-xs text-white/30 uppercase tracking-widest font-medium">{label}</p>
@@ -342,7 +342,7 @@ export default function LandingPage() {
                     transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
                 />
                 <motion.div
-                    className="absolute bottom-10 right-10 w-80 h-80 bg-orange-500/5 blur-[100px] rounded-full pointer-events-none"
+                    className="absolute bottom-10 right-10 w-80 h-80 bg-[#F4B63D]/5 blur-[100px] rounded-full pointer-events-none"
                     animate={{ scale: [1, 1.2, 1], opacity: [0.05, 0.09, 0.05] }}
                     transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
                 />
@@ -387,7 +387,7 @@ export default function LandingPage() {
                             whileInView={{ scaleX: 1 }}
                             transition={{ duration: 0.6, delay: 0.5 }}
                         >
-                            <div className="absolute inset-0 bg-gradient-to-r from-orange-500/30 via-amber-400/60 to-orange-500/30" />
+                            <div className="absolute inset-0 bg-gradient-to-r from-[#F4B63D]/30 via-[#F4B63D]/60 to-[#F4B63D]/30" />
                             <motion.div
                                 className="absolute inset-0 w-1/3 bg-gradient-to-r from-transparent via-white/70 to-transparent"
                                 variants={shimmer}
@@ -456,11 +456,11 @@ export default function LandingPage() {
 
                                         {/* Floating icon with glow */}
                                         <motion.div
-                                            className="absolute bottom-4 right-4 w-10 h-10 rounded-xl bg-white/10 backdrop-blur-sm border border-white/15 flex items-center justify-center group-hover:bg-orange-500/15 group-hover:border-orange-500/30 transition-all duration-300"
+                                            className="absolute bottom-4 right-4 w-10 h-10 rounded-xl bg-white/10 backdrop-blur-sm border border-white/15 flex items-center justify-center group-hover:bg-[#F4B63D]/15 group-hover:border-[#F4B63D]/30 transition-all duration-300"
                                             whileHover={{ rotate: 12, scale: 1.15 }}
                                             transition={{ type: 'spring', stiffness: 300 }}
                                         >
-                                            <Icon className="w-4.5 h-4.5 text-white group-hover:text-orange-400 transition-colors" />
+                                            <Icon className="w-4.5 h-4.5 text-white group-hover:text-[#F4B63D] transition-colors" />
                                         </motion.div>
                                     </div>
 
@@ -474,7 +474,7 @@ export default function LandingPage() {
                                         >
                                             {subtitle}
                                         </motion.p>
-                                        <h3 className="text-xl font-bold text-white mb-3 group-hover:text-orange-400 transition-colors duration-300">
+                                        <h3 className="text-xl font-bold text-white mb-3 group-hover:text-[#F4B63D] transition-colors duration-300">
                                             {title}
                                         </h3>
                                         <p className="text-sm text-white/40 mb-6 leading-relaxed line-clamp-3">
@@ -498,7 +498,7 @@ export default function LandingPage() {
                                                                 whileInView={{ scale: 1 }}
                                                                 transition={{ type: 'spring', stiffness: 400, delay: 0.5 + i * 0.1 }}
                                                             >
-                                                                <CheckCircle2 className="w-3.5 h-3.5 text-orange-500/70 shrink-0" />
+                                                                <CheckCircle2 className="w-3.5 h-3.5 text-[#F4B63D]/70 shrink-0" />
                                                             </motion.div>
                                                             {opt}
                                                         </motion.li>
@@ -511,7 +511,7 @@ export default function LandingPage() {
                                             <motion.button
                                                 whileHover={{ scale: 1.02, y: -1 }}
                                                 whileTap={{ scale: 0.98 }}
-                                                className="w-full mt-4 h-11 rounded-xl text-xs font-semibold uppercase tracking-wider text-white/60 hover:text-white border border-white/10 hover:border-orange-500/40 hover:bg-orange-500/[0.08] transition-all duration-300 flex items-center justify-center gap-2 group/btn relative overflow-hidden"
+                                                className="w-full mt-4 h-11 rounded-xl text-xs font-semibold uppercase tracking-wider text-white/60 hover:text-white border border-white/10 hover:border-[#F4B63D]/40 hover:bg-[#F4B63D]/[0.08] transition-all duration-300 flex items-center justify-center gap-2 group/btn relative overflow-hidden"
                                             >
                                                 {/* Button shimmer */}
                                                 <div className="absolute inset-0 -translate-x-full group-hover/btn:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/[0.04] to-transparent" />
@@ -537,9 +537,9 @@ export default function LandingPage() {
                             <motion.button
                                 whileHover={{ scale: 1.04, y: -2 }}
                                 whileTap={{ scale: 0.98 }}
-                                className="inline-flex items-center gap-2.5 px-7 py-3.5 rounded-xl text-sm font-semibold text-orange-400/80 hover:text-orange-400 border border-orange-500/20 hover:border-orange-500/40 bg-orange-500/[0.04] hover:bg-orange-500/[0.08] backdrop-blur-sm transition-all duration-300 group/cta relative overflow-hidden"
+                                className="inline-flex items-center gap-2.5 px-7 py-3.5 rounded-xl text-sm font-semibold text-[#F4B63D]/80 hover:text-[#F4B63D] border border-[#F4B63D]/20 hover:border-[#F4B63D]/40 bg-[#F4B63D]/[0.04] hover:bg-[#F4B63D]/[0.08] backdrop-blur-sm transition-all duration-300 group/cta relative overflow-hidden"
                             >
-                                <div className="absolute inset-0 -translate-x-full group-hover/cta:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-orange-400/[0.06] to-transparent" />
+                                <div className="absolute inset-0 -translate-x-full group-hover/cta:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-[#F4B63D]/[0.06] to-transparent" />
                                 View Pricing & All Services
                                 <ArrowRight className="w-4 h-4 group-hover/cta:translate-x-1 transition-transform duration-200" />
                             </motion.button>
@@ -556,7 +556,7 @@ export default function LandingPage() {
                 <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/8 to-transparent" />
 
                 {/* Ambient blobs */}
-                <div className="absolute top-1/3 right-0 w-[500px] h-[500px] bg-orange-500/[0.03] blur-[140px] rounded-full pointer-events-none" />
+                <div className="absolute top-1/3 right-0 w-[500px] h-[500px] bg-[#F4B63D]/[0.03] blur-[140px] rounded-full pointer-events-none" />
                 <div className="absolute bottom-20 left-20 w-[400px] h-[400px] bg-indigo-500/[0.03] blur-[120px] rounded-full pointer-events-none" />
 
                 <div className="max-w-6xl mx-auto">
@@ -600,7 +600,7 @@ export default function LandingPage() {
                                         <Icon className="w-5 h-5 text-white" />
                                     </div>
 
-                                    <h3 className="text-lg font-bold text-white mb-2 group-hover:text-orange-400 transition-colors duration-300">
+                                    <h3 className="text-lg font-bold text-white mb-2 group-hover:text-[#F4B63D] transition-colors duration-300">
                                         {step.title}
                                     </h3>
                                     <p className="text-sm text-white/35 leading-relaxed font-light">
@@ -667,7 +667,7 @@ export default function LandingPage() {
             ══════════════════════════════════════ */}
             <section className="relative py-32 px-6 overflow-hidden">
                 {/* Ambient glow */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-orange-500/[0.05] blur-[150px] rounded-full pointer-events-none" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-[#F4B63D]/[0.05] blur-[150px] rounded-full pointer-events-none" />
 
                 <motion.div
                     className="max-w-3xl mx-auto text-center"
@@ -686,7 +686,7 @@ export default function LandingPage() {
                     <motion.div variants={fadeUp} className="flex items-center justify-center gap-4 flex-wrap">
                         <Link to="/login">
                             <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
-                                className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 shadow-2xl shadow-orange-500/30 hover:shadow-orange-500/50 transition-all duration-200 cursor-pointer"
+                                className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-[#F4B63D] to-[#D58A12] hover:from-[#F4B63D]/90 hover:to-[#D58A12]/90 shadow-2xl shadow-[#F4B63D]/20 hover:shadow-[#F4B63D]/45 transition-all duration-200 cursor-pointer"
                             >
                                 Get Started <ArrowRight className="w-4 h-4" />
                             </motion.div>

@@ -150,23 +150,23 @@ export default function FAQSection() {
                 >
                     <motion.div
                         variants={fadeUp}
-                        className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-[11px] font-semibold uppercase tracking-[0.3em] text-orange-400/80 mb-5"
+                        className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#F4B63D]/[0.06] border border-[#F4B63D]/25 text-[11px] font-semibold uppercase tracking-[0.3em] text-[#F4B63D]/90 mb-5"
                     >
                         <MessageCircleQuestion className="w-3.5 h-3.5" />
                         FAQ
                     </motion.div>
                     <motion.h2
                         variants={fadeUp}
-                        className="text-4xl md:text-6xl font-serif font-medium text-white tracking-tight mb-5"
+                        className="text-4xl md:text-6xl font-serif font-medium text-[#F8F7F2] tracking-tight mb-5"
                     >
                         Got{" "}
-                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-500 italic">
+                        <span className="text-[#F4B63D] italic">
                             Questions?
                         </span>
                     </motion.h2>
                     <motion.p
                         variants={fadeUp}
-                        className="text-white/35 text-base max-w-lg mx-auto font-light"
+                        className="text-[#B8BEC8] text-base max-w-lg mx-auto font-light"
                     >
                         Everything you need to know about our premium auto detailing,
                         paint protection, and ceramic coating services.
@@ -191,7 +191,7 @@ export default function FAQSection() {
                                 setSearchQuery(e.target.value);
                                 setOpenIndex(null);
                             }}
-                            className="w-full pl-11 pr-4 py-3 bg-white/[0.03] border border-white/10 rounded-xl text-sm text-white/80 placeholder:text-white/25 focus:outline-none focus:border-orange-500/30 focus:bg-white/[0.05] backdrop-blur-md transition-all duration-300"
+                            className="w-full pl-11 pr-4 py-3 bg-white/[0.03] border border-white/10 rounded-xl text-sm text-white/80 placeholder:text-white/25 focus:outline-none focus:border-[#F4B63D]/30 focus:bg-white/[0.05] backdrop-blur-md transition-all duration-300"
                         />
                     </div>
                 </motion.div>
@@ -214,7 +214,7 @@ export default function FAQSection() {
                                 }}
                                 className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300 ${
                                     activeCategory === cat.key
-                                        ? "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-lg shadow-orange-500/20"
+                                        ? "bg-gradient-to-r from-[#F4B63D] to-[#D58A12] text-black shadow-lg shadow-[#F4B63D]/20"
                                         : "text-white/40 hover:text-white/70 hover:bg-white/5"
                                 }`}
                             >
@@ -257,13 +257,13 @@ export default function FAQSection() {
                                     layout
                                     className={`group relative rounded-2xl overflow-hidden border backdrop-blur-sm transition-all duration-300 ${
                                         isOpen
-                                            ? "border-orange-500/25 bg-white/[0.06] shadow-[0_0_30px_rgba(249,115,22,0.06)]"
+                                            ? "border-[#F4B63D]/25 bg-white/[0.06] shadow-[0_0_30px_rgba(244,182,61,0.06)]"
                                             : "border-white/8 bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.04]"
                                     }`}
                                 >
                                     {/* Glow line when open */}
                                     <div
-                                        className={`absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-orange-500/50 to-transparent transition-opacity duration-500 ${
+                                        className={`absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[#F4B63D]/50 to-transparent transition-opacity duration-500 ${
                                             isOpen ? "opacity-100" : "opacity-0"
                                         }`}
                                     />
@@ -276,13 +276,13 @@ export default function FAQSection() {
                                             <div
                                                 className={`w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center transition-all duration-300 ${
                                                     isOpen
-                                                        ? "bg-orange-500/15 border border-orange-500/30"
+                                                        ? "bg-[#F4B63D]/10 border border-[#F4B63D]/30"
                                                         : "bg-white/5 border border-white/10 group-hover:bg-white/8"
                                                 }`}
                                             >
                                                 <HelpCircle
                                                     className={`w-3.5 h-3.5 transition-colors duration-300 ${
-                                                        isOpen ? "text-orange-400" : "text-white/30 group-hover:text-white/50"
+                                                        isOpen ? "text-[#F4B63D]" : "text-white/30 group-hover:text-white/50"
                                                     }`}
                                                 />
                                             </div>
@@ -299,13 +299,13 @@ export default function FAQSection() {
                                             transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
                                             className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center transition-all duration-300 ${
                                                 isOpen
-                                                    ? "bg-orange-500/15 border border-orange-500/30"
+                                                    ? "bg-[#F4B63D]/10 border border-[#F4B63D]/30"
                                                     : "bg-white/5 border border-white/10"
                                             }`}
                                         >
                                             <ChevronDown
                                                 className={`w-3.5 h-3.5 transition-colors ${
-                                                    isOpen ? "text-orange-400" : "text-white/30"
+                                                    isOpen ? "text-[#F4B63D]" : "text-white/30"
                                                 }`}
                                             />
                                         </motion.div>
@@ -342,13 +342,13 @@ export default function FAQSection() {
                     viewport={{ once: true }}
                     className="text-center mt-14"
                 >
-                    <div className="inline-flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/[0.03] border border-white/8 backdrop-blur-sm">
-                        <Sparkles className="w-4 h-4 text-orange-400/60" />
-                        <p className="text-xs text-white/30 font-medium">
+                    <div className="inline-flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/[0.03] border border-[#F4B63D]/15 backdrop-blur-sm">
+                        <Sparkles className="w-4 h-4 text-[#F4B63D]/60" />
+                        <p className="text-xs text-[#B8BEC8] font-medium">
                             Still have questions?{" "}
                             <a
                                 href="/contact"
-                                className="text-orange-400/70 hover:text-orange-400 transition-colors underline underline-offset-2"
+                                className="text-[#F4B63D]/80 hover:text-[#F4B63D] transition-colors underline underline-offset-2"
                             >
                                 Contact our team
                             </a>
