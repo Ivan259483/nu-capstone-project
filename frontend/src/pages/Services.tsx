@@ -160,15 +160,15 @@ export default function Services() {
                     className="absolute inset-0"
                     style={{ background: "linear-gradient(to bottom, transparent 0%, transparent 50%, #07070A 100%)" }}
                 />
-                {/* Orange amber glow blob — matches Gallery hero */}
-                <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-amber-500/[0.07] blur-[160px] rounded-full pointer-events-none" />
+                {/* Premium gold glow blob — matches Gallery hero */}
+                <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-[#F4B63D]/[0.07] blur-[160px] rounded-full pointer-events-none" />
 
                 {/* Animated gradient mesh */}
                 <motion.div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] pointer-events-none"
                     animate={{ rotate: [0, 3, -3, 0] }}
                     transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
                 >
-                    <div className="absolute top-10 left-1/4 w-72 h-72 bg-amber-500/[0.06] blur-[120px] rounded-full" />
+                    <div className="absolute top-10 left-1/4 w-72 h-72 bg-[#F4B63D]/[0.06] blur-[120px] rounded-full" />
                     <div className="absolute top-20 right-1/4 w-56 h-56 bg-violet-500/[0.05] blur-[100px] rounded-full" />
                     <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-80 h-40 bg-sky-500/[0.04] blur-[100px] rounded-full" />
                 </motion.div>
@@ -185,15 +185,15 @@ export default function Services() {
                         <motion.div variants={fadeUp}
                             className="inline-flex items-center gap-3 px-6 py-2.5 rounded-full mb-8 backdrop-blur-md"
                             style={{
-                                background: "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(234,88,12,0.06))",
-                                border: "1px solid rgba(245,158,11,0.2)",
-                                boxShadow: "0 4px 20px rgba(245,158,11,0.08)",
+                                background: "linear-gradient(135deg, rgba(244,182,61,0.12), rgba(213,138,18,0.06))",
+                                border: "1px solid rgba(244,182,61,0.2)",
+                                boxShadow: "0 4px 20px rgba(244,182,61,0.08)",
                             }}
                         >
                             <motion.div animate={{ rotate: [0, 360] }} transition={{ duration: 8, repeat: Infinity, ease: "linear" }}>
-                                <Gem className="w-4 h-4 text-amber-400" />
+                                <Gem className="w-4 h-4 text-[#F4B63D]" />
                             </motion.div>
-                            <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-amber-400/90">
+                            <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-[#F4B63D]/90">
                                 {t("servicesPage.badge")}
                             </span>
                         </motion.div>
@@ -205,13 +205,13 @@ export default function Services() {
                             {t("servicesPage.title")}{" "}
                             <br className="hidden sm:block" />
                             <span className="relative inline-block">
-                                <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-orange-400 to-amber-500 italic">
+                                <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#F4B63D] via-amber-200 to-[#D58A12] italic">
                                     {t("servicesPage.titleHighlight")}
                                 </span>
                                 {/* Underline accent */}
                                 <motion.div
                                     className="absolute -bottom-2 left-0 right-0 h-[2px] rounded-full"
-                                    style={{ background: "linear-gradient(90deg, transparent, #f59e0b, transparent)" }}
+                                    style={{ background: "linear-gradient(90deg, transparent, #F4B63D, transparent)" }}
                                     initial={{ scaleX: 0 }}
                                     animate={{ scaleX: 1 }}
                                     transition={{ duration: 1, delay: 0.6, ease: EASE }}
@@ -224,16 +224,16 @@ export default function Services() {
                             className="text-white/40 text-lg md:text-xl max-w-2xl mx-auto font-light leading-relaxed mb-10"
                         >
                             {t("servicesPage.subtitle")}{" "}
-                            <span className="text-amber-400/60 font-medium">{t("servicesPage.subtitleHighlight")}</span>.
+                            <span className="text-[#F4B63D]/70 font-medium">{t("servicesPage.subtitleHighlight")}</span>.
                             {" "}{t("servicesPage.subtitleSuffix")}
                         </motion.p>
 
                         {/* Trust badges */}
                         <motion.div variants={fadeUp} className="flex flex-wrap items-center justify-center gap-4">
                             {[
-                                { label: t("servicesPage.trustSonax"), icon: Award, color: "#f59e0b" },
-                                { label: t("servicesPage.trustPpf"), icon: Shield, color: "#3b82f6" },
-                                { label: t("servicesPage.trustVinyl"), icon: Gem, color: "#10b981" },
+                                { label: t("servicesPage.trustSonax"), icon: Award, color: "#F4B63D" },
+                                { label: t("servicesPage.trustPpf"), icon: Shield, color: "#F4B63D" },
+                                { label: t("servicesPage.trustVinyl"), icon: Gem, color: "#F4B63D" },
                             ].map(({ label, icon: TIcon, color }) => (
                                 <span key={label} className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.15em] text-white/30 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] hover:border-white/[0.12] transition-all duration-300">
                                     <TIcon className="w-3.5 h-3.5" style={{ color: color + "80" }} />
@@ -244,7 +244,7 @@ export default function Services() {
                     </motion.div>
                 </div>
 
-                <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-500/15 to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#F4B63D]/15 to-transparent" />
             </section>
 
 
@@ -275,9 +275,9 @@ export default function Services() {
                                         !isActive && "text-white/50 hover:text-white/80 hover:bg-white/[0.06]"
                                     )}
                                     style={isActive ? {
-                                        background: "linear-gradient(135deg, #f59e0b, #ea580c)",
+                                        background: "linear-gradient(135deg, #F4B63D, #D58A12)",
                                         color: "#fff",
-                                        boxShadow: "0 6px 30px rgba(245,158,11,0.45), 0 0 0 1px rgba(245,158,11,0.2)",
+                                        boxShadow: "0 6px 30px rgba(244,182,61,0.3), 0 0 0 1px rgba(244,182,61,0.2)",
                                     } : {}}
                                 >
                                     {isActive && (
@@ -303,7 +303,7 @@ export default function Services() {
                     className="text-center text-[11px] text-white/35 font-medium uppercase tracking-[0.3em] mt-4"
                 >
                     Showing prices for{" "}
-                    <span className="text-amber-400/80 font-bold">{vehicleOptions.find(v => v.type === vehicleType)?.label}</span>
+                    <span className="text-[#F4B63D] font-bold">{vehicleOptions.find(v => v.type === vehicleType)?.label}</span>
                     {" "}vehicles
                 </motion.p>
             </section>
@@ -330,10 +330,10 @@ export default function Services() {
                         className="text-center mt-16">
                         <div className="inline-flex items-center gap-3 px-7 py-3.5 rounded-2xl backdrop-blur-sm"
                             style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                            <BadgeCheck className="w-4 h-4 text-amber-400/60" />
+                            <BadgeCheck className="w-4 h-4 text-[#F4B63D]/70" />
                             <p className="text-xs text-white/30 font-medium">
                                 All prices include VAT &bull; 50% OFF currently active &bull;{" "}
-                                <span className="text-amber-400/60 font-semibold">Satisfaction guaranteed</span>
+                                <span className="text-[#F4B63D]/70 font-semibold">Satisfaction guaranteed</span>
                             </p>
                         </div>
                     </motion.div>
@@ -344,13 +344,13 @@ export default function Services() {
                 ADD-ONS
             ══════════════════════════════════ */}
             <section className="relative py-20 overflow-hidden" style={{ background: "#07070A" }}>
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-500/[0.015] to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#F4B63D]/[0.015] to-transparent" />
                 <div className="container max-w-4xl mx-auto px-6 relative z-10">
                     <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
                         transition={{ duration: 0.7 }} className="text-center mb-12">
                         <h2 className="text-3xl sm:text-4xl font-serif font-medium text-white mb-3">
                             Add-On{" "}
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">Services</span>
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#F4B63D] to-[#D58A12] italic">Services</span>
                         </h2>
                         <p className="text-white/40 text-sm max-w-lg mx-auto font-light">
                             Enhance your protection package with additional premium services
@@ -367,12 +367,12 @@ export default function Services() {
                                     i < addOns.length - 1 && "border-b border-white/[0.04]"
                                 )}>
                                 <div className="flex items-center gap-3">
-                                    <div className="w-7 h-7 rounded-lg bg-amber-500/[0.08] border border-amber-500/15 flex items-center justify-center">
-                                        <Layers className="w-3.5 h-3.5 text-amber-400/70 group-hover:text-amber-400 transition-colors duration-300" />
+                                    <div className="w-7 h-7 rounded-lg bg-[#F4B63D]/[0.08] border border-[#F4B63D]/15 flex items-center justify-center">
+                                        <Layers className="w-3.5 h-3.5 text-[#F4B63D]/70 group-hover:text-[#F4B63D] transition-colors duration-300" />
                                     </div>
                                     <span className="text-sm font-semibold text-white/70 group-hover:text-white/90 transition-colors duration-300">{addon.name}</span>
                                 </div>
-                                <span className="text-sm font-bold text-amber-400/80 group-hover:text-amber-400 transition-colors duration-300">{addon.prices[vehicleType]}</span>
+                                <span className="text-sm font-bold text-[#F4B63D]/80 group-hover:text-[#F4B63D] transition-colors duration-300">{addon.prices[vehicleType]}</span>
                             </div>
                         ))}
                     </motion.div>
@@ -431,18 +431,18 @@ export default function Services() {
                 PPF PRICELIST
             ══════════════════════════════════ */}
             <section className="relative py-24 overflow-hidden" style={{ background: "#07070A" }}>
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-500/[0.012] to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#F4B63D]/[0.012] to-transparent" />
                 <div className="container max-w-5xl mx-auto px-6 relative z-10">
                     <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
                         transition={{ duration: 0.7 }} className="text-center mb-12">
                         <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full mb-6"
-                            style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)" }}>
-                            <Shield className="w-3.5 h-3.5 text-amber-400/80" />
-                            <span className="text-[11px] font-bold uppercase tracking-[0.25em] text-amber-400/80">Paint Protection Film</span>
+                            style={{ background: "rgba(244,182,61,0.06)", border: "1px solid rgba(244,182,61,0.15)" }}>
+                            <Shield className="w-3.5 h-3.5 text-[#F4B63D]/80" />
+                            <span className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#F4B63D]/80">Paint Protection Film</span>
                         </div>
                         <h2 className="text-3xl sm:text-4xl font-serif font-medium text-white mb-3">
                             PPF{" "}
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 italic">Pricelist</span>
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#F4B63D] to-[#D58A12] italic">Pricelist</span>
                         </h2>
                         <p className="text-white/40 text-sm max-w-lg mx-auto font-light">
                             Full-body Paint Protection Film — All TPU PPF Material
@@ -457,11 +457,11 @@ export default function Services() {
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                                        <th className="text-left px-6 py-5 text-xs font-bold uppercase tracking-widest text-amber-400/90">Vehicle</th>
+                                        <th className="text-left px-6 py-5 text-xs font-bold uppercase tracking-widest text-[#F4B63D]/90">Vehicle</th>
                                         <th className="text-center px-4 py-5 text-xs font-bold uppercase tracking-widest text-white/50">CEO PPF</th>
                                         <th className="text-center px-4 py-5 text-xs font-bold uppercase tracking-widest text-white/50">XPEL</th>
                                         <th className="text-center px-4 py-5 text-xs font-bold uppercase tracking-widest text-white/50">Vinyl Frog</th>
-                                        <th className="text-center px-4 py-5 text-xs font-bold uppercase tracking-widest text-amber-400/80">ZIVENT</th>
+                                        <th className="text-center px-4 py-5 text-xs font-bold uppercase tracking-widest text-[#F4B63D]/85">ZIVENT</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -472,7 +472,7 @@ export default function Services() {
                                         )}>
                                             <td className="px-6 py-4.5 font-semibold text-white/70 group-hover:text-white transition-colors duration-300">{row.vehicle}</td>
                                             {row.prices.map((p, j) => (
-                                                <td key={j} className={cn("text-center px-4 py-4.5 font-bold transition-colors duration-300", j === 3 ? "text-amber-400/80 group-hover:text-amber-400" : "text-white/50 group-hover:text-white/70")}>{p}</td>
+                                                <td key={j} className={cn("text-center px-4 py-4.5 font-bold transition-colors duration-300", j === 3 ? "text-[#F4B63D]/80 group-hover:text-[#F4B63D]" : "text-white/50 group-hover:text-white/70")}>{p}</td>
                                             ))}
                                         </tr>
                                     ))}
@@ -527,7 +527,7 @@ export default function Services() {
                                                 <td className="px-3 py-2.5 text-center font-bold text-white/60">{row.vlt}</td>
                                                 <td className="px-3 py-2.5 text-center font-bold text-white/60">{row.irr}</td>
                                                 <td className="px-3 py-2.5 text-center font-bold text-white/60">{row.uvr}</td>
-                                                <td className="px-3 py-2.5 text-center font-bold text-amber-400/80">{row.tser}</td>
+                                                <td className="px-3 py-2.5 text-center font-bold text-[#F4B63D]/85">{row.tser}</td>
                                             </tr>
                                         ))}
                                     </tbody>
