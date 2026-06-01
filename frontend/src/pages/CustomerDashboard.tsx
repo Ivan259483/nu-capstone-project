@@ -2329,23 +2329,6 @@ export default function CustomerDashboard() {
     navigate(urlMap[section]);
   };
 
-  useEffect(() => {
-    if (activeSection !== 'tracker' || !user || myBookingsLoading) return;
-    if (!customerBookingsLoadedOnce) return;
-    if (myBookings.length === 0) return;
-    const hasTracker =
-      Boolean(activeTrackerBooking) ||
-      Boolean(
-        stableTrackerBookingRef.current &&
-          bookingShowsCustomerLiveTracker(stableTrackerBookingRef.current)
-      );
-    if (!hasTracker && !bookingOpen) {
-      setActiveSection('dashboard');
-      setIsSidebarOpen(false);
-      navigate('/customer/dashboard', { replace: true });
-    }
-  }, [activeSection, activeTrackerBooking, bookingOpen, myBookings.length, myBookingsLoading, customerBookingsLoadedOnce, user, navigate]);
-
   const openScanStudio = (vehicle?: any) => {
     if (!AI_INSPECTION_HISTORY_ENABLED) return;
     const targetId = vehicle?._id || vehicle?.id;
@@ -2836,7 +2819,6 @@ export default function CustomerDashboard() {
               <CustomerSidebarAnimatedIcon name="services" />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Services</span>
             </button>
-            {hasActiveTrackerBooking && (
             <button
               type="button"
               onClick={() => nav('tracker')}
@@ -2847,7 +2829,6 @@ export default function CustomerDashboard() {
               <CustomerSidebarAnimatedIcon name="tracker" />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Live Tracker</span>
             </button>
-            )}
 
             <button
               type="button"
