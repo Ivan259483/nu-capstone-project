@@ -263,16 +263,16 @@ export default function LandingPage() {
                     transition={{ duration: 1.1, delay: 0.55, ease: [0.16, 1, 0.3, 1] }}
                     style={{ opacity: heroOp }}
                 >
-                    <p className="text-[11px] uppercase tracking-[0.45em] text-orange-400/80 font-semibold mb-5">
+                    <p className="text-[11px] uppercase tracking-[0.45em] text-[#F4B63D]/90 font-semibold mb-5">
                         Premium Automotive Detailing
                     </p>
-                    <h1 className="text-6xl sm:text-8xl lg:text-[110px] font-serif font-medium text-white tracking-tight drop-shadow-2xl leading-[0.92] mb-8">
+                    <h1 className="text-6xl sm:text-8xl lg:text-[110px] font-serif font-medium text-[#F8F7F2] tracking-tight drop-shadow-2xl leading-[0.92] mb-8">
                         Defined by<br />
-                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-500 italic">
+                        <span className="text-[#F4B63D] italic">
                             Detail.
                         </span>
                     </h1>
-                    <p className="text-white/40 text-base md:text-lg font-light max-w-xl mx-auto mb-10">
+                    <p className="text-[#B8BEC8] text-base md:text-lg font-light max-w-xl mx-auto mb-10">
                         Where every surface is treated as a canvas. Book your premium detailing session today.
                     </p>
                     <div className="flex items-center justify-center gap-4 flex-wrap">
@@ -353,10 +353,10 @@ export default function LandingPage() {
                     <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }} className="text-center mb-20">
                         <motion.p
                             variants={fadeUp}
-                            className="text-[11px] uppercase tracking-[0.4em] text-orange-400/70 font-semibold mb-3 inline-flex items-center gap-2"
+                            className="text-[11px] uppercase tracking-[0.4em] text-[#F4B63D]/90 font-semibold mb-3 inline-flex items-center gap-2"
                         >
                             <motion.span
-                                className="inline-block w-8 h-px bg-gradient-to-r from-transparent to-orange-400/40"
+                                className="inline-block w-8 h-px bg-gradient-to-r from-transparent to-[#F4B63D]/40"
                                 initial={{ scaleX: 0 }}
                                 whileInView={{ scaleX: 1 }}
                                 transition={{ duration: 0.8, delay: 0.3 }}
@@ -364,7 +364,7 @@ export default function LandingPage() {
                             />
                             What We Offer
                             <motion.span
-                                className="inline-block w-8 h-px bg-gradient-to-l from-transparent to-orange-400/40"
+                                className="inline-block w-8 h-px bg-gradient-to-l from-transparent to-[#F4B63D]/40"
                                 initial={{ scaleX: 0 }}
                                 whileInView={{ scaleX: 1 }}
                                 transition={{ duration: 0.8, delay: 0.3 }}
@@ -373,10 +373,10 @@ export default function LandingPage() {
                         </motion.p>
                         <motion.h2
                             variants={fadeUp}
-                            className="text-4xl md:text-6xl lg:text-7xl font-serif font-medium text-white tracking-tight mb-5"
+                            className="text-4xl md:text-6xl lg:text-7xl font-serif font-medium text-[#F8F7F2] tracking-tight mb-5"
                         >
                             Premium{' '}
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-500 italic">
+                            <span className="text-[#F4B63D] italic">
                                 Services
                             </span>
                         </motion.h2>
@@ -395,7 +395,7 @@ export default function LandingPage() {
                                 animate="visible"
                             />
                         </motion.div>
-                        <motion.p variants={fadeUp} className="text-white/35 text-base max-w-2xl mx-auto font-light">
+                        <motion.p variants={fadeUp} className="text-[#B8BEC8] text-base max-w-2xl mx-auto font-light">
                             Every service is performed by certified detailers using only the finest professional-grade products.
                             World-class results, right here in Metro Manila.
                         </motion.p>
@@ -562,16 +562,16 @@ export default function LandingPage() {
                 <div className="max-w-6xl mx-auto">
                     {/* Header */}
                     <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }} className="text-center mb-20">
-                        <motion.p variants={fadeUp} className="text-[11px] uppercase tracking-[0.4em] text-orange-400/70 font-semibold mb-3">
+                        <motion.p variants={fadeUp} className="text-[11px] uppercase tracking-[0.4em] text-[#F4B63D]/90 font-semibold mb-3">
                             How It Works
                         </motion.p>
-                        <motion.h2 variants={fadeUp} className="text-4xl md:text-6xl font-serif font-medium text-white tracking-tight mb-5">
+                        <motion.h2 variants={fadeUp} className="text-4xl md:text-6xl font-serif font-medium text-[#F8F7F2] tracking-tight mb-5">
                             Our{' '}
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-500 italic">
+                            <span className="text-[#F4B63D] italic">
                                 Process
                             </span>
                         </motion.h2>
-                        <motion.p variants={fadeUp} className="text-white/35 text-base max-w-lg mx-auto font-light">
+                        <motion.p variants={fadeUp} className="text-[#B8BEC8] text-base max-w-lg mx-auto font-light">
                             A systematic, four-stage approach that guarantees consistent, world-class results on every vehicle.
                         </motion.p>
                     </motion.div>
@@ -673,14 +673,14 @@ export default function LandingPage() {
                     className="max-w-3xl mx-auto text-center"
                     variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}
                 >
-                    <motion.p variants={fadeUp} className="text-[11px] uppercase tracking-[0.4em] text-orange-400/70 font-semibold mb-4">
+                    <motion.p variants={fadeUp} className="text-[11px] uppercase tracking-[0.4em] text-[#F4B63D]/90 font-semibold mb-4">
                         Ready?
                     </motion.p>
-                    <motion.h2 variants={fadeUp} className="text-5xl md:text-7xl font-serif font-medium text-white tracking-tight mb-6">
+                    <motion.h2 variants={fadeUp} className="text-5xl md:text-7xl font-serif font-medium text-[#F8F7F2] tracking-tight mb-6">
                         Elevate your<br />
-                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-500 italic">drive today.</span>
+                        <span className="text-[#F4B63D] italic">drive today.</span>
                     </motion.h2>
-                    <motion.p variants={fadeUp} className="text-white/35 text-base mb-10 font-light max-w-md mx-auto">
+                    <motion.p variants={fadeUp} className="text-[#B8BEC8] text-base mb-10 font-light max-w-md mx-auto">
                         Join hundreds of automotive enthusiasts who trust AutoSPF+ with their most prized possessions.
                     </motion.p>
                     <motion.div variants={fadeUp} className="flex items-center justify-center gap-4 flex-wrap">

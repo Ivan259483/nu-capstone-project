@@ -78,9 +78,9 @@ export default function Footer() {
                                 <li key={link.to}>
                                     <Link
                                         to={link.to}
-                                        className="text-sm text-muted-foreground hover:text-primary transition-colors duration-200 flex items-center gap-1.5 group"
+                                        className="text-sm text-muted-foreground hover:text-[#F4B63D] transition-colors duration-200 flex items-center gap-1.5 group"
                                     >
-                                        <span className="w-1 h-1 rounded-full bg-primary/40 group-hover:bg-primary transition-colors" />
+                                        <span className="w-1 h-1 rounded-full bg-[#F4B63D]/40 group-hover:bg-[#F4B63D] transition-colors" />
                                         {link.label}
                                     </Link>
                                 </li>
@@ -95,18 +95,18 @@ export default function Footer() {
                         </h4>
                         <ul className="space-y-3">
                             <li className="flex items-start gap-2.5">
-                                <MapPin className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                                <MapPin className="w-4 h-4 text-[#F4B63D] mt-0.5 shrink-0" />
                                 <span className="text-sm text-muted-foreground">{t("contact.addressValue")}</span>
                             </li>
                             <li className="flex items-center gap-2.5">
-                                <Phone className="w-4 h-4 text-primary shrink-0" />
-                                <a href="tel:09176303116" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+                                <Phone className="w-4 h-4 text-[#F4B63D] shrink-0" />
+                                <a href="tel:09176303116" className="text-sm text-muted-foreground hover:text-[#F4B63D] transition-colors">
                                     {t("contact.phoneValue")}
                                 </a>
                             </li>
                             <li className="flex items-center gap-2.5">
-                                <Mail className="w-4 h-4 text-primary shrink-0" />
-                                <a href="mailto:autospf2023@gmail.com" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+                                <Mail className="w-4 h-4 text-[#F4B63D] shrink-0" />
+                                <a href="mailto:autospf2023@gmail.com" className="text-sm text-muted-foreground hover:text-[#F4B63D] transition-colors">
                                     {t("contact.emailValue")}
                                 </a>
                             </li>
@@ -122,8 +122,8 @@ export default function Footer() {
                         © {new Date().getFullYear()} AutoSPF+. {t("footer.rights")}
                     </p>
                     <div className="flex items-center gap-4">
-                        <a href="#" className="hover:text-primary transition-colors">{t("footer.privacy")}</a>
-                        <a href="#" className="hover:text-primary transition-colors">{t("footer.terms")}</a>
+                        <a href="#" className="hover:text-[#F4B63D] transition-colors">{t("footer.privacy")}</a>
+                        <a href="#" className="hover:text-[#F4B63D] transition-colors">{t("footer.terms")}</a>
                     </div>
                 </div>
             </div>

@@ -24,15 +24,15 @@ export default function BookingCTA() {
                 )}
             >
                 {/* Badge */}
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-gold/20 text-xs font-semibold text-primary mb-6">
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass border border-gold/20 text-xs font-semibold text-[#F4B63D] mb-6">
                     <Calendar className="w-3.5 h-3.5" />
                     Book Today
                 </div>
 
-                <h2 className="text-3xl sm:text-5xl font-serif font-medium text-foreground mb-4">
+                <h2 className="text-3xl sm:text-5xl font-serif font-medium text-[#F8F7F2] mb-4">
                     {t("cta.title")}
                 </h2>
-                <p className="text-muted-foreground text-lg max-w-xl mx-auto mb-10 leading-relaxed">
+                <p className="text-[#B8BEC8] text-lg max-w-xl mx-auto mb-10 leading-relaxed">
                     {t("cta.subtitle")}
                 </p>
 
@@ -51,7 +51,7 @@ export default function BookingCTA() {
                         <Button
                             size="lg"
                             variant="outline"
-                            className="border-gold/30 text-foreground hover:bg-gold/10 hover:border-gold/60 hover:text-primary transition-all duration-300 px-10"
+                            className="border-gold/30 text-foreground hover:bg-gold/10 hover:border-gold/60 hover:text-[#F4B63D] transition-all duration-300 px-10"
                         >
                             <Phone className="w-4 h-4 mr-2" />
                             {t("cta.call")}

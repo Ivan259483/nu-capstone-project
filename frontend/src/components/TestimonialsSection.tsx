@@ -10,7 +10,7 @@ function Particle({ delay, x, y, size }: { delay: number; x: string; y: string; 
     return (
         <motion.div
             className="absolute rounded-full pointer-events-none"
-            style={{ left: x, top: y, width: size, height: size, background: "radial-gradient(circle, rgba(249,115,22,0.25), transparent 70%)" }}
+            style={{ left: x, top: y, width: size, height: size, background: "radial-gradient(circle, rgba(244,182,61,0.25), transparent 70%)" }}
             animate={{ y: [0, -25, 0], opacity: [0.2, 0.6, 0.2], scale: [1, 1.4, 1] }}
             transition={{ duration: 5, repeat: Infinity, delay, ease: "easeInOut" }}
         />
@@ -88,11 +88,11 @@ function TestimonialCard({
             className="w-[340px] shrink-0 relative rounded-2xl p-6 cursor-pointer select-none transition-all duration-500"
             style={{
                 background: hovered
-                    ? "linear-gradient(135deg, rgba(249,115,22,0.08) 0%, rgba(20,20,30,0.95) 50%, rgba(249,115,22,0.04) 100%)"
+                    ? "linear-gradient(135deg, rgba(244,182,61,0.08) 0%, rgba(20,20,30,0.95) 50%, rgba(244,182,61,0.04) 100%)"
                     : "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(15,15,25,0.9) 100%)",
-                border: hovered ? "1px solid rgba(249,115,22,0.3)" : "1px solid rgba(255,255,255,0.06)",
+                border: hovered ? "1px solid rgba(244,182,61,0.3)" : "1px solid rgba(255,255,255,0.06)",
                 boxShadow: hovered
-                    ? "0 20px 60px rgba(0,0,0,0.4), 0 0 40px rgba(249,115,22,0.08)"
+                    ? "0 20px 60px rgba(0,0,0,0.4), 0 0 40px rgba(244,182,61,0.08)"
                     : "0 8px 30px rgba(0,0,0,0.2)",
                 transform: hovered ? "translateY(-6px)" : "translateY(0)",
                 backdropFilter: "blur(20px)",
@@ -103,7 +103,7 @@ function TestimonialCard({
                 className="absolute top-5 right-5 transition-all duration-300"
                 style={{ opacity: hovered ? 0.5 : 0.15 }}
             >
-                <Quote className="w-8 h-8 text-orange-500" />
+                <Quote className="w-8 h-8 text-[#F4B63D]" />
             </div>
 
             {/* Stars */}
@@ -113,9 +113,9 @@ function TestimonialCard({
                         key={i}
                         className="w-3.5 h-3.5 transition-all duration-300"
                         style={{
-                            fill: "#f97316",
-                            color: "#f97316",
-                            filter: hovered ? "drop-shadow(0 0 4px rgba(249,115,22,0.5))" : "none",
+                            fill: "#F4B63D",
+                            color: "#F4B63D",
+                            filter: hovered ? "drop-shadow(0 0 4px rgba(244,182,61,0.5))" : "none",
                             transitionDelay: `${i * 40}ms`,
                         }}
                     />
@@ -132,8 +132,8 @@ function TestimonialCard({
                 <div
                     className="w-11 h-11 rounded-full overflow-hidden shrink-0 transition-all duration-300"
                     style={{
-                        border: hovered ? "2px solid #f97316" : "2px solid rgba(255,255,255,0.1)",
-                        boxShadow: hovered ? "0 0 20px rgba(249,115,22,0.2)" : "none",
+                        border: hovered ? "2px solid #F4B63D" : "2px solid rgba(255,255,255,0.1)",
+                        boxShadow: hovered ? "0 0 20px rgba(244,182,61,0.2)" : "none",
                     }}
                 >
                     <img
@@ -145,7 +145,7 @@ function TestimonialCard({
                 <div>
                     <div className="text-[14px] font-bold text-white tracking-tight flex items-center gap-1.5">
                         {testimonial.name}
-                        <BadgeCheck className="w-3.5 h-3.5 text-orange-500" />
+                        <BadgeCheck className="w-3.5 h-3.5 text-[#F4B63D]" />
                     </div>
                     <div className="text-[12px] text-white/30 font-medium">
                         {testimonial.role}
@@ -158,7 +158,7 @@ function TestimonialCard({
                 className="absolute bottom-0 left-6 right-6 h-[2px] rounded-full transition-all duration-500"
                 style={{
                     background: hovered
-                        ? "linear-gradient(90deg, transparent, #f97316, transparent)"
+                        ? "linear-gradient(90deg, transparent, #F4B63D, transparent)"
                         : "linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent)",
                 }}
             />
@@ -188,8 +188,8 @@ function FeaturedTestimonial() {
             <div
                 className="relative rounded-3xl overflow-hidden px-8 sm:px-14 py-12 sm:py-16"
                 style={{
-                    background: "linear-gradient(135deg, rgba(249,115,22,0.06) 0%, rgba(10,10,20,0.95) 40%, rgba(249,115,22,0.03) 100%)",
-                    border: "1px solid rgba(249,115,22,0.15)",
+                    background: "linear-gradient(135deg, rgba(244,182,61,0.06) 0%, rgba(10,10,20,0.95) 40%, rgba(244,182,61,0.03) 100%)",
+                    border: "1px solid rgba(244,182,61,0.15)",
                     boxShadow: "0 30px 80px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03)",
                 }}
             >
@@ -209,7 +209,7 @@ function FeaturedTestimonial() {
                     animate={{ rotate: [0, 5, 0], scale: [1, 1.05, 1] }}
                     transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
                 >
-                    <Quote className="w-32 h-32 text-orange-500" />
+                    <Quote className="w-32 h-32 text-[#F4B63D]" />
                 </motion.div>
 
                 <AnimatePresence mode="wait">
@@ -233,9 +233,9 @@ function FeaturedTestimonial() {
                                     <Star
                                         className="w-5 h-5"
                                         style={{
-                                            fill: "#f97316",
-                                            color: "#f97316",
-                                            filter: "drop-shadow(0 0 8px rgba(249,115,22,0.4))",
+                                            fill: "#F4B63D",
+                                            color: "#F4B63D",
+                                            filter: "drop-shadow(0 0 8px rgba(244,182,61,0.4))",
                                         }}
                                     />
                                 </motion.div>
@@ -252,8 +252,8 @@ function FeaturedTestimonial() {
                             <div
                                 className="w-14 h-14 rounded-full overflow-hidden shrink-0"
                                 style={{
-                                    border: "2px solid rgba(249,115,22,0.4)",
-                                    boxShadow: "0 0 25px rgba(249,115,22,0.15)",
+                                    border: "2px solid rgba(244,182,61,0.4)",
+                                    boxShadow: "0 0 25px rgba(244,182,61,0.15)",
                                 }}
                             >
                                 <img
@@ -266,7 +266,7 @@ function FeaturedTestimonial() {
                                 <div className="text-base font-bold text-white tracking-tight">
                                     {featured.name}
                                 </div>
-                                <div className="text-sm text-orange-500/70 font-medium">
+                                <div className="text-sm text-[#F4B63D]/70 font-medium">
                                     {featured.role}
                                 </div>
                             </div>
@@ -275,13 +275,13 @@ function FeaturedTestimonial() {
                             <div className="ml-auto flex items-center gap-2">
                                 <button
                                     onClick={prev}
-                                    className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 hover:bg-white/5 border border-white/10 hover:border-orange-500/30"
+                                    className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 hover:bg-white/5 border border-white/10 hover:border-[#F4B63D]/30"
                                 >
                                     <ChevronLeft className="w-4 h-4 text-white/50" />
                                 </button>
                                 <button
                                     onClick={next}
-                                    className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 hover:bg-white/5 border border-white/10 hover:border-orange-500/30"
+                                    className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 hover:bg-white/5 border border-white/10 hover:border-[#F4B63D]/30"
                                 >
                                     <ChevronRight className="w-4 h-4 text-white/50" />
                                 </button>
@@ -304,9 +304,9 @@ function FeaturedTestimonial() {
                                     width: i === current ? 28 : 8,
                                     height: 8,
                                     background: i === current
-                                        ? "linear-gradient(90deg, #f97316, #f59e0b)"
+                                        ? "linear-gradient(90deg, #F4B63D, #D58A12)"
                                         : "rgba(255,255,255,0.1)",
-                                    boxShadow: i === current ? "0 0 12px rgba(249,115,22,0.3)" : "none",
+                                    boxShadow: i === current ? "0 0 12px rgba(244,182,61,0.3)" : "none",
                                 }}
                             />
                         </button>
@@ -314,10 +314,10 @@ function FeaturedTestimonial() {
                 </div>
 
                 {/* Corner accents */}
-                <div className="absolute top-0 left-0 w-12 h-[1px] bg-gradient-to-r from-orange-500/40 to-transparent" />
-                <div className="absolute top-0 left-0 w-[1px] h-12 bg-gradient-to-b from-orange-500/40 to-transparent" />
-                <div className="absolute bottom-0 right-0 w-12 h-[1px] bg-gradient-to-l from-orange-500/40 to-transparent" />
-                <div className="absolute bottom-0 right-0 w-[1px] h-12 bg-gradient-to-t from-orange-500/40 to-transparent" />
+                <div className="absolute top-0 left-0 w-12 h-[1px] bg-gradient-to-r from-[#F4B63D]/40 to-transparent" />
+                <div className="absolute top-0 left-0 w-[1px] h-12 bg-gradient-to-b from-[#F4B63D]/40 to-transparent" />
+                <div className="absolute bottom-0 right-0 w-12 h-[1px] bg-gradient-to-l from-[#F4B63D]/40 to-transparent" />
+                <div className="absolute bottom-0 right-0 w-[1px] h-12 bg-gradient-to-t from-[#F4B63D]/40 to-transparent" />
             </div>
         </div>
     );
@@ -364,7 +364,7 @@ export default function TestimonialsSection() {
                         initial={{ opacity: 0, y: 20, scale: 0.9 }}
                         animate={isInView ? { opacity: 1, y: 0, scale: 1 } : {}}
                         transition={{ duration: 0.6, ease: EASE }}
-                        className="inline-flex items-center gap-2.5 rounded-full border border-orange-500/25 bg-orange-500/[0.06] px-6 py-2.5 text-[11px] font-bold tracking-[0.25em] text-orange-500 uppercase backdrop-blur-sm mb-8"
+                        className="inline-flex items-center gap-2.5 rounded-full border border-[#F4B63D]/25 bg-[#F4B63D]/[0.06] px-6 py-2.5 text-[11px] font-bold tracking-[0.25em] text-[#F4B63D] uppercase backdrop-blur-sm mb-8"
                     >
                         <MessageSquareQuote className="w-3.5 h-3.5" />
                         {t("testimonialsPublic.badge")}
@@ -376,7 +376,7 @@ export default function TestimonialsSection() {
                             initial={{ opacity: 0, y: 60 }}
                             animate={isInView ? { opacity: 1, y: 0 } : {}}
                             transition={{ duration: 0.8, ease: EASE, delay: 0.15 }}
-                            className="text-4xl font-serif font-medium leading-[1.05] tracking-tight text-foreground sm:text-5xl md:text-6xl lg:text-[68px]"
+                            className="text-4xl font-serif font-medium leading-[1.05] tracking-tight text-[#F8F7F2] sm:text-5xl md:text-6xl lg:text-[68px]"
                         >
                             {t("testimonialsPublic.title")}
                         </motion.h2>
@@ -388,7 +388,7 @@ export default function TestimonialsSection() {
                             transition={{ duration: 0.8, ease: EASE, delay: 0.3 }}
                             className="text-4xl sm:text-5xl md:text-6xl lg:text-[68px] font-serif font-medium leading-[1.05] tracking-tight italic"
                         >
-                            <span className="animate-shimmer bg-gradient-to-r from-orange-500 via-amber-300 to-orange-500 bg-[length:200%_100%] bg-clip-text text-transparent">
+                            <span className="animate-shimmer bg-gradient-to-r from-[#F4B63D] via-amber-200 to-[#D58A12] bg-[length:200%_100%] bg-clip-text text-transparent">
                                 {t("testimonialsPublic.titleHighlight")}
                             </span>
                         </motion.h2>
@@ -399,7 +399,7 @@ export default function TestimonialsSection() {
                         initial={{ opacity: 0, y: 20 }}
                         animate={isInView ? { opacity: 1, y: 0 } : {}}
                         transition={{ duration: 0.6, ease: EASE, delay: 0.45 }}
-                        className="mx-auto max-w-lg text-sm leading-relaxed font-light text-muted-foreground sm:text-base"
+                        className="mx-auto max-w-lg text-sm leading-relaxed font-light text-[#B8BEC8] sm:text-base"
                     >
                         {t("testimonialsPublic.subtitle")}
                     </motion.p>
@@ -418,16 +418,16 @@ export default function TestimonialsSection() {
                             transition={{ duration: 0.8, ease: EASE, delay: 0.6 }}
                         />
                         <motion.div
-                            className="w-2.5 h-2.5 rounded-full border border-orange-500/40"
+                            className="w-2.5 h-2.5 rounded-full border border-[#F4B63D]/40"
                             animate={{
                                 boxShadow: [
-                                    "0 0 0 0 rgba(249,115,22,0)",
-                                    "0 0 0 6px rgba(249,115,22,0.1)",
-                                    "0 0 0 0 rgba(249,115,22,0)",
+                                    "0 0 0 0 rgba(244,182,61,0)",
+                                    "0 0 0 6px rgba(244,182,61,0.1)",
+                                    "0 0 0 0 rgba(244,182,61,0)",
                                 ],
                             }}
                             transition={{ duration: 2.5, repeat: Infinity }}
-                            style={{ background: "rgba(249,115,22,0.3)" }}
+                            style={{ background: "rgba(244,182,61,0.3)" }}
                         />
                         <motion.div
                             className="h-px bg-gradient-to-l from-transparent to-white/15"
@@ -499,9 +499,9 @@ export default function TestimonialsSection() {
                             transition={{ duration: 0.4, ease: EASE }}
                             className="relative w-full max-w-md rounded-3xl p-8 sm:p-10"
                             style={{
-                                background: "linear-gradient(135deg, rgba(249,115,22,0.06) 0%, rgba(10,10,20,0.98) 40%, rgba(249,115,22,0.03) 100%)",
-                                border: "1px solid rgba(249,115,22,0.2)",
-                                boxShadow: "0 0 80px rgba(249,115,22,0.1), 0 30px 80px rgba(0,0,0,0.5)",
+                                background: "linear-gradient(135deg, rgba(244,182,61,0.06) 0%, rgba(10,10,20,0.98) 40%, rgba(244,182,61,0.03) 100%)",
+                                border: "1px solid rgba(244,182,61,0.2)",
+                                boxShadow: "0 0 80px rgba(244,182,61,0.1), 0 30px 80px rgba(0,0,0,0.5)",
                             }}
                             onClick={(e) => e.stopPropagation()}
                         >
@@ -514,15 +514,15 @@ export default function TestimonialsSection() {
 
                             {/* Giant quote watermark */}
                             <div className="absolute top-6 left-6 opacity-[0.04]">
-                                <Quote className="w-24 h-24 text-orange-500" />
+                                <Quote className="w-24 h-24 text-[#F4B63D]" />
                             </div>
 
                             <div className="flex flex-col items-center text-center relative z-10 mt-2">
                                 <div
                                     className="w-20 h-20 rounded-full overflow-hidden mb-5"
                                     style={{
-                                        border: "3px solid rgba(249,115,22,0.4)",
-                                        boxShadow: "0 0 30px rgba(249,115,22,0.2)",
+                                        border: "3px solid rgba(244,182,61,0.4)",
+                                        boxShadow: "0 0 30px rgba(244,182,61,0.2)",
                                     }}
                                 >
                                     <img
@@ -533,7 +533,7 @@ export default function TestimonialsSection() {
                                 </div>
 
                                 <div className="text-lg font-bold text-white mb-1 tracking-tight">{selected.name}</div>
-                                <div className="text-sm text-orange-500/60 font-medium mb-5">{selected.role}</div>
+                                <div className="text-sm text-[#F4B63D]/60 font-medium mb-5">{selected.role}</div>
 
                                 <div className="flex gap-1.5 mb-6">
                                     {Array.from({ length: selected.rating }).map((_, i) => (
@@ -541,9 +541,9 @@ export default function TestimonialsSection() {
                                             key={i}
                                             className="w-5 h-5"
                                             style={{
-                                                fill: "#f97316",
-                                                color: "#f97316",
-                                                filter: "drop-shadow(0 0 8px rgba(249,115,22,0.4))",
+                                                fill: "#F4B63D",
+                                                color: "#F4B63D",
+                                                filter: "drop-shadow(0 0 8px rgba(244,182,61,0.4))",
                                             }}
                                         />
                                     ))}
@@ -555,10 +555,10 @@ export default function TestimonialsSection() {
                             </div>
 
                             {/* Corner accents */}
-                            <div className="absolute top-0 left-0 w-10 h-[1px] bg-gradient-to-r from-orange-500/30 to-transparent" />
-                            <div className="absolute top-0 left-0 w-[1px] h-10 bg-gradient-to-b from-orange-500/30 to-transparent" />
-                            <div className="absolute bottom-0 right-0 w-10 h-[1px] bg-gradient-to-l from-orange-500/30 to-transparent" />
-                            <div className="absolute bottom-0 right-0 w-[1px] h-10 bg-gradient-to-t from-orange-500/30 to-transparent" />
+                            <div className="absolute top-0 left-0 w-10 h-[1px] bg-gradient-to-r from-[#F4B63D]/30 to-transparent" />
+                            <div className="absolute top-0 left-0 w-[1px] h-10 bg-gradient-to-b from-[#F4B63D]/30 to-transparent" />
+                            <div className="absolute bottom-0 right-0 w-10 h-[1px] bg-gradient-to-l from-[#F4B63D]/30 to-transparent" />
+                            <div className="absolute bottom-0 right-0 w-[1px] h-10 bg-gradient-to-t from-[#F4B63D]/30 to-transparent" />
                         </motion.div>
                     </motion.div>
                 )}

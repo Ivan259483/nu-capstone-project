@@ -31,7 +31,7 @@ export default function Home() {
     const transformationTitle = (
         <>
             {t("home.transformationTitleLead")} <br />
-            <span className="italic text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-amber-300 to-orange-500">
+            <span className="italic text-[#F4B63D] font-semibold">
                 {t("home.transformationTitleHighlight")}
             </span>
         </>

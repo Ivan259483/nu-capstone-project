@@ -27,17 +27,17 @@ export default function TransformationsSection() {
                         isVisible ? "visible" : ""
                     )}
                 >
-                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-orange-500/25 bg-white/[0.04] text-xs font-semibold text-white mb-4 backdrop-blur-sm">
-                        <Sparkles className="h-3.5 w-3.5 text-orange-500" />
+                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[#F4B63D]/25 bg-white/[0.04] text-xs font-semibold text-[#F4B63D]/90 mb-4 backdrop-blur-sm">
+                        <Sparkles className="h-3.5 w-3.5 text-[#F4B63D]" />
                         {t("transformations.badge")}
                     </div>
-                    <h2 className="mb-4 font-serif text-3xl font-medium text-foreground sm:text-4xl">
+                    <h2 className="mb-4 font-serif text-3xl font-medium text-[#F8F7F2] sm:text-4xl">
                         {t("transformations.title")}{" "}
-                        <span className="italic text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-amber-300 to-orange-500">
+                        <span className="italic text-[#F4B63D] font-semibold">
                             {t("transformations.titleHighlight")}
                         </span>
                     </h2>
-                    <p className="mx-auto max-w-2xl text-muted-foreground">
+                    <p className="mx-auto max-w-2xl text-[#B8BEC8]">
                         {t("transformations.description")}
                     </p>
                 </div>
