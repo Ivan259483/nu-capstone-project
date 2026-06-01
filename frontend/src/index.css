@@ -591,20 +591,14 @@ html.dark * {
     width: 14.25rem;
     overflow: visible;
     will-change: width, transform;
-    border-right: 1px solid rgba(226, 232, 240, 0.82) !important;
-    background:
-        radial-gradient(circle at 10% 0%, rgba(210, 172, 104, 0.075), transparent 17rem),
-        radial-gradient(circle at 92% 18%, rgba(178, 149, 164, 0.055), transparent 15rem),
-        linear-gradient(180deg, #fffdf9 0%, #fbf8f5 48%, #f4f1ef 100%) !important;
-    box-shadow:
-        10px 0 30px -30px rgba(79, 70, 89, 0.3),
-        inset -1px 0 0 rgba(255, 255, 255, 0.86);
+    border-right: 1px solid #E5E7EB !important;
+    background: #FFFFFF !important;
+    box-shadow: none !important;
 }
 
 .customer-sidebar-brand-row {
-    border-bottom-color: rgba(226, 232, 240, 0.72) !important;
-    background:
-        linear-gradient(180deg, rgba(255, 253, 249, 0.94), rgba(248, 244, 240, 0.74));
+    border-bottom-color: #E5E7EB !important;
+    background: #FFFFFF !important;
 }
 
 .customer-sidebar-avatar {
@@ -623,10 +617,27 @@ html.dark * {
     min-width: 0;
 }
 
-.customer-sidebar.is-collapsed .customer-sidebar-user-header {
+.customer-sidebar.is-collapsed .customer-sidebar-brand-row {
     justify-content: center;
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
+    height: auto;
+    min-height: 4.75rem;
+    padding: 0.875rem 0.5rem;
+}
+
+.customer-sidebar.is-collapsed .customer-sidebar-user-header {
+    flex: none;
+    width: 100%;
+    justify-content: center;
+    padding: 0;
+}
+
+.customer-sidebar.is-collapsed .customer-sidebar-avatar {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 12px !important;
+    font-size: 1rem;
 }
 
 .customer-sidebar-section-heading {
@@ -669,7 +680,7 @@ html.dark * {
     transition: color 0.2s ease;
 }
 
-.customer-sidebar-item:hover:not(:disabled) {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) {
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(241, 245, 255, 0.72));
     color: #1e3a8a;
@@ -678,7 +689,7 @@ html.dark * {
         inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
-.customer-sidebar-item:hover:not(:disabled) iconify-icon {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) iconify-icon {
     color: #1d4ed8;
 }
 
@@ -1630,17 +1641,17 @@ html.dark * {
     animation: customer-sidebar-dashboard-outline-dash 1.45s ease-in-out infinite;
 }
 
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon--scan path:nth-child(1) {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon--scan path:nth-child(1) {
     --scan-shift: -2px;
     animation: customer-sidebar-scan-bracket-out 0.42s ease both;
 }
 
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon--scan path:nth-child(2) {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon--scan path:nth-child(2) {
     --scan-shift: 2px;
     animation: customer-sidebar-scan-bracket-out 0.42s ease both;
 }
 
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon--scan path:nth-child(3) {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon--scan path:nth-child(3) {
     animation: customer-sidebar-tile-pop 0.4s ease both;
 }
 
@@ -1948,12 +1959,12 @@ html.dark * {
 }
 
 .customer-sidebar-icon--tracker.is-snake-active .customer-sidebar-tracker-snake,
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-tracker-snake {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-tracker-snake {
     opacity: 1;
 }
 
 .customer-sidebar-icon--tracker.is-snake-active .customer-sidebar-tracker-route,
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-tracker-route {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-tracker-route {
     stroke-dasharray: 12 88;
     stroke-linecap: round;
     animation:
@@ -1962,12 +1973,12 @@ html.dark * {
 }
 
 .customer-sidebar-icon--tracker.is-snake-active .customer-sidebar-tracker-pin--start,
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-tracker-pin--start {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-tracker-pin--start {
     animation: customer-sidebar-route-pin-bounce 0.48s ease both;
 }
 
 .customer-sidebar-icon--tracker.is-snake-active .customer-sidebar-tracker-pin--end,
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-tracker-pin--end {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-tracker-pin--end {
     animation: customer-sidebar-route-pin-bounce 0.48s ease both;
     animation-delay: 0.85s;
 }
@@ -2441,25 +2452,25 @@ html.dark * {
     animation-delay: 0.34s;
 }
 
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon--sparkles path {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon--sparkles path {
     animation: customer-sidebar-star-pulse 0.52s cubic-bezier(0.34, 1.4, 0.64, 1) both;
 }
 
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon--sparkles path:nth-child(2) {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon--sparkles path:nth-child(2) {
     animation: customer-sidebar-sparkle-twinkle 0.45s ease both;
     animation-delay: 60ms;
 }
 
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon--logout path:nth-child(2) {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon--logout path:nth-child(2) {
     animation: customer-sidebar-logout-arrow 0.42s ease both;
 }
 
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon--notifications path {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon--notifications path {
     animation: customer-sidebar-tag-swing 0.48s ease both;
     transform-origin: top center;
 }
 
-.customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon--settings path {
+.customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon--settings path {
     animation: customer-sidebar-star-pulse 0.5s ease both;
 }
 
@@ -2468,20 +2479,20 @@ html.dark * {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon path,
-    .customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon line,
-    .customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon circle,
-    .customer-sidebar-item:hover:not(:disabled) .customer-sidebar-icon rect,
+    .customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon path,
+    .customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon line,
+    .customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon circle,
+    .customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-icon rect,
     .customer-sidebar-collapse-btn:hover .customer-sidebar-icon--collapse .customer-sidebar-icon-svg {
         animation: none !important;
         stroke-dashoffset: 0;
     }
 
-    .customer-sidebar-item:hover:not(:disabled) .customer-sidebar-tracker-route {
+    .customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-tracker-route {
         stroke-dasharray: none;
     }
 
-    .customer-sidebar-item:hover:not(:disabled) .customer-sidebar-tracker-snake {
+    .customer-sidebar-item:not(.is-active):hover:not(:disabled) .customer-sidebar-tracker-snake {
         opacity: 0;
     }
 
@@ -2591,16 +2602,21 @@ html.dark * {
         inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
-.customer-sidebar-item.is-active:hover {
+.customer-sidebar-item.is-active:hover:not(:disabled) {
     background:
-        linear-gradient(135deg, #2f6fea, #1d4ed8);
+        linear-gradient(135deg, #285fc9, #1a43a8);
     color: #ffffff;
+    box-shadow:
+        0 18px 36px -22px rgba(29, 78, 216, 0.72),
+        inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
+.customer-sidebar-item.is-active:hover:not(:disabled) iconify-icon,
 .customer-sidebar-item.is-active iconify-icon {
     color: #ffffff !important;
 }
 
+.customer-sidebar-item.is-active:hover:not(:disabled) .customer-sidebar-icon-svg,
 .customer-sidebar-item.is-active .customer-sidebar-icon-svg {
     color: #ffffff;
 }
@@ -2637,7 +2653,7 @@ html.dark * {
 }
 
 .customer-sidebar-footer {
-    border-top: 1px solid rgba(226, 232, 240, 0.72);
+    border-top: 1px solid #E5E7EB;
     padding: 0.45rem;
     display: flex;
     flex-direction: column;
@@ -2686,9 +2702,29 @@ html.dark * {
     padding-right: 0;
 }
 
-.customer-sidebar.is-collapsed .customer-sidebar-collapse-btn {
-    padding-left: 0.25rem;
-    padding-right: 0.25rem;
+.customer-sidebar-footer--collapsed {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0.75rem 0 0.875rem;
+    border-top-color: rgba(226, 232, 240, 0.72);
+}
+
+.customer-sidebar-collapse-btn--icon {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    border-radius: 12px;
+    flex-shrink: 0;
+}
+
+.customer-sidebar-collapse-btn--icon:hover {
+    background: rgba(239, 246, 255, 0.9);
+}
+
+.customer-sidebar-collapse-icon--expand {
+    transform: scaleX(-1);
 }
 
 .customer-sidebar-collapse-chevron {
@@ -2706,7 +2742,7 @@ html.dark * {
 }
 
 .customer-sidebar.is-collapsed {
-    width: 60px;
+    width: 4.5rem;
 }
 
 .customer-sidebar-nav {
@@ -2729,8 +2765,13 @@ html.dark * {
 }
 
 .customer-sidebar.is-collapsed .customer-sidebar-nav {
-    padding-left: 6px;
-    padding-right: 6px;
+    align-items: center;
+    padding: 0.75rem 0;
+    gap: 0.25rem;
+}
+
+.customer-sidebar.is-collapsed .customer-sidebar-section-heading {
+    display: none;
 }
 
 .customer-sidebar.is-collapsed .customer-sidebar-item {
@@ -2738,12 +2779,25 @@ html.dark * {
     align-items: center;
     justify-content: center;
     gap: 0;
-    width: 100%;
-    padding-left: 0;
-    padding-right: 0;
-    margin-left: 0;
-    margin-right: 0;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    max-width: 44px;
+    padding: 0;
+    margin-left: auto;
+    margin-right: auto;
+    flex-shrink: 0;
+    border-radius: 12px;
     text-indent: 0;
+}
+
+.customer-sidebar.is-collapsed .customer-sidebar-item.is-active {
+    width: 44px;
+    max-width: 44px;
+}
+
+.customer-sidebar.is-collapsed .customer-sidebar-extra {
+    display: none !important;
 }
 
 .customer-sidebar-label,
@@ -2774,10 +2828,7 @@ html.dark * {
 
 .customer-main-shell {
     margin-left: 0;
-    background:
-        radial-gradient(circle at 100% 0%, rgba(125, 141, 183, 0.06), transparent 26rem),
-        radial-gradient(circle at 0% 22%, rgba(210, 172, 104, 0.06), transparent 22rem),
-        linear-gradient(180deg, #fbf8f3 0%, #f7f3ef 52%, #f0eeef 100%);
+    background: #F8FAFC !important;
 }
 
 @media (min-width: 768px) {
@@ -2786,7 +2837,7 @@ html.dark * {
     }
 
     .customer-main-shell.is-sidebar-collapsed {
-        margin-left: 60px;
+        margin-left: 4.5rem;
     }
 
     .customer-main-shell.is-transition-ready {
@@ -2795,12 +2846,9 @@ html.dark * {
 }
 
 .customer-dashboard-header {
-    border-bottom-color: rgba(226, 232, 240, 0.76) !important;
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94)) !important;
-    box-shadow:
-        0 12px 34px -34px rgba(15, 23, 42, 0.42),
-        inset 0 -1px 0 rgba(255, 255, 255, 0.84);
+    border-bottom: 1px solid #E5E7EB !important;
+    background: #FFFFFF !important;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
 }
 
 .customer-dashboard-header h1 {
@@ -2809,18 +2857,14 @@ html.dark * {
 }
 
 .customer-dashboard-main {
-    background:
-        radial-gradient(circle at 100% 0%, rgba(125, 141, 183, 0.065), transparent 26rem),
-        radial-gradient(circle at 0% 22%, rgba(210, 172, 104, 0.065), transparent 22rem),
-        radial-gradient(circle at 72% 42%, rgba(183, 125, 128, 0.045), transparent 20rem),
-        linear-gradient(180deg, #fbf8f3 0%, #f7f3ef 46%, #efedf0 100%) !important;
+    background: #F8FAFC !important;
 }
 
 .customer-dashboard-home {
     --customer-premium-radius: 24px;
-    --customer-premium-border: rgba(207, 195, 186, 0.66);
-    --customer-premium-shadow: 0 20px 48px -40px rgba(79, 70, 89, 0.44), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
-    color: #0f172a;
+    --customer-premium-border: #E5E7EB;
+    --customer-premium-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    color: #0F172A;
 }
 
 .customer-dashboard-home > * + * {
@@ -2829,12 +2873,10 @@ html.dark * {
 
 .customer-home-section,
 .customer-side-card {
-    border-color: var(--customer-premium-border, rgba(203, 213, 225, 0.6)) !important;
-    border-radius: var(--customer-premium-radius, 24px) !important;
-    background:
-        radial-gradient(circle at 96% 0%, rgba(210, 172, 104, 0.075), transparent 16rem),
-        linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(248, 244, 240, 0.9)) !important;
-    box-shadow: var(--customer-premium-shadow, 0 22px 54px -42px rgba(15, 23, 42, 0.45)) !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 24px !important;
+    background: #FFFFFF !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
 }
 
 .customer-garage-section {
@@ -2860,7 +2902,7 @@ html.dark * {
 .customer-section-header p,
 .customer-side-card p[class*="uppercase"],
 .customer-docs-activity-section p[class*="uppercase"] {
-    color: #6b7787 !important;
+    color: #64748B !important;
     font-weight: 760 !important;
     letter-spacing: 0.1em !important;
 }
@@ -2926,10 +2968,9 @@ html.dark * {
 }
 
 .customer-quick-action {
-    border-color: rgba(226, 232, 240, 0.72) !important;
+    border: 1px solid #E5E7EB !important;
     border-radius: 15px !important;
-    background:
-        linear-gradient(180deg, rgba(255, 253, 249, 0.96), rgba(248, 244, 240, 0.86)) !important;
+    background: #FFFFFF !important;
 }
 
 .customer-quick-action:hover {
@@ -2940,14 +2981,10 @@ html.dark * {
 
 .customer-overview-card {
     min-height: 112px !important;
-    border-color: rgba(207, 195, 186, 0.58) !important;
+    border: 1px solid #E5E7EB !important;
     border-radius: 20px !important;
-    background:
-        radial-gradient(circle at 100% 0%, rgba(210, 172, 104, 0.08), transparent 46%),
-        linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(249, 246, 242, 0.92)) !important;
-    box-shadow:
-        0 14px 30px -26px rgba(79, 70, 89, 0.28),
-        0 1px 0 rgba(255, 255, 255, 0.9) inset !important;
+    background: #FFFFFF !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
     transition:
         border-color 0.18s ease,
         box-shadow 0.18s ease,
@@ -2956,25 +2993,27 @@ html.dark * {
 
 .customer-overview-card.border-l-blue-500 {
     border-left-color: #2563eb !important;
+    border-left-width: 4px !important;
 }
 
 .customer-overview-card.border-l-emerald-500 {
     border-left-color: #7B977F !important;
+    border-left-width: 4px !important;
 }
 
 .customer-overview-card.border-l-orange-500 {
     border-left-color: #B78384 !important;
+    border-left-width: 4px !important;
 }
 
 .customer-overview-card.border-l-amber-500 {
     border-left-color: #C2A25F !important;
+    border-left-width: 4px !important;
 }
 
 .customer-overview-card:hover {
-    border-color: rgba(125, 141, 183, 0.42) !important;
-    box-shadow:
-        0 18px 38px -28px rgba(79, 70, 89, 0.34),
-        0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
+    border-color: #E2E8F0 !important;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02) !important;
     transform: translateY(-1px);
 }
 
@@ -3006,11 +3045,11 @@ html.dark * {
 }
 
 .customer-overview-label {
-    color: #746b76 !important;
+    color: #475569 !important;
 }
 
 .customer-overview-helper {
-    color: #8a7f8a !important;
+    color: #64748B !important;
 }
 
 @property --customer-live-ring-angle {
@@ -5316,25 +5355,17 @@ html.dark * {
 }
 
 .customer-garage-empty-state {
-    border: 1px solid rgba(207, 195, 186, 0.7);
-    background:
-        radial-gradient(circle at 16% 0%, rgba(210, 172, 104, 0.16), transparent 34%),
-        radial-gradient(circle at 92% 100%, rgba(125, 141, 183, 0.14), transparent 36%),
-        linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(248, 244, 240, 0.92));
-    box-shadow:
-        0 18px 42px -34px rgba(79, 70, 89, 0.36),
-        inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    border: 1px dashed #E5E7EB !important;
+    background: #FFFFFF !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
 }
 
 .customer-garage-card {
     position: relative;
     isolation: isolate;
-    border-color: color-mix(in srgb, var(--vehicle-accent-border, #a7a2a3) 22%, rgba(207, 195, 186, 0.72)) !important;
-    background:
-        linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(248, 244, 240, 0.9)) !important;
-    box-shadow:
-        0 20px 48px -38px rgba(79, 70, 89, 0.42),
-        0 1px 0 rgba(255, 255, 255, 0.92) inset !important;
+    border: 1px solid #E5E7EB !important;
+    background: #FFFFFF !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
     transition:
         border-color 0.22s ease,
         box-shadow 0.22s ease,
@@ -5342,11 +5373,8 @@ html.dark * {
 }
 
 .customer-garage-card:hover {
-    border-color: color-mix(in srgb, var(--vehicle-accent-border, #a7a2a3) 40%, rgba(207, 195, 186, 0.72)) !important;
-    box-shadow:
-        0 26px 58px -40px rgba(79, 70, 89, 0.48),
-        0 14px 32px -30px var(--vehicle-accent-glow, rgba(148, 163, 184, 0.24)),
-        0 1px 0 rgba(255, 255, 255, 0.96) inset !important;
+    border-color: #E2E8F0 !important;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02) !important;
     transform: translateY(-2px);
 }
 
@@ -5357,8 +5385,7 @@ html.dark * {
     flex-direction: column;
     overflow: hidden;
     border-radius: inherit;
-    background:
-        linear-gradient(180deg, rgba(255, 253, 249, 0.95), rgba(248, 244, 240, 0.84)) !important;
+    background: #FFFFFF !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;

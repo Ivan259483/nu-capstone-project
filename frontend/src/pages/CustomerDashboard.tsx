@@ -2768,7 +2768,7 @@ export default function CustomerDashboard() {
           className={`customer-sidebar ${sidebarCollapsed ? 'is-collapsed' : 'is-expanded'} ${sidebarLabelsHidden ? 'is-labels-hidden' : ''} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} fixed inset-y-0 left-0 z-30 flex flex-col bg-white ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
             }`}
         >
-          <div className="customer-sidebar-brand-row flex h-16 shrink-0 items-center gap-1 border-b border-slate-100 px-3 overflow-hidden">
+          <div className="customer-sidebar-brand-row flex h-16 shrink-0 items-center border-b border-slate-100 px-3 overflow-hidden">
             <div className="customer-sidebar-user-header min-w-0 flex-1">
               <div
                 className="customer-sidebar-avatar flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-700 text-sm font-bold text-white shadow-sm"
@@ -2783,17 +2783,6 @@ export default function CustomerDashboard() {
                 </div>
               )}
             </div>
-            {sidebarCollapsed ? (
-              <button
-                type="button"
-                className="customer-sidebar-collapse-btn !w-9 !min-h-9 shrink-0 !p-0"
-                onClick={toggleSidebarCollapsed}
-                aria-label="Expand sidebar"
-                title="Expand sidebar"
-              >
-                <iconify-icon icon="solar:sidebar-minimalistic-outline" width="18" className="text-slate-500"></iconify-icon>
-              </button>
-            ) : null}
           </div>
 
           <nav className="customer-sidebar-nav">
@@ -2894,20 +2883,26 @@ export default function CustomerDashboard() {
             </button>
           </nav>
 
-          {!sidebarCollapsed ? (
-            <div className="customer-sidebar-footer">
-              <button
-                type="button"
-                className="customer-sidebar-collapse-btn"
-                onClick={toggleSidebarCollapsed}
-                aria-label="Collapse sidebar"
-                title="Collapse sidebar"
-              >
-                <iconify-icon icon="solar:sidebar-minimalistic-outline" width="16" className="shrink-0 text-slate-500"></iconify-icon>
+          <div
+            className={`customer-sidebar-footer ${sidebarCollapsed ? 'customer-sidebar-footer--collapsed' : ''}`}
+          >
+            <button
+              type="button"
+              className={`customer-sidebar-collapse-btn ${sidebarCollapsed ? 'customer-sidebar-collapse-btn--icon' : ''}`}
+              onClick={toggleSidebarCollapsed}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <iconify-icon
+                icon="solar:sidebar-minimalistic-outline"
+                width={sidebarCollapsed ? '20' : '16'}
+                className={`shrink-0 text-slate-500 ${sidebarCollapsed ? 'customer-sidebar-collapse-icon--expand' : ''}`}
+              ></iconify-icon>
+              {!sidebarCollapsed && (
                 <span className="customer-sidebar-label font-medium">Collapse</span>
-              </button>
-            </div>
-          ) : null}
+              )}
+            </button>
+          </div>
         </aside>
 
         {/* Main Content */}
@@ -3617,7 +3612,7 @@ export default function CustomerDashboard() {
                   style={{
                     background: highendScanEnabled
                       ? 'linear-gradient(145deg, #0c0a1e 0%, #172554 15%, #1e40af 30%, #1d4ed8 45%, #1a1636 70%, #0f0d1a 100%)'
-                      : 'linear-gradient(135deg, #fffdf8 0%, #ffffff 45%, #eef6ff 100%)'
+                      : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 45%, #eef6ff 100%)'
                   }}
                 >
                   <div className="pointer-events-none absolute -left-16 top-10 h-44 w-44 rounded-full bg-amber-200/20 blur-3xl" style={{ animation: 'heroFloatA 8s ease-in-out infinite' }} />

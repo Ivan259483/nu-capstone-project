@@ -42,10 +42,10 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
                 className
             )}
         >
-            <div className="flex h-16 shrink-0 items-center border-b border-slate-100 px-3 overflow-hidden">
+            <div className="customer-sidebar-brand-row flex h-16 shrink-0 items-center border-b border-slate-100 px-3 overflow-hidden">
                 <div className="customer-sidebar-user-header min-w-0 flex-1">
                     <div
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-700 text-sm font-bold text-white shadow-sm"
+                        className="customer-sidebar-avatar flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-700 text-sm font-bold text-white shadow-sm"
                         aria-hidden
                     >
                         {(displayName || email || '?').charAt(0).toUpperCase()}
@@ -69,6 +69,8 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
                             type="button"
                             className={cn('customer-sidebar-item', isActive && 'is-active')}
                             onClick={() => onTabChange(item.id)}
+                            aria-label={item.label}
+                            title={collapsed ? item.label : undefined}
                         >
                             <CustomerSidebarAnimatedIcon name={item.icon} />
                             <span className="customer-sidebar-label flex-1 min-w-0 text-left">{item.label}</span>
@@ -77,19 +79,35 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
                 })}
             </nav>
 
-            {!collapsed ? (
-                <div className="customer-sidebar-footer">
-                    <button
-                        type="button"
-                        className="customer-sidebar-collapse-btn"
-                        onClick={() => setCollapsed((c) => !c)}
-                        aria-label="Collapse sidebar"
-                    >
-                        <iconify-icon icon="solar:sidebar-minimalistic-outline" width="16" className="shrink-0 text-slate-500"></iconify-icon>
+            <div
+                className={cn(
+                    'customer-sidebar-footer',
+                    collapsed && 'customer-sidebar-footer--collapsed'
+                )}
+            >
+                <button
+                    type="button"
+                    className={cn(
+                        'customer-sidebar-collapse-btn',
+                        collapsed && 'customer-sidebar-collapse-btn--icon'
+                    )}
+                    onClick={() => setCollapsed((c) => !c)}
+                    aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                >
+                    <iconify-icon
+                        icon="solar:sidebar-minimalistic-outline"
+                        width={collapsed ? '20' : '16'}
+                        className={cn(
+                            'shrink-0 text-slate-500',
+                            collapsed && 'customer-sidebar-collapse-icon--expand'
+                        )}
+                    ></iconify-icon>
+                    {!collapsed && (
                         <span className="customer-sidebar-label font-medium">Collapse</span>
-                    </button>
-                </div>
-            ) : null}
+                    )}
+                </button>
+            </div>
         </aside>
     );
 };
