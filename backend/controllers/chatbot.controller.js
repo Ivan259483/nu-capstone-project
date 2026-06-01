@@ -1714,7 +1714,7 @@ const FAQS = [
   },
   {
     q: 'Where are you located?',
-    a: 'Las Piñas City, Metro Manila — Marcos Alvarez Ave. See the Contact page for map and details.',
+    a: 'Marcos Alvarez Ave., Las Piñas City. See the Contact page for map and details.',
   },
   {
     q: 'How long does coating take?',

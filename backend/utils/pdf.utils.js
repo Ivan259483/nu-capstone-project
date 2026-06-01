@@ -13,8 +13,8 @@ export const generateTermsAndConditionsPDF = async (order, signatureBase64) => {
     doc.setFontSize(10);
     
     // Header
-    doc.text('#7380 Marcos Alvarez Ave', 10, 20);
-    doc.text('Talon V Las Piñas City', 10, 25);
+    doc.text('Marcos Alvarez Ave.', 10, 20);
+    doc.text('Las Piñas City', 10, 25);
     doc.text('AUTOSPF AUTOMOTIVE CAR CARE SERVICE', 10, 30);
     doc.text('+639176303116', 10, 35);
     

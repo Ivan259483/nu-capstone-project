@@ -14,18 +14,18 @@ export const fil = {
 
     // Hero
     hero: {
-        badge: "Premium na Auto Detailing",
+        badge: "PPF · Ceramic Coating · Window Tinting",
         title: "Nararapat sa Iyong Kotse ang",
         titleLine1: "Ang Iyong Kotse",
         titleLine2: "ay Karapat-dapat sa",
         titleHighlight: "Pinakamahusay",
-        subtitle: "Propesyonal na detailing na nagpapakitang-gilas sa bawat sasakyan. Tinatrato naming parang sarili naming ang kotse mo.",
+        subtitle: "Premium paint protection at detailing — Ceramic Coating, PPF, Nano Ceramic Tint, at expert auto detailing sa Las Piñas.",
         cta: "Mag-book ng Serbisyo",
         ctaSecondary: "Tingnan ang Aming Gawa",
         viewWork: "Tingnan ang Gawa",
         scrollDown: "Mag-scroll Pababa",
         scrollCue: "Mag-scroll para tumuklas",
-        reviews: "2,400+ na Review",
+        reviews: "68 Review · 100% Recommend",
         imageAlt: "Luxury car detailing",
         serviceTags: {
             ceramicCoating: "Ceramic Coating",
@@ -192,25 +192,28 @@ export const fil = {
         title: "Tungkol sa AutoSPF+",
         headlineLead: "Tungkol sa",
         headlineBrand: "AutoSPF+",
-        subtitle: "Ang iyong destinasyon para sa premium na pag-aalaga ng sasakyan.",
+        subtitle: "Premium paint protection at detailing — pinagkakatiwalaan sa kalidad, tibay, at expert na serbisyo.",
         pillSince: "Mula 2011",
         pillLocation: "Las Piñas City",
         pillCars: "500+ Kotse",
+        pillRecommend: "100% Recommend · 68 Review",
+        pillFacebook: "45K+ sa Facebook",
         story: "Ang Aming Kwento",
         storyTitleLead: "Itinayo sa",
         storyTitleHighlight: "Passion",
         storyTitleSuffix: "at Presisyon",
         storyP1:
-            "Ang AutoSPF+ ay premium na automotive care at protection specialist sa Las Piñas, Philippines — nakatuon sa mataas na kalidad na detailing at proteksyon ng sasakyan.",
+            "AutoSPF+ — Premium Paint Protection & Detailing sa Las Piñas. Nag-aalok kami ng Ceramic Coating, PPF, Nano Ceramic Tint, at Auto Detailing para sa mga may-ari ng kotse na gusto ng pangmatagalang proteksyon at showroom finish.",
         storyP2:
-            "Dalubhasa kami sa Paint Protection Film (PPF), Ceramic Coating, Window Tinting, at Premium Auto Detailing — para mapanatili ang ganda, proteksyon, at halaga ng kotse mo.",
+            "Pinagkakatiwalaan ng mga car owner sa kalidad, tibay, at expert na serbisyo — mula sa Paint Protection Film at Car Foil hanggang Ceramic Coating at window tinting.",
         storyP3:
-            "Ang misyon namin: propesyonal na gawa, premium na materyales, at mahusay na serbisyo — para umalis ang bawat sasakyan na parang bagong labas ng showroom.",
-        storyText: "Ang AutoSPF+ ay premium na automotive care specialist sa Las Piñas, Philippines.",
+            "Mag-message para mag-book o bisitahin kami sa Marcos Alvarez Ave., Las Piñas City — ang iyong pinagkakatiwalaang shop sa automotive protection.",
+        storyText:
+            "AutoSPF+ — Premium Paint Protection & Detailing sa Las Piñas. Ceramic Coating, PPF, Nano Ceramic Tint, at Auto Detailing na pinagkakatiwalaan sa kalidad at expert na serbisyo.",
         miniFounded: "Itinatag",
         miniLocations: "Mga Lokasyon",
         miniCars: "Na-detail na Kotse",
-        brandTagline: "Premium Auto Detailing",
+        brandTagline: "Ang iyong pinagkakatiwalaang shop sa Automotive Protection Solution!",
         badgeSonax: "SONAX Certified",
         badgePpf: "PPF Installer",
         badgeVinyl: "Vinyl Frog Partner",
@@ -238,7 +241,7 @@ export const fil = {
         pillConsult: "Libreng Konsultasyon",
         sendAnother: "Magpadala ng Isa pang Mensahe",
         address: "Address",
-        addressValue: "Las Piñas, Pilipinas",
+        addressValue: "Marcos Alvarez Ave., Las Piñas City",
         phone: "Telepono",
         phoneValue: "+63 917 630 3116",
         email: "Email",
@@ -420,7 +423,7 @@ export const fil = {
 
     // Footer
     footer: {
-        tagline: "Premium na Serbisyo sa Pagde-detalye ng Kotse",
+        tagline: "Ang iyong pinagkakatiwalaang shop sa Automotive Protection Solution!",
         rights: "Lahat ng karapatan ay nakalaan.",
         quickLinks: "Mabilis na Mga Link",
         connect: "Kumonekta",

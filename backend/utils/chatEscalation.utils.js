@@ -109,7 +109,7 @@ export const buildCasualConciergeReply = (message = '', { session = {}, recentUs
   }
 
   if (LOCATION_FRAGMENT_REGEX.test(text)) {
-    return 'We are located in Las Piñas City along Marcos Alvarez Ave. Visit our Contact page for map details and studio hours.';
+    return 'We are along Marcos Alvarez Ave., Las Piñas City. Visit our Contact page for map details and studio hours.';
   }
 
   if (SHORT_PRICE_REGEX.test(text) || /\b(presyo|magkano)\b/i.test(text)) {

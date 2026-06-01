@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
-import { Car, Instagram, Facebook, Twitter, Youtube, Phone, Mail, MapPin } from "lucide-react";
+import { Instagram, Facebook, Phone, Mail, MapPin } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { COMPANY_BRANDING } from "@/lib/company-branding";
 import { cn } from "@/lib/utils";
 
 export default function Footer() {
@@ -25,7 +26,7 @@ export default function Footer() {
         {
             icon: Facebook,
             label: "Facebook",
-            href: "https://www.facebook.com/autospfmain",
+            href: COMPANY_BRANDING.facebookUrl,
             customClass: "border-[#1877F2]/30 text-[#1877F2] shadow-[0_0_10px_rgba(24,119,242,0.2)] hover:border-[#1877F2] hover:text-[#1877F2] hover:shadow-[0_0_25px_rgba(24,119,242,0.6)] hover:bg-[#1877F2]/10"
         }
     ];
@@ -46,8 +47,11 @@ export default function Footer() {
                                 className="h-10 md:h-12 object-contain"
                             />
                         </Link>
-                        <p className="text-muted-foreground text-sm leading-relaxed max-w-xs mb-6">
-                            {t("footer.tagline")}. {t("about.storyText").slice(0, 100)}...
+                        <p className="text-muted-foreground text-sm leading-relaxed max-w-xs mb-1">
+                            {t("footer.tagline")}
+                        </p>
+                        <p className="text-muted-foreground/80 text-xs leading-relaxed max-w-xs mb-6">
+                            {COMPANY_BRANDING.tagline}
                         </p>
                         <div className="flex items-center gap-3">
                             {socials.map(({ icon: Icon, label, href, customClass }) => (
@@ -96,18 +100,18 @@ export default function Footer() {
                         <ul className="space-y-3">
                             <li className="flex items-start gap-2.5">
                                 <MapPin className="w-4 h-4 text-[#F4B63D] mt-0.5 shrink-0" />
-                                <span className="text-sm text-muted-foreground">{t("contact.addressValue")}</span>
+                                <span className="text-sm text-muted-foreground">{COMPANY_BRANDING.address}</span>
                             </li>
                             <li className="flex items-center gap-2.5">
                                 <Phone className="w-4 h-4 text-[#F4B63D] shrink-0" />
-                                <a href="tel:09176303116" className="text-sm text-muted-foreground hover:text-[#F4B63D] transition-colors">
-                                    {t("contact.phoneValue")}
+                                <a href={`tel:${COMPANY_BRANDING.phoneTel}`} className="text-sm text-muted-foreground hover:text-[#F4B63D] transition-colors">
+                                    {COMPANY_BRANDING.phone}
                                 </a>
                             </li>
                             <li className="flex items-center gap-2.5">
                                 <Mail className="w-4 h-4 text-[#F4B63D] shrink-0" />
-                                <a href="mailto:autospf2023@gmail.com" className="text-sm text-muted-foreground hover:text-[#F4B63D] transition-colors">
-                                    {t("contact.emailValue")}
+                                <a href={`mailto:${COMPANY_BRANDING.email}`} className="text-sm text-muted-foreground hover:text-[#F4B63D] transition-colors">
+                                    {COMPANY_BRANDING.email}
                                 </a>
                             </li>
                         </ul>

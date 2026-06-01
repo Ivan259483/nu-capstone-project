@@ -538,7 +538,7 @@ const generateServiceCompletedTemplate = (order) => {
         <p style="font-size: 14px; color: #666; line-height: 1.6;">Thank you for choosing AutoSPF+. We look forward to serving you again!</p>
       </div>
       <div style="background: #1a1a1a; color: #888; padding: 20px; text-align: center; font-size: 12px;">
-        <p style="margin: 0 0 8px 0;">&copy; 2026 AutoSPF+. Premium Auto Detailing.</p>
+        <p style="margin: 0 0 8px 0;">&copy; 2026 AutoSPF+. PPF, Ceramic Coating &amp; Window Tinting.</p>
         <p style="margin: 0;">This is an automated message. Please do not reply.</p>
       </div>
     </div>
@@ -642,7 +642,7 @@ const generateReceiptTemplate = (data) => {
 
       <!-- Footer -->
       <div style="background: #1a1a1a; color: #666; padding: 20px; text-align: center; font-size: 11px;">
-        <p style="margin: 0 0 4px 0;">&copy; 2026 AutoSPF+. Premium Auto Detailing.</p>
+        <p style="margin: 0 0 4px 0;">&copy; 2026 AutoSPF+. PPF, Ceramic Coating &amp; Window Tinting.</p>
         <p style="margin: 0;">This is an automated receipt. Please keep for your records.</p>
       </div>
     </div>

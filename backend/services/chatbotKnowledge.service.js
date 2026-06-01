@@ -448,6 +448,7 @@ export const buildWebsiteGuide = () => [
   '- **Login / Register:** Top nav **Login**; customers use dashboard for bookings, live tracker, garage, AI scan.',
   '- **Gallery / About / Contact:** Shop proof, team story, map & contact form.',
   '- **Live tracker:** Logged-in customers see job progress after booking.',
-  '- **Location:** Las Piñas City, Metro Manila (Marcos Alvarez Ave.).',
+  '- **Location:** Marcos Alvarez Ave., Las Piñas City. Phone 0917 630 3116 · Facebook autospfmain.',
+  '- **Shop bio:** Premium Paint Protection & Detailing — Ceramic Coating, PPF, Nano Ceramic Tint, Auto Detailing. 100% recommend (68 reviews) · 45K+ Facebook followers.',
   '- Human help: Only suggest Talk to a protection specialist when the customer explicitly asks for a person or has a serious unresolved complaint.',
 ].join('\n');

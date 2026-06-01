@@ -14,18 +14,18 @@ export const en = {
 
     // Hero
     hero: {
-        badge: "Premium Auto Detailing",
+        badge: "PPF · Ceramic Coating · Window Tinting",
         title: "Your Car Deserves",
         titleLine1: "Your Car",
         titleLine2: "Deserves",
         titleHighlight: "The Best",
-        subtitle: "Professional detailing services that bring out the brilliance in every vehicle. We treat your car like our own.",
+        subtitle: "Premium paint protection and detailing — Ceramic Coating, PPF, Nano Ceramic Tint, and expert auto detailing in Las Piñas.",
         cta: "Book a Service",
         ctaSecondary: "View Our Work",
         viewWork: "View Work",
         scrollDown: "Scroll Down",
         scrollCue: "Scroll to explore",
-        reviews: "2,400+ Reviews",
+        reviews: "68 Reviews · 100% Recommend",
         imageAlt: "Luxury car detailing",
         serviceTags: {
             ceramicCoating: "Ceramic Coating",
@@ -197,25 +197,28 @@ export const en = {
         title: "About AutoSPF+",
         headlineLead: "About",
         headlineBrand: "AutoSPF+",
-        subtitle: "The ultimate destination for premium automotive care.",
+        subtitle: "Premium paint protection and detailing — trusted for quality, durability, and expert service.",
         pillSince: "Since 2011",
         pillLocation: "Las Piñas City",
         pillCars: "500+ Cars",
+        pillRecommend: "100% Recommend · 68 Reviews",
+        pillFacebook: "45K+ on Facebook",
         story: "Our Story",
         storyTitleLead: "Built on",
         storyTitleHighlight: "Passion",
         storyTitleSuffix: "& Precision",
         storyP1:
-            "AutoSPF+ is a premium automotive care and protection specialist based in Las Piñas, Philippines, dedicated to delivering high-quality detailing and vehicle protection services.",
+            "AutoSPF+ — Premium Paint Protection & Detailing in Las Piñas. We offer Ceramic Coating, PPF, Nano Ceramic Tint, and Auto Detailing for owners who want lasting protection and a showroom finish.",
         storyP2:
-            "We specialize in Paint Protection Film (PPF), Ceramic Coating, Window Tinting, and Premium Auto Detailing, helping vehicle owners preserve the beauty, protection, and long-term value of their cars.",
+            "Trusted by car owners for quality, durability, and expert service. From Paint Protection Film and Car Foil to Ceramic Coating and window tinting, we help you protect your ride and preserve your vehicle's value.",
         storyP3:
-            "Our mission is to provide professional-grade workmanship, premium materials, and exceptional customer service so every vehicle leaves with a showroom-quality finish.",
-        storyText: "AutoSPF+ is a premium automotive care and protection specialist based in Las Piñas, Philippines, dedicated to delivering high-quality detailing and vehicle protection services.",
+            "Message us to book a consultation or visit us along Marcos Alvarez Ave. in Las Piñas City — your trusted shop in automotive protection solutions.",
+        storyText:
+            "AutoSPF+ — Premium Paint Protection & Detailing in Las Piñas. Ceramic Coating, PPF, Nano Ceramic Tint, and Auto Detailing trusted for quality and expert service.",
         miniFounded: "Founded",
         miniLocations: "Locations",
         miniCars: "Cars Detailed",
-        brandTagline: "Premium Auto Detailing",
+        brandTagline: "Your trusted shop in Automotive Protection Solution!",
         badgeSonax: "SONAX Certified",
         badgePpf: "PPF Installer",
         badgeVinyl: "Vinyl Frog Partner",
@@ -243,7 +246,7 @@ export const en = {
         pillConsult: "Free Consultation",
         sendAnother: "Send Another Message",
         address: "Address",
-        addressValue: "Las Piñas, Philippines",
+        addressValue: "Marcos Alvarez Ave., Las Piñas City",
         phone: "Phone",
         phoneValue: "0917 630 3116",
         email: "Email",
@@ -429,7 +432,7 @@ export const en = {
 
     // Footer
     footer: {
-        tagline: "Premium Auto Detailing Services",
+        tagline: "Your trusted shop in Automotive Protection Solution!",
         rights: "All rights reserved.",
         quickLinks: "Quick Links",
         connect: "Connect",

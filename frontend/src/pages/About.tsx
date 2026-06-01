@@ -139,7 +139,7 @@ export default function About() {
                             variants={fadeUp}
                             className="flex items-center justify-center gap-6 mt-8"
                         >
-                            {(["pillSince", "pillLocation", "pillCars"] as const).map((key) => (
+                            {(["pillLocation", "pillRecommend", "pillFacebook"] as const).map((key) => (
                                 <span
                                     key={key}
                                     className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20 px-3 py-1.5 rounded-full border border-white/5"
@@ -205,9 +205,13 @@ export default function About() {
                                 { value: "3", label: t("about.miniLocations") },
                                 { value: "5K+", label: t("about.miniCars") },
                             ].map(({ value, label }) => (
-                                <div key={label} className="group">
-                                    <p className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 tracking-tight">{value}</p>
-                                    <p className="text-[10px] uppercase tracking-widest text-white/25 font-medium">{label}</p>
+                                <div key={label} className="group flex min-w-[5.5rem] flex-col items-center text-center">
+                                    <p className="w-full text-2xl font-black tabular-nums text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 tracking-tight">
+                                        {value}
+                                    </p>
+                                    <p className="mt-0.5 w-full text-[10px] font-medium uppercase tracking-widest text-white/25">
+                                        {label}
+                                    </p>
                                 </div>
                             ))}
                         </motion.div>

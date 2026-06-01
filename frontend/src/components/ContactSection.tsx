@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { Mail, Clock, MapPin, ChevronRight, Send } from 'lucide-react';
+import { COMPANY_BRANDING } from '@/lib/company-branding';
 
 /* ── Framer variants ── */
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -22,13 +23,7 @@ const inputCls =
     'text-white text-sm placeholder:text-white/25 ' +
     'focus:outline-none focus:border-gold/60 transition-colors duration-200';
 
-const ENQUIRY_OPTIONS = [
-    'Paint Protection Film',
-    'Car Foil',
-    'Ceramic Coating',
-    'Window Tints',
-    'Other',
-];
+const ENQUIRY_OPTIONS = [...COMPANY_BRANDING.services, 'Other'];
 
 const BULLET_POINTS = [
     'Need to get in touch with the team?',
@@ -106,20 +101,20 @@ export default function ContactSection() {
                         {
                             icon: Mail,
                             label: 'Email Us',
-                            value: 'support@autospf.com',
+                            value: COMPANY_BRANDING.email,
                             sub: 'We respond within 24 hours',
                         },
                         {
                             icon: Clock,
                             label: 'Support Hours',
-                            value: 'Mon – Sat: 9am – 6pm',
+                            value: 'Mon – Sat: 8:00 AM – 6:00 PM',
                             sub: 'Closed on Sundays & public holidays',
                         },
                         {
                             icon: MapPin,
                             label: 'Visit At HQ',
-                            value: 'Marcos Alvarez Ave.',
-                            sub: 'Las Piñas City, Metro Manila',
+                            value: COMPANY_BRANDING.addressShort,
+                            sub: COMPANY_BRANDING.address,
                         },
                     ].map(({ icon: Icon, label, value, sub }) => (
                         <motion.div

@@ -5,7 +5,7 @@
 
 export const PPF_TERMS_BUSINESS = {
   name: 'AUTOSPF AUTOMOTIVE CAR CARE SERVICE',
-  address: '#7380 Marcos Alvarez Ave, Talon V, Las Piñas City',
+  address: 'Marcos Alvarez Ave., Las Piñas City',
   phone: '+639176303116',
 } as const;
 
