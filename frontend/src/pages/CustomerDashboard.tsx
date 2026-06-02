@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { NotificationService, SystemNotification } from '../lib/notification-service';
@@ -529,6 +530,22 @@ function bookingRowId(booking: any): string {
   return String(booking?.id || booking?._id || '').trim();
 }
 
+const MONGO_OBJECT_ID_RE = /^[a-f\d]{24}$/i;
+
+function resolveCustomerReceiptOrderId(orderId: string, bookings: any[]): string {
+  const trimmed = String(orderId || '').trim();
+  if (MONGO_OBJECT_ID_RE.test(trimmed)) return trimmed;
+  const match = bookings.find((booking) => {
+    const row = booking as Record<string, unknown>;
+    return (
+      String(row.orderNumber || '') === trimmed ||
+      String(row.bookingReference || '') === trimmed
+    );
+  });
+  const resolved = match ? bookingRowId(match) : trimmed;
+  return MONGO_OBJECT_ID_RE.test(resolved) ? resolved : trimmed;
+}
+
 function hasTrackerStageMediaField(booking: any): boolean {
   return Boolean(booking && Object.prototype.hasOwnProperty.call(booking, 'trackerStageMedia'));
 }
@@ -681,15 +698,27 @@ export default function CustomerDashboard() {
   }, []);
 
   const openCustomerOrderReceiptPdf = useCallback(async (orderId: string) => {
+    const resolvedOrderId = resolveCustomerReceiptOrderId(orderId, myBookingsRef.current);
+    if (!MONGO_OBJECT_ID_RE.test(resolvedOrderId)) {
+      toast.error('Could not open receipt', {
+        description: 'This booking reference is invalid. Try refreshing Payment History.',
+      });
+      return;
+    }
+
     const t = toast.loading('Opening receipt…');
     try {
       await ensureBackendAuthToken();
       const { BillingService } = await import('../lib/billing-service');
-      const blob = await BillingService.getOrderReceiptPdfBlob(orderId);
+      const blob = await BillingService.getOrderReceiptPdfBlob(resolvedOrderId);
+      const pdfBlob =
+        blob.type === 'application/pdf'
+          ? blob
+          : new Blob([blob], { type: 'application/pdf' });
       toast.dismiss(t);
       setOrderReceiptPdfUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
-        const next = URL.createObjectURL(blob);
+        const next = URL.createObjectURL(pdfBlob);
         orderReceiptPdfUrlRef.current = next;
         return next;
       });
@@ -725,6 +754,18 @@ export default function CustomerDashboard() {
     const u = orderReceiptPdfUrlRef.current;
     if (u) URL.revokeObjectURL(u);
   }, []);
+
+  useEffect(() => {
+    if (!orderReceiptPdfUrl) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeCustomerOrderReceiptPdf();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [orderReceiptPdfUrl, closeCustomerOrderReceiptPdf]);
 
   useEffect(() => {
     if (!trackerEvidenceLightbox) return;
@@ -2908,37 +2949,35 @@ export default function CustomerDashboard() {
               </h1>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="customer-dashboard-actions flex items-center gap-2">
               {activeSection !== 'bookings' && (
                 <button
                   onClick={() => void openBookingModal()}
-                  className="customer-dashboard-header-action hidden sm:flex items-center justify-center px-4 py-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-md font-medium transition-colors shadow-sm"
+                  className="customer-dashboard-header-action hidden sm:inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-[0_6px_18px_-16px_rgba(15,23,42,0.32)] transition-colors hover:border-blue-200 hover:bg-blue-50/70 hover:text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25"
                 >
+                  <iconify-icon icon="solar:calendar-add-linear" width="16" height="16" className="shrink-0 text-blue-600"></iconify-icon>
                   Book Service
                 </button>
               )}
-
-
-              <div className="w-px h-6 bg-slate-200 hidden sm:block mx-1"></div>
 
               <div className="relative shrink-0">
                 <button
                   type="button"
                   onClick={() => setNotificationsOpen(!notificationsOpen)}
-                  className="customer-notification-trigger relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/35"
+                  className="customer-notification-trigger relative flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-[0_6px_18px_-16px_rgba(15,23,42,0.34)] transition-colors hover:border-blue-200 hover:bg-blue-50/70 hover:text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25"
                   aria-label={unreadNotificationCount > 0 ? `Notifications, ${unreadNotificationCount} unread` : 'Notifications'}
                 >
                   <span
-                    className={`flex size-[22px] items-center justify-center ${unreadNotificationCount > 0 ? 'origin-top [transform:translateZ(0)] animate-[ring_2s_ease-in-out_infinite]' : ''}`}
+                    className={`flex size-5 items-center justify-center ${unreadNotificationCount > 0 ? 'origin-top [transform:translateZ(0)] animate-[ring_2s_ease-in-out_infinite]' : ''}`}
                   >
-                    <iconify-icon icon="solar:bell-bold" width="22" height="22" className="shrink-0 text-current"></iconify-icon>
+                    <iconify-icon icon="solar:bell-bold" width="19" height="19" className="shrink-0 text-current"></iconify-icon>
                   </span>
                   {unreadNotificationCount > 0 && (
                     <span
-                      className={`absolute -right-0.5 -top-0.5 z-10 flex items-center justify-center rounded-full border-2 border-white bg-red-500 font-extrabold tabular-nums leading-none text-white antialiased shadow-md ${
+                      className={`customer-notification-badge absolute right-1 top-1 z-10 flex translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-red-500 font-extrabold tabular-nums leading-none text-white antialiased shadow-sm ${
                         unreadNotificationCount > 9
-                          ? 'h-[18px] min-w-[22px] px-1 text-[9px]'
-                          : 'size-[18px] text-[10px]'
+                          ? 'h-4 min-w-5 px-1 text-[8px]'
+                          : 'size-4 text-[9px]'
                       }`}
                     >
                       {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
@@ -3001,19 +3040,21 @@ export default function CustomerDashboard() {
               </div>
 
               <div className="relative">
-                <button onClick={() => setProfileMenuOpen(!profileMenuOpen)} className="relative w-9 h-9 rounded-full bg-[#eff6ff] border border-[#bfdbfe] flex items-center justify-center text-[#1d4ed8] font-bold text-sm ml-2 hover:ring-2 hover:ring-[#bfdbfe] transition-all overflow-visible">
-                  <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+                <button
+                  onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+                  className="customer-profile-trigger relative flex h-10 items-center gap-1 rounded-xl border border-slate-200 bg-white py-1 pl-1 pr-2 text-[#1d4ed8] shadow-[0_6px_18px_-16px_rgba(15,23,42,0.34)] transition-colors hover:border-blue-200 hover:bg-blue-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25"
+                  aria-label="Open profile menu"
+                  aria-expanded={profileMenuOpen}
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-blue-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100">
                     {user?.avatar ? (
                       <img src={user.avatar} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       (user?.name || 'C').charAt(0).toUpperCase()
                     )}
                   </div>
-                  {/* Chevron badge — slim & clean */}
-                  <span className="absolute -bottom-0.5 -right-0.5 w-[14px] h-[14px] rounded-full bg-[#e2e5ea] border-2 border-white flex items-center justify-center shadow-sm">
-                    <svg width="6" height="5" viewBox="0 0 6 5" fill="none">
-                      <path d="M1 1.5L3 3.5L5 1.5" stroke="#1e293b" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-slate-500 transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`}>
+                    <iconify-icon icon="solar:alt-arrow-down-linear" width="13" height="13"></iconify-icon>
                   </span>
                 </button>
 
@@ -4464,30 +4505,6 @@ export default function CustomerDashboard() {
 	                  />
 	                </div>
 
-                {orderReceiptPdfUrl && (
-                  <div
-                    className="customer-modal-layer fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black/75 backdrop-blur-sm p-4"
-                    onClick={closeCustomerOrderReceiptPdf}
-                  >
-                    <div
-                      className="customer-modal-panel relative w-full max-w-3xl flex flex-col rounded-2xl bg-white shadow-2xl overflow-hidden max-h-[90vh]"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
-                        <p className="text-sm font-bold text-slate-800">Payment receipt</p>
-                        <button
-                          type="button"
-                          onClick={closeCustomerOrderReceiptPdf}
-                          className="text-xs font-semibold text-slate-600 hover:text-slate-900"
-                        >
-                          Close
-                        </button>
-                      </div>
-                      <iframe title="Receipt PDF" src={orderReceiptPdfUrl} className="w-full flex-1 min-h-[70vh] border-0 bg-slate-100" />
-                    </div>
-                  </div>
-                )}
-
                 {/* Lightbox */}
                 {paymentLightboxUrl && (
                   <div
@@ -5775,8 +5792,8 @@ export default function CustomerDashboard() {
 
 
                 {/* Your Vehicles */}
-                <section className="customer-home-section customer-garage-section rounded-2xl border border-slate-200/80 bg-white/80 p-3.5 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.28)] sm:p-4">
-                  <div className="customer-section-header mb-3 flex items-center justify-between gap-3 border-b border-slate-100 pb-2.5">
+                <section className="customer-home-section customer-garage-section rounded-2xl border border-slate-200/80 bg-white/80 p-3.5 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.28)] sm:p-3.5">
+                  <div className="customer-section-header mb-2.5 flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
                     <div>
                       <p className="text-[11px] font-bold tracking-[0.08em] text-slate-500">Garage</p>
                       <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Your Garage</h2>
@@ -5790,8 +5807,8 @@ export default function CustomerDashboard() {
                     </button>
                   </div>
 
-                  <div className="customer-garage-layout grid gap-3.5 xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] xl:items-start">
-                    <div className="min-w-0">
+                  <div className="customer-garage-layout grid gap-2.5 xl:grid-cols-[minmax(0,1fr)_minmax(270px,316px)] 2xl:grid-cols-[minmax(0,1fr)_minmax(292px,328px)] xl:items-start">
+                    <div className="customer-garage-grid-column min-w-0">
                   {vehicles.length === 0 ? (
                     <div className="customer-garage-empty-state rounded-3xl overflow-hidden">
                       <div className="relative px-6 py-8 flex flex-col items-center text-center overflow-hidden sm:px-8">
@@ -5833,7 +5850,7 @@ export default function CustomerDashboard() {
                       </div>
                     </div>
                   ) : (
-                    <div className="customer-garage-grid grid gap-4 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
+                    <div className="customer-garage-grid grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {vehicles.map((v, i) => {
                         const theme = getCustomerVehicleColorTheme(v.color);
 
@@ -5851,7 +5868,7 @@ export default function CustomerDashboard() {
                             <div className="customer-garage-card-frame">
                             {/* ── Card Banner ── */}
                             <div
-                              className="customer-garage-card-banner relative h-32 flex items-center justify-center overflow-hidden"
+                              className="customer-garage-card-banner relative flex h-[6.75rem] items-center justify-center overflow-hidden"
                               style={{ background: `linear-gradient(135deg, ${theme.from}e6 0%, ${theme.to}d9 100%)` }}
                             >
                               {/* Decorative circles */}
@@ -5926,7 +5943,7 @@ export default function CustomerDashboard() {
                             </div>
 
                             {/* ── Card Body ── */}
-                            <div className="customer-garage-card-body p-3.5 flex-1 flex flex-col bg-white/58 backdrop-blur-xl">
+                            <div className="customer-garage-card-body flex flex-col bg-white/58 p-2.5 backdrop-blur-xl">
                               <h3 className="font-bold text-[15px] text-slate-900 leading-tight">{v.name}</h3>
                               <div className="flex items-center gap-1.5 mt-1">
                                 <div className="customer-garage-color-dot w-3 h-3 rounded-full border border-slate-200 shadow-sm" style={{ background: theme.border }}></div>
@@ -5934,20 +5951,20 @@ export default function CustomerDashboard() {
                               </div>
 
                               {/* Actions */}
-                              <div className="customer-garage-actions mt-3 grid grid-cols-2 gap-1.5 pt-2.5">
+                              <div className="customer-garage-actions mt-2 grid grid-cols-2 gap-1.5 pt-1.5">
 	                                <button
 	                                  type="button"
 	                                  onClick={() => openBookingModal(v)}
-	                                  className="customer-garage-book-button flex min-h-[46px] flex-col items-center justify-center gap-1 rounded-2xl bg-blue-600 px-1 py-2 font-medium text-white shadow-[0_12px_28px_-18px_rgba(37,99,235,0.72)] transition-all hover:-translate-y-0.5 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+	                                  className="customer-garage-book-button flex min-h-10 flex-col items-center justify-center gap-0.5 rounded-2xl bg-blue-600 px-1 py-1.5 font-medium text-white shadow-[0_12px_28px_-18px_rgba(37,99,235,0.72)] transition-all hover:-translate-y-0.5 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
 	                                >
-                                  <iconify-icon icon="solar:calendar-add-linear" width="17"></iconify-icon>
+                                  <iconify-icon icon="solar:calendar-add-linear" width="16"></iconify-icon>
                                   <span className="text-[10px] font-semibold text-center leading-tight">Book Service</span>
                                 </button>
                                 <button
                                   onClick={() => openVehicleHistory(v)}
-                                  className="flex flex-col items-center justify-center gap-1 min-h-[46px] py-2 px-1 text-slate-400 hover:text-slate-700 transition-colors rounded-2xl hover:bg-white/56"
+                                  className="flex min-h-10 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 py-1.5 text-slate-400 transition-colors hover:bg-white/56 hover:text-slate-700"
                                 >
-                                  <iconify-icon icon="solar:history-linear" width="17"></iconify-icon>
+                                  <iconify-icon icon="solar:history-linear" width="16"></iconify-icon>
                                   <span className="text-[10px] font-semibold text-center leading-tight">View Vehicle History</span>
                                 </button>
                               </div>
@@ -5962,7 +5979,7 @@ export default function CustomerDashboard() {
                           onClick={() => setAddVehicleOpen(true)}
                           className="customer-garage-add-card flex h-full min-h-0 w-full cursor-pointer flex-col overflow-hidden rounded-[28px] border-2 border-dashed border-[#CBD5E1] bg-[#F8FAFC] text-left transition-all hover:border-solid hover:border-slate-400 hover:bg-slate-100/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                         >
-                          <div className="relative flex h-32 items-center justify-center">
+                          <div className="relative flex h-[6.75rem] items-center justify-center">
                             <iconify-icon
                               icon="solar:add-circle-linear"
                               width="48"
@@ -5974,7 +5991,7 @@ export default function CustomerDashboard() {
                             <p className="mt-1 max-w-[200px] text-xs leading-relaxed text-slate-400">
                               Register another car to your garage
                             </p>
-                            <div className="mt-3 min-h-[46px] w-full" aria-hidden="true" />
+                            <div className="mt-2 min-h-10 w-full" aria-hidden="true" />
                           </div>
                         </button>
                       )}
@@ -5982,23 +5999,23 @@ export default function CustomerDashboard() {
                   )}
                     </div>
 
-                    <aside className="customer-garage-rail grid gap-3 lg:grid-cols-2 xl:grid-cols-1">
-                      <div className="customer-side-card customer-recommendation-card relative overflow-hidden rounded-[28px] border border-blue-100 bg-white p-4 shadow-[0_18px_48px_-30px_rgba(37,99,235,0.34)]">
+                    <aside className="customer-garage-rail grid h-fit content-start gap-1.5 self-start lg:grid-cols-2 xl:grid-cols-1">
+                      <div className="customer-side-card customer-recommendation-card relative overflow-hidden rounded-[24px] border border-blue-100 bg-white p-3 shadow-[0_18px_48px_-30px_rgba(37,99,235,0.34)]">
                         <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-blue-100/80 blur-3xl" />
                         <div className="relative">
-                          <div className="mb-3 flex items-start justify-between gap-3">
+                          <div className="mb-2 flex items-start justify-between gap-3">
                             <div>
                               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Recommended for You</p>
-                              <h3 className="mt-2 text-xl font-black tracking-tight text-slate-950">
+                              <h3 className="mt-1 text-base font-black tracking-tight text-slate-950">
                                 {recommendedPackage?.name || 'SPF protection packages'}
                               </h3>
                             </div>
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
-                              <iconify-icon icon="solar:shield-star-bold" width="22"></iconify-icon>
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+                              <iconify-icon icon="solar:shield-star-bold" width="17"></iconify-icon>
                             </div>
                           </div>
-                          <p className="text-sm leading-relaxed text-slate-600">Ready to protect your ride?</p>
-                          <ul className="customer-recommendation-benefits mt-4">
+                          <p className="text-xs leading-relaxed text-slate-600">Ready to protect your ride?</p>
+                          <ul className="customer-recommendation-benefits mt-2">
                             {[
                               'Paint-safe prep and inspection',
                               'Premium protection consultation',
@@ -6010,13 +6027,13 @@ export default function CustomerDashboard() {
                               </li>
                             ))}
                           </ul>
-                          <div className="mt-4 rounded-2xl bg-slate-50/90 p-3.5 ring-1 ring-slate-100">
+                          <div className="mt-2 rounded-2xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
                             <div className="flex items-end justify-between gap-3">
                               <div>
                                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
                                   From · {recommendationVehicleLabel}
                                 </p>
-	                                <p className="mt-1 text-[25px] font-bold tracking-tight text-blue-600">
+	                                <p className="mt-0.5 text-[21px] font-bold tracking-tight text-blue-600">
                                   {recommendedPackage ? `₱${recommendedPackage.price.toLocaleString()}` : 'See pricing'}
                                 </p>
                               </div>
@@ -6025,13 +6042,13 @@ export default function CustomerDashboard() {
                               </span>
                             </div>
                             {recommendedPackage?.duration && (
-                              <p className="mt-2 text-xs font-medium text-slate-500">{recommendedPackage.duration}</p>
+                              <p className="mt-1 text-xs font-medium text-slate-500">{recommendedPackage.duration}</p>
                             )}
                           </div>
                           <button
                             type="button"
                             onClick={() => nav('services')}
-	                            className="customer-recommendation-service-button mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:-translate-y-0.5 hover:bg-blue-700"
+	                            className="customer-recommendation-service-button mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:-translate-y-0.5 hover:bg-blue-700"
                           >
                             View Services
                             <iconify-icon icon="solar:arrow-right-linear" width="17"></iconify-icon>
@@ -6039,17 +6056,17 @@ export default function CustomerDashboard() {
                         </div>
                       </div>
 
-                      <div className="customer-side-card customer-quick-actions-card rounded-[28px] border border-slate-200/80 bg-white p-4 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.28)]">
-                        <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="customer-side-card customer-quick-actions-card rounded-[24px] border border-slate-200/80 bg-white p-2.5 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.28)]">
+                        <div className="mb-2 flex items-center justify-between gap-3">
                           <div>
                             <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Shortcuts</p>
-                            <h3 className="mt-1 text-base font-black tracking-tight text-slate-900">Quick Actions</h3>
+                            <h3 className="mt-0.5 text-sm font-black tracking-tight text-slate-900">Quick Actions</h3>
                           </div>
-                          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-50 text-slate-600 ring-1 ring-slate-100">
-                            <iconify-icon icon="solar:bolt-circle-bold" width="21"></iconify-icon>
+                          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-50 text-slate-600 ring-1 ring-slate-100">
+                            <iconify-icon icon="solar:bolt-circle-bold" width="17"></iconify-icon>
                           </div>
                         </div>
-                        <div className="grid gap-2">
+                        <div className="grid gap-1">
                           {[
                             { label: 'Book a Service', icon: 'solar:calendar-add-linear', onClick: () => void openBookingModal() },
                             { label: 'View My Bookings', icon: 'solar:calendar-linear', onClick: () => nav('bookings') },
@@ -6059,15 +6076,15 @@ export default function CustomerDashboard() {
                               key={action.label}
                               type="button"
                               onClick={action.onClick}
-                              className="customer-quick-action group flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/70 px-3.5 py-2.5 text-left transition-all hover:border-blue-100 hover:bg-blue-50/70 hover:shadow-sm"
+                              className="customer-quick-action group flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/70 px-2.5 py-1 text-left transition-all hover:border-blue-100 hover:bg-blue-50/70 hover:shadow-sm"
                             >
-                              <span className="flex min-w-0 items-center gap-3">
-                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm ring-1 ring-slate-100 transition-colors group-hover:ring-blue-100">
-                                  <iconify-icon icon={action.icon} width="18"></iconify-icon>
+                              <span className="flex min-w-0 items-center gap-2.5">
+                                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white text-blue-600 shadow-sm ring-1 ring-slate-100 transition-colors group-hover:ring-blue-100">
+                                  <iconify-icon icon={action.icon} width="14"></iconify-icon>
                                 </span>
-                                <span className="truncate text-sm font-bold text-slate-800 group-hover:text-blue-800">{action.label}</span>
+                                <span className="truncate text-[13px] font-bold text-slate-800 group-hover:text-blue-800">{action.label}</span>
                               </span>
-                              <iconify-icon icon="solar:alt-arrow-right-linear" width="17" className="text-slate-300 transition-colors group-hover:text-blue-500"></iconify-icon>
+                              <iconify-icon icon="solar:alt-arrow-right-linear" width="15" className="text-slate-300 transition-colors group-hover:text-blue-500"></iconify-icon>
                             </button>
                           ))}
                         </div>
@@ -6394,13 +6411,16 @@ export default function CustomerDashboard() {
       {bookingOpen && (
         <div className="customer-modal-layer customer-booking-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-3 sm:p-5" onClick={closeBookingModal}>
           <div
-            className={`customer-modal-panel customer-booking-modal w-full min-h-0 overflow-hidden rounded-[1.75rem] border-0 bg-white ${!bookingDone && (bookingStep === 3 || bookingStep === 4 || bookingStep === 5 || bookingStep === 6) ? 'max-w-4xl' : 'max-w-3xl'} ${!bookingDone && bookingStep === 6 ? 'customer-booking-modal--payment' : ''}`}
+            className={`customer-modal-panel customer-booking-modal flex w-full min-h-0 max-h-[94vh] flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white ${
+              !bookingDone && bookingStep === 3
+                ? 'max-w-[920px]'
+                : !bookingDone && (bookingStep === 4 || bookingStep === 5 || bookingStep === 6)
+                  ? 'max-w-4xl'
+                  : 'max-w-3xl'
+            } ${!bookingDone && bookingStep === 3 ? 'customer-booking-modal--schedule' : ''} ${!bookingDone && bookingStep === 6 ? 'customer-booking-modal--payment' : ''}`}
             onClick={e => e.stopPropagation()}
             style={{
               animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both',
-              maxHeight: '94vh',
-              display: 'flex',
-              flexDirection: 'column',
             }}
           >
 
@@ -6481,7 +6501,11 @@ export default function CustomerDashboard() {
             )}
 
             {/* Body */}
-            <div ref={bookingBodyRef} className="customer-modal-scroll booking-body min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <div
+              ref={bookingBodyRef}
+              className={`customer-modal-scroll booking-body min-h-0 flex-1 overflow-y-auto overscroll-contain ${!bookingDone && bookingStep === 3 ? 'booking-body--schedule' : ''}`}
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
               <style dangerouslySetInnerHTML={{ __html: `.booking-body::-webkit-scrollbar { display: none; } @keyframes spin { to { transform: rotate(360deg); } }` }} />
               {bookingDone ? (
                 /* ── Success Receipt — Premium Dark Luxury ── */
@@ -7159,22 +7183,13 @@ export default function CustomerDashboard() {
                     ? selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
                     : 'Select from calendar';
                   const vehicleLabel = formatVehicleMakeModelDisplay(bookingForm.vehicleMake, bookingForm.vehicleModel);
-                  const vehicleMeta = [
-                    formatPlateDisplay(bookingForm.vehiclePlate, ''),
-                    formatTitleCaseDisplay(bookingForm.vehicleColor, ''),
-                  ].filter(Boolean).join(' · ') || 'Vehicle profile ready';
+                  const plateLabel = formatPlateDisplay(bookingForm.vehiclePlate, 'Vehicle ready');
                   const serviceLabel = bookingForm.serviceName || 'Protection package';
-                  const priceLabel = bookingForm.servicePrice ? formatPeso(bookingForm.servicePrice) : 'Rate ready';
                   const openSlots = slotStatuses.filter(slot => slot.status === 'AVAILABLE').length;
                   const availableDays = Object.values(monthAvailability).filter(day => day.status === 'available' && !day.unavailable).length;
                   const fullDays = Object.values(monthAvailability).filter(day => day.status === 'full').length;
                   const closedDays = Object.values(monthAvailability).filter(day => day.status === 'closed' && day.errorCode !== 'PAST_DATE').length;
-                  const selectedDayInfo = bookingForm.date ? monthAvailability[bookingForm.date] : undefined;
-                  const selectedDateStatus =
-                    !bookingForm.date ? 'Choose date' :
-                      selectedDayInfo?.status === 'full' ? 'Fully booked' :
-                        selectedDayInfo?.status === 'closed' ? 'Closed' :
-                          'Date locked';
+                  const bookingContextLabel = [serviceLabel, vehicleLabel, plateLabel].filter(Boolean).join(' · ');
                   const slotStatusLabel =
                     !bookingForm.date ? 'Waiting for date' :
                       slotsLoading ? 'Syncing slots' :
@@ -7265,97 +7280,80 @@ export default function CustomerDashboard() {
                       <section className="booking-step3-hero" aria-labelledby="booking-step3-title">
                         <div className="booking-step3-hero-copy">
                           <h3 id="booking-step3-title">Choose Date &amp; Time</h3>
+                          <span className="booking-step3-context">{bookingContextLabel}</span>
                           <p>Select an available date, then choose your preferred time slot.</p>
                         </div>
                       </section>
 
                       <div className="booking-step3-layout">
-                        <section className="booking-step3-calendar-shell" aria-label="Appointment calendar">
-                          <div className="booking-step3-calendar-toolbar">
-                            <button
-                              type="button"
-                              className="booking-step3-nav-button"
-                              disabled={monthAvailLoading}
-                              aria-label="Previous month"
-                              onClick={() => {
-                                const prev = new Date(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth() - 1, 1);
-                                setBookingCalMonth(prev);
-                                fetchMonthAvailability(prev.getFullYear(), prev.getMonth());
-                              }}
-                            >
-                              <iconify-icon icon="solar:alt-arrow-left-linear" width="17"></iconify-icon>
-                            </button>
-                            <div className="booking-step3-month-title">
-                              <span>Calendar</span>
-                              <strong>{monthLabel}</strong>
-                              {monthAvailLoading && <i aria-hidden />}
-                            </div>
-                            <button
-                              type="button"
-                              className="booking-step3-nav-button"
-                              disabled={monthAvailLoading}
-                              aria-label="Next month"
-                              onClick={() => {
-                                const next = new Date(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth() + 1, 1);
-                                setBookingCalMonth(next);
-                                fetchMonthAvailability(next.getFullYear(), next.getMonth());
-                              }}
-                            >
-                              <iconify-icon icon="solar:alt-arrow-right-linear" width="17"></iconify-icon>
-                            </button>
-                          </div>
-
-                          <div className="booking-step3-month-metrics">
-                            {[
-                              { label: 'Open days', value: monthAvailLoading ? '...' : String(availableDays), tone: 'open' },
-                              { label: 'Fully booked', value: monthAvailLoading ? '...' : String(fullDays), tone: 'full' },
-                              { label: 'Closed', value: monthAvailLoading ? '...' : String(closedDays), tone: 'closed' },
-                            ].map(item => (
-                              <div key={item.label} className={`booking-step3-month-metric is-${item.tone}`}>
-                                <span>{item.label}</span>
-                                <strong>{item.value}</strong>
+                        <div className="booking-step3-main-column">
+                          <section className="booking-step3-calendar-shell" aria-label="Appointment calendar">
+                            <div className="booking-step3-calendar-toolbar">
+                              <button
+                                type="button"
+                                className="booking-step3-nav-button"
+                                disabled={monthAvailLoading}
+                                aria-label="Previous month"
+                                onClick={() => {
+                                  const prev = new Date(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth() - 1, 1);
+                                  setBookingCalMonth(prev);
+                                  fetchMonthAvailability(prev.getFullYear(), prev.getMonth());
+                                }}
+                              >
+                                <iconify-icon icon="solar:alt-arrow-left-linear" width="17"></iconify-icon>
+                              </button>
+                              <div className="booking-step3-month-title">
+                                <span>Calendar</span>
+                                <strong>{monthLabel}</strong>
+                                {monthAvailLoading && <i aria-hidden />}
                               </div>
-                            ))}
-                          </div>
-
-                          <div className="booking-step3-weekdays" aria-hidden>
-                            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                              <span key={day}>{day}</span>
-                            ))}
-                          </div>
-                          <div className="booking-step3-calendar-grid">
-                            {renderCalendarCells()}
-                          </div>
-                          <div className="booking-step3-legend" aria-label="Calendar availability legend">
-                            {[
-                              { className: 'open', label: 'Available' },
-                              { className: 'full', label: 'Fully booked' },
-                              { className: 'closed', label: 'Closed' },
-                            ].map(item => (
-                              <span key={item.label} className={`is-${item.className}`}>
-                                <i aria-hidden />
-                                {item.label}
-                              </span>
-                            ))}
-                          </div>
-                        </section>
-
-                        <aside className="booking-step3-side-panel">
-                          <section className="booking-step3-summary">
-                            <div className="booking-step3-summary-row">
-                              <span><iconify-icon icon="solar:shield-star-bold" width="14"></iconify-icon>Service</span>
-                              <strong>{serviceLabel}</strong>
-                              <em>{priceLabel}</em>
+                              <button
+                                type="button"
+                                className="booking-step3-nav-button"
+                                disabled={monthAvailLoading}
+                                aria-label="Next month"
+                                onClick={() => {
+                                  const next = new Date(bookingCalMonth.getFullYear(), bookingCalMonth.getMonth() + 1, 1);
+                                  setBookingCalMonth(next);
+                                  fetchMonthAvailability(next.getFullYear(), next.getMonth());
+                                }}
+                              >
+                                <iconify-icon icon="solar:alt-arrow-right-linear" width="17"></iconify-icon>
+                              </button>
                             </div>
-                            <div className="booking-step3-summary-row">
-                              <span><iconify-icon icon="solar:car-bold" width="14"></iconify-icon>Vehicle</span>
-                              <strong>{vehicleLabel}</strong>
-                              <em>{vehicleMeta}</em>
+
+                            <div className="booking-step3-month-metrics">
+                              {[
+                                { label: 'Open days', value: monthAvailLoading ? '...' : String(availableDays), tone: 'open' },
+                                { label: 'Fully booked', value: monthAvailLoading ? '...' : String(fullDays), tone: 'full' },
+                                { label: 'Closed', value: monthAvailLoading ? '...' : String(closedDays), tone: 'closed' },
+                              ].map(item => (
+                                <div key={item.label} className={`booking-step3-month-metric is-${item.tone}`}>
+                                  <span>{item.label}</span>
+                                  <strong>{item.value}</strong>
+                                </div>
+                              ))}
                             </div>
-                            <div className="booking-step3-summary-row">
-                              <span><iconify-icon icon="solar:calendar-date-bold" width="14"></iconify-icon>Date</span>
-                              <strong>{selectedDateFullLabel}</strong>
-                              <em>{selectedDateStatus}</em>
+
+                            <div className="booking-step3-weekdays" aria-hidden>
+                              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                                <span key={day}>{day}</span>
+                              ))}
+                            </div>
+                            <div className="booking-step3-calendar-grid">
+                              {renderCalendarCells()}
+                            </div>
+                            <div className="booking-step3-legend" aria-label="Calendar availability legend">
+                              {[
+                                { className: 'open', label: 'Available' },
+                                { className: 'full', label: 'Fully booked' },
+                                { className: 'closed', label: 'Closed' },
+                              ].map(item => (
+                                <span key={item.label} className={`is-${item.className}`}>
+                                  <i aria-hidden />
+                                  {item.label}
+                                </span>
+                              ))}
                             </div>
                           </section>
 
@@ -7378,8 +7376,8 @@ export default function CustomerDashboard() {
                             {!bookingForm.date ? (
                               <div className="booking-step3-empty-state">
                                 <iconify-icon icon="solar:calendar-search-bold" width="24"></iconify-icon>
-                                <strong>Date pending</strong>
-                                <span>Select an available calendar day.</span>
+                                <strong>Waiting for date</strong>
+                                <span>Choose an available date above to see time slots.</span>
                               </div>
                             ) : slotsLoading ? (
                               <div className="booking-step3-time-grid" aria-label="Loading time slots">
@@ -7447,7 +7445,8 @@ export default function CustomerDashboard() {
                               placeholder="Preferred handoff contact, arrival notes, or special requests"
                             />
                           </section>
-                        </aside>
+                        </div>
+
                       </div>
                     </div>
                   );
@@ -7978,6 +7977,15 @@ export default function CustomerDashboard() {
                 !!bookingForm.time &&
                 selectedSlotStatus === 'AVAILABLE' &&
                 !slotError;
+              const step3FooterDateLabel = bookingForm.date
+                ? new Date(`${bookingForm.date}T00:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
+                : '';
+              const step3FooterHint =
+                !bookingForm.date ? 'Select a date' :
+                  !bookingForm.time ? 'Select a time' :
+                    slotError ? 'Your selected time is no longer available' :
+                      selectedSlotStatus !== 'AVAILABLE' ? 'Selected slot is no longer available' :
+                        `${step3FooterDateLabel} · ${bookingForm.time} selected`;
               const step4Valid = true; // Summary step — always passable, just review
               const step5Valid = bookingAgreed && bookingTermsReachedEnd;
               const step6Valid = !!bookingDownpaymentProof && !bookingSubmitting;
@@ -7993,14 +8001,9 @@ export default function CustomerDashboard() {
                   bookingStep === 1 ? (
                     !bookingVehicleChosen ? 'Tap your vehicle above to continue' :
                     !bookingForm.service ? 'Select a protection package to continue' : ''
-                  ) :
-                    bookingStep === 2 ? (!step2Valid ? 'Complete all required fields above' : '') :
-                      bookingStep === 3 ? (
-                      !bookingForm.date ? 'Select a date' :
-                        slotError ? 'Your selected time is no longer available' :
-                          !bookingForm.time ? 'Select an available time slot' :
-                            selectedSlotStatus !== 'AVAILABLE' ? 'Selected slot is no longer available' : ''
-                    ) :
+	                  ) :
+	                    bookingStep === 2 ? (!step2Valid ? 'Complete all required fields above' : '') :
+	                      bookingStep === 3 ? step3FooterHint :
 	                      bookingStep === 5
 	                        ? !bookingTermsReachedEnd
 	                          ? 'Scroll to the bottom of the terms to enable the checkbox.'
@@ -8014,7 +8017,8 @@ export default function CustomerDashboard() {
                 const isStep3Footer = bookingStep === 3;
 
                 return (
-                  <div className={`customer-modal-sticky booking-service-footer shrink-0 border-0 px-5 py-4 ${bookingStep === 3 ? 'booking-step3-footer' : ''}`}>
+                  <div className={`booking-service-footer shrink-0 border-0 py-4 ${bookingStep === 3 ? 'booking-step3-footer relative z-10 border-t border-slate-100 px-6 sm:px-8' : 'customer-modal-sticky px-5'}`}>
+                    <div className={bookingStep === 3 ? 'booking-step3-footer-inner' : undefined}>
                     {bookingStep === 1 && selectedBookingService && (
                       <div className="booking-service-footer-summary mb-3 rounded-2xl border-0 bg-white px-3.5 py-3">
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -8136,12 +8140,13 @@ export default function CustomerDashboard() {
                     )}
                   </div>
 
-	                  {/* Inline hint — what's blocking the button */}
-	                  {hintText && (
-	                    <p style={{ fontSize: 11, color: isStep3Footer ? '#7da3d9' : '#94a3b8', textAlign: 'center', fontWeight: 500, letterSpacing: '0.01em' }}>
-	                      {hintText}
-	                    </p>
-                  )}
+		                  {/* Inline hint — what's blocking the button */}
+		                  {hintText && (
+		                    <p style={{ fontSize: 11, color: isStep3Footer ? (step3Valid ? '#2563eb' : '#7da3d9') : '#94a3b8', textAlign: 'center', fontWeight: step3Valid && isStep3Footer ? 700 : 500, letterSpacing: '0.01em' }}>
+		                      {hintText}
+		                    </p>
+	                  )}
+                    </div>
                 </div>
               );
             })()}
@@ -8149,6 +8154,57 @@ export default function CustomerDashboard() {
           </div>
         </div>
       )}
+
+      {orderReceiptPdfUrl && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[110] flex flex-col items-center justify-center bg-black/75 p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Payment receipt"
+              onClick={closeCustomerOrderReceiptPdf}
+            >
+              <div
+                className="relative flex w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl max-h-[90vh]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3">
+                  <p className="text-sm font-bold text-slate-800">Payment receipt</p>
+                  <div className="flex items-center gap-3">
+                    <a
+                      href={orderReceiptPdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                    >
+                      Open in new tab
+                    </a>
+                    <button
+                      type="button"
+                      onClick={closeCustomerOrderReceiptPdf}
+                      className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+                <object
+                  data={orderReceiptPdfUrl}
+                  type="application/pdf"
+                  title="Receipt PDF"
+                  className="min-h-[70vh] w-full flex-1 bg-slate-100"
+                >
+                  <iframe
+                    title="Receipt PDF"
+                    src={orderReceiptPdfUrl}
+                    className="min-h-[70vh] w-full flex-1 border-0 bg-slate-100"
+                  />
+                </object>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {/* Tracker stage photos — in-page gallery */}
       {trackerEvidenceLightbox && (() => {

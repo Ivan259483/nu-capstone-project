@@ -60,7 +60,7 @@ type BookingPayment = {
 };
 
 function buildBookingPayment(row: any): BookingPayment {
-  const id = String(row.id || row._id || '');
+  const id = String(row._id || row.id || '').trim();
   const st = normStatus(row?.status);
   const total = Number(row.totalPrice || row.totalAmount || 0);
   const balanceDue = Math.max(total - RESERVATION_FEE, 0);
