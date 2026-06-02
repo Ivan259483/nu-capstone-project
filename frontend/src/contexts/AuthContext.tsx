@@ -31,6 +31,8 @@ import {
 /** Resolved per call so Vite env / port changes apply after restart without stale module constant. */
 const apiUrl = () => getBaseApiUrl();
 const apiHealthUrl = () => `${apiUrl().replace(/\/$/, '')}/health`;
+const BACKEND_HEALTH_TIMEOUT_MS = 15_000;
+const BACKEND_LOGIN_TIMEOUT_MS = 30_000;
 
 async function isBackendReachable(): Promise<boolean> {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
@@ -48,7 +50,7 @@ async function isBackendReachable(): Promise<boolean> {
             timeoutId = window.setTimeout(() => {
                 controller?.abort();
                 resolve(false);
-            }, 5000);
+            }, BACKEND_HEALTH_TIMEOUT_MS);
         });
 
         return await Promise.race([healthCheck, timeout]);
@@ -802,15 +804,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log('🚀 [DEBUG-login] Starting login for:', email);
             console.log('🚀 [DEBUG-login] apiUrl() is:', apiUrl());
 
-            const backendReachable = await isBackendReachable();
-            if (!backendReachable) {
-                loginInProgressRef.current = false;
-                loginResolvedRef.current = false;
-                return {
-                    success: false,
-                    message: `Backend is not reachable. Start the backend and try again. API base: ${apiUrl()}`,
-                };
-            }
+            void isBackendReachable().then((backendReachable) => {
+                if (!backendReachable) {
+                    console.warn('⚠️ [DEBUG-login] Backend health check timed out/failed; continuing with /auth/login.');
+                }
+            });
 
             // ── Backend first: password is verified server-side (Mongo + bcrypt). ──
             // Finishing here when possible avoids requiring a matching Firebase Auth user
@@ -821,7 +819,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password }),
-                    signal: AbortSignal.timeout(15000),
+                    signal: AbortSignal.timeout(BACKEND_LOGIN_TIMEOUT_MS),
                 });
                 console.log('📡 [DEBUG-login] Raw backend response status:', resp.status, resp.statusText);
                 const text = await resp.text();
