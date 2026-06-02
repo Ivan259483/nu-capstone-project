@@ -10,6 +10,7 @@
     "build:analyze": "ANALYZE=1 vite build",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
+    "optimize:hero": "node scripts/optimize-hero-images.mjs",
     "dev:next": "next dev -p 3100",
     "dev:with-api": "concurrently -n api,next -c cyan,magenta \"npm run dev --prefix ../backend\" \"next dev -p 3100\""
   },

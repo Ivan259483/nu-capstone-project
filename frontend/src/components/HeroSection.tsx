@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { en } from "@/translations/en";
 import { fil } from "@/translations/fil";
+import { HERO_IMAGE } from "@/lib/hero-image";
 
 const TYPING_SPEED = 55;
 const DELETING_SPEED = 30;
@@ -78,12 +79,22 @@ export default function HeroSection() {
 
             {/* Full-bleed hero media — wide soft fade (avoids hard vertical seam under nav) */}
             <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden border-0">
-                <img
-                    src="https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?q=80&w=2670&auto=format&fit=crop"
-                    alt={t("hero.imageAlt")}
-                    className="h-full w-full object-cover object-center opacity-55 lg:opacity-95 lg:object-[72%_center]"
-                    style={{ animation: "hero-car-drift 25s ease-in-out infinite", transformOrigin: "center center" }}
-                />
+                <picture>
+                    <source type="image/avif" srcSet={HERO_IMAGE.srcSetAvif} sizes={HERO_IMAGE.sizes} />
+                    <source type="image/webp" srcSet={HERO_IMAGE.srcSetWebp} sizes={HERO_IMAGE.sizes} />
+                    <img
+                        src={HERO_IMAGE.fallback}
+                        srcSet={HERO_IMAGE.srcSetWebp}
+                        sizes={HERO_IMAGE.sizes}
+                        alt={t("hero.imageAlt")}
+                        width={3840}
+                        height={2561}
+                        decoding="async"
+                        fetchPriority="high"
+                        className="hero-car-media h-full w-full object-cover object-[center_38%] opacity-[0.88] sm:object-center lg:object-[72%_center] lg:opacity-100"
+                        style={{ animation: "hero-car-drift 25s ease-in-out infinite", transformOrigin: "center center" }}
+                    />
+                </picture>
                 <div
                     className="absolute inset-0 z-10 hidden lg:block"
                     aria-hidden
