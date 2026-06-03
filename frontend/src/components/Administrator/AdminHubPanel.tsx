@@ -28,6 +28,12 @@ import AdminAppointmentsPage from './pages/AdminAppointmentsPage';
 import CustomerTrackerPanel from '@/components/ops-manager/CustomerTrackerPanel';
 import { ServicesPricing } from '@/components/admin/ServicesPricing';
 import InventoryPanel from '@/components/inventory/InventoryPanel';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -632,20 +638,30 @@ function AdminHubPanelInner({
           ) : null}
 
           {collapsed ? (
-            collapsedNavPages.map((page) => {
-              const Icon = page.icon;
-              return (
-                <button
-                  key={page.id}
-                  type="button"
-                  className={`ah-nav-item${activePage === page.id ? ' active' : ''}`}
-                  onClick={() => selectNavPage(page.id)}
-                  title={page.label}
-                >
-                  <Icon size={18} strokeWidth={1.5} className="ah-nav-icon" aria-hidden />
-                </button>
-              );
-            })
+            <TooltipProvider delayDuration={120}>
+              <div className="ah-sidebar-collapsed-nav">
+                {collapsedNavPages.map((page) => {
+                  const Icon = page.icon;
+                  return (
+                    <Tooltip key={page.id}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className={`ah-nav-item${activePage === page.id ? ' active' : ''}`}
+                          onClick={() => selectNavPage(page.id)}
+                          aria-label={page.label}
+                        >
+                          <Icon size={18} strokeWidth={1.6} className="ah-nav-icon" aria-hidden />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" align="center" sideOffset={10} className="ah-sidebar-tooltip">
+                        {page.label}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            </TooltipProvider>
           ) : (
             filteredNavTree.map((entry) => {
               if (entry.type === 'leaf') {
@@ -756,6 +772,8 @@ function AdminHubPanelInner({
                 bookings={safeBookings}
                 loading={blockingHubLoad}
                 chartsVisible={activePage === 'dashboard'}
+                onRefreshOverview={onLoadData}
+                onExportReport={onExportData}
               />
             ))}
             {renderTabPanel('scheduling', (

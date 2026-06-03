@@ -161,7 +161,7 @@ export default function AdminTopBar({
                   pickCommand(commandResults[0].id);
                 }
               }}
-              placeholder="Search or type command..."
+              placeholder="Search navigation..."
               aria-label="Search navigation and commands"
               aria-expanded={commandOpen}
               aria-controls="ah-topbar-command-list"

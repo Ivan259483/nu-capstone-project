@@ -8,6 +8,8 @@ import {
   TrendingDown,
   Minus,
   AlertTriangle,
+  RefreshCw,
+  Download,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -23,7 +25,6 @@ import {
   PieChart,
   Pie,
   Cell,
-  LabelList,
 } from 'recharts';
 import { getRoleLabel, getSafeUserRole } from '@/lib/roles';
 
@@ -34,13 +35,23 @@ interface Props {
   loading: boolean;
   /** When false (dashboard tab hidden), charts are not mounted — avoids Recharts -1 size warnings. */
   chartsVisible?: boolean;
+  onRefreshOverview?: () => void | Promise<void>;
+  onExportReport?: () => void | Promise<void>;
 }
 
-const GROWTH_CHART_HEIGHT = 136;
-const ROLE_CHART_HEIGHT = 136;
-const DONUT_CHART_HEIGHT = 188;
-const HOURLY_CHART_HEIGHT = 160;
-const PIPELINE_CHART_HEIGHT = 200;
+const GROWTH_CHART_HEIGHT = 148;
+const ROLE_CHART_HEIGHT = 148;
+const DONUT_CHART_HEIGHT = 210;
+const HOURLY_CHART_HEIGHT = 238;
+
+const CHART_GRID_STROKE = '#EEF2F7';
+const CHART_TICK = { fontSize: 10, fill: '#64748B' };
+const CHART_TOOLTIP_STYLE = {
+  fontSize: 11,
+  borderRadius: 10,
+  border: '1px solid #E2E8F0',
+  boxShadow: '0 14px 30px rgba(15, 23, 42, 0.12)',
+};
 
 /** Renders Recharts only after the container has a real layout size (avoids width/height -1). */
 function AdminChartBox({
@@ -87,18 +98,18 @@ type PipelineStage = 'pending' | 'confirmed' | 'in_progress' | 'quality_check' |
 type TodayStatKey = Extract<PipelineStage, 'pending' | 'confirmed' | 'in_progress' | 'completed'>;
 
 const PIPELINE_STAGES: Array<{ key: PipelineStage; label: string; color: string }> = [
-  { key: 'pending', label: 'Pending', color: '#94a3b8' },
+  { key: 'pending', label: 'Pending', color: '#F59E0B' },
   { key: 'confirmed', label: 'Confirmed', color: '#2563eb' },
-  { key: 'in_progress', label: 'In Progress', color: '#f59e0b' },
-  { key: 'quality_check', label: 'Quality Check', color: '#8b5cf6' },
+  { key: 'in_progress', label: 'In Progress', color: '#0891B2' },
+  { key: 'quality_check', label: 'Quality Check', color: '#6366F1' },
   { key: 'completed', label: 'Completed', color: '#10b981' },
   { key: 'cancelled', label: 'Cancelled', color: '#ef4444' },
 ];
 
 const TODAY_STATUS_STAGES: Array<{ key: TodayStatKey; label: string; color: string }> = [
-  { key: 'pending', label: 'Pending', color: '#94a3b8' },
+  { key: 'pending', label: 'Pending', color: '#F59E0B' },
   { key: 'confirmed', label: 'Confirmed', color: '#2563eb' },
-  { key: 'in_progress', label: 'In Progress', color: '#f59e0b' },
+  { key: 'in_progress', label: 'In Progress', color: '#0891B2' },
   { key: 'completed', label: 'Completed', color: '#10b981' },
 ];
 
@@ -231,7 +242,36 @@ export default function AdminDashboardPage({
   bookings = [],
   loading,
   chartsVisible = true,
+  onRefreshOverview,
+  onExportReport,
 }: Props) {
+  const [refreshingOverview, setRefreshingOverview] = useState(false);
+  const [exportingReport, setExportingReport] = useState(false);
+
+  const handleRefreshOverview = async () => {
+    if (!onRefreshOverview || refreshingOverview) return;
+    setRefreshingOverview(true);
+    try {
+      await onRefreshOverview();
+    } catch (error) {
+      console.error('[AdminDashboardPage] overview refresh failed:', error);
+    } finally {
+      setRefreshingOverview(false);
+    }
+  };
+
+  const handleExportReport = async () => {
+    if (!onExportReport || exportingReport) return;
+    setExportingReport(true);
+    try {
+      await onExportReport();
+    } catch (error) {
+      console.error('[AdminDashboardPage] report export failed:', error);
+    } finally {
+      setExportingReport(false);
+    }
+  };
+
   const stats = useMemo(() => {
     const total = users.length;
     const active = users.filter(u => u.status === 'active').length;
@@ -324,10 +364,10 @@ export default function AdminDashboardPage({
   }, [growthData, users]);
 
   const kpis = [
-    { key: 'total' as const, label: 'Total Users', value: stats.total, change: `${stats.total} registered accounts`, icon: Users, iconBg: '#DBEAFE', iconColor: '#2563EB', border: '#2563EB', tint: '#EFF6FF' },
-    { key: 'active' as const, label: 'Active Users', value: stats.active, change: `${stats.total > 0 ? ((stats.active / stats.total) * 100).toFixed(1) : 0}% of total`, icon: UserCheck, iconBg: '#D1FAE5', iconColor: '#10B981', border: '#10B981', tint: '#ECFDF5' },
-    { key: 'pending' as const, label: 'Pending Verifications', value: stats.pending, change: stats.pending > 0 ? 'Requires action' : 'No pending verifications', icon: Clock, iconBg: '#FEF3C7', iconColor: '#F59E0B', border: '#F59E0B', tint: '#FFFBEB', alert: stats.pending > 0 },
-    { key: 'roles' as const, label: 'Total Roles', value: stats.roles, change: 'Across all departments', icon: ShieldCheck, iconBg: '#FFEDD5', iconColor: '#F97316', border: '#F97316', tint: '#FFF7ED' },
+    { key: 'total' as const, label: 'Total Users', value: stats.total, change: `${stats.total} registered accounts`, icon: Users, iconBg: '#EFF6FF', iconColor: '#2563EB', accent: '#2563EB' },
+    { key: 'active' as const, label: 'Active Users', value: stats.active, change: `${stats.total > 0 ? ((stats.active / stats.total) * 100).toFixed(1) : 0}% of total`, icon: UserCheck, iconBg: '#ECFDF5', iconColor: '#10B981', accent: '#10B981' },
+    { key: 'pending' as const, label: 'Pending Verifications', value: stats.pending, change: stats.pending > 0 ? 'Requires action' : 'No pending verifications', icon: Clock, iconBg: '#FFFBEB', iconColor: '#F59E0B', accent: '#F59E0B', alert: stats.pending > 0 },
+    { key: 'roles' as const, label: 'Total Roles', value: stats.roles, change: 'Across all departments', icon: ShieldCheck, iconBg: '#F8FAFC', iconColor: '#475569', accent: '#64748B' },
   ];
 
   const safeBookings = useMemo(() => (Array.isArray(bookings) ? bookings : []), [bookings]);
@@ -470,19 +510,6 @@ export default function AdminDashboardPage({
     return peak.total > 0 ? `${peak.hour} (${peak.total})` : '—';
   }, [appointmentHourlyChartData]);
 
-  const appointmentDominantStatus = useMemo(() => {
-    const top = appointmentStatusChartData.reduce(
-      (best, item) => (item.value > best.value ? item : best),
-      { label: '—', value: 0 },
-    );
-    return top.value > 0 ? top.label : '—';
-  }, [appointmentStatusChartData]);
-
-  const appointmentCompletionPct = useMemo(
-    () => (appointmentTotal > 0 ? Math.round(((appointmentCounts.completed || 0) / appointmentTotal) * 100) : 0),
-    [appointmentCounts.completed, appointmentTotal],
-  );
-
   const pipelineCounts = useMemo(() => {
     const counts = PIPELINE_STAGES.reduce((acc, stage) => {
       acc[stage.key] = 0;
@@ -520,14 +547,53 @@ export default function AdminDashboardPage({
     [pipelineCounts],
   );
 
-  const pipelineCompletionPct = useMemo(
-    () => (pipelineTotal > 0 ? Math.round(((pipelineCounts.completed || 0) / pipelineTotal) * 100) : 0),
-    [pipelineCounts.completed, pipelineTotal],
+  const pipelineStackSegments = useMemo(
+    () => pipelineChartData.filter((item) => item.count > 0),
+    [pipelineChartData],
   );
 
-  const pipelineCancellationPct = useMemo(
-    () => (pipelineTotal > 0 ? Math.round(((pipelineCounts.cancelled || 0) / pipelineTotal) * 100) : 0),
-    [pipelineCounts.cancelled, pipelineTotal],
+  const pipelineDisplayRows = useMemo(
+    () => {
+      const pct = (count: number) => (pipelineTotal > 0 ? Math.round((count / pipelineTotal) * 100) : 0);
+      const queued = pipelineCounts.pending + pipelineCounts.confirmed;
+      const inService = pipelineCounts.in_progress + pipelineCounts.quality_check;
+
+      return [
+        {
+          key: 'queued',
+          label: 'Queued',
+          detail: `${pipelineCounts.pending} pending / ${pipelineCounts.confirmed} confirmed`,
+          count: queued,
+          pct: pct(queued),
+          color: '#2563eb',
+        },
+        {
+          key: 'in_service',
+          label: 'In service',
+          detail: `${pipelineCounts.in_progress} active / ${pipelineCounts.quality_check} QC`,
+          count: inService,
+          pct: pct(inService),
+          color: '#0891B2',
+        },
+        {
+          key: 'completed',
+          label: 'Completed',
+          detail: 'Released jobs',
+          count: pipelineCounts.completed,
+          pct: pct(pipelineCounts.completed),
+          color: '#10b981',
+        },
+        {
+          key: 'cancelled',
+          label: 'Cancelled',
+          detail: 'Removed from workflow',
+          count: pipelineCounts.cancelled,
+          pct: pct(pipelineCounts.cancelled),
+          color: '#ef4444',
+        },
+      ];
+    },
+    [pipelineCounts, pipelineTotal],
   );
 
   const growthYMax = useMemo(() => {
@@ -538,15 +604,54 @@ export default function AdminDashboardPage({
   if (loading) {
     return (
       <div className="ah-page-enter admin-dashboard-page">
-        <div className="ah-dashboard-kpi-grid">{[1, 2, 3, 4].map((i) => <div key={i} className="ah-skeleton" style={{ height: 72, borderRadius: 10 }} />)}</div>
-        <div className="ah-dashboard-charts-grid">{[1, 2].map((i) => <div key={i} className="ah-skeleton" style={{ height: 168, borderRadius: 10 }} />)}</div>
-        <div className="ah-dashboard-bottom ah-skeleton" style={{ flex: 1, minHeight: 120, borderRadius: 10 }} />
+        <div className="ah-dashboard-header">
+          <div>
+            <div className="ah-skeleton" style={{ width: 190, height: 28, borderRadius: 8 }} />
+            <div className="ah-skeleton" style={{ width: 360, maxWidth: '100%', height: 16, borderRadius: 8, marginTop: 8 }} />
+          </div>
+        </div>
+        <div className="ah-dashboard-kpi-grid">{[1, 2, 3, 4].map((i) => <div key={i} className="ah-skeleton" style={{ height: 112, borderRadius: 12 }} />)}</div>
+        <div className="ah-dashboard-charts-grid">{[1, 2].map((i) => <div key={i} className="ah-skeleton" style={{ height: 210, borderRadius: 12 }} />)}</div>
+        <div className="ah-dashboard-bottom ah-skeleton" style={{ flex: 1, minHeight: 180, borderRadius: 12 }} />
       </div>
     );
   }
 
   return (
     <div className="ah-page-enter admin-dashboard-page">
+      <div className="ah-dashboard-header ah-slide-up">
+        <div className="ah-dashboard-header-copy">
+          <h1 className="ah-dashboard-title">Admin Overview</h1>
+          <p className="ah-dashboard-subtitle">Monitor users, bookings, operations, and service performance.</p>
+        </div>
+        {(onRefreshOverview || onExportReport) && (
+          <div className="ah-dashboard-actions" aria-label="Dashboard actions">
+            {onRefreshOverview && (
+              <button
+                type="button"
+                className="ah-dashboard-action"
+                onClick={handleRefreshOverview}
+                disabled={refreshingOverview}
+              >
+                <RefreshCw size={15} className={refreshingOverview ? 'ah-dashboard-action-spinner' : undefined} aria-hidden />
+                <span>{refreshingOverview ? 'Refreshing' : 'Refresh'}</span>
+              </button>
+            )}
+            {onExportReport && (
+              <button
+                type="button"
+                className="ah-dashboard-action ah-dashboard-action--primary"
+                onClick={handleExportReport}
+                disabled={exportingReport}
+              >
+                <Download size={15} aria-hidden />
+                <span>{exportingReport ? 'Exporting' : 'Export Report'}</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="ah-dashboard-kpi-grid">
         {kpis.map((kpi, idx) => {
           const Icon = kpi.icon;
@@ -558,11 +663,11 @@ export default function AdminDashboardPage({
               key={kpi.label}
               className="ah-kpi-card ah-dashboard-kpi ah-slide-up"
               style={{
-                border: '1px solid rgba(226,232,240,0.75)',
-                borderLeft: `4px solid ${kpi.border}`,
                 animationDelay: `${idx * 0.06}s`,
-                background: kpi.tint,
-              }}
+                '--ah-kpi-accent': kpi.accent,
+                '--ah-kpi-icon-bg': kpi.iconBg,
+                '--ah-kpi-icon-color': kpi.iconColor,
+              } as React.CSSProperties}
             >
               <div className="ah-dashboard-kpi-top">
                 <div>
@@ -574,8 +679,8 @@ export default function AdminDashboardPage({
                     </span>
                   )}
                 </div>
-                <div className="ah-dashboard-kpi-icon" style={{ background: kpi.iconBg }}>
-                  <Icon size={15} style={{ color: kpi.iconColor }} />
+                <div className="ah-dashboard-kpi-icon">
+                  <Icon size={16} aria-hidden />
                 </div>
               </div>
               <p className="ah-dashboard-kpi-value tabular-nums">{kpi.value.toLocaleString()}</p>
@@ -596,24 +701,28 @@ export default function AdminDashboardPage({
         <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-slide-up" style={{ animationDelay: '0.15s' }}>
           <div className="ah-dashboard-chart-head">
             <h2 className="ah-dashboard-card-title">User Growth</h2>
-            <p className="ah-dashboard-card-sub">Total vs Active — last 12 weeks</p>
+            <p className="ah-dashboard-card-sub">Total vs active users over the last 12 weeks</p>
           </div>
           <div className="ah-dashboard-chart-body ah-dashboard-chart-body--growth">
             <AdminChartBox height={GROWTH_CHART_HEIGHT}>
-              <AreaChart data={growthData} margin={{ top: 2, right: 4, left: -12, bottom: 0 }}>
+              <AreaChart data={growthData} margin={{ top: 8, right: 12, left: -8, bottom: 0 }}>
                 <defs>
+                  <linearGradient id="totalUsersGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#2563EB" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#2563EB" stopOpacity={0} />
+                  </linearGradient>
                   <linearGradient id="activeUsersGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.7} />
+                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.18} />
                     <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="week" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <YAxis domain={[0, growthYMax]} allowDecimals={false} tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={26} />
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} iconType="circle" iconSize={7} />
-                <Area type="monotone" dataKey="users" name="Total Users" stroke="#2563EB" strokeWidth={2} fill="rgba(37,99,235,.1)" dot={false} />
-                <Area type="monotone" dataKey="active" name="Active Users" stroke="#10B981" strokeWidth={2} fill="url(#activeUsersGradient)" fillOpacity={0.1} dot={false} />
+                <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="4 4" vertical={false} />
+                <XAxis dataKey="week" tick={CHART_TICK} axisLine={false} tickLine={false} />
+                <YAxis domain={[0, growthYMax]} allowDecimals={false} tick={CHART_TICK} axisLine={false} tickLine={false} width={30} />
+                <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6, color: '#475569' }} iconType="circle" iconSize={8} />
+                <Area type="monotone" dataKey="users" name="Total Users" stroke="#2563EB" strokeWidth={2.25} fill="url(#totalUsersGradient)" dot={false} activeDot={{ r: 4 }} />
+                <Area type="monotone" dataKey="active" name="Active Users" stroke="#10B981" strokeWidth={2.25} fill="url(#activeUsersGradient)" dot={false} activeDot={{ r: 4 }} />
               </AreaChart>
             </AdminChartBox>
           </div>
@@ -628,33 +737,33 @@ export default function AdminDashboardPage({
             <AdminChartBox height={ROLE_CHART_HEIGHT}>
               <BarChart
                 data={roleDistributionData}
-                margin={{ top: 2, right: 4, left: -12, bottom: 0 }}
-                barCategoryGap="18%"
+                margin={{ top: 8, right: 8, left: -8, bottom: 0 }}
+                barCategoryGap="24%"
               >
-                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="4 4" vertical={false} />
                 <XAxis
                   dataKey="roleShort"
                   textAnchor="middle"
                   height={28}
                   interval={0}
-                  tick={{ fontSize: 9, fill: '#94a3b8' }}
+                  tick={CHART_TICK}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
                   tickCount={5}
                   allowDecimals={false}
-                  tick={{ fontSize: 9, fill: '#94a3b8' }}
+                  tick={CHART_TICK}
                   axisLine={false}
                   tickLine={false}
-                  width={26}
+                  width={30}
                 />
                 <Tooltip
-                  contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                  contentStyle={CHART_TOOLTIP_STYLE}
                   formatter={(value: number | string) => [Number(value || 0).toLocaleString(), 'Users']}
                   labelFormatter={(_label: string, payload: any[]) => payload?.[0]?.payload?.role || _label}
                 />
-                <Bar dataKey="count" name="Users" fill="#2563EB" barSize={40} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="count" name="Users" fill="#2563EB" barSize={38} radius={[6, 6, 0, 0]} />
               </BarChart>
             </AdminChartBox>
           </div>
@@ -664,105 +773,106 @@ export default function AdminDashboardPage({
 
       {chartsVisible && (
       <div className="ah-dashboard-bottom">
-        <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-dashboard-appointment-mix ah-slide-up" style={{ animationDelay: '0.25s' }}>
+        <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-dashboard-appointment-status ah-slide-up" style={{ animationDelay: '0.25s' }}>
           <div className="ah-dashboard-chart-head">
-            <h2 className="ah-dashboard-card-title">Appointment Mix</h2>
-            <p className="ah-dashboard-card-sub">{appointmentScope.label} - status distribution and scheduled volume by hour</p>
+            <h2 className="ah-dashboard-card-title">Appointment Status</h2>
+            <p className="ah-dashboard-card-sub">{appointmentScope.label} status mix</p>
           </div>
-          <div className="ah-dashboard-bottom-chart-body ah-dashboard-appointment-mix-body">
-            <div className="ah-dashboard-card-metrics ah-dashboard-card-metrics--appointment">
-              <div className="ah-dashboard-metric-chip">
+          <div className="ah-dashboard-bottom-chart-body ah-dashboard-appointment-status-body">
+            <div className="ah-dashboard-donut-panel">
+              <div className="ah-dashboard-donut-content">
+                {appointmentTotal > 0 ? (
+                  <div className="ah-dashboard-donut-wrap">
+                    <AdminChartBox height={DONUT_CHART_HEIGHT}>
+                      <PieChart>
+                        <Pie
+                          data={appointmentStatusChartData.filter((item) => item.value > 0)}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius="61%"
+                          outerRadius="80%"
+                          paddingAngle={3}
+                          dataKey="value"
+                          nameKey="label"
+                        >
+                          {appointmentStatusChartData.filter((item) => item.value > 0).map((entry) => (
+                            <Cell key={`today-status-${entry.key}`} fill={entry.color} stroke="#ffffff" strokeWidth={2} />
+                          ))}
+                        </Pie>
+                        <Tooltip content={<DashboardTooltip />} />
+                      </PieChart>
+                    </AdminChartBox>
+                    <div className="ah-dashboard-donut-center">
+                      <strong className="tabular-nums">{appointmentTotal}</strong>
+                      <span>Total appointments</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="ah-dashboard-empty-chart" aria-label="No scheduled appointments">
+                    <div className="ah-dashboard-empty-ring" />
+                    <strong>No scheduled appointments</strong>
+                    <span>Appointment mix will appear here</span>
+                  </div>
+                )}
+
+                <div className="ah-dashboard-chart-legend ah-dashboard-chart-legend--compact" aria-label="Appointment status totals">
+                  {(appointmentTotal > 0 ? appointmentStatusChartData.filter((item) => item.value > 0) : appointmentStatusChartData).map((item) => (
+                    <div key={item.key} className="ah-dashboard-chart-legend-row">
+                      <span className="ah-dashboard-chart-legend-label">
+                        <span style={{ background: item.color }} />
+                        {item.label}
+                      </span>
+                      <strong className="tabular-nums">{item.value}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-dashboard-hourly-volume ah-slide-up" style={{ animationDelay: '0.28s' }}>
+          <div className="ah-dashboard-chart-head">
+            <h2 className="ah-dashboard-card-title">Hourly Volume</h2>
+            <p className="ah-dashboard-card-sub">{appointmentScope.label} appointment load</p>
+          </div>
+          <div className="ah-dashboard-bottom-chart-body ah-dashboard-hourly-body">
+            <div className="ah-dashboard-insight-strip">
+              <div className="ah-dashboard-insight-item">
                 <span>Peak Hour</span>
                 <strong className="tabular-nums">{appointmentPeakHour}</strong>
               </div>
-              <div className="ah-dashboard-metric-chip">
-                <span>Top Status</span>
-                <strong>{appointmentDominantStatus}</strong>
-              </div>
-              <div className="ah-dashboard-metric-chip">
-                <span>Completion</span>
-                <strong className="tabular-nums">{appointmentCompletionPct}%</strong>
+              <div className="ah-dashboard-insight-item">
+                <span>Total Volume</span>
+                <strong className="tabular-nums">{appointmentTotal}</strong>
               </div>
             </div>
-            <div className="ah-dashboard-donut-panel">
-              {appointmentTotal > 0 ? (
-                <div className="ah-dashboard-donut-wrap">
-                  <AdminChartBox height={DONUT_CHART_HEIGHT}>
-                    <PieChart>
-                      <Pie
-                        data={appointmentStatusChartData.filter((item) => item.value > 0)}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius="58%"
-                        outerRadius="82%"
-                        paddingAngle={3}
-                        dataKey="value"
-                        nameKey="label"
-                      >
-                        {appointmentStatusChartData.filter((item) => item.value > 0).map((entry) => (
-                          <Cell key={`today-status-${entry.key}`} fill={entry.color} stroke="#ffffff" strokeWidth={2} />
-                        ))}
-                      </Pie>
-                      <Tooltip content={<DashboardTooltip />} />
-                    </PieChart>
-                  </AdminChartBox>
-                  <div className="ah-dashboard-donut-center">
-                    <strong className="tabular-nums">{appointmentTotal}</strong>
-                    <span>{appointmentScope.centerLabel}</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="ah-dashboard-empty-chart" aria-label="No scheduled appointments">
-                  <div className="ah-dashboard-empty-ring" />
-                  <strong>No scheduled appointments</strong>
-                  <span>Appointment mix will appear here</span>
-                </div>
-              )}
-
-              <div className="ah-dashboard-chart-legend">
-                {appointmentStatusChartData.map((item) => (
-                  <div key={item.key} className="ah-dashboard-chart-legend-row">
-                    <span className="ah-dashboard-chart-legend-label">
-                      <span style={{ background: item.color }} />
-                      {item.label}
-                    </span>
-                    <strong className="tabular-nums">{item.value}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="ah-dashboard-hourly-panel">
-              <div className="ah-dashboard-mini-chart-head">
-                <span>Hourly Volume</span>
-                <strong className="tabular-nums">{appointmentTotal} total</strong>
-              </div>
-              <div className="ah-dashboard-hourly-chart">
-                <AdminChartBox height={HOURLY_CHART_HEIGHT}>
-                  <BarChart data={appointmentHourlyChartData} margin={{ top: 10, right: 6, left: -14, bottom: 0 }} barCategoryGap="22%">
-                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
-                    <XAxis
-                      dataKey="hour"
-                      interval={0}
-                      tick={{ fontSize: 9, fill: '#94a3b8' }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={{ fontSize: 9, fill: '#94a3b8' }}
-                      axisLine={false}
-                      tickLine={false}
-                      width={26}
-                    />
-                    <Tooltip content={<DashboardTooltip />} cursor={{ fill: '#f8fafc' }} />
-                    <Bar dataKey="pending" name="Pending" stackId="appointments" fill="#94a3b8" maxBarSize={34} />
-                    <Bar dataKey="confirmed" name="Confirmed" stackId="appointments" fill="#2563eb" maxBarSize={34} />
-                    <Bar dataKey="in_progress" name="In Progress" stackId="appointments" fill="#f59e0b" maxBarSize={34} />
-                    <Bar dataKey="completed" name="Completed" stackId="appointments" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={34} />
-                  </BarChart>
-                </AdminChartBox>
-              </div>
+            <div className="ah-dashboard-hourly-chart">
+              <AdminChartBox height={HOURLY_CHART_HEIGHT}>
+                <BarChart data={appointmentHourlyChartData} margin={{ top: 14, right: 10, left: -4, bottom: 6 }} barCategoryGap="24%">
+                  <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="4 4" vertical={false} />
+                  <XAxis
+                    dataKey="hour"
+                    interval={0}
+                    height={28}
+                    tick={CHART_TICK}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={CHART_TICK}
+                    axisLine={false}
+                    tickLine={false}
+                    width={34}
+                  />
+                  <Tooltip content={<DashboardTooltip />} cursor={{ fill: '#F8FAFC' }} />
+                  <Bar dataKey="pending" name="Pending" stackId="appointments" fill="#F59E0B" maxBarSize={34} />
+                  <Bar dataKey="confirmed" name="Confirmed" stackId="appointments" fill="#2563eb" maxBarSize={34} />
+                  <Bar dataKey="in_progress" name="In Progress" stackId="appointments" fill="#0891B2" maxBarSize={34} />
+                  <Bar dataKey="completed" name="Completed" stackId="appointments" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={34} />
+                </BarChart>
+              </AdminChartBox>
             </div>
           </div>
         </div>
@@ -770,63 +880,55 @@ export default function AdminDashboardPage({
         <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-dashboard-job-pipeline ah-slide-up" style={{ animationDelay: '0.3s' }}>
           <div className="ah-dashboard-chart-head">
             <h2 className="ah-dashboard-card-title">Job Order Pipeline</h2>
-            <p className="ah-dashboard-card-sub">Current pipeline overview</p>
+            <p className="ah-dashboard-card-sub">Current job flow by main status</p>
           </div>
           <div className="ah-dashboard-bottom-chart-body ah-dashboard-pipeline-body">
-            <div className="ah-dashboard-card-metrics ah-dashboard-card-metrics--pipeline">
-              <div className="ah-dashboard-metric-chip">
+            <div className="ah-dashboard-insight-strip">
+              <div className="ah-dashboard-insight-item">
                 <span>Total Jobs</span>
                 <strong className="tabular-nums">{pipelineTotal}</strong>
               </div>
-              <div className="ah-dashboard-metric-chip">
+              <div className="ah-dashboard-insight-item">
                 <span>Active Work</span>
                 <strong className="tabular-nums">{pipelineActiveTotal}</strong>
               </div>
-              <div className="ah-dashboard-metric-chip">
-                <span>Completed</span>
-                <strong className="tabular-nums">{pipelineCompletionPct}%</strong>
-              </div>
-              <div className="ah-dashboard-metric-chip">
-                <span>Cancelled</span>
-                <strong className="tabular-nums">{pipelineCancellationPct}%</strong>
-              </div>
             </div>
             {pipelineTotal > 0 ? (
-              <div className="ah-dashboard-pipeline-chart">
-                <AdminChartBox height={PIPELINE_CHART_HEIGHT}>
-                  <BarChart
-                    data={pipelineChartData}
-                    layout="vertical"
-                    margin={{ top: 8, right: 42, left: 10, bottom: 0 }}
-                    barCategoryGap="22%"
-                  >
-                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" horizontal={false} />
-                    <XAxis
-                      type="number"
-                      domain={[0, 100]}
-                      tickFormatter={(value) => `${value}%`}
-                      allowDecimals={false}
-                      tick={{ fontSize: 9, fill: '#94a3b8' }}
-                      axisLine={false}
-                      tickLine={false}
+              <div className="ah-dashboard-pipeline-clean" aria-label="Job order pipeline status">
+                <div className="ah-dashboard-pipeline-stack" aria-hidden>
+                  {pipelineStackSegments.map((item) => (
+                    <span
+                      key={item.key}
+                      title={`${item.label}: ${item.count}`}
+                      style={{ flexGrow: item.count, background: item.color }}
                     />
-                    <YAxis
-                      dataKey="label"
-                      type="category"
-                      tick={{ fontSize: 10, fill: '#64748b' }}
-                      axisLine={false}
-                      tickLine={false}
-                      width={86}
-                    />
-                    <Tooltip content={<DashboardTooltip />} cursor={{ fill: '#f8fafc' }} />
-                    <Bar dataKey="pct" name="Pipeline Share" radius={[0, 5, 5, 0]} maxBarSize={20}>
-                      {pipelineChartData.map((entry) => (
-                        <Cell key={`pipeline-${entry.key}`} fill={entry.color} />
-                      ))}
-                      <LabelList dataKey="labelText" position="right" className="ah-dashboard-bar-label" />
-                    </Bar>
-                  </BarChart>
-                </AdminChartBox>
+                  ))}
+                </div>
+                <div className="ah-dashboard-pipeline-progress">
+                  {pipelineDisplayRows.map((item) => (
+                    <div key={item.key} className="ah-dashboard-pipeline-progress-row">
+                      <div className="ah-dashboard-pipeline-progress-head">
+                        <span>
+                          <i style={{ background: item.color }} />
+                          <span>
+                            {item.label}
+                            <em>{item.detail}</em>
+                          </span>
+                        </span>
+                        <strong className="tabular-nums">
+                          {item.count}
+                          <small>{item.pct}%</small>
+                        </strong>
+                      </div>
+                      <div
+                        className="ah-dashboard-pipeline-progress-track"
+                        aria-label={`${item.label}: ${item.count} jobs, ${item.pct}%`}
+                      >
+                        <span style={{ width: `${Math.max(item.pct, item.count > 0 ? 3 : 0)}%`, background: item.color }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               <div className="ah-dashboard-empty-chart ah-dashboard-empty-chart--pipeline" aria-label="No job orders in the pipeline">
@@ -839,16 +941,6 @@ export default function AdminDashboardPage({
                 <span>Job order status will appear here</span>
               </div>
             )}
-
-            <div className="ah-dashboard-pipeline-summary">
-              {pipelineChartData.map((item) => (
-                <div key={item.key} className="ah-dashboard-pipeline-summary-item">
-                  <span style={{ background: item.color }} />
-                  <strong className="tabular-nums">{item.count}</strong>
-                  <em>{item.label}</em>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </div>

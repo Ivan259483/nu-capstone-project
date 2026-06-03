@@ -63,7 +63,7 @@
   --ah-sidebar-text: #182230;
   --ah-sidebar-muted: #667085;
   --ah-sidebar-border: #eaecf0;
-  --ah-sidebar-hover: #f9fafb;
+  --ah-sidebar-hover: #f8fafc;
   --ah-sidebar-accent: #2563eb;
   --ah-sidebar-accent-dark: #1d4ed8;
   position: fixed;
@@ -250,6 +250,24 @@
   gap: 18px;
 }
 
+.adminhub-root .ah-sidebar-collapsed-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ah-sidebar-tooltip {
+  z-index: 140;
+  border: 1px solid #e2e8f0 !important;
+  background: #0f172a !important;
+  color: #fff !important;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18) !important;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 12px !important;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 .adminhub-root .ah-sidebar-empty {
   padding: 12px 10px;
   margin: 0;
@@ -283,15 +301,15 @@
 .adminhub-root .ah-nav-item.ah-nav-row.active,
 .adminhub-root .ah-nav-item.ah-nav-row.active:hover,
 .adminhub-root .ah-nav-item.ah-nav-leaf.active {
-  background: #f2f4f7;
-  color: #1f2937;
+  background: #eff6ff;
+  color: #1d4ed8;
   font-weight: 700;
-  box-shadow: none;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
 }
 
 .adminhub-root .ah-nav-item.ah-nav-row.active .ah-nav-icon,
 .adminhub-root .ah-nav-item.ah-nav-leaf.active .ah-nav-icon {
-  color: var(--ah-sidebar-muted);
+  color: #2563eb;
 }
 
 .adminhub-root .ah-nav-item.ah-nav-row,
@@ -303,6 +321,7 @@
 }
 
 .adminhub-root .ah-nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -318,6 +337,19 @@
   width: 100%;
   text-align: left;
   line-height: 1.35;
+}
+
+.adminhub-root .ah-nav-item.ah-nav-row.active::before,
+.adminhub-root .ah-nav-item.ah-nav-leaf.active::before,
+.adminhub-root .ah-sidebar.is-collapsed .ah-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: #2563eb;
 }
 
 .adminhub-root .ah-nav-item .ah-nav-label {
@@ -344,16 +376,21 @@
 
 .adminhub-root .ah-nav-item:hover {
   background: var(--ah-sidebar-hover);
+  color: #1e293b;
+}
+
+.adminhub-root .ah-nav-item:hover .ah-nav-icon {
+  color: #334155;
 }
 
 .adminhub-root .ah-sidebar.is-collapsed .ah-nav-item.active {
-  background: #f2f4f7;
-  color: #101828;
-  box-shadow: none;
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
 }
 
 .adminhub-root .ah-sidebar.is-collapsed .ah-nav-item.active .ah-nav-icon {
-  color: #667085;
+  color: #2563eb;
 }
 
 .adminhub-root .ah-nav-item.is-utility {
@@ -1192,13 +1229,14 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  height: 56px;
-  min-height: 56px;
-  max-height: 56px;
-  padding: 0 clamp(14px, 2vw, 20px);
-  background: #fff;
-  border-bottom: 1px solid #eaecf0;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  height: 60px;
+  min-height: 60px;
+  max-height: 60px;
+  padding: 0 clamp(16px, 2.2vw, 24px);
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  backdrop-filter: blur(10px);
   box-sizing: border-box;
 }
 
@@ -1213,7 +1251,7 @@
 .adminhub-root .ah-topbar-end {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
@@ -1221,11 +1259,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   padding: 0;
   border: 1px solid #e4e7ec;
-  border-radius: 999px;
+  border-radius: 10px;
   background: #fff;
   color: #475467;
   cursor: pointer;
@@ -1237,9 +1275,10 @@
 }
 
 .adminhub-root .ah-topbar-icon-btn:hover {
-  background: #f9fafb;
-  border-color: #d0d5dd;
-  color: #101828;
+  background: #f8fafc;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
 .adminhub-root .ah-topbar-start > .ah-topbar-icon-btn {
@@ -1265,7 +1304,7 @@
   position: relative;
   min-width: 0;
   flex: 1 1 auto;
-  max-width: 480px;
+  max-width: 520px;
 }
 
 .adminhub-root .ah-topbar-command {
@@ -1273,13 +1312,14 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 36px;
-  min-height: 36px;
-  max-height: 36px;
-  padding: 0 10px;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  padding: 0 12px;
   border: 1px solid #e4e7ec;
-  border-radius: 8px;
-  background: #fff;
+  border-radius: 10px;
+  background: #f8fafc;
+  box-shadow: inset 0 1px 0 rgba(15, 23, 42, 0.02);
   box-sizing: border-box;
   transition:
     border-color 160ms ease,
@@ -1288,9 +1328,11 @@
 }
 
 .adminhub-root .ah-topbar-command:focus-within {
-  border-color: #84adff;
+  border-color: #93c5fd;
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  box-shadow:
+    0 0 0 3px rgba(37, 99, 235, 0.12),
+    0 8px 20px -16px rgba(37, 99, 235, 0.5);
 }
 
 .adminhub-root .ah-topbar-command-icon {
@@ -1304,15 +1346,15 @@
   border: 0;
   background: transparent;
   color: #101828;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1.2;
   outline: none;
 }
 
 .adminhub-root .ah-topbar-command input::placeholder {
-  color: #98a2b3;
-  font-weight: 400;
+  color: #64748b;
+  font-weight: 500;
 }
 
 .adminhub-root .ah-topbar-command-kbd {
@@ -1320,7 +1362,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 32px;
+  min-width: 34px;
   height: 22px;
   padding: 0 6px;
   border: 1px solid #e4e7ec;
@@ -1341,7 +1383,7 @@
   z-index: 40;
   overflow: hidden;
   border: 1px solid #e4e7ec;
-  border-radius: 16px;
+  border-radius: 12px;
   background: #fff;
   box-shadow:
     0 12px 16px -4px rgba(16, 24, 40, 0.08),
@@ -1374,11 +1416,11 @@
   align-items: center;
   gap: 8px;
   max-width: 200px;
-  height: 36px;
-  padding: 0 6px 0 2px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
+  height: 38px;
+  padding: 0 8px 0 3px;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #fff;
   color: #101828;
   cursor: pointer;
   flex-shrink: 0;
@@ -1388,8 +1430,8 @@
 }
 
 .adminhub-root .ah-topbar-user:hover {
-  background: #f9fafb;
-  border-color: #e4e7ec;
+  background: #f8fafc;
+  border-color: #bfdbfe;
 }
 
 .adminhub-root .ah-topbar-avatar {
@@ -1625,7 +1667,7 @@
   padding-bottom: 28px;
 }
 
-/* Dashboard: full-width, compact density, fill viewport */
+/* Dashboard: premium operations command center */
 .adminhub-root .ah-main-surface:has(.ah-tab-panel.is-active .admin-dashboard-page) {
   overflow: hidden !important;
   display: flex;
@@ -1647,24 +1689,25 @@
 .adminhub-root .ah-tab-panel.is-active:has(.admin-dashboard-page) {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
 
 .adminhub-root .ah-tab-shell:has(.ah-tab-panel.is-active .admin-dashboard-page) {
-  padding: 8px 10px 12px !important;
+  padding: 16px clamp(16px, 2.4vw, 28px) 18px !important;
 }
 
 .adminhub-root .admin-dashboard-page {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   width: 100%;
   min-width: 0;
-  flex: 1 1 auto;
-  min-height: 0;
-  height: 100%;
+  flex: 0 0 auto;
+  min-height: 100%;
+  height: auto;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-header,
@@ -1674,13 +1717,22 @@
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-bottom {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  grid-template-rows: minmax(0, 1fr);
-  gap: 10px;
-  align-items: stretch;
+  grid-template-columns: minmax(280px, 0.92fr) minmax(380px, 1.1fr) minmax(430px, 1.16fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 1320px) {
+  .adminhub-root .admin-dashboard-page .ah-dashboard-bottom {
+    grid-template-columns: minmax(280px, 0.9fr) minmax(380px, 1.1fr);
+  }
+
+  .adminhub-root .admin-dashboard-page .ah-dashboard-job-pipeline {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 1024px) {
@@ -1690,41 +1742,111 @@
     grid-template-rows: auto auto;
     min-height: 0;
   }
-
-  .adminhub-root .ah-tab-panel.is-active:has(.admin-dashboard-page) {
-    overflow-y: auto;
-  }
-
-  .adminhub-root .admin-dashboard-page {
-    height: auto;
-    min-height: 100%;
-  }
-
-  .adminhub-root .admin-dashboard-page .ah-dashboard-appointment-mix.ah-chart-card,
-  .adminhub-root .admin-dashboard-page .ah-dashboard-job-pipeline.ah-chart-card {
-    height: auto;
-    min-height: 292px !important;
-  }
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-title {
-  font-size: 22px;
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
   line-height: 1.2;
+  letter-spacing: 0;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-subtitle {
-  margin: 2px 0 0;
-  font-size: 13px;
+  margin: 5px 0 0;
+  font-size: 14px;
   color: #64748b;
-  line-height: 1.35;
+  line-height: 1.45;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-header {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px 12px;
+  gap: 12px 18px;
+  min-height: 58px;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-header-copy {
+  position: relative;
+  min-width: 0;
+  padding-left: 14px;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-header-copy::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 4px;
+  border-radius: 999px;
+  background: #2563eb;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-action:hover:not(:disabled) {
+  border-color: #bfdbfe;
+  background: #f8fafc;
+  color: #1d4ed8;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-action--primary {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-action--primary:hover:not(:disabled) {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-action-spinner {
+  animation: ah-dashboard-spin 0.9s linear infinite;
+}
+
+@keyframes ah-dashboard-spin {
+  to { transform: rotate(360deg); }
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-quick-links {
@@ -1745,27 +1867,50 @@
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(188px, 1fr));
+  gap: 14px;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-kpi.ah-kpi-card {
-  padding: 10px 12px !important;
-  min-height: 0 !important;
+  position: relative;
+  min-height: 118px !important;
+  padding: 16px 16px 14px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-left: 4px solid var(--ah-kpi-accent, #2563eb) !important;
+  border-radius: 12px;
+  background: #fff !important;
+  overflow: hidden;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 12px 30px -22px rgba(15, 23, 42, 0.35);
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-kpi.ah-kpi-card::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: var(--ah-kpi-accent, #2563eb);
+  opacity: 0.9;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-kpi-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 4px;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-kpi-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: var(--ah-kpi-icon-bg, #eff6ff);
+  color: var(--ah-kpi-icon-color, #2563eb);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1777,29 +1922,30 @@
   align-items: center;
   gap: 3px;
   margin-top: 4px;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   color: #b45309;
   background: #fef3c7;
-  padding: 2px 5px;
-  border-radius: 4px;
+  padding: 3px 6px;
+  border-radius: 999px;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-kpi-value {
   margin: 0;
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 30px;
+  font-weight: 800;
   color: #0f172a;
   line-height: 1.05;
+  letter-spacing: 0;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-kpi-trend {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 4px;
-  font-size: 11px;
-  font-weight: 600;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
   line-height: 1.2;
 }
 
@@ -1816,49 +1962,57 @@
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-kpi-detail {
-  margin: 2px 0 0;
-  font-size: 10px;
-  color: #94a3b8;
+  margin: 5px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
   line-height: 1.3;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-charts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart.ah-chart-card {
-  padding: 10px 12px !important;
+  padding: 16px !important;
   min-height: 0 !important;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-head {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 2px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-card-title {
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 800;
   color: #0f172a;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-card-sub {
-  margin: 1px 0 0;
-  font-size: 11px;
-  color: #94a3b8;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.35;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-body {
-  margin-top: 6px;
+  margin-top: 12px;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-body--growth,
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-body--roles {
-  min-height: 136px;
+  min-height: 148px;
   min-width: 0;
 }
 
@@ -1867,43 +2021,44 @@
   min-width: 0;
 }
 
-.adminhub-root .admin-dashboard-page .ah-dashboard-appointment-mix.ah-chart-card,
+.adminhub-root .admin-dashboard-page .ah-dashboard-appointment-status.ah-chart-card,
+.adminhub-root .admin-dashboard-page .ah-dashboard-hourly-volume.ah-chart-card,
 .adminhub-root .admin-dashboard-page .ah-dashboard-job-pipeline.ah-chart-card {
   min-height: 0 !important;
-  height: 100%;
-  align-self: stretch;
   display: flex;
   flex-direction: column;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 14px 36px -24px rgba(15, 23, 42, 0.24);
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-bottom-chart-body {
-  flex: 1 1 auto;
   min-height: 0;
-  margin-top: 8px;
+  margin-top: 14px;
 }
 
-.adminhub-root .admin-dashboard-page .ah-dashboard-appointment-mix-body {
-  display: grid;
-  grid-template-columns: minmax(190px, 0.72fr) minmax(260px, 1.28fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
-  align-items: stretch;
+.adminhub-root .admin-dashboard-page .ah-dashboard-appointment-status-body,
+.adminhub-root .admin-dashboard-page .ah-dashboard-hourly-body,
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
   min-height: 0;
-  height: 100%;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics {
-  grid-column: 1 / -1;
   display: grid;
-  gap: 7px;
+  gap: 8px;
 }
 
-.adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--appointment {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--status {
+  grid-template-columns: 1fr;
 }
 
+.adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--hourly,
 .adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--pipeline {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-metric-chip {
@@ -1912,10 +2067,21 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px;
+  min-height: 43px;
+  padding: 9px 11px;
   border: 1px solid #e2e8f0;
-  border-radius: 7px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-metric-chip--accent {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-metric-chip--success {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-metric-chip span {
@@ -1924,7 +2090,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #64748b;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -1934,34 +2100,74 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #0f172a;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   text-align: right;
 }
 
-.adminhub-root .admin-dashboard-page .ah-dashboard-donut-panel,
-.adminhub-root .admin-dashboard-page .ah-dashboard-hourly-panel {
+.adminhub-root .admin-dashboard-page .ah-dashboard-insight-strip {
   min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f1f5f9;
 }
 
-.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-body {
+.adminhub-root .admin-dashboard-page .ah-dashboard-insight-item span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-insight-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-insight-item {
   min-width: 0;
-  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-insight-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.1;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-donut-panel {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-donut-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-donut-wrap {
   position: relative;
-  min-height: 188px;
-  height: 100%;
+  width: min(100%, 258px);
+  min-height: 210px;
+  margin: 0 auto;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-donut-center {
@@ -1977,22 +2183,23 @@
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-donut-center strong {
   color: #0f172a;
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 800;
   line-height: 1;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-donut-center span {
   margin-top: 3px;
-  color: #94a3b8;
-  font-size: 10px;
+  color: #64748b;
+  font-size: 11px;
   font-weight: 700;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-legend {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-legend-row {
@@ -2000,9 +2207,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
-  padding: 6px 7px;
-  border-radius: 7px;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 9px;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
 }
@@ -2013,40 +2220,47 @@
   align-items: center;
   gap: 6px;
   color: #64748b;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1.2;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-legend-label span,
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-tooltip-title span,
-.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-summary-item > span {
-  width: 7px;
-  height: 7px;
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-summary-item > span,
+.adminhub-root .admin-dashboard-page .ah-dashboard-inline-legend i,
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress-head i {
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
   flex-shrink: 0;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-legend-row strong {
   color: #0f172a;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
 }
 
-.adminhub-root .admin-dashboard-page .ah-dashboard-hourly-panel {
-  gap: 8px;
-  justify-content: stretch;
+.adminhub-root .admin-dashboard-page .ah-dashboard-chart-legend--compact {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 14px;
 }
 
-.adminhub-root .admin-dashboard-page .ah-dashboard-hourly-chart,
-.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-chart {
+.adminhub-root .admin-dashboard-page .ah-dashboard-chart-legend--compact .ah-dashboard-chart-legend-row {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-hourly-chart {
   flex: 0 0 auto;
-  min-height: 160px;
+  min-height: 238px;
   min-width: 0;
-}
-
-.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-chart {
-  min-height: 200px;
+  padding-top: 2px;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-mini-chart-head {
@@ -2055,33 +2269,162 @@
   justify-content: space-between;
   gap: 8px;
   color: #64748b;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-mini-chart-head strong {
   color: #0f172a;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
 }
 
-.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-body {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 8px;
-  justify-content: stretch;
+.adminhub-root .admin-dashboard-page .ah-dashboard-inline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 12px;
+  padding-top: 2px;
 }
 
-.adminhub-root .admin-dashboard-page .ah-dashboard-bar-label {
-  fill: #334155;
+.adminhub-root .admin-dashboard-page .ah-dashboard-inline-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-clean {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-stack {
+  display: flex;
+  width: 100%;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f1f5f9;
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.72);
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-stack span {
+  min-width: 3px;
+  height: 100%;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-stack span + span {
+  border-left: 2px solid #fff;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress-head > span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress-head > span > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress-head em {
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress-head strong {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress-head strong small {
+  color: #94a3b8;
   font-size: 10px;
   font-weight: 800;
+  line-height: 1;
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f1f5f9;
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.72);
+}
+
+.adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-progress-track span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.12);
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 2px;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-summary-item {
@@ -2089,16 +2432,16 @@
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);
   align-items: center;
-  gap: 5px;
-  padding: 5px 6px;
+  gap: 6px;
+  padding: 7px 8px;
   border: 1px solid #e2e8f0;
-  border-radius: 7px;
+  border-radius: 9px;
   background: #f8fafc;
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-summary-item strong {
   color: #0f172a;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 1;
 }
@@ -2109,7 +2452,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #64748b;
-  font-size: 10px;
+  font-size: 11px;
   font-style: normal;
   font-weight: 700;
   line-height: 1.2;
@@ -2118,7 +2461,7 @@
 .adminhub-root .admin-dashboard-page .ah-dashboard-chart-tooltip {
   padding: 8px 10px;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
   color: #475569;
@@ -2253,19 +2596,13 @@
     padding-right: 0 !important;
   }
 
-  .adminhub-root .admin-dashboard-page .ah-dashboard-appointment-mix-body {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto;
-  }
-
-  .adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--appointment,
+  .adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--hourly,
   .adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--pipeline {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .adminhub-root .admin-dashboard-page .ah-dashboard-donut-wrap,
-  .adminhub-root .admin-dashboard-page .ah-dashboard-hourly-chart,
-  .adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-chart {
+  .adminhub-root .admin-dashboard-page .ah-dashboard-hourly-chart {
     min-height: 210px;
   }
 
@@ -2275,12 +2612,15 @@
 }
 
 @media (max-width: 480px) {
-  .adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--appointment,
+  .adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--status,
+  .adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--hourly,
   .adminhub-root .admin-dashboard-page .ah-dashboard-card-metrics--pipeline,
+  .adminhub-root .admin-dashboard-page .ah-dashboard-insight-strip,
   .adminhub-root .admin-dashboard-page .ah-dashboard-chart-legend,
   .adminhub-root .admin-dashboard-page .ah-dashboard-pipeline-summary {
     grid-template-columns: 1fr;
   }
+
 }
 
 .adminhub-root .admin-dashboard-page .ah-dashboard-table-grid th,
@@ -4399,6 +4739,12 @@
   color: #8fc2ff;
 }
 
+.adminhub-root.adminhub--dark .ah-nav-item.ah-nav-row.active::before,
+.adminhub-root.adminhub--dark .ah-nav-item.ah-nav-leaf.active::before,
+.adminhub-root.adminhub--dark .ah-sidebar.is-collapsed .ah-nav-item.active::before {
+  background: var(--ah-dark-accent);
+}
+
 .adminhub-root.adminhub--dark .ah-sidebar-secondary {
   border-color: var(--ah-dark-border);
 }
@@ -4452,6 +4798,44 @@
   color: var(--ah-dark-text);
 }
 
+.adminhub-root.adminhub--dark .ah-dashboard-chart-head {
+  border-bottom-color: var(--ah-dark-border-soft);
+}
+
+.adminhub-root.adminhub--dark .ah-dashboard-action {
+  background: var(--ah-dark-surface-2);
+  border-color: var(--ah-dark-border);
+  color: var(--ah-dark-text);
+}
+
+.adminhub-root.adminhub--dark .ah-dashboard-action:hover:not(:disabled) {
+  background: var(--ah-dark-surface-3);
+  border-color: rgba(96, 165, 250, 0.45);
+  color: #fff;
+}
+
+.adminhub-root.adminhub--dark .ah-dashboard-action--primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.adminhub-root.adminhub--dark .ah-dashboard-action--primary:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.adminhub-root.adminhub--dark .admin-dashboard-page .ah-dashboard-kpi.ah-kpi-card,
+.adminhub-root.adminhub--dark .admin-dashboard-page .ah-dashboard-chart.ah-chart-card {
+  background: var(--ah-dark-surface) !important;
+  border-color: var(--ah-dark-border) !important;
+  box-shadow: none;
+}
+
+.adminhub-root.adminhub--dark .admin-dashboard-page .ah-dashboard-kpi-icon {
+  border-color: var(--ah-dark-border);
+}
+
 .adminhub-root.adminhub--dark .ah-page-title,
 .adminhub-root.adminhub--dark .ah-dashboard-title,
 .adminhub-root.adminhub--dark .ah-dashboard-card-title,
@@ -4470,12 +4854,19 @@
 .adminhub-root.adminhub--dark .ah-dashboard-card-sub,
 .adminhub-root.adminhub--dark .ah-dashboard-kpi-detail,
 .adminhub-root.adminhub--dark .ah-dashboard-metric-chip span,
+.adminhub-root.adminhub--dark .ah-dashboard-insight-item span,
 .adminhub-root.adminhub--dark .ah-dashboard-chart-legend-label,
+.adminhub-root.adminhub--dark .ah-dashboard-inline-legend span,
 .adminhub-root.adminhub--dark .ah-dashboard-donut-center span,
 .adminhub-root.adminhub--dark .ah-dashboard-mini-chart-head,
 .adminhub-root.adminhub--dark .ah-dashboard-pipeline-summary-item em,
 .adminhub-root.adminhub--dark .ah-dashboard-empty-chart span {
   color: var(--ah-dark-muted) !important;
+}
+
+.adminhub-root.adminhub--dark .ah-dashboard-insight-strip,
+.adminhub-root.adminhub--dark .ah-dashboard-pipeline-progress-row {
+  border-color: var(--ah-dark-border-soft);
 }
 
 .adminhub-root.adminhub--dark .ah-kpi-card,
@@ -4493,13 +4884,38 @@
 }
 
 .adminhub-root.adminhub--dark .ah-dashboard-metric-chip,
+.adminhub-root.adminhub--dark .ah-dashboard-insight-item,
 .adminhub-root.adminhub--dark .ah-dashboard-chart-legend-row,
 .adminhub-root.adminhub--dark .ah-dashboard-donut-panel,
-.adminhub-root.adminhub--dark .ah-dashboard-hourly-panel,
 .adminhub-root.adminhub--dark .ah-dashboard-pipeline-summary-item,
 .adminhub-root.adminhub--dark .ah-dashboard-empty-chart {
   background: var(--ah-dark-surface-2);
   border-color: var(--ah-dark-border);
+}
+
+.adminhub-root.adminhub--dark .ah-dashboard-insight-item strong,
+.adminhub-root.adminhub--dark .ah-dashboard-pipeline-progress-head > span,
+.adminhub-root.adminhub--dark .ah-dashboard-pipeline-progress-head strong {
+  color: var(--ah-dark-text);
+}
+
+.adminhub-root.adminhub--dark .ah-dashboard-pipeline-progress-head em,
+.adminhub-root.adminhub--dark .ah-dashboard-pipeline-progress-head strong small {
+  color: var(--ah-dark-muted);
+}
+
+.adminhub-root.adminhub--dark .ah-dashboard-pipeline-stack {
+  background: rgba(148, 163, 184, 0.16);
+  box-shadow: inset 0 0 0 1px var(--ah-dark-border);
+}
+
+.adminhub-root.adminhub--dark .ah-dashboard-pipeline-stack span + span {
+  border-left-color: var(--ah-dark-surface);
+}
+
+.adminhub-root.adminhub--dark .ah-dashboard-pipeline-progress-track {
+  background: rgba(148, 163, 184, 0.16);
+  box-shadow: inset 0 0 0 1px var(--ah-dark-border);
 }
 
 .adminhub-root.adminhub--dark .ah-input,
