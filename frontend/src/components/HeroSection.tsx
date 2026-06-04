@@ -93,6 +93,7 @@ export default function HeroSection() {
             {/* Full-bleed hero media — wide soft fade (avoids hard vertical seam under nav) */}
             <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden border-0">
                 <picture className="block h-full w-full">
+                    <source media="(min-width: 1024px)" type="image/webp" srcSet="/images/hero/hero-video-poster.webp" />
                     <source type="image/avif" srcSet={HERO_IMAGE.srcSetAvif} sizes={HERO_IMAGE.sizes} />
                     <source type="image/webp" srcSet={HERO_IMAGE.srcSetWebp} sizes={HERO_IMAGE.sizes} />
                     <img
@@ -116,7 +117,7 @@ export default function HeroSection() {
                         loop
                         playsInline
                         preload="metadata"
-                        poster={HERO_IMAGE.fallback}
+                        poster="/images/hero/hero-video-poster.webp"
                         onError={() => setHeroVideoFailed(true)}
                         className="absolute inset-0 z-[1] hidden h-full w-full object-cover object-[72%_center] opacity-100 lg:block"
                     >
