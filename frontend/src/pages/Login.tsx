@@ -62,6 +62,18 @@ const LOGIN_TAB_CONTENT_TRANSITION = {
     ease: [0.22, 1, 0.36, 1] as const,
 };
 
+const AUTH_INPUT_CLASS =
+    "h-12 rounded-2xl border-white/10 bg-white/[0.05] text-sm text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.07)] placeholder:text-slate-500/80 focus-visible:border-amber-300/45 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-amber-300/15";
+
+const AUTH_ICON_CLASS =
+    "absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500";
+
+const AUTH_PRIMARY_BUTTON_CLASS =
+    "h-12 w-full rounded-2xl bg-[linear-gradient(135deg,rgba(255,222,142,0.98),rgba(245,166,35,0.94)_45%,rgba(232,111,30,0.90))] text-sm font-bold text-[#070A12] shadow-[0_18px_46px_-20px_rgba(245,158,11,0.95),inset_0_1px_0_rgba(255,255,255,0.42)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[linear-gradient(135deg,rgba(255,232,170,1),rgba(251,183,62,0.96)_45%,rgba(242,120,36,0.94))] hover:shadow-[0_22px_58px_-22px_rgba(245,158,11,1),inset_0_1px_0_rgba(255,255,255,0.5)] disabled:translate-y-0 disabled:opacity-55";
+
+const AUTH_MUTED_LINK_CLASS =
+    "font-medium text-amber-200/75 transition-colors hover:text-amber-100";
+
 function getSafeLoginRedirect(value: string | null): string {
     if (!value) return "";
     let path = value.trim();
@@ -698,27 +710,36 @@ export default function Login() {
        RENDER
     ═══════════════════════════════════════════════════════ */
     return (
-        <div className="flex min-h-screen flex-col overflow-y-auto bg-background">
+        <div className="relative flex min-h-screen flex-col overflow-y-auto bg-[#050812] text-white">
             {/* ── Ambient Background ── */}
-            <div className="absolute inset-0 bg-hero-pattern pointer-events-none" />
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,#050812_0%,#070A12_54%,#03050B_100%)]" />
             <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                <div className="absolute top-1/2 left-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(249,115,22,0.12)_0%,transparent_70%)] opacity-40" />
+                <div className="absolute -left-32 top-10 h-[340px] w-[340px] rounded-full bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.12),transparent_68%)] blur-3xl" />
+                <div className="absolute right-[-12rem] top-1/4 h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle_at_center,rgba(234,88,12,0.12),transparent_70%)] blur-3xl" />
+                <div className="absolute bottom-[-16rem] left-1/2 h-[520px] w-[720px] -translate-x-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.045),transparent_72%)] blur-2xl" />
             </div>
+            <div className="pointer-events-none absolute inset-0 opacity-[0.055] [background-image:linear-gradient(rgba(255,255,255,0.18)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.18)_1px,transparent_1px)] [background-size:72px_72px]" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-[linear-gradient(180deg,rgba(251,146,60,0.09),transparent)]" />
 
             <div
                 className={cn(
-                    "relative z-10 flex w-full flex-1 flex-col items-center px-6 py-10 sm:py-12",
-                    tab === "register" ? "justify-start" : "justify-center"
+                    "relative z-10 flex w-full flex-1 flex-col items-center px-4 py-7 sm:px-6 sm:py-10 lg:py-12",
+                    tab === "register" ? "justify-start sm:justify-center" : "justify-center"
                 )}
             >
-                <div className="w-full max-w-md animate-scale-in pb-8">
+                <div className="w-full max-w-[30rem] animate-scale-in pb-8 sm:max-w-[32rem]">
                     {/* Logo */}
-                    <div className="text-center mb-10">
-                        <Link to="/" className="inline-flex items-center justify-center group mb-5">
+                    <div className={cn("text-center", tab === "register" ? "mb-4" : "mb-7")}>
+                        <Link to="/" className={cn("group inline-flex items-center justify-center", tab === "register" ? "mb-3" : "mb-4")}>
                             <img
                                 src="/images/autospf-logo.png"
                                 alt="AutoSPF+ Logo"
-                                className="h-28 w-auto max-w-[min(100%,280px)] object-contain sm:h-32 md:h-36 md:max-w-[min(100%,340px)] group-hover:scale-[1.03] transition-transform duration-200"
+                                className={cn(
+                                    "w-auto object-contain transition-transform duration-300 group-hover:scale-[1.025]",
+                                    tab === "register"
+                                        ? "h-16 max-w-[min(100%,170px)] sm:h-[4.5rem] sm:max-w-[190px] md:h-20"
+                                        : "h-20 max-w-[min(100%,220px)] sm:h-24 sm:max-w-[250px] md:h-28"
+                                )}
                             />
                         </Link>
                         <AnimatePresence initial={false} mode="sync">
@@ -728,7 +749,7 @@ export default function Login() {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -4 }}
                                 transition={LOGIN_TAB_CONTENT_TRANSITION}
-                                className="text-2xl font-bold text-foreground mt-2"
+                                className={cn("text-2xl font-semibold text-white", tab === "register" ? "mt-1" : "mt-2")}
                             >
                                 {tab === "register" ? t("login.registerTitle") : t("login.title")}
                             </motion.h1>
@@ -740,7 +761,7 @@ export default function Login() {
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
                                 transition={{ ...LOGIN_TAB_CONTENT_TRANSITION, duration: 0.4 }}
-                                className="text-sm text-muted-foreground mt-1"
+                                className={cn("text-sm text-slate-400", tab === "register" ? "mt-0.5" : "mt-1")}
                             >
                                 {tab === "register" ? t("login.registerSubtitle") : t("login.subtitle")}
                             </motion.p>
@@ -748,26 +769,33 @@ export default function Login() {
                     </div>
 
                     {/* ── Glass Card ── */}
-                    <div className="glass rounded-3xl border border-orange-500/15 p-8">
+                    <div
+                        className={cn(
+                            "relative overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04] shadow-[0_32px_110px_-38px_rgba(0,0,0,0.98),inset_0_1px_0_rgba(255,255,255,0.09)] backdrop-blur-2xl",
+                            tab === "register" ? "p-5 sm:px-6 sm:py-5" : "p-6 sm:p-8"
+                        )}
+                    >
+                        <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-amber-200/25 to-transparent" />
                         {/* ── Tab switcher ── */}
                         {loginOtpStep === "form" && (
                             <LayoutGroup id="login-auth-tabs">
-                                <div className="relative mb-6 flex gap-1 rounded-2xl bg-muted/30 p-1">
+                                <div className={cn("relative flex gap-1 rounded-2xl border border-white/10 bg-white/[0.05] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]", tab === "register" ? "mb-5" : "mb-7")}>
                                     <button
                                         id="tab-login"
                                         type="button"
                                         onClick={() => setTab("login")}
                                         className={cn(
-                                            "relative z-[1] flex-1 rounded-xl py-2 text-sm font-semibold transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                                            "relative z-[1] h-10 flex-1 rounded-xl text-sm font-semibold transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/35 focus-visible:ring-offset-0",
                                             tab === "login"
                                                 ? "text-white"
-                                                : "text-muted-foreground hover:text-foreground"
+                                                : "text-slate-400 hover:text-slate-200"
                                         )}
                                     >
                                         {tab === "login" && (
                                             <motion.span
                                                 layoutId="login-auth-tab-pill"
-                                                className="absolute inset-0 rounded-xl bg-orange-600 shadow-md shadow-orange-600/25"
+                                                className="absolute inset-0 rounded-xl border border-amber-100/20 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),rgba(245,158,11,0.16)_48%,rgba(251,146,60,0.09))] shadow-[0_12px_34px_-20px_rgba(245,158,11,0.9),inset_0_1px_0_rgba(255,255,255,0.14)]"
                                                 transition={NAV_ACTIVE_PILL_TRANSITION}
                                                 aria-hidden
                                             />
@@ -779,16 +807,17 @@ export default function Login() {
                                         type="button"
                                         onClick={() => setTab("register")}
                                         className={cn(
-                                            "relative z-[1] flex-1 rounded-xl py-2 text-sm font-semibold transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                                            "relative z-[1] h-10 flex-1 rounded-xl text-sm font-semibold transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/35 focus-visible:ring-offset-0",
                                             tab === "register"
                                                 ? "text-white"
-                                                : "text-muted-foreground hover:text-foreground"
+                                                : "text-slate-400 hover:text-slate-200"
                                         )}
                                     >
                                         {tab === "register" && (
                                             <motion.span
                                                 layoutId="login-auth-tab-pill"
-                                                className="absolute inset-0 rounded-xl bg-orange-600 shadow-md shadow-orange-600/25"
+                                                className="absolute inset-0 rounded-xl border border-amber-100/20 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),rgba(245,158,11,0.16)_48%,rgba(251,146,60,0.09))] shadow-[0_12px_34px_-20px_rgba(245,158,11,0.9),inset_0_1px_0_rgba(255,255,255,0.14)]"
                                                 transition={NAV_ACTIVE_PILL_TRANSITION}
                                                 aria-hidden
                                             />
@@ -814,7 +843,7 @@ export default function Login() {
                                 {/* Email */}
                                 <div>
                                     <div className="relative">
-                                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                        <Mail className={AUTH_ICON_CLASS} />
                                         <Input
                                             id="login-email"
                                             name="email"
@@ -823,7 +852,7 @@ export default function Login() {
                                             value={loginForm.email}
                                             onChange={(e) => setLoginForm((f) => ({ ...f, email: e.target.value }))}
                                             placeholder={t("login.emailPlaceholder")}
-                                            className="pl-9 bg-muted/40 border-border focus:border-primary"
+                                            className={cn(AUTH_INPUT_CLASS, "pl-10")}
                                         />
                                     </div>
                                 </div>
@@ -834,13 +863,13 @@ export default function Login() {
                                         <button
                                             type="button"
                                             onClick={() => setShowForgotModal(true)}
-                                            className="text-xs text-primary hover:text-accent transition-colors"
+                                            className={cn("text-xs", AUTH_MUTED_LINK_CLASS)}
                                         >
                                             {t("login.forgotPassword")}
                                         </button>
                                     </div>
                                     <div className="relative">
-                                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                        <Lock className={AUTH_ICON_CLASS} />
                                         <Input
                                             id="login-password"
                                             name="password"
@@ -849,12 +878,12 @@ export default function Login() {
                                             value={loginForm.password}
                                             onChange={(e) => setLoginForm((f) => ({ ...f, password: e.target.value }))}
                                             placeholder={t("login.passwordPlaceholder")}
-                                            className="pl-9 pr-9 bg-muted/40 border-border focus:border-primary"
+                                            className={cn(AUTH_INPUT_CLASS, "pl-10 pr-10")}
                                             onKeyDown={(e) => e.key === "Enter" && handleLoginSubmit()}
                                         />
                                         <button
                                             onClick={() => setShowPassword(!showPassword)}
-                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 transition-colors hover:text-slate-200"
                                         >
                                             {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                         </button>
@@ -900,19 +929,21 @@ export default function Login() {
                                     <div
                                         onClick={() => setRememberMe(!rememberMe)}
                                         className={cn(
-                                            "w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all",
-                                            rememberMe ? "bg-orange-600 border-orange-600" : "border-border group-hover:border-orange-400/50"
+                                            "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-all",
+                                            rememberMe
+                                                ? "border-amber-300/80 bg-amber-300/85 shadow-[0_0_18px_-8px_rgba(245,158,11,0.9)]"
+                                                : "border-white/15 bg-white/[0.035] group-hover:border-amber-300/35"
                                         )}
                                     >
-                                        {rememberMe && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                                        {rememberMe && <span className="text-[10px] font-bold leading-none text-[#070A12]">✓</span>}
                                     </div>
-                                    <span className="text-xs text-muted-foreground">{t("login.rememberMe")}</span>
+                                    <span className="text-xs text-slate-400 transition-colors group-hover:text-slate-300">{t("login.rememberMe")}</span>
                                 </label>
 
                                 {/* Submit */}
                                 <Button
                                     onClick={handleLoginSubmit}
-                                    className="w-full bg-orange-600 text-white hover:bg-orange-700 shadow-md shadow-orange-600/20 font-semibold mt-2 group"
+                                    className={cn(AUTH_PRIMARY_BUTTON_CLASS, "mt-2 group")}
                                     disabled={!loginForm.email || !loginForm.password || isLoading || isLocked}
                                 >
                                     {isLoading ? (
@@ -931,22 +962,22 @@ export default function Login() {
                             <div className="space-y-5 animate-slide-up">
                                 {/* Header */}
                                 <div className="text-center space-y-2">
-                                    <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-500/20 to-orange-600/5 border border-orange-500/20 mb-1">
-                                        <ShieldCheck className="w-7 h-7 text-orange-500" />
+                                    <div className="mb-1 inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-200/15 bg-[linear-gradient(135deg,rgba(245,158,11,0.18),rgba(255,255,255,0.035))] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                                        <ShieldCheck className="h-7 w-7 text-amber-200/85" />
                                     </div>
-                                    <h2 className="text-lg font-bold text-foreground">{t("login.otpTitle")}</h2>
-                                    <p className="text-sm text-muted-foreground">
+                                    <h2 className="text-lg font-bold text-white">{t("login.otpTitle")}</h2>
+                                    <p className="text-sm text-slate-400">
                                         {t("login.otpSent")}{" "}
-                                        <span className="font-semibold text-foreground">{loginMaskedEmail}</span>
+                                        <span className="font-semibold text-slate-100">{loginMaskedEmail}</span>
                                     </p>
                                 </div>
 
                                 {/* Expiry timer */}
                                 {loginOtpExpiry > 0 && (
-                                    <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+                                    <div className="flex items-center justify-center gap-1.5 text-xs text-slate-400">
                                         <Clock className="w-3.5 h-3.5" />
                                         <span>{t("login.otpExpires")}{" "}
-                                            <span className={cn("font-mono font-semibold", loginOtpExpiry <= 60 ? "text-red-400" : "text-foreground")}>
+                                            <span className={cn("font-mono font-semibold", loginOtpExpiry <= 60 ? "text-red-400" : "text-slate-100")}>
                                                 {String(Math.floor(loginOtpExpiry / 60)).padStart(2, "0")}:{String(loginOtpExpiry % 60).padStart(2, "0")}
                                             </span>
                                         </span>
@@ -985,10 +1016,10 @@ export default function Login() {
                                             onKeyDown={(e) => handleLoginOtpKeyDown(idx, e)}
                                             onPaste={idx === 0 ? handleLoginOtpPaste : undefined}
                                             className={cn(
-                                                "w-11 h-14 text-center text-xl font-bold rounded-xl border-2 bg-muted/40 text-foreground",
-                                                "focus:outline-none focus:ring-0 transition-all duration-200",
-                                                digit ? "border-orange-500/50 bg-orange-500/5" : "border-border",
-                                                "focus:border-orange-500 shadow-inner"
+                                                "h-14 w-11 rounded-xl border text-center text-xl font-bold text-white shadow-inner",
+                                                "bg-white/[0.045] focus:outline-none focus:ring-1 focus:ring-amber-300/20 transition-all duration-200",
+                                                digit ? "border-amber-300/45 bg-amber-300/10" : "border-white/10",
+                                                "focus:border-amber-300/60"
                                             )}
                                         />
                                     ))}
@@ -1005,7 +1036,7 @@ export default function Login() {
                                 {/* Verify button */}
                                 <Button
                                     onClick={handleVerifyLoginOtp}
-                                    className="w-full bg-orange-600 text-white hover:bg-orange-700 shadow-md shadow-orange-600/20 font-semibold group"
+                                    className={cn(AUTH_PRIMARY_BUTTON_CLASS, "group")}
                                     disabled={loginOtpDigits.some((d) => !d) || loginOtpVerifying}
                                 >
                                     {loginOtpVerifying ? (
@@ -1026,7 +1057,7 @@ export default function Login() {
                                             setLoginOtpDigits(["", "", "", "", "", ""]);
                                             setLoginOtpError("");
                                         }}
-                                        className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+                                        className="flex items-center gap-1 text-slate-400 transition-colors hover:text-slate-100"
                                     >
                                         <ArrowLeft className="w-3.5 h-3.5" />
                                         {t("login.otpBack")}
@@ -1038,8 +1069,8 @@ export default function Login() {
                                         className={cn(
                                             "flex items-center gap-1 transition-colors",
                                             loginOtpResend > 0 || loginOtpResending
-                                                ? "text-muted-foreground/50 cursor-not-allowed"
-                                                : "text-primary hover:text-accent"
+                                                ? "text-slate-500/70 cursor-not-allowed"
+                                                : AUTH_MUTED_LINK_CLASS
                                         )}
                                     >
                                         {loginOtpResending ? (
@@ -1057,9 +1088,13 @@ export default function Login() {
                     </div>
 
                     {/* Back to home */}
-                    <p className="text-center text-sm text-muted-foreground mt-6">
-                        <Link to="/" className="text-primary hover:text-accent transition-colors">
-                            ← {t("nav.home")}
+                    <p className="mt-5 text-center text-sm text-slate-400">
+                        <Link
+                            to="/"
+                            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-4 py-2 text-xs font-semibold text-slate-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-300 hover:border-amber-200/25 hover:bg-amber-200/[0.06] hover:text-amber-100"
+                        >
+                            <ArrowLeft className="h-3.5 w-3.5" />
+                            {t("nav.home")}
                         </Link>
                     </p>
                 </div>
@@ -1083,10 +1118,10 @@ export default function Login() {
                     if (!open) resetForgotModal();
                 }}
             >
-                <DialogContent className="glass border-orange-500/15 sm:max-w-md">
+                <DialogContent className="rounded-[26px] border border-white/10 bg-[#070A12]/95 text-white shadow-[0_28px_90px_-36px_rgba(0,0,0,0.95),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle className="text-foreground">{t("login.forgotTitle")}</DialogTitle>
-                        <DialogDescription className="text-muted-foreground">
+                        <DialogTitle className="text-white">{t("login.forgotTitle")}</DialogTitle>
+                        <DialogDescription className="text-slate-400">
                             {forgotStep === "email" && t("login.forgotEmailStep")}
                             {forgotStep === "otp" &&
                                 t("login.forgotOtpStep").replace("{email}", forgotEmail)}
@@ -1097,19 +1132,19 @@ export default function Login() {
                     {forgotStep === "email" && (
                         <div className="space-y-4 mt-2">
                             <div className="relative">
-                                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                <Mail className={AUTH_ICON_CLASS} />
                                 <Input
                                     type="email"
                                     value={forgotEmail}
                                     onChange={(e) => setForgotEmail(e.target.value)}
                                     placeholder="your@email.com"
-                                    className="pl-9 bg-muted/40 border-border focus:border-primary"
+                                    className={cn(AUTH_INPUT_CLASS, "pl-10")}
                                     onKeyDown={(e) => e.key === "Enter" && handleForgotSendOtp()}
                                 />
                             </div>
                             <Button
                                 onClick={handleForgotSendOtp}
-                                className="w-full bg-orange-600 text-white hover:bg-orange-700 shadow-md shadow-orange-600/20 font-semibold"
+                                className={AUTH_PRIMARY_BUTTON_CLASS}
                                 disabled={!forgotEmail.trim() || forgotLoading}
                             >
                                 {forgotLoading ? (
@@ -1143,7 +1178,7 @@ export default function Login() {
                                         onChange={(e) => handleForgotOtpChange(idx, e.target.value)}
                                         onKeyDown={(e) => handleForgotOtpKeyDown(idx, e)}
                                         onPaste={idx === 0 ? handleForgotOtpPaste : undefined}
-                                        className="w-10 h-12 text-center text-lg font-semibold rounded-lg border border-border bg-muted/40 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500/40"
+                                        className="h-12 w-10 rounded-xl border border-white/10 bg-white/[0.045] text-center text-lg font-semibold text-white shadow-inner transition-all focus:border-amber-300/60 focus:outline-none focus:ring-1 focus:ring-amber-300/20"
                                     />
                                 ))}
                             </div>
@@ -1152,7 +1187,7 @@ export default function Login() {
                             )}
                             <Button
                                 onClick={handleForgotVerifyOtp}
-                                className="w-full bg-orange-600 text-white hover:bg-orange-700 font-semibold"
+                                className={AUTH_PRIMARY_BUTTON_CLASS}
                                 disabled={forgotOtpDigits.join("").length !== 6 || forgotLoading}
                             >
                                 {forgotLoading ? (
@@ -1162,7 +1197,7 @@ export default function Login() {
                             </Button>
                             <button
                                 type="button"
-                                className="w-full text-xs text-muted-foreground hover:text-foreground"
+                                className="w-full text-xs text-slate-400 transition-colors hover:text-slate-100"
                                 onClick={() => {
                                     setForgotStep("email");
                                     setForgotOtpDigits(["", "", "", "", "", ""]);
@@ -1177,17 +1212,17 @@ export default function Login() {
                     {forgotStep === "password" && (
                         <div className="space-y-4 mt-2">
                             <div className="relative">
-                                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                <Lock className={AUTH_ICON_CLASS} />
                                 <Input
                                     type={forgotShowPassword ? "text" : "password"}
                                     value={forgotNewPassword}
                                     onChange={(e) => setForgotNewPassword(e.target.value)}
                                     placeholder={t("login.forgotNewPassword")}
-                                    className="pl-9 pr-9 bg-muted/40 border-border"
+                                    className={cn(AUTH_INPUT_CLASS, "pl-10 pr-10")}
                                 />
                                 <button
                                     type="button"
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 transition-colors hover:text-slate-200"
                                     onClick={() => setForgotShowPassword((v) => !v)}
                                 >
                                     {forgotShowPassword ? (
@@ -1198,19 +1233,19 @@ export default function Login() {
                                 </button>
                             </div>
                             <div className="relative">
-                                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                <Lock className={AUTH_ICON_CLASS} />
                                 <Input
                                     type={forgotShowPassword ? "text" : "password"}
                                     value={forgotConfirmPassword}
                                     onChange={(e) => setForgotConfirmPassword(e.target.value)}
                                     placeholder={t("login.forgotConfirmPassword")}
-                                    className="pl-9 bg-muted/40 border-border"
+                                    className={cn(AUTH_INPUT_CLASS, "pl-10")}
                                     onKeyDown={(e) => e.key === "Enter" && handleForgotResetPassword()}
                                 />
                             </div>
                             <Button
                                 onClick={handleForgotResetPassword}
-                                className="w-full bg-orange-600 text-white hover:bg-orange-700 font-semibold"
+                                className={AUTH_PRIMARY_BUTTON_CLASS}
                                 disabled={!forgotNewPassword || !forgotConfirmPassword || forgotLoading}
                             >
                                 {forgotLoading ? (

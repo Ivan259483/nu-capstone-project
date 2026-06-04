@@ -24,13 +24,13 @@ import { cn } from "@/lib/utils";
 const PPF_TERMS_HIGHLIGHT_ICONS = [Clock, ShieldCheck, RefreshCw, CheckCircle2];
 
 const LEGAL_CHECKBOX_CLASS = cn(
-    "h-[18px] w-[18px] shrink-0 rounded-[5px] border shadow-none ring-offset-0 mt-0.5",
-    "border-amber-400/55 bg-gradient-to-b from-white/[0.08] to-white/[0.02]",
-    "shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_0_0_1px_rgba(249,115,22,0.18),0_2px_12px_-4px_rgba(249,115,22,0.22)]",
-    "data-[state=checked]:border-amber-300 data-[state=checked]:from-orange-500 data-[state=checked]:to-orange-600 data-[state=checked]:bg-gradient-to-b",
-    "data-[state=checked]:text-white data-[state=checked]:shadow-[0_0_20px_-4px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(255,255,255,0.2)]",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/45 focus-visible:ring-offset-0",
-    "[&_svg]:h-3.5 [&_svg]:w-3.5 [&_svg]:stroke-[3]"
+    "mt-0.5 h-4 w-4 shrink-0 rounded-[5px] border shadow-none ring-offset-0",
+    "border-white/20 bg-white/[0.045]",
+    "shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]",
+    "data-[state=checked]:border-amber-300/70 data-[state=checked]:bg-amber-300/85 data-[state=checked]:text-[#070A12]",
+    "data-[state=checked]:shadow-[0_0_18px_-8px_rgba(245,158,11,0.9),inset_0_1px_0_rgba(255,255,255,0.18)]",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/35 focus-visible:ring-offset-0",
+    "[&_svg]:h-3 [&_svg]:w-3 [&_svg]:stroke-[3]"
 );
 
 export const REGISTER_LEGAL_TOAST_MESSAGE =
@@ -121,8 +121,8 @@ export function RegisterLegalCheckboxes({
     const websiteCheckboxId = `${idPrefix}-website-tos`;
 
     return (
-        <div className="space-y-2.5">
-            <div className="flex items-start gap-2.5">
+        <div className="space-y-1.5">
+            <div className="flex items-start gap-2.5 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]">
                 <Checkbox
                     id={ppfCheckboxId}
                     checked={ppfTermsAgreed}
@@ -139,19 +139,19 @@ export function RegisterLegalCheckboxes({
                 <div className="min-w-0 flex-1">
                     <Label
                         htmlFor={ppfCheckboxId}
-                        className="text-xs text-muted-foreground font-normal leading-relaxed cursor-pointer text-left block"
+                        className="block cursor-pointer text-left text-[11px] font-normal leading-snug text-slate-400"
                     >
                         I acknowledge the{" "}
-                        <span className="text-primary font-medium">
+                        <span className="font-medium text-amber-200/85">
                             Paint Protection Film General Terms and Conditions
                         </span>
                         . Select this to read and accept in the popup, then use{" "}
-                        <span className="text-primary/90 font-medium">{submitActionLabel}</span> above.
+                        <span className="font-medium text-amber-100/80">{submitActionLabel}</span> above.
                     </Label>
                 </div>
             </div>
 
-            <div className="flex items-start gap-2.5">
+            <div className="flex items-start gap-2.5 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]">
                 <Checkbox
                     id={websiteCheckboxId}
                     checked={registerWebsiteTermsAgreed}
@@ -161,10 +161,10 @@ export function RegisterLegalCheckboxes({
                 />
                 <Label
                     htmlFor={websiteCheckboxId}
-                    className="text-xs text-muted-foreground font-normal leading-relaxed cursor-pointer text-left block min-w-0 flex-1"
+                    className="block min-w-0 flex-1 cursor-pointer text-left text-[11px] font-normal leading-snug text-slate-400"
                 >
                     By registering, you confirm the PPF terms (via the popup) and our website{" "}
-                    <span className="text-primary font-medium hover:underline">Terms of Service</span>.
+                    <span className="font-medium text-amber-200/85 hover:underline">Terms of Service</span>.
                 </Label>
             </div>
         </div>

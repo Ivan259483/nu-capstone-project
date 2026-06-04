@@ -86,8 +86,8 @@ export const FloatingNav = ({
                 }}
                 className={cn(
                     isHero
-                        ? "fixed inset-x-0 top-0 z-[5000] h-20 w-full sm:h-24 lg:h-[88px]"
-                        : "fixed inset-x-0 top-0 z-[5000] h-20 w-full lg:h-[88px]",
+                        ? "absolute inset-x-0 top-0 z-[5000] h-[88px] w-full sm:h-24"
+                        : "absolute inset-x-0 top-0 z-[5000] h-[88px] w-full sm:h-24",
                     className
                 )}
             >
@@ -106,8 +106,8 @@ export const FloatingNav = ({
                 <div
                     className={cn(
                         isHero
-                            ? "public-hero-nav-shell pointer-events-auto relative z-[1] mx-auto grid h-20 w-full max-w-[85rem] grid-cols-[auto_1fr_auto] items-center gap-5 px-6 sm:h-24 sm:px-8 lg:h-[88px] lg:px-10"
-                            : "public-glass-nav-shell pointer-events-auto relative z-[1] mx-auto grid h-20 w-full max-w-[85rem] grid-cols-[auto_1fr_auto] items-center gap-5 px-6 sm:px-8 lg:h-[88px] lg:px-10"
+                            ? "public-hero-nav-shell pointer-events-auto relative z-[1] mx-auto grid h-[88px] w-full max-w-[85rem] grid-cols-[auto_1fr_auto] items-center gap-6 px-6 sm:h-24 sm:px-8 lg:px-10"
+                            : "public-glass-nav-shell pointer-events-auto relative z-[1] mx-auto grid h-[88px] w-full max-w-[85rem] grid-cols-[auto_1fr_auto] items-center gap-6 px-6 sm:h-24 sm:px-8 lg:px-10"
                     )}
                 >
                     {logo && (
@@ -121,7 +121,7 @@ export const FloatingNav = ({
                         )}
                     >
                         <LayoutGroup id="public-nav-desktop">
-                            <div className="pointer-events-auto flex items-center gap-7 xl:gap-8">
+                            <div className="pointer-events-auto flex items-center gap-10 xl:gap-12">
                                 {navItems.map((navItem) => {
                                     const itemClassName = cn(
                                         "public-nav-link relative flex items-center whitespace-nowrap border-0 text-[0.8125rem] font-medium shadow-none outline-none",

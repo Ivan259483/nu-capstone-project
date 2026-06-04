@@ -262,19 +262,19 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
         <>
             <form
                 onSubmit={handleSubmit}
-                className="max-h-[min(calc(100dvh-13rem),42rem)] space-y-2 overflow-y-auto pr-0.5 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/15"
+                className="max-h-[min(calc(100dvh-10rem),42rem)] space-y-2.5 overflow-y-auto pr-1.5 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-amber-200/20"
                 noValidate
             >
                 {attemptedSubmit && Object.keys(errors).length > 0 ? (
                     <p
-                        className="rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-[11px] leading-snug text-red-300"
+                        className="rounded-2xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-[11px] leading-snug text-red-300"
                         role="status"
                     >
                         {t("register.summaryError")}
                     </p>
                 ) : null}
 
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid gap-2.5 sm:grid-cols-2">
                     <FloatingLabelField
                         compactError
                         id="manual-reg-first-name"
@@ -333,11 +333,11 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
 
                 <div
                     className={cn(
-                        "relative overflow-hidden rounded-2xl border bg-white/[0.04] backdrop-blur-md transition-colors",
-                        "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] px-4 pb-2.5 pt-6",
+                        "relative overflow-hidden rounded-[18px] border bg-white/[0.045] backdrop-blur-xl transition-all duration-300",
+                        "px-4 pb-2 pt-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
                         phoneError && touched.phone
-                            ? "border-red-500/60 ring-1 ring-red-500/15"
-                            : "border-white/10 focus-within:border-orange-400/55 focus-within:ring-1 focus-within:ring-orange-500/20"
+                            ? "border-red-400/55 ring-1 ring-red-400/15"
+                            : "border-white/10 focus-within:border-amber-300/40 focus-within:ring-1 focus-within:ring-amber-300/15"
                     )}
                     onBlur={(e) => {
                         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
@@ -346,7 +346,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                         }
                     }}
                 >
-                    <span className="pointer-events-none absolute left-4 top-2 z-[1] text-[10px] font-semibold uppercase tracking-[0.14em] text-orange-400/90">
+                    <span className="pointer-events-none absolute left-4 top-1.5 z-[1] bg-transparent text-[11px] font-medium text-slate-400 shadow-none">
                         {t("register.phone")}
                     </span>
                     <RegisterPhoneField
@@ -367,7 +367,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                     />
                 </div>
                 {showFieldError("phone") && phoneError ? (
-                    <p className="-mt-1.5 px-1 text-[11px] leading-tight font-medium text-red-400" role="alert">
+                    <p className="-mt-1.5 px-1 text-[11px] font-medium leading-tight text-red-400" role="alert">
                         {phoneError}
                     </p>
                 ) : null}
@@ -393,7 +393,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                     endAdornment={
                         <button
                             type="button"
-                            className="text-white/45 hover:text-white/80"
+                            className="text-slate-500 transition-colors hover:text-slate-200"
                             onClick={() => setShowPasswords((v) => !v)}
                             aria-label={showPasswords ? t("register.hidePasswords") : t("register.showPasswords")}
                             tabIndex={-1}
@@ -427,7 +427,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                         ) : (
                             <button
                                 type="button"
-                                className="text-white/45 hover:text-white/80"
+                                className="text-slate-500 transition-colors hover:text-slate-200"
                                 onClick={() => setShowPasswords((v) => !v)}
                                 aria-label={showPasswords ? t("register.hidePasswords") : t("register.showPasswords")}
                                 tabIndex={-1}
@@ -439,13 +439,13 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                 />
 
                 {password.length > 0 && pwStrength ? (
-                    <p className={cn("px-0.5 text-[11px] font-semibold", pwStrength.textClass)}>
+                    <p className={cn("px-1 text-[11px] font-semibold", pwStrength.textClass)}>
                         {t("register.strengthLabel")} {pwStrength.text}
                     </p>
                 ) : null}
 
                 {password.length > 0 && !pwAllValid ? (
-                    <div className="flex flex-wrap gap-1.5 px-0.5">
+                    <div className="flex flex-wrap gap-1.5 px-1">
                         {(
                             [
                                 [pwRules.length, "8+ chars"],
@@ -460,8 +460,8 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                                 className={cn(
                                     "rounded-md px-2 py-0.5 text-[10px] font-medium ring-1",
                                     met
-                                        ? "bg-orange-500/15 text-orange-200/90 ring-orange-500/25"
-                                        : "bg-white/[0.03] text-white/35 ring-white/10"
+                                        ? "bg-amber-300/10 text-amber-100/85 ring-amber-300/20"
+                                        : "bg-white/[0.025] text-slate-500 ring-white/10"
                                 )}
                             >
                                 {label}
@@ -484,7 +484,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                     <Button
                         type="submit"
                         disabled={!canSubmit}
-                        className="h-12 w-full rounded-2xl bg-orange-600 text-sm font-bold text-white shadow-md shadow-orange-600/25 hover:bg-orange-500 disabled:opacity-60"
+                        className="h-12 w-full rounded-2xl bg-[linear-gradient(135deg,rgba(255,222,142,0.98),rgba(245,166,35,0.94)_45%,rgba(232,111,30,0.90))] text-sm font-bold text-[#070A12] shadow-[0_18px_46px_-20px_rgba(245,158,11,0.95),inset_0_1px_0_rgba(255,255,255,0.42)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[linear-gradient(135deg,rgba(255,232,170,1),rgba(251,183,62,0.96)_45%,rgba(242,120,36,0.94))] hover:shadow-[0_22px_58px_-22px_rgba(245,158,11,1),inset_0_1px_0_rgba(255,255,255,0.5)] disabled:translate-y-0 disabled:opacity-55"
                     >
                         {isSubmitting ? (
                             <>
@@ -499,12 +499,12 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                         )}
                     </Button>
 
-                    <p className="text-center text-xs text-muted-foreground">
+                    <p className="text-center text-xs text-slate-400">
                         {t("register.haveAccount")}{" "}
                         <button
                             type="button"
                             onClick={onSignIn}
-                            className="font-semibold text-orange-500 hover:text-orange-400"
+                            className="font-semibold text-amber-200/85 transition-colors hover:text-amber-100"
                         >
                             {t("register.signInLink")}
                         </button>

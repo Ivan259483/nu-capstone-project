@@ -138,8 +138,8 @@ export default function Navbar() {
                 src="/images/autospf-logo.png"
                 alt="AutoSPF+"
                 className={cn(
-                    "h-[34px] w-auto max-w-[104px] object-contain",
-                    isHomePage && "h-[38px] max-w-[112px]"
+                    "h-auto w-[92px] max-w-none object-contain sm:w-[96px]",
+                    isHomePage && "w-[96px] sm:w-[100px]"
                 )}
             />
         </Link>
@@ -217,7 +217,7 @@ export default function Navbar() {
 
             <div
                 className={cn(
-                    "fixed inset-0 z-[4990] lg:hidden transition-all duration-300",
+                    "absolute inset-x-0 top-0 z-[4990] min-h-screen lg:hidden transition-all duration-300",
                     menuOpen ? "pointer-events-auto" : "pointer-events-none"
                 )}
             >
@@ -234,7 +234,7 @@ export default function Navbar() {
                 <div
                     className={cn(
                         "public-nav-menu-panel absolute right-3 flex w-[min(20rem,calc(100vw-1.5rem))] flex-col rounded-2xl border border-white/10 bg-[#05070c]/78 p-3 backdrop-blur-xl transition-all duration-300",
-                        isHomePage ? "top-[4.5rem] sm:top-24" : "top-[4.75rem] sm:top-24",
+                        "top-[5.75rem] sm:top-[6.25rem]",
                         menuOpen ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
                     )}
                 >

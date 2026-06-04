@@ -13,13 +13,11 @@ const PAUSE_BEFORE_TYPE = 200;
 const HERO_VIDEO_SRC = "/videos/hero-autospf.mp4";
 const HERO_VIDEO_POSTER_SRC = "/images/hero/hero-video-poster.webp";
 
-const SERVICE_KEYS = [
+const HERO_SERVICE_KEYS = [
     "ceramicCoating",
     "fullDetail",
     "paintCorrection",
     "ppf",
-    "interiorDetail",
-    "tinting",
 ] as const;
 
 export default function HeroSection() {
@@ -28,7 +26,7 @@ export default function HeroSection() {
         () => (lang === "fil" ? fil.hero.typingWords : en.hero.typingWords),
         [lang]
     );
-    const [activeServiceKey, setActiveServiceKey] = useState<(typeof SERVICE_KEYS)[number]>("ceramicCoating");
+    const [activeServiceKey, setActiveServiceKey] = useState<(typeof HERO_SERVICE_KEYS)[number]>("ceramicCoating");
     const [displayText, setDisplayText] = useState("");
     const [wordIndex, setWordIndex] = useState(0);
     const [isDeleting, setIsDeleting] = useState(false);
@@ -124,14 +122,14 @@ export default function HeroSection() {
                     aria-hidden
                     style={{
                         background:
-                            "linear-gradient(100deg, rgba(7,7,10,0.98) 0%, rgba(7,7,10,0.88) 25%, rgba(7,7,10,0.48) 43%, rgba(7,7,10,0.16) 62%, rgba(7,7,10,0.04) 100%), linear-gradient(to bottom, rgba(7,7,10,0.14) 0%, transparent 38%, rgba(7,7,10,0.58) 100%)",
+                            "linear-gradient(100deg, rgba(7,7,10,0.98) 0%, rgba(7,7,10,0.9) 24%, rgba(7,7,10,0.36) 43%, rgba(7,7,10,0.08) 64%, rgba(7,7,10,0.015) 100%), linear-gradient(to bottom, rgba(7,7,10,0.08) 0%, transparent 42%, rgba(7,7,10,0.38) 100%)",
                     }}
                 />
                 <div
                     className="absolute inset-0 z-10 lg:hidden"
                     aria-hidden
                     style={{
-                        background: "linear-gradient(to top, #07070A 0%, rgba(7,7,10,0.86) 48%, rgba(7,7,10,0.38) 100%), linear-gradient(90deg, rgba(7,7,10,0.72) 0%, rgba(7,7,10,0.28) 100%)",
+                        background: "linear-gradient(to top, #07070A 0%, rgba(7,7,10,0.84) 46%, rgba(7,7,10,0.26) 100%), linear-gradient(90deg, rgba(7,7,10,0.76) 0%, rgba(7,7,10,0.12) 100%)",
                     }}
                 />
             </div>
@@ -241,16 +239,16 @@ export default function HeroSection() {
                     </div>
 
                     {/* Service tags */}
-                    <div className="grid max-w-[16rem] grid-cols-1 gap-2.5 animate-slide-up font-sans sm:max-w-[620px] sm:flex sm:flex-wrap sm:items-center sm:gap-2.5" style={{ animationDelay: "0.7s" }}>
-                        {SERVICE_KEYS.map((key) => (
+                    <div className="mt-3 grid max-w-[16rem] grid-cols-1 gap-2 animate-slide-up font-sans opacity-80 transition-opacity duration-300 hover:opacity-100 sm:max-w-[620px] sm:flex sm:flex-wrap sm:items-center sm:gap-2.5" style={{ animationDelay: "0.7s" }}>
+                        {HERO_SERVICE_KEYS.map((key) => (
                             <button
                                 key={key}
                                 type="button"
                                 onClick={() => setActiveServiceKey(key)}
                                 aria-pressed={activeServiceKey === key}
                                 className={`inline-flex min-h-9 items-center justify-center rounded-full border px-4 text-center text-[11px] font-semibold uppercase tracking-[0.1em] transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/45 sm:justify-start ${activeServiceKey === key
-                                    ? "border-[#e0a020]/50 bg-[#e0a020]/11 text-[#f4c96b] shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]"
-                                    : "border-white/12 bg-[#090d14]/45 text-white/66 hover:border-[#e0a020]/34 hover:bg-white/[0.07] hover:text-white"
+                                    ? "border-[#e0a020]/38 bg-[#e0a020]/7 text-[#f4c96b]/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                                    : "border-white/10 bg-[#090d14]/30 text-white/52 hover:border-[#e0a020]/28 hover:bg-white/[0.045] hover:text-white/78"
                                     }`}
                             >
                                 {t(`hero.serviceTags.${key}`)}

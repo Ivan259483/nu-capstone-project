@@ -6397,24 +6397,52 @@ html.dark * {
     padding: 0 2rem;
 }
 
+.public-luxury-cta--primary.public-luxury-cta--hero {
+    border-color: rgba(255, 232, 176, 0.48);
+    background: linear-gradient(135deg, #f2ca72 0%, #d99a2f 46%, #a96817 100%);
+    box-shadow:
+        0 12px 30px rgba(224, 160, 32, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+.public-luxury-cta--primary.public-luxury-cta--hero:hover {
+    border-color: rgba(255, 236, 190, 0.62);
+    background: linear-gradient(135deg, #f7d58b 0%, #dea443 44%, #b87720 100%);
+    box-shadow:
+        0 15px 34px rgba(224, 160, 32, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
 .public-luxury-cta--view-work {
+    border-color: rgba(244, 201, 107, 0.35);
     padding: 0 2.1rem;
+    color: #ffffff !important;
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.075),
         0 12px 30px rgba(0, 0, 0, 0.2),
         0 0 0 1px rgba(244, 201, 107, 0.04);
 }
 
+.public-luxury-cta--view-work:hover {
+    border-color: rgba(244, 201, 107, 0.58);
+    background: rgba(224, 160, 32, 0.1);
+    color: #ffffff !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.09),
+        0 16px 38px rgba(0, 0, 0, 0.24),
+        0 0 24px rgba(244, 201, 107, 0.24);
+}
+
 .public-luxury-cta--nav {
-    min-height: 2.25rem;
-    padding: 0 1rem;
+    min-height: 2.5rem;
+    padding: 0 1.25rem;
     font-size: 0.7rem;
     letter-spacing: 0.08em;
 }
 
 .public-luxury-cta--hero-nav {
-    min-height: 2.5rem;
-    padding: 0 1.35rem;
+    min-height: 2.75rem;
+    padding: 0 1.6rem;
     border-color: rgba(255, 232, 176, 0.72);
     box-shadow:
         0 10px 24px rgba(224, 160, 32, 0.18),
