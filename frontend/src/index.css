@@ -6393,8 +6393,12 @@ html.dark * {
 }
 
 .public-luxury-cta--hero {
-    min-height: 3.25rem;
-    padding: 0 2rem;
+    min-height: 3rem;
+    padding: 0 1.75rem;
+    font-size: 0.86rem;
+    font-weight: 600;
+    letter-spacing: 0.025em;
+    text-transform: none;
 }
 
 .public-luxury-cta--primary.public-luxury-cta--hero {
@@ -6433,20 +6437,43 @@ html.dark * {
         0 0 24px rgba(244, 201, 107, 0.24);
 }
 
+.public-luxury-cta--view-work.public-luxury-cta--hero {
+    padding: 0 1.85rem;
+}
+
 .public-luxury-cta--nav {
-    min-height: 2.5rem;
-    padding: 0 1.25rem;
-    font-size: 0.7rem;
-    letter-spacing: 0.08em;
+    min-height: 2.25rem;
+    padding: 0 1.12rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.075em;
 }
 
 .public-luxury-cta--hero-nav {
-    min-height: 2.75rem;
-    padding: 0 1.6rem;
-    border-color: rgba(255, 232, 176, 0.72);
+    min-height: 2.375rem;
+    padding: 0 1.36rem;
+    border-color: rgba(255, 232, 176, 0.42);
     box-shadow:
-        0 10px 24px rgba(224, 160, 32, 0.18),
-        inset 0 1px 0 rgba(255, 255, 255, 0.42);
+        0 10px 24px rgba(224, 160, 32, 0.14),
+        0 0 22px rgba(224, 160, 32, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.public-luxury-cta--primary.public-luxury-cta--nav {
+    border-color: rgba(255, 232, 176, 0.38);
+    background: linear-gradient(135deg, #f3c86b 0%, #d99a2f 48%, #ad6f19 100%);
+    box-shadow:
+        0 9px 22px rgba(224, 160, 32, 0.13),
+        0 0 18px rgba(224, 160, 32, 0.07),
+        inset 0 1px 0 rgba(255, 255, 255, 0.26);
+}
+
+.public-luxury-cta--primary.public-luxury-cta--nav:hover {
+    border-color: rgba(255, 236, 190, 0.54);
+    background: linear-gradient(135deg, #f7d58b 0%, #dfa23c 46%, #b87720 100%);
+    box-shadow:
+        0 12px 26px rgba(224, 160, 32, 0.19),
+        0 0 24px rgba(224, 160, 32, 0.11),
+        inset 0 1px 0 rgba(255, 255, 255, 0.32);
 }
 
 /* Public floating navbar — kill stray underlines / pseudo-element lines on nav links */

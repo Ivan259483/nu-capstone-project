@@ -149,18 +149,19 @@ export default function Navbar() {
         <>
             <LanguageSwitcher
                 className={cn(
+                    "h-[2.125rem] min-w-[3.45rem] border-white/[0.09] bg-white/[0.035] px-2.5 text-[0.7rem] tracking-[0.075em] text-white/84 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] backdrop-blur-sm hover:border-[#e0a020]/28 hover:bg-white/[0.06] hover:text-[#f4c96b] focus-visible:ring-[#e0a020]/42",
                     isHomePage &&
-                    "border-white/15 bg-white/[0.03] text-white/90 shadow-none backdrop-blur-sm hover:border-white/25 hover:bg-white/[0.07] hover:text-white"
+                    "border-white/[0.1] bg-white/[0.028] text-white/86 shadow-none hover:border-[#e0a020]/26 hover:bg-white/[0.052] hover:text-[#f4c96b]"
                 )}
             />
 
-            <span aria-hidden className={cn("h-6 w-px", isHomePage ? "bg-white/18" : "bg-white/10")} />
+            <span aria-hidden className={cn("h-5 w-px", isHomePage ? "bg-white/14" : "bg-white/10")} />
 
             <Link
                 to="/login"
                 className={cn(
-                    "whitespace-nowrap rounded-full px-2 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/45",
-                    isHomePage ? "text-white/82 drop-shadow-[0_1px_8px_rgba(0,0,0,0.45)] hover:text-white" : "text-white/72 hover:text-[#f4c96b]"
+                    "inline-flex h-[2.125rem] items-center whitespace-nowrap rounded-full px-2 text-sm font-medium leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/45",
+                    isHomePage ? "text-white/76 drop-shadow-[0_1px_8px_rgba(0,0,0,0.34)] hover:text-[#f4c96b]" : "text-white/68 hover:text-[#f4c96b]"
                 )}
             >
                 {t("nav.login")}

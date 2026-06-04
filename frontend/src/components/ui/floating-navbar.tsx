@@ -174,7 +174,7 @@ export const FloatingNav = ({
 
                     <div className="relative z-[2] flex min-w-0 shrink-0 items-center justify-self-end">
                         {actions && (
-                            <div className="hidden min-w-0 items-center gap-3 lg:flex">
+                            <div className="hidden min-w-0 items-center gap-2.5 lg:flex">
                                 {actions}
                             </div>
                         )}
