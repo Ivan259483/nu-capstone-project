@@ -5,13 +5,13 @@ import { motion } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { en } from "@/translations/en";
 import { fil } from "@/translations/fil";
-import { HERO_IMAGE } from "@/lib/hero-image";
 
 const TYPING_SPEED = 55;
 const DELETING_SPEED = 30;
 const PAUSE_AFTER_WORD = 1400;
 const PAUSE_BEFORE_TYPE = 200;
 const HERO_VIDEO_SRC = "/videos/hero-autospf.mp4";
+const HERO_VIDEO_POSTER_SRC = "/images/hero/hero-video-poster.webp";
 
 const SERVICE_KEYS = [
     "ceramicCoating",
@@ -33,8 +33,10 @@ export default function HeroSection() {
     const [wordIndex, setWordIndex] = useState(0);
     const [isDeleting, setIsDeleting] = useState(false);
     const [showCursor, setShowCursor] = useState(true);
-    const [canUseHeroVideo, setCanUseHeroVideo] = useState(false);
     const [heroVideoFailed, setHeroVideoFailed] = useState(false);
+    const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
+        typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
 
     useEffect(() => {
         setWordIndex(0);
@@ -49,13 +51,13 @@ export default function HeroSection() {
     }, []);
 
     useEffect(() => {
-        const mediaQuery = window.matchMedia("(min-width: 1024px)");
-        const updateVideoPreference = () => setCanUseHeroVideo(mediaQuery.matches);
+        const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+        const updateMotionPreference = () => setPrefersReducedMotion(mediaQuery.matches);
 
-        updateVideoPreference();
-        mediaQuery.addEventListener("change", updateVideoPreference);
+        updateMotionPreference();
+        mediaQuery.addEventListener("change", updateMotionPreference);
 
-        return () => mediaQuery.removeEventListener("change", updateVideoPreference);
+        return () => mediaQuery.removeEventListener("change", updateMotionPreference);
     }, []);
 
     // Typing engine
@@ -92,24 +94,17 @@ export default function HeroSection() {
 
             {/* Full-bleed hero media — wide soft fade (avoids hard vertical seam under nav) */}
             <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden border-0">
-                <picture className="block h-full w-full">
-                    <source media="(min-width: 1024px)" type="image/webp" srcSet="/images/hero/hero-video-poster.webp" />
-                    <source type="image/avif" srcSet={HERO_IMAGE.srcSetAvif} sizes={HERO_IMAGE.sizes} />
-                    <source type="image/webp" srcSet={HERO_IMAGE.srcSetWebp} sizes={HERO_IMAGE.sizes} />
-                    <img
-                        src={HERO_IMAGE.fallback}
-                        srcSet={HERO_IMAGE.srcSetWebp}
-                        sizes={HERO_IMAGE.sizes}
-                        alt={t("hero.imageAlt")}
-                        width={3840}
-                        height={2561}
-                        decoding="async"
-                        fetchPriority="high"
-                        className="hero-car-media h-full w-full object-cover object-[center_38%] opacity-[0.88] sm:object-center lg:object-[72%_center] lg:opacity-100"
-                        style={{ animation: "hero-car-drift 25s ease-in-out infinite", transformOrigin: "center center" }}
-                    />
-                </picture>
-                {canUseHeroVideo && !heroVideoFailed && (
+                <img
+                    src={HERO_VIDEO_POSTER_SRC}
+                    alt=""
+                    aria-hidden
+                    width={1920}
+                    height={1080}
+                    decoding="async"
+                    fetchPriority="high"
+                    className="absolute inset-0 z-0 h-full w-full object-cover object-[58%_center] opacity-100 sm:object-[62%_center] lg:object-[72%_center]"
+                />
+                {!prefersReducedMotion && !heroVideoFailed && (
                     <video
                         aria-hidden
                         autoPlay
@@ -117,9 +112,9 @@ export default function HeroSection() {
                         loop
                         playsInline
                         preload="metadata"
-                        poster="/images/hero/hero-video-poster.webp"
+                        poster={HERO_VIDEO_POSTER_SRC}
                         onError={() => setHeroVideoFailed(true)}
-                        className="absolute inset-0 z-[1] hidden h-full w-full object-cover object-[72%_center] opacity-100 lg:block"
+                        className="absolute inset-0 z-[1] h-full w-full object-cover object-[58%_center] opacity-100 sm:object-[62%_center] lg:object-[72%_center]"
                     >
                         <source src={HERO_VIDEO_SRC} type="video/mp4" />
                     </video>
