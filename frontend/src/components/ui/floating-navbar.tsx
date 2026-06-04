@@ -1,12 +1,10 @@
 "use client";
 
-import React, { type ReactNode, useState } from "react";
+import React, { type ReactNode } from "react";
 import {
     AnimatePresence,
     LayoutGroup,
     motion,
-    useMotionValueEvent,
-    useScroll,
 } from "motion/react";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +29,7 @@ type FloatingNavProps = {
     logo?: ReactNode;
     actions?: ReactNode;
     mobileActions?: ReactNode;
-    forceVisible?: boolean;
+    variant?: "glass" | "hero";
     renderNavItem?: (
         navItem: FloatingNavItem,
         className: string,
@@ -39,11 +37,21 @@ type FloatingNavProps = {
     ) => ReactNode;
 };
 
-function NavActivePill({ layoutId }: { layoutId: string }) {
+function NavActivePill({
+    layoutId,
+    variant,
+}: {
+    layoutId: string;
+    variant: "glass" | "hero";
+}) {
     return (
         <motion.span
             layoutId={layoutId}
-            className="absolute inset-0 rounded-full bg-white/[0.09] shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"
+            className={
+                variant === "hero"
+                    ? "absolute -bottom-1 left-3 right-3 h-px rounded-full bg-[#f4c96b] shadow-[0_0_14px_rgba(244,201,107,0.55)]"
+                    : "absolute -bottom-1 left-2 right-2 h-px rounded-full bg-[#f4c96b] shadow-[0_0_12px_rgba(244,201,107,0.45)]"
+            }
             transition={NAV_ACTIVE_PILL_TRANSITION}
             aria-hidden
         />
@@ -56,30 +64,10 @@ export const FloatingNav = ({
     logo,
     actions,
     mobileActions,
-    forceVisible = false,
+    variant = "glass",
     renderNavItem,
 }: FloatingNavProps) => {
-    const { scrollYProgress } = useScroll();
-    const [visible, setVisible] = useState(true);
-
-    useMotionValueEvent(scrollYProgress, "change", (current) => {
-        if (typeof current !== "number") return;
-
-        const previous = scrollYProgress.getPrevious();
-        if (typeof previous !== "number") return;
-
-        const direction = current - previous;
-
-        if (scrollYProgress.get() < 0.01) {
-            setVisible(true);
-        } else if (direction < 0) {
-            setVisible(true);
-        } else if (direction > 0) {
-            setVisible(false);
-        }
-    });
-
-    const isVisible = forceVisible || visible;
+    const isHero = variant === "hero";
 
     return (
         <AnimatePresence mode="wait">
@@ -90,40 +78,73 @@ export const FloatingNav = ({
                     y: -100,
                 }}
                 animate={{
-                    y: isVisible ? 0 : -120,
-                    opacity: isVisible ? 1 : 0,
+                    y: 0,
+                    opacity: 1,
                 }}
                 transition={{
                     duration: 0.2,
                 }}
                 className={cn(
-                    "fixed inset-x-0 top-4 z-[5000] mx-auto flex w-[calc(100%-1.25rem)] max-w-[72rem] items-center justify-center sm:top-6",
+                    isHero
+                        ? "fixed inset-x-0 top-0 z-[5000] h-20 w-full sm:h-24 lg:h-[88px]"
+                        : "fixed inset-x-0 top-0 z-[5000] h-20 w-full lg:h-[88px]",
                     className
                 )}
             >
-                <div className="floating-nav-shell relative isolate flex min-h-[3.5rem] w-full items-center overflow-hidden rounded-full bg-[#070a12]/90 px-4 py-2 backdrop-blur-xl supports-[backdrop-filter]:bg-[#070a12]/86 sm:min-h-[3.625rem] sm:px-[1.125rem]">
+                {isHero && (
+                    <div
+                        className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/55 via-black/24 to-transparent"
+                        aria-hidden
+                    />
+                )}
+                {!isHero && (
+                    <div
+                        className="public-glass-nav-backdrop pointer-events-none absolute inset-0"
+                        aria-hidden
+                    />
+                )}
+                <div
+                    className={cn(
+                        isHero
+                            ? "public-hero-nav-shell pointer-events-auto relative z-[1] mx-auto grid h-20 w-full max-w-[85rem] grid-cols-[auto_1fr_auto] items-center gap-5 px-6 sm:h-24 sm:px-8 lg:h-[88px] lg:px-10"
+                            : "public-glass-nav-shell pointer-events-auto relative z-[1] mx-auto grid h-20 w-full max-w-[85rem] grid-cols-[auto_1fr_auto] items-center gap-5 px-6 sm:px-8 lg:h-[88px] lg:px-10"
+                    )}
+                >
                     {logo && (
-                        <div className="relative z-[2] flex shrink-0 self-stretch items-center">{logo}</div>
+                        <div className="relative z-[2] flex shrink-0 items-center justify-self-start">{logo}</div>
                     )}
 
-                    <div className="public-nav-links-group pointer-events-none absolute inset-0 z-[1] hidden items-center justify-center lg:flex">
+                    <div
+                        className={cn(
+                            "public-nav-links-group pointer-events-none absolute inset-y-0 left-0 right-0 z-[1] hidden min-w-0 items-center justify-center lg:flex",
+                            !logo && "justify-self-start"
+                        )}
+                    >
                         <LayoutGroup id="public-nav-desktop">
-                            <div className="pointer-events-auto flex items-center gap-1 rounded-full p-0.5">
+                            <div className="pointer-events-auto flex items-center gap-7 xl:gap-8">
                                 {navItems.map((navItem) => {
                                     const itemClassName = cn(
-                                        "public-nav-link relative flex items-center whitespace-nowrap rounded-full border-0 px-3.5 py-2 text-[0.8125rem] font-medium shadow-none outline-none",
+                                        "public-nav-link relative flex items-center whitespace-nowrap border-0 text-[0.8125rem] font-medium shadow-none outline-none",
                                         "no-underline decoration-transparent decoration-0 underline-offset-0",
                                         "transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                                         "focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/45 focus-visible:ring-offset-0",
-                                        navItem.active && "public-nav-link--active z-[1] text-[#e0a020]",
-                                        !navItem.active &&
-                                            "z-[1] text-white/65 hover:bg-white/[0.06] hover:text-white"
+                                        isHero
+                                            ? cn(
+                                                "rounded-none px-0 py-2 text-white/80 drop-shadow-[0_1px_8px_rgba(0,0,0,0.45)] hover:text-white",
+                                                navItem.active && "public-nav-link--active z-[1] text-white",
+                                                !navItem.active && "z-[1]"
+                                            )
+                                            : cn(
+                                                "rounded-none px-0 py-2 text-white/78 hover:text-white",
+                                                navItem.active && "public-nav-link--active z-[1] text-white",
+                                                !navItem.active && "z-[1]"
+                                            )
                                     );
 
                                     const itemContent = (
                                         <>
                                             {navItem.active && (
-                                                <NavActivePill layoutId="public-nav-active-pill" />
+                                                <NavActivePill layoutId="public-nav-active-pill" variant={variant} />
                                             )}
                                             <span className="public-nav-link-label relative z-[2] border-0 decoration-0">
                                                 <span className="block sm:hidden">{navItem.icon}</span>
@@ -151,9 +172,9 @@ export const FloatingNav = ({
                         </LayoutGroup>
                     </div>
 
-                    <div className="relative z-[2] ml-auto flex min-w-0 shrink-0 items-center gap-2.5">
+                    <div className="relative z-[2] flex min-w-0 shrink-0 items-center justify-self-end">
                         {actions && (
-                            <div className="hidden min-w-0 items-center gap-2.5 lg:flex">
+                            <div className="hidden min-w-0 items-center gap-3 lg:flex">
                                 {actions}
                             </div>
                         )}

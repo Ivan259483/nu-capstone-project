@@ -41,9 +41,9 @@ function LanguageSwitcher({ className }: { className?: string }) {
                     type="button"
                     aria-label={t("language.select")}
                     className={cn(
-                        "inline-flex h-9 min-w-[3.75rem] items-center justify-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.03] px-3",
-                        "text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-white/75",
-                        "shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] transition-colors hover:border-[#e0a020]/35 hover:bg-white/[0.06] hover:text-[#f4c96b]",
+                        "inline-flex h-9 min-w-[3.75rem] items-center justify-center gap-1 rounded-full border border-white/12 bg-white/[0.045] px-3",
+                        "text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-white/82",
+                        "shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:border-[#e0a020]/40 hover:bg-white/[0.08] hover:text-[#f4c96b]",
                         "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/50 focus-visible:ring-offset-0",
                         className
                     )}
@@ -55,7 +55,7 @@ function LanguageSwitcher({ className }: { className?: string }) {
             <DropdownMenuContent
                 align="end"
                 sideOffset={8}
-                className="z-[5010] flex min-w-[10.5rem] flex-col gap-1 rounded-2xl border-white/10 bg-[#0c1018]/98 p-1.5 text-white shadow-[0_18px_50px_rgba(0,0,0,0.38)] backdrop-blur-xl"
+                className="z-[5010] flex min-w-[10.5rem] flex-col gap-1 rounded-2xl border-white/12 bg-[#070a12]/88 p-1.5 text-white shadow-[0_18px_42px_rgba(0,0,0,0.24)] backdrop-blur-xl"
             >
                 {LANGUAGES.map((language) => (
                     <DropdownMenuItem
@@ -79,6 +79,7 @@ export default function Navbar() {
     const { t } = useLanguage();
     const [menuOpen, setMenuOpen] = useState(false);
     const location = useLocation();
+    const isHomePage = location.pathname === "/";
 
     useEffect(() => {
         setMenuOpen(false);
@@ -128,32 +129,49 @@ export default function Navbar() {
         <Link
             to="/"
             aria-label="AutoSPF+ home"
-            className="flex h-full items-center justify-center px-2 transition-opacity hover:opacity-90"
+            className={cn(
+                "flex h-full items-center justify-center transition-opacity hover:opacity-90",
+                isHomePage ? "px-0" : "px-2"
+            )}
         >
             <img
                 src="/images/autospf-logo.png"
                 alt="AutoSPF+"
-                className="h-[35px] w-auto max-w-[100px] object-contain"
+                className={cn(
+                    "h-[34px] w-auto max-w-[104px] object-contain",
+                    isHomePage && "h-[38px] max-w-[112px]"
+                )}
             />
         </Link>
     );
 
     const actions = (
         <>
-            <LanguageSwitcher />
+            <LanguageSwitcher
+                className={cn(
+                    isHomePage &&
+                    "border-white/15 bg-white/[0.03] text-white/90 shadow-none backdrop-blur-sm hover:border-white/25 hover:bg-white/[0.07] hover:text-white"
+                )}
+            />
 
-            <span aria-hidden className="h-6 w-px bg-white/10" />
+            <span aria-hidden className={cn("h-6 w-px", isHomePage ? "bg-white/18" : "bg-white/10")} />
 
             <Link
                 to="/login"
-                className="whitespace-nowrap rounded-full px-2 py-2 text-sm font-medium text-white/66 transition-colors hover:text-[#f4c96b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/45"
+                className={cn(
+                    "whitespace-nowrap rounded-full px-2 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/45",
+                    isHomePage ? "text-white/82 drop-shadow-[0_1px_8px_rgba(0,0,0,0.45)] hover:text-white" : "text-white/72 hover:text-[#f4c96b]"
+                )}
             >
                 {t("nav.login")}
             </Link>
 
             <Link
                 to="/login"
-                className="public-luxury-cta public-luxury-cta--primary public-luxury-cta--nav whitespace-nowrap"
+                className={cn(
+                    "public-luxury-cta public-luxury-cta--primary public-luxury-cta--nav whitespace-nowrap",
+                    isHomePage && "public-luxury-cta--hero-nav"
+                )}
             >
                 {t("nav.booking")}
             </Link>
@@ -162,11 +180,22 @@ export default function Navbar() {
 
     const mobileActions = (
         <>
-            <LanguageSwitcher className="h-10 min-w-[4rem] px-3" />
+            <LanguageSwitcher
+                className={cn(
+                    "h-10 min-w-[4rem] px-3",
+                    isHomePage &&
+                    "border-white/15 bg-white/[0.03] text-white/90 shadow-none backdrop-blur-sm hover:border-white/25 hover:bg-white/[0.07] hover:text-white"
+                )}
+            />
             <button
                 type="button"
                 onClick={() => setMenuOpen((open) => !open)}
-                className="flex min-h-10 min-w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white transition-colors hover:bg-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/60"
+                className={cn(
+                    "flex min-h-10 min-w-10 items-center justify-center rounded-full border text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/60",
+                    isHomePage
+                        ? "border-white/15 bg-white/[0.03] backdrop-blur-sm hover:bg-white/[0.07]"
+                        : "border-white/12 bg-white/[0.055] hover:bg-white/[0.09]"
+                )}
                 aria-label="Toggle menu"
                 aria-expanded={menuOpen}
             >
@@ -182,7 +211,7 @@ export default function Navbar() {
                 logo={logo}
                 actions={actions}
                 mobileActions={mobileActions}
-                forceVisible={menuOpen}
+                variant={isHomePage ? "hero" : "glass"}
                 renderNavItem={renderNavItem}
             />
 
@@ -196,7 +225,7 @@ export default function Navbar() {
                     type="button"
                     aria-label="Close menu"
                     className={cn(
-                        "absolute inset-0 bg-black/70 backdrop-blur-sm transition-opacity duration-300",
+                        "absolute inset-0 bg-black/55 backdrop-blur-sm transition-opacity duration-300",
                         menuOpen ? "opacity-100" : "opacity-0"
                     )}
                     onClick={() => setMenuOpen(false)}
@@ -204,7 +233,8 @@ export default function Navbar() {
 
                 <div
                     className={cn(
-                        "floating-nav-shell absolute right-3 top-[4.75rem] flex w-[min(20rem,calc(100vw-1.5rem))] flex-col rounded-2xl bg-[#070a12]/96 p-3 backdrop-blur-xl transition-all duration-300 sm:top-24",
+                        "public-nav-menu-panel absolute right-3 flex w-[min(20rem,calc(100vw-1.5rem))] flex-col rounded-2xl border border-white/10 bg-[#05070c]/78 p-3 backdrop-blur-xl transition-all duration-300",
+                        isHomePage ? "top-[4.5rem] sm:top-24" : "top-[4.75rem] sm:top-24",
                         menuOpen ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
                     )}
                 >
@@ -224,7 +254,7 @@ export default function Navbar() {
                                     {link.active && (
                                         <motion.span
                                             layoutId="public-nav-active-pill-mobile"
-                                            className="absolute inset-0 rounded-xl bg-white/[0.09] shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"
+                                            className="absolute inset-0 rounded-xl border border-white/[0.08] bg-white/[0.085] shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
                                             transition={NAV_ACTIVE_PILL_TRANSITION}
                                             aria-hidden
                                         />

@@ -11,6 +11,7 @@ const TYPING_SPEED = 55;
 const DELETING_SPEED = 30;
 const PAUSE_AFTER_WORD = 1400;
 const PAUSE_BEFORE_TYPE = 200;
+const HERO_VIDEO_SRC = "/videos/hero-autospf.mp4";
 
 const SERVICE_KEYS = [
     "ceramicCoating",
@@ -32,6 +33,8 @@ export default function HeroSection() {
     const [wordIndex, setWordIndex] = useState(0);
     const [isDeleting, setIsDeleting] = useState(false);
     const [showCursor, setShowCursor] = useState(true);
+    const [canUseHeroVideo, setCanUseHeroVideo] = useState(false);
+    const [heroVideoFailed, setHeroVideoFailed] = useState(false);
 
     useEffect(() => {
         setWordIndex(0);
@@ -43,6 +46,16 @@ export default function HeroSection() {
     useEffect(() => {
         const blink = setInterval(() => setShowCursor((c) => !c), 530);
         return () => clearInterval(blink);
+    }, []);
+
+    useEffect(() => {
+        const mediaQuery = window.matchMedia("(min-width: 1024px)");
+        const updateVideoPreference = () => setCanUseHeroVideo(mediaQuery.matches);
+
+        updateVideoPreference();
+        mediaQuery.addEventListener("change", updateVideoPreference);
+
+        return () => mediaQuery.removeEventListener("change", updateVideoPreference);
     }, []);
 
     // Typing engine
@@ -79,7 +92,7 @@ export default function HeroSection() {
 
             {/* Full-bleed hero media — wide soft fade (avoids hard vertical seam under nav) */}
             <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden border-0">
-                <picture>
+                <picture className="block h-full w-full">
                     <source type="image/avif" srcSet={HERO_IMAGE.srcSetAvif} sizes={HERO_IMAGE.sizes} />
                     <source type="image/webp" srcSet={HERO_IMAGE.srcSetWebp} sizes={HERO_IMAGE.sizes} />
                     <img
@@ -95,6 +108,21 @@ export default function HeroSection() {
                         style={{ animation: "hero-car-drift 25s ease-in-out infinite", transformOrigin: "center center" }}
                     />
                 </picture>
+                {canUseHeroVideo && !heroVideoFailed && (
+                    <video
+                        aria-hidden
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
+                        preload="metadata"
+                        poster={HERO_IMAGE.fallback}
+                        onError={() => setHeroVideoFailed(true)}
+                        className="absolute inset-0 z-[1] hidden h-full w-full object-cover object-[72%_center] opacity-100 lg:block"
+                    >
+                        <source src={HERO_VIDEO_SRC} type="video/mp4" />
+                    </video>
+                )}
                 <div
                     className="absolute inset-0 z-10 hidden lg:block"
                     aria-hidden
@@ -235,19 +263,7 @@ export default function HeroSection() {
                     </div>
                 </div>
 
-                {/* Right Column (Floating Elements) - Hidden on mobile */}
-                <div className="hidden lg:flex w-[45%] relative h-screen flex-col justify-center items-end pr-0 xl:pr-10">
-
-                    <div className="absolute top-[25%] right-[-10px] w-8 h-8 border-t border-r border-[#F0A500] opacity-40" />
-                    <div className="absolute bottom-[25%] left-10 w-8 h-8 border-b border-l border-[#F0A500] opacity-35" />
-
-                    <div className="absolute top-1/2 right-[-60px] rotate-[270deg] origin-center z-10 animate-fade-in translate-y-[-50%]">
-                        <span className="text-[10px] uppercase tracking-[0.4em] text-[rgba(255,255,255,0.25)] font-sans whitespace-nowrap">
-                            {t("hero.brandStamp")}
-                        </span>
-                    </div>
-
-                </div>
+                <div className="hidden lg:block w-[45%] h-screen" aria-hidden />
             </div>
         </section>
     );
