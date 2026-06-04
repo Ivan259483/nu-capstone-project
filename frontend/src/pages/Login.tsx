@@ -362,7 +362,6 @@ export default function Login() {
             setLockUntilMs(null);
             if (rememberMe) localStorage.setItem("remembered_email", emailNorm);
             else localStorage.removeItem("remembered_email");
-            toast.success(t("auth.welcomeBack"));
             performRedirect(getSafeUserRole(result.role || user?.role || "customer"));
         } catch {
             toast.error(t("auth.loginFailed"));
