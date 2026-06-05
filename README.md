@@ -56,7 +56,7 @@ AutoSPF+ is a high-end management platform for automotive detailing and protecti
 
 3. **Frontend Setup**
    ```bash
-   cd autospf
+   cd frontend
    npm install
    npm run dev
    ```
