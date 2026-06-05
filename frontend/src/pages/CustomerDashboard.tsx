@@ -5810,45 +5810,61 @@ export default function CustomerDashboard() {
                   <div className="customer-garage-layout grid gap-2.5 xl:grid-cols-[minmax(0,1fr)_minmax(270px,316px)] 2xl:grid-cols-[minmax(0,1fr)_minmax(292px,328px)] xl:items-start">
                     <div className="customer-garage-grid-column min-w-0">
                   {vehicles.length === 0 ? (
-                    <div className="customer-garage-empty-state rounded-3xl overflow-hidden">
-                      <div className="relative px-6 py-8 flex flex-col items-center text-center overflow-hidden sm:px-8">
-                        {/* Glow orbs */}
-                        <div className="absolute -left-8 -top-8 w-36 h-36 rounded-full blur-3xl opacity-30 pointer-events-none" style={{ background: '#d8b66f' }} />
-                        <div className="absolute -right-8 -bottom-8 w-36 h-36 rounded-full blur-3xl opacity-20 pointer-events-none" style={{ background: '#93b3df' }} />
-                        {/* Brand logo — image only, above empty state */}
-                        <div className="relative z-10 flex justify-center mb-5">
-                          <img
-                            src="/images/autospf-logo.png"
-                            alt="AutoSPF+"
-                            className="h-14 w-auto max-w-[180px] object-contain"
-                          />
-                        </div>
-                        <h3 className="text-slate-950 font-black text-[18px] mb-2">Your Garage is Empty</h3>
-                        <p className="text-slate-500 text-[13px] font-medium mb-5 max-w-[280px] leading-relaxed">
-                          Add your vehicle first — it auto-fills your details every time you book. Fast, easy, no repeat typing.
-                        </p>
-                        {/* Steps hint */}
-                        <div className="flex flex-wrap items-center justify-center gap-2 mb-5">
-                          {['Add Vehicle', 'Book Service', 'Track Live'].map((s, i) => (
-                            <div key={s} className="flex items-center gap-2">
-                              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl" style={i === 0 ? { background: 'rgba(37,99,235,0.10)', border: '1px solid rgba(37,99,235,0.18)' } : { background: 'rgba(255,255,255,0.68)', border: '1px solid rgba(203,213,225,0.62)' }}>
-                                <span className="text-[10px] font-bold" style={{ color: i === 0 ? '#1d4ed8' : '#8a7580' }}>{i + 1}</span>
-                                <span className="text-[11px] font-semibold" style={{ color: i === 0 ? '#1e40af' : '#64748b' }}>{s}</span>
-                              </div>
-                              {i < 2 && <iconify-icon icon="solar:arrow-right-bold" width="12" style={{ color: '#c2a25f' }}></iconify-icon>}
-                            </div>
-                          ))}
-                        </div>
-                        <button
-                          onClick={() => setAddVehicleOpen(true)}
-                          className="relative flex items-center gap-2 px-6 py-3 rounded-2xl text-white font-bold text-[14px] transition-all hover:-translate-y-0.5"
-                          style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', boxShadow: '0 6px 20px rgba(37,99,235,0.5)' }}
-                        >
-                          <iconify-icon icon="solar:add-circle-bold" width="18"></iconify-icon>
-                          Add Your First Vehicle
-                        </button>
-                      </div>
-                    </div>
+	                    <div className="customer-garage-empty-state rounded-3xl overflow-hidden">
+	                      <div className="relative px-6 py-8 flex flex-col items-center text-center overflow-hidden sm:px-8">
+	                        <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/45 to-transparent" aria-hidden />
+	                        <div className="relative z-10 mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-200/30 bg-[linear-gradient(135deg,#070A12,#111827_58%,#1f2937)] text-amber-200 shadow-[0_18px_44px_-26px_rgba(15,23,42,0.78),0_0_32px_-22px_rgba(245,158,11,0.9),inset_0_1px_0_rgba(255,255,255,0.10)]">
+	                          <span className="absolute inset-1 rounded-[14px] border border-white/5" aria-hidden />
+	                          <iconify-icon icon="solar:garage-bold" width="27" className="relative"></iconify-icon>
+	                        </div>
+	                        <h3 className="text-slate-950 font-black text-[18px] mb-2">Set Up Your Garage</h3>
+	                        <p className="text-slate-500 text-[13px] font-medium mb-5 max-w-[330px] leading-relaxed">
+	                          Add your first vehicle to unlock faster bookings, service history, and live tracking.
+	                        </p>
+	                        {/* Steps hint */}
+	                        <div className="flex flex-wrap items-center justify-center gap-2 mb-5">
+	                          {['Add Vehicle', 'Book Service', 'Track Live'].map((s, i) => (
+	                            <div key={s} className="flex items-center gap-2">
+	                              <div
+	                                className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]"
+	                                style={i === 0
+	                                  ? {
+	                                    background: 'linear-gradient(135deg, rgba(255,237,213,0.96), rgba(254,243,199,0.88))',
+	                                    border: '1px solid rgba(245,158,11,0.42)',
+	                                    boxShadow: '0 12px 28px -24px rgba(245,158,11,0.9), inset 0 1px 0 rgba(255,255,255,0.72)',
+	                                  }
+	                                  : {
+	                                    background: 'rgba(255,255,255,0.82)',
+	                                    border: '1px solid rgba(203,213,225,0.72)',
+	                                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7)',
+	                                  }}
+	                              >
+	                                <span
+	                                  className="flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black"
+	                                  style={i === 0 ? { background: '#111827', color: '#fbbf24' } : { background: '#f1f5f9', color: '#64748b' }}
+	                                >
+	                                  {i + 1}
+	                                </span>
+	                                <span className="text-[11px] font-semibold" style={{ color: i === 0 ? '#78350f' : '#64748b' }}>{s}</span>
+	                              </div>
+	                              {i < 2 && <iconify-icon icon="solar:arrow-right-bold" width="12" style={{ color: '#c2a25f' }}></iconify-icon>}
+	                            </div>
+	                          ))}
+	                        </div>
+	                        <button
+	                          onClick={() => setAddVehicleOpen(true)}
+	                          className="relative flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-[14px] transition-all hover:-translate-y-0.5"
+	                          style={{
+	                            background: 'linear-gradient(135deg, rgba(255,222,142,0.98), rgba(245,166,35,0.94) 45%, rgba(232,111,30,0.9))',
+	                            color: '#070A12',
+	                            boxShadow: '0 18px 44px -22px rgba(245,158,11,0.95), 0 0 30px -24px rgba(232,111,30,0.9), inset 0 1px 0 rgba(255,255,255,0.42)',
+	                          }}
+	                        >
+	                          <iconify-icon icon="solar:add-circle-bold" width="18"></iconify-icon>
+	                          Set Up My Garage
+	                        </button>
+	                      </div>
+	                    </div>
                   ) : (
                     <div className="customer-garage-grid grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {vehicles.map((v, i) => {
@@ -6239,88 +6255,112 @@ export default function CustomerDashboard() {
           </main>
         </div>
       </div>
-      {/* ── First-Time Onboarding Modal ── */}
-      {showOnboarding && (
-        <div className="customer-modal-layer fixed inset-0 z-[110] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)' }}>
-          <div className="customer-modal-panel w-full max-w-md bg-white rounded-3xl overflow-hidden shadow-2xl" style={{ boxShadow: '0 32px 80px rgba(0,0,0,0.35)' }}>
+	      {/* ── First-Time Onboarding Modal ── */}
+	      {showOnboarding && (
+	        <div
+	          className="customer-modal-layer fixed inset-0 z-[110] flex items-center justify-center p-4"
+	          style={{ backgroundColor: 'rgba(3,7,18,0.48)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}
+	        >
+	          <div
+	            className="customer-modal-panel w-full max-w-md overflow-hidden rounded-[28px] border text-white shadow-2xl"
+	            style={{
+	              background: 'rgba(8,13,24,0.92)',
+	              borderColor: 'rgba(251,191,36,0.16)',
+	              boxShadow: '0 32px 100px -42px rgba(0,0,0,0.95), 0 0 54px -36px rgba(245,158,11,0.9), inset 0 1px 0 rgba(255,255,255,0.08)',
+	              backdropFilter: 'blur(24px)',
+	              WebkitBackdropFilter: 'blur(24px)',
+	            }}
+	          >
 
-            {/* Header banner */}
-            <div className="relative px-8 pt-8 pb-10 text-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #1e3a8a 100%)' }}>
-              <div className="absolute -left-10 -top-10 w-40 h-40 rounded-full opacity-20 blur-3xl" style={{ background: '#60a5fa' }} />
-              <div className="absolute -right-10 -bottom-10 w-40 h-40 rounded-full opacity-20 blur-3xl" style={{ background: '#2563eb' }} />
-              {/* Brand logo — no glass frame, image only */}
-              <div className="relative z-10 mx-auto mb-4 flex justify-center">
-                <img
-                  src="/images/autospf-logo.png"
+	            {/* Header banner */}
+	            <div className="relative overflow-hidden px-8 pb-10 pt-8 text-center" style={{ background: 'linear-gradient(135deg, #070A12 0%, #101827 48%, #1f2937 100%)' }}>
+	              <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-amber-200/35 to-transparent" aria-hidden />
+	              <div className="absolute -left-12 -top-14 h-44 w-44 rounded-full opacity-25 blur-3xl" style={{ background: '#f59e0b' }} aria-hidden />
+	              <div className="absolute -right-16 -bottom-16 h-48 w-48 rounded-full opacity-[0.18] blur-3xl" style={{ background: '#e86f1e' }} aria-hidden />
+	              {/* Brand logo — no glass frame, image only */}
+	              <div className="relative z-10 mx-auto mb-4 flex justify-center">
+	                <img
+	                  src="/images/autospf-logo.png"
                   alt="AutoSPF+"
-                  className="h-16 w-auto max-w-[200px] object-contain"
-                />
-              </div>
-              <h2 className="text-white text-[22px] font-black tracking-tight mb-1">Welcome to AutoSPF+</h2>
-              <p className="text-slate-400 text-[13px] font-medium">Let's get your garage ready in 2 easy steps</p>
-            </div>
+	                  className="h-16 w-auto max-w-[200px] object-contain"
+	                />
+	              </div>
+	              <h2 className="relative z-10 mb-1 text-[22px] font-black tracking-tight text-white">Welcome to AutoSPF+</h2>
+	              <p className="relative z-10 text-[13px] font-medium text-slate-300">Let’s set up your premium garage experience.</p>
+	            </div>
 
-            {/* Steps */}
-            <div className="px-6 py-6 space-y-3">
+	            {/* Steps */}
+	            <div className="space-y-3 px-6 py-6">
 
-              {/* Step 1 — Active */}
-              <div className="flex items-start gap-4 p-4 rounded-2xl border-2" style={{ background: 'linear-gradient(135deg, #eef2ff, #f5f3ff)', borderColor: '#2563eb' }}>
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-white text-[14px]" style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>1</div>
-                <div className="flex-1">
-                  <p className="font-bold text-slate-900 text-[14px]">Add Your Vehicle</p>
-                  <p className="text-[12px] text-slate-500 mt-0.5">Register your car so we can pre-fill it when you book a service.</p>
-                </div>
-                <iconify-icon icon="solar:arrow-right-bold" width="18" style={{ color: '#2563eb', marginTop: '10px', flexShrink: 0 }}></iconify-icon>
-              </div>
+	              {/* Step 1 — Active */}
+	              <div
+	                className="flex items-start gap-4 rounded-2xl border p-4"
+	                style={{
+	                  background: 'linear-gradient(135deg, rgba(245,158,11,0.16), rgba(232,111,30,0.08))',
+	                  borderColor: 'rgba(251,191,36,0.42)',
+	                  boxShadow: '0 18px 42px -32px rgba(245,158,11,0.85), inset 0 1px 0 rgba(255,255,255,0.08)',
+	                }}
+	              >
+	                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[14px] font-black" style={{ background: 'linear-gradient(135deg, #fde68a, #f59e0b 58%, #e86f1e)', color: '#070A12', boxShadow: '0 12px 26px -18px rgba(245,158,11,0.9)' }}>1</div>
+	                <div className="flex-1">
+	                  <p className="text-[14px] font-bold text-white">Add Your Vehicle</p>
+	                  <p className="mt-0.5 text-[12px] leading-relaxed text-slate-400">Register your car so we can pre-fill it when you book a service.</p>
+	                </div>
+	                <iconify-icon icon="solar:arrow-right-bold" width="18" style={{ color: '#fbbf24', marginTop: '10px', flexShrink: 0 }}></iconify-icon>
+	              </div>
 
-              {/* Connector */}
-              <div className="flex items-center gap-3 px-2">
-                <div className="w-[1px] h-6 ml-[28px]" style={{ background: 'linear-gradient(to bottom, #2563eb, #e2e8f0)' }} />
-              </div>
+	              {/* Connector */}
+	              <div className="flex items-center gap-3 px-2">
+	                <div className="ml-[28px] h-6 w-[1px]" style={{ background: 'linear-gradient(to bottom, rgba(245,158,11,0.72), rgba(148,163,184,0.18))' }} />
+	              </div>
 
-              {/* Step 2 — Locked */}
-              <div className="flex items-start gap-4 p-4 rounded-2xl border border-slate-200" style={{ background: '#f8fafc' }}>
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-slate-400 text-[14px]" style={{ background: '#e2e8f0' }}>2</div>
-                <div className="flex-1">
-                  <p className="font-bold text-slate-400 text-[14px]">Book a Service</p>
-                  <p className="text-[12px] text-slate-400 mt-0.5">Choose a service — your vehicle info auto-fills instantly.</p>
-                </div>
-                <iconify-icon icon="solar:lock-keyhole-bold" width="16" style={{ color: '#cbd5e1', marginTop: '12px', flexShrink: 0 }}></iconify-icon>
-              </div>
+	              {/* Step 2 — Locked */}
+	              <div className="flex items-start gap-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+	                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-[14px] font-black text-slate-500 ring-1 ring-white/10">2</div>
+	                <div className="flex-1">
+	                  <p className="text-[14px] font-bold text-slate-400">Book a Service</p>
+	                  <p className="mt-0.5 text-[12px] leading-relaxed text-slate-500">Choose a service — your vehicle info auto-fills instantly.</p>
+	                </div>
+	                <iconify-icon icon="solar:lock-keyhole-bold" width="16" style={{ color: '#64748b', marginTop: '12px', flexShrink: 0 }}></iconify-icon>
+	              </div>
 
-              {/* Connector */}
-              <div className="flex items-center gap-3 px-2">
-                <div className="w-[1px] h-6 ml-[28px]" style={{ background: '#e2e8f0' }} />
-              </div>
+	              {/* Connector */}
+	              <div className="flex items-center gap-3 px-2">
+	                <div className="ml-[28px] h-6 w-[1px]" style={{ background: 'rgba(148,163,184,0.18)' }} />
+	              </div>
 
-              {/* Step 3 — Locked */}
-              <div className="flex items-start gap-4 p-4 rounded-2xl border border-slate-200" style={{ background: '#f8fafc' }}>
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-slate-400 text-[14px]" style={{ background: '#e2e8f0' }}>3</div>
-                <div className="flex-1">
-                  <p className="font-bold text-slate-400 text-[14px]">Track in Real-Time</p>
-                  <p className="text-[12px] text-slate-400 mt-0.5">Watch your car's service status live on the tracker.</p>
-                </div>
-                <iconify-icon icon="solar:lock-keyhole-bold" width="16" style={{ color: '#cbd5e1', marginTop: '12px', flexShrink: 0 }}></iconify-icon>
-              </div>
-            </div>
+	              {/* Step 3 — Locked */}
+	              <div className="flex items-start gap-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+	                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-[14px] font-black text-slate-500 ring-1 ring-white/10">3</div>
+	                <div className="flex-1">
+	                  <p className="text-[14px] font-bold text-slate-400">Track in Real-Time</p>
+	                  <p className="mt-0.5 text-[12px] leading-relaxed text-slate-500">Watch your car's service status live on the tracker.</p>
+	                </div>
+	                <iconify-icon icon="solar:lock-keyhole-bold" width="16" style={{ color: '#64748b', marginTop: '12px', flexShrink: 0 }}></iconify-icon>
+	              </div>
+	            </div>
 
-            {/* CTA */}
-            <div className="px-6 pb-6 space-y-2">
-              <button
-                onClick={() => { setShowOnboarding(false); setAddVehicleOpen(true); }}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-white font-bold text-[15px] transition-all hover:-translate-y-0.5"
-                style={{ background: 'linear-gradient(135deg, #1d4ed8, #2563eb)', boxShadow: '0 6px 20px rgba(37,99,235,0.45)' }}
-              >
-                <iconify-icon icon="solar:add-circle-bold" width="18"></iconify-icon>
-                Add My First Vehicle
-              </button>
-              <button
-                onClick={() => setShowOnboarding(false)}
-                className="w-full py-2.5 text-[13px] font-medium text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                I'll do this later
-              </button>
-            </div>
+	            {/* CTA */}
+	            <div className="px-6 pb-6 space-y-2">
+	              <button
+	                onClick={() => { setShowOnboarding(false); setAddVehicleOpen(true); }}
+	                className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-[15px] font-bold transition-all hover:-translate-y-0.5"
+	                style={{
+	                  background: 'linear-gradient(135deg, rgba(255,222,142,0.98), rgba(245,166,35,0.94) 45%, rgba(232,111,30,0.9))',
+	                  color: '#070A12',
+	                  boxShadow: '0 18px 46px -20px rgba(245,158,11,0.95), inset 0 1px 0 rgba(255,255,255,0.42)',
+	                }}
+	              >
+	                <iconify-icon icon="solar:add-circle-bold" width="18"></iconify-icon>
+	                Set Up My Garage
+	              </button>
+	              <button
+	                onClick={() => setShowOnboarding(false)}
+	                className="w-full py-2.5 text-[13px] font-medium text-slate-500 transition-colors hover:text-amber-200"
+	              >
+	                I’ll do this later
+	              </button>
+	            </div>
           </div>
         </div>
       )}

@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
-import { AlertTriangle, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { AlertTriangle, Loader2, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
-    DialogContent,
     DialogDescription,
     DialogHeader,
+    DialogOverlay,
+    DialogPortal,
     DialogTitle,
+    DialogClose,
 } from "@/components/ui/dialog";
 import { getBaseApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -235,121 +238,148 @@ export function RegisterOtpModal({
                 onOpenChange(next);
             }}
         >
-            <DialogContent
-                className="glass border-orange-500/15 sm:max-w-md duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[0.98] data-[state=open]:slide-in-from-bottom-3 data-[state=closed]:zoom-out-[0.98] data-[state=closed]:slide-out-to-bottom-2"
-                onOpenAutoFocus={(e) => e.preventDefault()}
-            >
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2 text-foreground">
-                        <ShieldCheck className="h-5 w-5 text-orange-500" />
-                        {t("register.otpTitle")}
-                    </DialogTitle>
-                    <DialogDescription className="text-muted-foreground">
-                        {t("register.otpDescription")}{" "}
-                        <span className="font-semibold text-foreground">{maskEmail(normalizedEmail)}</span>
-                    </DialogDescription>
-                </DialogHeader>
+            <DialogPortal>
+                <DialogOverlay className="!bg-[#030712]/40 backdrop-blur-[6px]" />
+                <DialogPrimitive.Content
+                    className={cn(
+                        "fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-[27rem] -translate-x-1/2 -translate-y-1/2",
+                        "overflow-hidden rounded-[28px] border border-amber-200/15 bg-[#080d18]/90 p-0 text-white outline-none backdrop-blur-2xl",
+                        "shadow-[0_30px_100px_-42px_rgba(0,0,0,0.95),0_0_52px_-34px_rgba(245,158,11,0.85),inset_0_1px_0_rgba(255,255,255,0.09)]",
+                        "duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] data-[state=open]:animate-in data-[state=closed]:animate-out",
+                        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-[0.98] data-[state=open]:zoom-in-[0.98]",
+                        "data-[state=open]:slide-in-from-bottom-3 data-[state=closed]:slide-out-to-bottom-2"
+                    )}
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                >
+                    <div className="pointer-events-none absolute inset-x-7 top-0 h-px bg-gradient-to-r from-transparent via-amber-200/30 to-transparent" />
+                    <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(245,158,11,0.045)_45%,rgba(255,255,255,0.02))]" />
 
-                <div className="space-y-4 mt-1">
-                    <div
-                        className={cn(
-                            "flex gap-2 justify-center",
-                            shake && "animate-[shake_0.4s_ease-in-out]"
-                        )}
-                        onPaste={handlePaste}
+                    <DialogClose
+                        className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.045] text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-all hover:border-amber-200/25 hover:bg-white/[0.07] hover:text-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-300/30 disabled:pointer-events-none"
+                        disabled={isVerifying}
                     >
-                        <style>{`
-                            @keyframes shake {
-                              0%,100%{transform:translateX(0)}
-                              20%{transform:translateX(-6px)}
-                              40%{transform:translateX(6px)}
-                              60%{transform:translateX(-4px)}
-                              80%{transform:translateX(4px)}
-                            }
-                        `}</style>
-                        {digits.map((digit, idx) => (
-                            <input
-                                key={idx}
-                                ref={(el) => {
-                                    inputRefs.current[idx] = el;
-                                }}
-                                type="text"
-                                inputMode="numeric"
-                                autoComplete={idx === 0 ? "one-time-code" : "off"}
-                                maxLength={1}
-                                value={digit}
-                                disabled={isVerifying}
-                                aria-label={`Digit ${idx + 1} of ${OTP_LENGTH}`}
+                        <X className="h-4 w-4" />
+                        <span className="sr-only">Close</span>
+                    </DialogClose>
+
+                    <div className="relative space-y-6 px-5 pb-6 pt-6 sm:px-6 sm:pb-7 sm:pt-7">
+                        <DialogHeader className="space-y-3 pr-10 text-left">
+                            <div className="flex items-center gap-3">
+                                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-amber-200/20 bg-amber-300/10 text-amber-200 shadow-[0_12px_34px_-24px_rgba(245,158,11,0.9),inset_0_1px_0_rgba(255,255,255,0.08)]">
+                                    <ShieldCheck className="h-5 w-5" />
+                                </span>
+                                <DialogTitle className="text-xl font-semibold tracking-[-0.02em] text-white">
+                                    {t("register.otpTitle")}
+                                </DialogTitle>
+                            </div>
+                            <DialogDescription className="text-sm leading-relaxed text-slate-400">
+                                {t("register.otpDescription")}{" "}
+                                <span className="font-semibold text-slate-100">{maskEmail(normalizedEmail)}</span>
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-5">
+                            <div
                                 className={cn(
-                                    "w-11 h-14 text-center text-xl font-bold rounded-xl border-2 bg-muted/40 text-foreground",
-                                    "focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/40",
-                                    digit ? "border-orange-500/50 bg-orange-500/5" : "border-border"
+                                    "flex justify-center gap-2 sm:gap-2.5",
+                                    shake && "animate-[shake_0.4s_ease-in-out]"
                                 )}
-                                onChange={(e) => handleChange(idx, e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(idx, e)}
-                            />
-                        ))}
-                    </div>
+                                onPaste={handlePaste}
+                            >
+                                <style>{`
+                                    @keyframes shake {
+                                      0%,100%{transform:translateX(0)}
+                                      20%{transform:translateX(-6px)}
+                                      40%{transform:translateX(6px)}
+                                      60%{transform:translateX(-4px)}
+                                      80%{transform:translateX(4px)}
+                                    }
+                                `}</style>
+                                {digits.map((digit, idx) => (
+                                    <input
+                                        key={idx}
+                                        ref={(el) => {
+                                            inputRefs.current[idx] = el;
+                                        }}
+                                        type="text"
+                                        inputMode="numeric"
+                                        autoComplete={idx === 0 ? "one-time-code" : "off"}
+                                        maxLength={1}
+                                        value={digit}
+                                        disabled={isVerifying}
+                                        aria-label={`Digit ${idx + 1} of ${OTP_LENGTH}`}
+                                        className={cn(
+                                            "h-14 w-11 rounded-2xl border bg-white/[0.045] text-center text-xl font-bold text-white backdrop-blur-xl",
+                                            "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-[border-color,box-shadow,background-color,transform] duration-200",
+                                            "focus:outline-none focus:border-amber-300/60 focus:bg-white/[0.065] focus:ring-2 focus:ring-amber-300/20",
+                                            "disabled:cursor-not-allowed disabled:opacity-55 sm:w-12",
+                                            digit
+                                                ? "border-amber-200/35 bg-amber-300/10 text-amber-50 shadow-[0_12px_30px_-24px_rgba(245,158,11,0.8),inset_0_1px_0_rgba(255,255,255,0.08)]"
+                                                : "border-white/10"
+                                        )}
+                                        onChange={(e) => handleChange(idx, e.target.value)}
+                                        onKeyDown={(e) => handleKeyDown(idx, e)}
+                                    />
+                                ))}
+                            </div>
 
-                    <p
-                        className={cn(
-                            "text-center text-xs",
-                            expirySec <= 60 ? "text-red-400" : "text-muted-foreground"
-                        )}
-                    >
-                        {t("register.otpExpiresLabel")} {formatTime(Math.max(0, expirySec))}
-                    </p>
+                            <p
+                                className={cn(
+                                    "text-center text-xs font-medium",
+                                    expirySec <= 60 ? "text-amber-200/80" : "text-slate-500"
+                                )}
+                            >
+                                {t("register.otpExpiresLabel")} {formatTime(Math.max(0, expirySec))}
+                            </p>
 
-                    {error ? (
-                        <div className="flex items-start gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5">
-                            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                            <span>{error}</span>
+                            {error ? (
+                                <div className="flex items-start gap-2 rounded-2xl border border-red-400/25 bg-red-500/10 px-3.5 py-3 text-xs leading-relaxed text-red-300">
+                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                                    <span>{error}</span>
+                                </div>
+                            ) : null}
+
+                            <Button
+                                type="button"
+                                onClick={() => void handleVerify()}
+                                disabled={digits.some((d) => !d) || isVerifying}
+                                className="h-12 w-full rounded-2xl bg-[linear-gradient(135deg,rgba(255,222,142,0.98),rgba(245,166,35,0.94)_45%,rgba(232,111,30,0.90))] text-sm font-bold text-[#070A12] shadow-[0_18px_46px_-20px_rgba(245,158,11,0.95),inset_0_1px_0_rgba(255,255,255,0.42)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[linear-gradient(135deg,rgba(255,232,170,1),rgba(251,183,62,0.96)_45%,rgba(242,120,36,0.94))] hover:shadow-[0_22px_58px_-22px_rgba(245,158,11,1),inset_0_1px_0_rgba(255,255,255,0.5)] disabled:translate-y-0 disabled:opacity-55"
+                            >
+                                {isVerifying ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        {t("login.otpVerifying")}
+                                    </>
+                                ) : (
+                                    <>
+                                        <ShieldCheck className="mr-2 h-4 w-4" />
+                                        {t("register.otpConfirm")}
+                                    </>
+                                )}
+                            </Button>
+
+                            <div className="flex items-center justify-center text-xs">
+                                <button
+                                    type="button"
+                                    onClick={() => void handleResend()}
+                                    disabled={resendSec > 0 || isResending || isVerifying}
+                                    className={cn(
+                                        "inline-flex items-center gap-1.5 font-semibold transition-colors",
+                                        resendSec > 0 || isResending || isVerifying
+                                            ? "cursor-not-allowed text-slate-500/60"
+                                            : "text-amber-200/80 hover:text-amber-100"
+                                    )}
+                                >
+                                    {isResending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                                    {resendSec > 0
+                                        ? t("register.otpResendCountdown").replace("{n}", String(resendSec))
+                                        : t("register.otpResend")}
+                                </button>
+                            </div>
                         </div>
-                    ) : null}
-
-                    <Button
-                        type="button"
-                        onClick={() => void handleVerify()}
-                        disabled={digits.some((d) => !d) || isVerifying}
-                        className="w-full bg-orange-600 text-white hover:bg-orange-700 font-semibold"
-                    >
-                        {isVerifying ? (
-                            <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                {t("login.otpVerifying")}
-                            </>
-                        ) : (
-                            <>
-                                <ShieldCheck className="mr-2 h-4 w-4" />
-                                {t("register.otpConfirm")}
-                            </>
-                        )}
-                    </Button>
-
-                    <div className="flex items-center justify-center text-xs">
-                        <button
-                            type="button"
-                            onClick={() => void handleResend()}
-                            disabled={resendSec > 0 || isResending || isVerifying}
-                            className={cn(
-                                "inline-flex items-center gap-1 font-semibold transition-colors",
-                                resendSec > 0 || isResending
-                                    ? "text-muted-foreground/50 cursor-not-allowed"
-                                    : "text-orange-500 hover:text-orange-400"
-                            )}
-                        >
-                            {isResending ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                                <RefreshCw className="h-3.5 w-3.5" />
-                            )}
-                            {resendSec > 0
-                                ? t("register.otpResendCountdown").replace("{n}", String(resendSec))
-                                : t("register.otpResend")}
-                        </button>
                     </div>
-                </div>
-            </DialogContent>
+                </DialogPrimitive.Content>
+            </DialogPortal>
         </Dialog>
     );
 }
