@@ -24,14 +24,18 @@ export interface PublicTrackerSummary {
 
 export interface ChatMessage {
     id: string;
-    sender: 'user' | 'assistant' | 'system';
+    sender: 'user' | 'assistant' | 'sales' | 'system';
     message: string;
     createdAt?: string;
     meta?: {
-        type?: 'registration' | 'tracker_link' | 'tracker_result';
+        type?: string;
         tracker?: PublicTrackerSummary;
         trackerUrl?: string;
         trackerReference?: string;
+        salesHandoffOffer?: {
+            eligible?: boolean;
+            reason?: string;
+        };
     };
 }
 
@@ -50,12 +54,19 @@ export interface ChatConversationThread {
     conversationId: string;
     title: string;
     mode: string;
-    status?: string;
+    status?: SalesHandoffStatus;
     lastMessagePreview?: string;
     lastMessageAt?: string;
     createdAt?: string;
     updatedAt?: string;
 }
+
+export type SalesHandoffStatus =
+    | 'ai_handling'
+    | 'needs_sales'
+    | 'in_conversation'
+    | 'resolved'
+    | 'converted';
 
 export function getThreadPreview(
     thread: ChatConversationThread | null | undefined,

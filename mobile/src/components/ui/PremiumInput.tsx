@@ -16,6 +16,7 @@ interface PremiumInputProps extends Omit<TextInputProps, 'style'> {
   iconName?: keyof typeof Ionicons.glyphMap;
   error?: string;
   isPassword?: boolean;
+  premiumFocus?: boolean;
   containerStyle?: ViewProps['style'];
   style?: TextInputProps['style'];
 }
@@ -25,6 +26,7 @@ export default function PremiumInput({
   iconName, 
   error, 
   isPassword, 
+  premiumFocus = false,
   containerStyle,
   style, 
   ...props 
@@ -61,13 +63,13 @@ export default function PremiumInput({
     const borderColor = interpolateColor(
       glowBorder.value,
       [0, 1, 2],
-      ['#2a2a2a', '#FF6B00', 'rgba(239,68,68,0.7)']
+      ['#2a2a2a', premiumFocus ? '#FF7A1A' : '#FF6B00', 'rgba(239,68,68,0.7)']
     );
 
     const backgroundColor = interpolateColor(
       glowBorder.value,
       [0, 1, 2],
-      ['#111111', 'rgba(249,115,22,0.06)', 'rgba(239,68,68,0.06)']
+      ['#111111', premiumFocus ? 'rgba(255,122,26,0.06)' : 'rgba(249,115,22,0.06)', 'rgba(239,68,68,0.06)']
     );
 
     return {
@@ -81,7 +83,13 @@ export default function PremiumInput({
     <View style={[styles.wrapper, containerStyle]}>
       <Text style={styles.label}>{label}</Text>
       
-      <Animated.View style={[styles.inputContainer, animatedContainerStyle]}>
+      <Animated.View
+        style={[
+          styles.inputContainer,
+          animatedContainerStyle,
+          premiumFocus && isFocused && !error ? styles.inputContainerPremiumFocused : null,
+        ]}
+      >
         {iconName && (
           <Ionicons
             name={iconName}
@@ -153,6 +161,10 @@ const styles = StyleSheet.create({
     height: 50,
     gap: 10,
   },
+  inputContainerPremiumFocused: {
+    borderColor: '#FF7A1A',
+    boxShadow: '0 0 0 1px rgba(255,122,26,0.85), 0 0 24px rgba(255,122,26,0.20)',
+  } as ViewStyle,
   input: {
     flex: 1,
     fontSize: 14,

@@ -10,9 +10,10 @@ import SettingsView from '@/components/sales/settings/SettingsView';
 import ToastProvider from '@/components/sales/ui/ToastProvider';
 import SalesSmartCalendar from '@/components/sales/calendar/SalesSmartCalendar';
 import BookingApprovalsPage from '@/components/sales/booking/BookingApprovalsPage';
+import SalesConciergeInbox from '@/components/sales/concierge/SalesConciergeInbox';
 import { SalesAnalyticsProvider } from '@/contexts/SalesAnalyticsContext';
 
-type SalesView = 'dashboard' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
+type SalesView = 'dashboard' | 'concierge-inbox' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
 
 
 // ── Transactions View ─────────────────────────────────────────────────────────
@@ -88,6 +89,7 @@ export default function SalesDashboard() {
   const renderView = () => {
     switch (activeView) {
       case 'dashboard': return <DashboardView onNavigate={setActiveView} />;
+      case 'concierge-inbox': return <SalesConciergeInbox onBack={() => setActiveView('dashboard')} />;
       case 'pos':
         return (
           <POSView
@@ -131,8 +133,9 @@ export default function SalesDashboard() {
               setActiveView('pos');
             }}
           />
-          <main className={`min-h-0 flex-1 p-6 scrollbar-thin ${activeView === 'pos' ? 'flex flex-col overflow-hidden' :
+          <main className={`min-h-0 flex-1 scrollbar-thin ${activeView === 'concierge-inbox' ? 'p-0' : 'p-6'} ${activeView === 'pos' ? 'flex flex-col overflow-hidden' :
               activeView === 'calendar' ? 'flex flex-col overflow-hidden' :
+                activeView === 'concierge-inbox' ? 'flex flex-col overflow-hidden' :
                 'overflow-y-auto'
             }`}>
             {renderView()}

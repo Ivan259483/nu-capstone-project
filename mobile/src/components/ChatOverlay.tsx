@@ -28,7 +28,12 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { chatbotService, type ChatMessageRecord } from '@/services/api/chatbotService';
+import { useAuth } from '@/context/AuthContext';
+import {
+  chatbotService,
+  type ChatMessageRecord,
+  type SalesHandoffStatus,
+} from '@/services/api/chatbotService';
 
 interface ChatOverlayProps {
   visible: boolean;
@@ -37,6 +42,7 @@ interface ChatOverlayProps {
 
 const ACCENT = '#FF6B35';
 const { width: SW, height: SH } = Dimensions.get('window');
+const SALES_POLL_INTERVAL_MS = 5_000;
 
 function formatTime(isoString?: string) {
   if (!isoString) return '';
@@ -76,11 +82,18 @@ function TypingDots() {
 
 export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
   const insets = useSafeAreaInsets();
+  const { profile, token } = useAuth();
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [handoffStatus, setHandoffStatus] = useState<SalesHandoffStatus>('ai_handling');
+  const [showConnectToSales, setShowConnectToSales] = useState(false);
+  const [showContactCapture, setShowContactCapture] = useState(false);
+  const [contactName, setContactName] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [handoffBusy, setHandoffBusy] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
   const hasInitialized = useRef(false);
@@ -91,6 +104,16 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
     setError(null);
     try {
       const session = await chatbotService.startSession('mobile');
+      setHandoffStatus(session.status);
+      setShowConnectToSales(
+        session.messages.some(
+          (message) => Boolean(message.metadata?.salesHandoffOffer?.eligible),
+        ),
+      );
+      if (profile) {
+        setContactName(profile.full_name || '');
+        setContactPhone(profile.phone || '');
+      }
       if (session.messages.length > 0) {
         setMessages(session.messages);
       } else {
@@ -118,6 +141,20 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
     } finally {
       setLoading(false);
     }
+  }, [profile]);
+
+  const refreshSalesConversation = useCallback(async () => {
+    try {
+      const conversation = await chatbotService.getSalesConversation();
+      setMessages(conversation.messages);
+      setHandoffStatus(conversation.status);
+      if (conversation.unreadForCustomer) {
+        await chatbotService.markCustomerRead();
+      }
+      setError(null);
+    } catch (err) {
+      console.warn('Sales chat refresh failed:', err);
+    }
   }, []);
 
   useEffect(() => {
@@ -126,6 +163,15 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
       initSession();
     }
   }, [visible, initSession]);
+
+  useEffect(() => {
+    if (!visible || handoffStatus === 'ai_handling') return undefined;
+    void refreshSalesConversation();
+    const intervalId = setInterval(() => {
+      void refreshSalesConversation();
+    }, SALES_POLL_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [handoffStatus, refreshSalesConversation, visible]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -160,6 +206,7 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
   const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed || sending) return;
+    if (handoffStatus === 'resolved' || handoffStatus === 'converted') return;
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setInput('');
@@ -176,6 +223,13 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
 
     setSending(true);
     try {
+      if (handoffStatus === 'needs_sales' || handoffStatus === 'in_conversation') {
+        const conversation = await chatbotService.sendCustomerMessage(trimmed);
+        setMessages(conversation.messages);
+        setHandoffStatus(conversation.status);
+        return;
+      }
+
       const getContextString = await AsyncStorage.getItem('@autospf_latest_scan_context');
       let localAppContext: any = undefined;
       if (getContextString) {
@@ -250,6 +304,9 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
       if (response.action?.type === 'handoff') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
+      if (response.handoffOffer?.eligible) {
+        setShowConnectToSales(true);
+      }
 
       if (response.leadRequired) {
         const leadMsg: ChatMessageRecord = {
@@ -272,12 +329,84 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
     }
   };
 
+  const completeSalesHandoff = async (contact?: { name: string; phone: string }) => {
+    if (handoffBusy || handoffStatus !== 'ai_handling') return;
+    setHandoffBusy(true);
+    setError(null);
+    try {
+      const lastMessage = [...messages].reverse().find((message) => message.sender === 'user')?.message;
+      const conversation = await chatbotService.requestHandoff(lastMessage, contact);
+      setMessages(conversation.messages);
+      setHandoffStatus(conversation.status);
+      setShowConnectToSales(false);
+      setShowContactCapture(false);
+      await chatbotService.markCustomerRead();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err: any) {
+      if (err?.response?.data?.code === 'SALES_CONTACT_REQUIRED') {
+        setShowContactCapture(true);
+        setError('Please enter your name and a valid Philippine mobile number.');
+      } else {
+        setError('Unable to connect to AutoSPF+ Sales right now.');
+      }
+    } finally {
+      setHandoffBusy(false);
+    }
+  };
+
+  const handleConnectToSales = () => {
+    const isLoggedIn = Boolean(token || profile?.id);
+    if (!isLoggedIn && (!contactName.trim() || !contactPhone.trim())) {
+      setShowContactCapture(true);
+      return;
+    }
+    void completeSalesHandoff(
+      isLoggedIn
+        ? undefined
+        : { name: contactName.trim(), phone: contactPhone.trim() },
+    );
+  };
+
+  const handleContactSubmit = () => {
+    if (!contactName.trim() || !contactPhone.trim()) {
+      setError('Please enter your name and mobile number.');
+      return;
+    }
+    void completeSalesHandoff({
+      name: contactName.trim(),
+      phone: contactPhone.trim(),
+    });
+  };
+
+  const handleStartNewChat = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const session = await chatbotService.startNewConversation('mobile');
+      setMessages(session.messages);
+      setHandoffStatus('ai_handling');
+      setShowConnectToSales(false);
+      setShowContactCapture(false);
+      setInput('');
+    } catch (err) {
+      console.warn('Unable to start a new chat:', err);
+      setError('Unable to start a new chat right now.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleRetry = () => {
     hasInitialized.current = false;
     initSession();
   };
 
   if (!visible) return null;
+
+  const isSalesConversation =
+    handoffStatus === 'needs_sales' || handoffStatus === 'in_conversation';
+  const isClosedConversation =
+    handoffStatus === 'resolved' || handoffStatus === 'converted';
 
   return (
     <Modal
@@ -310,8 +439,16 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
               <View style={s.onlineDot} />
             </View>
             <View>
-              <Text style={s.headerTitle}>AutoSPF+ AI</Text>
-              <Text style={s.headerSub}>Online · 24/7</Text>
+              <Text style={s.headerTitle}>
+                {handoffStatus === 'ai_handling' ? 'AutoSPF+ AI' : 'AutoSPF+ Sales'}
+              </Text>
+              <Text style={s.headerSub}>
+                {handoffStatus === 'needs_sales'
+                  ? 'Waiting for Sales'
+                  : isClosedConversation
+                    ? 'Conversation resolved'
+                    : 'Online · 24/7'}
+              </Text>
             </View>
           </View>
 
@@ -346,22 +483,38 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
                   entering={FadeInDown.delay(i < 3 ? i * 80 : 0).duration(200)}
                   style={[
                     s.bubbleWrap,
-                    m.sender === 'user' ? s.bubbleWrapUser : s.bubbleWrapBot,
+                    m.sender === 'user'
+                      ? s.bubbleWrapUser
+                      : m.sender === 'system'
+                        ? s.bubbleWrapSystem
+                        : s.bubbleWrapBot,
                   ]}
                 >
-                  {m.sender !== 'user' && (
+                  {(m.sender === 'assistant' || m.sender === 'sales') && (
                     <View style={s.botAvatarSmall}>
-                      <Ionicons name="sparkles" size={10} color={ACCENT} />
+                      <Ionicons
+                        name={m.sender === 'sales' ? 'headset' : 'sparkles'}
+                        size={10}
+                        color={m.sender === 'sales' ? '#60A5FA' : ACCENT}
+                      />
                     </View>
                   )}
                   <View style={[
                     s.bubbleContentWrapper, 
-                    m.sender === 'user' ? { alignItems: 'flex-end' } : { alignItems: 'flex-start' }
+                    m.sender === 'user'
+                      ? { alignItems: 'flex-end' }
+                      : m.sender === 'system'
+                        ? { alignItems: 'center', maxWidth: '100%' }
+                        : { alignItems: 'flex-start' }
                   ]}>
+                    {m.sender === 'sales' && (
+                      <Text style={s.salesLabel}>AutoSPF+ Sales</Text>
+                    )}
                     <View
                       style={[
                         s.bubble,
                         m.sender === 'user' ? s.userBubble : s.botBubble,
+                        m.sender === 'sales' && s.salesBubble,
                         m.sender === 'system' && s.systemBubble,
                       ]}
                     >
@@ -369,6 +522,7 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
                         style={[
                           s.bubbleText,
                           m.sender === 'user' && s.userBubbleText,
+                          m.sender === 'sales' && s.salesBubbleText,
                           m.sender === 'system' && s.systemBubbleText,
                         ]}
                       >
@@ -430,6 +584,83 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
 
         {/* ── Input ── */}
         <View style={[s.inputArea, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          {handoffStatus === 'needs_sales' && (
+            <View style={s.waitingBanner}>
+              <Text style={s.waitingBannerTitle}>Waiting for AutoSPF+ Sales</Text>
+              <Text style={s.waitingBannerText}>
+                You’re now connected to AutoSPF+ Sales. Please wait for a reply.
+              </Text>
+            </View>
+          )}
+
+          {handoffStatus === 'in_conversation' && (
+            <View style={s.salesBanner}>
+              <Text style={s.salesBannerTitle}>AutoSPF+ Sales joined</Text>
+              <Text style={s.salesBannerText}>Continue the conversation with Sales here.</Text>
+            </View>
+          )}
+
+          {isClosedConversation && (
+            <View style={s.resolvedBanner}>
+              <Text style={s.resolvedBannerText}>
+                This conversation has been resolved. Start a new chat if you need more help.
+              </Text>
+              <TouchableOpacity onPress={handleStartNewChat} style={s.newChatButton}>
+                <Text style={s.newChatButtonText}>Start New Chat</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {showContactCapture && handoffStatus === 'ai_handling' && (
+            <View style={s.contactCard}>
+              <Text style={s.contactCardTitle}>Connect with AutoSPF+ Sales</Text>
+              <Text style={s.contactCardText}>
+                Share your name and mobile number before the handoff.
+              </Text>
+              <TextInput
+                value={contactName}
+                onChangeText={setContactName}
+                placeholder="Your name"
+                placeholderTextColor="#666674"
+                style={s.contactInput}
+              />
+              <TextInput
+                value={contactPhone}
+                onChangeText={setContactPhone}
+                placeholder="Mobile number"
+                placeholderTextColor="#666674"
+                keyboardType="phone-pad"
+                style={s.contactInput}
+              />
+              <TouchableOpacity
+                onPress={handleContactSubmit}
+                disabled={handoffBusy}
+                style={[s.contactSubmitButton, handoffBusy && s.sendBtnDisabled]}
+              >
+                {handoffBusy ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={s.contactSubmitText}>Continue to Sales</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {showConnectToSales &&
+            !showContactCapture &&
+            handoffStatus === 'ai_handling' && (
+              <TouchableOpacity
+                onPress={handleConnectToSales}
+                disabled={handoffBusy}
+                style={[s.connectSalesButton, handoffBusy && s.sendBtnDisabled]}
+              >
+                <Ionicons name="headset-outline" size={16} color="#93C5FD" />
+                <Text style={s.connectSalesButtonText}>
+                  {handoffBusy ? 'Connecting...' : 'Connect to Sales'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
           <View style={s.inputRow}>
             <TextInput
               ref={inputRef}
@@ -437,17 +668,27 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
               onChangeText={setInput}
               onSubmitEditing={handleSend}
               returnKeyType="send"
-              placeholder="Ask about services, pricing, bookings…"
+              placeholder={
+                isClosedConversation
+                  ? 'This conversation is resolved'
+                  : isSalesConversation
+                    ? 'Message AutoSPF+ Sales...'
+                    : 'Ask about services, pricing, bookings…'
+              }
               placeholderTextColor="#4A4A58"
               style={s.input}
-              editable={!loading}
+              editable={!loading && !isClosedConversation && !handoffBusy}
               multiline
               maxLength={500}
             />
             <TouchableOpacity
               onPress={handleSend}
-              disabled={sending || !input.trim()}
-              style={[s.sendBtn, (!input.trim() || sending) && s.sendBtnDisabled]}
+              disabled={sending || !input.trim() || isClosedConversation || handoffBusy}
+              style={[
+                s.sendBtn,
+                (!input.trim() || sending || isClosedConversation || handoffBusy) &&
+                  s.sendBtnDisabled,
+              ]}
               activeOpacity={0.8}
             >
               {sending ? (
@@ -458,7 +699,9 @@ export default function ChatOverlay({ visible, onClose }: ChatOverlayProps) {
             </TouchableOpacity>
           </View>
           <Text style={s.disclaimer}>
-            Powered by AutoSPF+ AI · Responses may not be 100% accurate
+            {isSalesConversation
+              ? 'Messages are shared with AutoSPF+ Sales'
+              : 'Powered by AutoSPF+ AI · Responses may not be 100% accurate'}
           </Text>
         </View>
       </KeyboardAvoidingView>
@@ -592,6 +835,9 @@ const s = StyleSheet.create({
   bubbleWrapBot: {
     justifyContent: 'flex-start',
   },
+  bubbleWrapSystem: {
+    justifyContent: 'center',
+  },
   botAvatarSmall: {
     width: 24,
     height: 24,
@@ -618,6 +864,10 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
+  salesBubble: {
+    backgroundColor: 'rgba(59,130,246,0.12)',
+    borderColor: 'rgba(96,165,250,0.28)',
+  },
   systemBubble: {
     backgroundColor: 'rgba(59,130,246,0.08)',
     borderColor: 'rgba(59,130,246,0.2)',
@@ -633,6 +883,18 @@ const s = StyleSheet.create({
   userBubbleText: {
     color: '#FFFFFF',
     fontWeight: '500',
+  },
+  salesBubbleText: {
+    color: '#DBEAFE',
+  },
+  salesLabel: {
+    marginLeft: 4,
+    marginBottom: 2,
+    color: '#60A5FA',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
   systemBubbleText: {
     color: '#93C5FD',
@@ -722,6 +984,132 @@ const s = StyleSheet.create({
     backgroundColor: '#0A0A10',
     paddingHorizontal: 16,
     paddingTop: 10,
+  },
+  waitingBanner: {
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.3)',
+    backgroundColor: 'rgba(245,158,11,0.08)',
+  },
+  waitingBannerTitle: {
+    color: '#FBBF24',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  waitingBannerText: {
+    marginTop: 4,
+    color: '#FDE68A',
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
+  },
+  salesBanner: {
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.28)',
+    backgroundColor: 'rgba(59,130,246,0.08)',
+  },
+  salesBannerTitle: {
+    color: '#93C5FD',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  salesBannerText: {
+    marginTop: 4,
+    color: '#BFDBFE',
+    fontSize: 11,
+    textAlign: 'center',
+  },
+  resolvedBanner: {
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.2)',
+    backgroundColor: 'rgba(148,163,184,0.07)',
+  },
+  resolvedBannerText: {
+    color: '#CBD5E1',
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
+  },
+  newChatButton: {
+    alignSelf: 'center',
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: 'rgba(59,130,246,0.15)',
+  },
+  newChatButtonText: {
+    color: '#93C5FD',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  contactCard: {
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(96,165,250,0.24)',
+    backgroundColor: '#111118',
+    gap: 8,
+  },
+  contactCardTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  contactCardText: {
+    color: '#9292A0',
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  contactInput: {
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    paddingHorizontal: 12,
+    color: '#FFFFFF',
+    fontSize: 13,
+  },
+  contactSubmitButton: {
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  contactSubmitText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  connectSalesButton: {
+    height: 42,
+    marginBottom: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(96,165,250,0.24)',
+    backgroundColor: 'rgba(59,130,246,0.1)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  connectSalesButtonText: {
+    color: '#93C5FD',
+    fontSize: 12,
+    fontWeight: '700',
   },
   inputRow: {
     flexDirection: 'row',

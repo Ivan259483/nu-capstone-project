@@ -291,7 +291,12 @@ function _ConditionalChatWidget() {
     if (isDashboardRoute) return null;
     if (isPublicTrackerRoute) return null;
     if (getSafeUserRole(user?.role) === 'sales') return null;
-    return <ChatWidget />;
+    return (
+        <ChatWidget
+            currentUserName={user?.name}
+            isAuthenticated={Boolean(user)}
+        />
+    );
 }
 
 const App = () => (

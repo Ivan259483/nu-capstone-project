@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard, ShoppingCart, Receipt, Users, BarChart3,
   Settings, ChevronLeft, LogOut, CheckSquare, CalendarDays,
+  MessagesSquare,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 
-type SalesView = 'dashboard' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
+type SalesView = 'dashboard' | 'concierge-inbox' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
 
 interface Props {
   activeView: SalesView;
@@ -18,6 +19,7 @@ interface Props {
 
 const NAV_MAIN = [
   { key: 'dashboard' as SalesView, label: 'Dashboard', icon: LayoutDashboard },
+  { key: 'concierge-inbox' as SalesView, label: 'Concierge Inbox', icon: MessagesSquare },
   { key: 'pos' as SalesView, label: 'POS', icon: ShoppingCart },
   { key: 'transactions' as SalesView, label: 'Transactions', icon: Receipt },
   { key: 'approvals' as SalesView, label: 'Booking Approvals', icon: CheckSquare, badgeKey: 'approvals' },

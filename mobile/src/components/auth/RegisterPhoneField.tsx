@@ -9,6 +9,7 @@ import {
   FlatList,
   Platform,
   KeyboardAvoidingView,
+  ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -35,6 +36,7 @@ type Props = {
   onNationalDigitsChange: (value: string) => void;
   hasError?: boolean;
   error?: string;
+  premiumFocus?: boolean;
 };
 
 export function RegisterPhoneField({
@@ -45,9 +47,11 @@ export function RegisterPhoneField({
   onNationalDigitsChange,
   hasError,
   error,
+  premiumFocus = false,
 }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [nationalFocused, setNationalFocused] = useState(false);
   const { priority, rest } = useMemo(() => orderedCountries(), []);
 
   const selected = REGISTER_COUNTRY_DIALS.find((c) => c.iso === countryIso) ?? REGISTER_COUNTRY_DIALS[0];
@@ -102,13 +106,28 @@ export function RegisterPhoneField({
     return items;
   }, [filteredPriority, filteredRest]);
 
-  const borderColor = hasError || error ? 'rgba(239,68,68,0.7)' : 'rgba(255,255,255,0.08)';
-  const bg = hasError || error ? 'rgba(239,68,68,0.06)' : '#111111';
+  const hasFieldError = hasError || !!error;
+  const borderColor = hasFieldError
+    ? 'rgba(239,68,68,0.7)'
+    : premiumFocus && nationalFocused
+      ? '#FF7A1A'
+      : 'rgba(255,255,255,0.08)';
+  const bg = hasFieldError
+    ? 'rgba(239,68,68,0.06)'
+    : premiumFocus && nationalFocused
+      ? 'rgba(255,122,26,0.06)'
+      : '#111111';
 
   return (
     <View style={styles.wrapper}>
       <Text style={styles.label}>{label}</Text>
-      <View style={[styles.row, { borderColor, backgroundColor: bg }]}>
+      <View
+        style={[
+          styles.row,
+          { borderColor, backgroundColor: bg },
+          premiumFocus && nationalFocused && !hasFieldError ? styles.rowFocused : null,
+        ]}
+      >
         <TouchableOpacity
           style={styles.dialBtn}
           onPress={() => {
@@ -130,6 +149,8 @@ export function RegisterPhoneField({
           keyboardType="phone-pad"
           autoComplete="tel-national"
           textContentType="telephoneNumber"
+          onFocus={() => setNationalFocused(true)}
+          onBlur={() => setNationalFocused(false)}
         />
       </View>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -214,6 +235,9 @@ const styles = StyleSheet.create({
     minHeight: 50,
     overflow: 'hidden',
   },
+  rowFocused: {
+    boxShadow: '0 0 0 1px rgba(255,122,26,0.85), 0 0 24px rgba(255,122,26,0.20)',
+  } as ViewStyle,
   dialBtn: {
     flexDirection: 'row',
     alignItems: 'center',

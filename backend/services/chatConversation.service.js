@@ -4,6 +4,20 @@ import ChatMessage from '../models/chatMessage.model.js';
 import ChatSession from '../models/chatSession.model.js';
 import { buildPremiumConciergeWelcomeReply } from '../utils/chatConciergeRouting.utils.js';
 
+export const CANONICAL_CHAT_STATUSES = Object.freeze([
+  'ai_handling',
+  'needs_sales',
+  'in_conversation',
+  'resolved',
+  'converted',
+]);
+
+export const normalizeConversationStatus = (status = 'ai_handling') => {
+  if (status === 'open') return 'ai_handling';
+  if (status === 'closed') return 'resolved';
+  return CANONICAL_CHAT_STATUSES.includes(status) ? status : 'ai_handling';
+};
+
 export const NEW_THREAD_WELCOME_COPY = Object.freeze({
   english: [
     'Welcome to AutoSPF+ 👋',
@@ -76,13 +90,22 @@ export const findConversationForAccess = async ({ conversationId, userId, guestK
       conversationId: id,
       $or: [
         { userId },
-        ...(guestKey ? [{ guestKey }] : []),
+        ...(guestKey
+          ? [{
+              guestKey,
+              $or: [{ userId: { $exists: false } }, { userId: null }],
+            }]
+          : []),
       ],
     }).lean();
   }
 
   if (guestKey) {
-    return ChatConversation.findOne({ conversationId: id, guestKey }).lean();
+    return ChatConversation.findOne({
+      conversationId: id,
+      guestKey,
+      $or: [{ userId: { $exists: false } }, { userId: null }],
+    }).lean();
   }
 
   return null;
@@ -135,7 +158,7 @@ export const adoptLegacySessionAsConversation = async ({
     guestKey: guestKey || undefined,
     title: 'AutoSPF+ Concierge',
     mode: 'concierge',
-    status: 'open',
+    status: 'ai_handling',
     source,
     lastMessagePreview: preview,
     lastMessageAt: lastMessage?.createdAt || new Date(),
@@ -185,7 +208,7 @@ export const createFreshConversation = async ({
       guestKey: guestKey || undefined,
       title,
       mode,
-      status: 'open',
+      status: 'ai_handling',
       source,
       lastMessagePreview: buildConversationPreview(welcomeText),
       lastMessageAt: new Date(),
@@ -226,6 +249,7 @@ export const touchConversationActivity = async (
   };
   if (preview != null) {
     update.lastMessagePreview = buildConversationPreview(preview);
+    update.lastMessage = String(preview || '').trim();
   }
   if (title) {
     update.title = title;
@@ -258,7 +282,7 @@ export const serializeConversation = (conversation = {}) => ({
   conversationId: conversation.conversationId,
   title: conversation.title || 'AutoSPF+ Concierge',
   mode: conversation.mode || 'concierge',
-  status: conversation.status || 'open',
+  status: normalizeConversationStatus(conversation.status),
   lastMessagePreview: conversation.lastMessagePreview || '',
   lastMessageAt: conversation.lastMessageAt,
   createdAt: conversation.createdAt,
@@ -270,6 +294,14 @@ export const serializeChatMessages = (messages = []) =>
     id: m._id,
     conversationId: m.conversationId || m.sessionId,
     sender: m.sender,
+    senderType:
+      m.sender === 'user'
+        ? 'customer'
+        : m.sender === 'assistant'
+          ? 'ai'
+          : m.sender,
+    senderId: m.senderId,
+    senderName: m.senderName || '',
     message: m.message,
     createdAt: m.createdAt,
     metadata: m.metadata,

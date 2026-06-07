@@ -7,9 +7,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator,
   TextInput,
   Dimensions,
+  ViewStyle,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -20,6 +20,7 @@ import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
 import { Toast } from '@/components/ui/PremiumToast';
 import { Validation } from '@/utils/validation';
+import PremiumButton from '@/components/ui/PremiumButton';
 
 const SCREEN_H = Dimensions.get('window').height;
 
@@ -122,6 +123,7 @@ export default function LoginScreen() {
                 contentFit="contain"
                 accessibilityLabel="AutoSPF+ Logo"
               />
+              <Text style={styles.brandLabel}>Premium Automotive Care Platform</Text>
               <Text style={styles.heading}>Welcome back</Text>
               <Text style={styles.subheading}>Sign in to continue to your account</Text>
             </Animated.View>
@@ -211,21 +213,19 @@ export default function LoginScreen() {
               </TouchableOpacity>
 
               {/* Sign In */}
-              <TouchableOpacity
-                style={[styles.signInBtn, (loading || isLocked) && styles.signInBtnOff]}
+              <PremiumButton
+                title={loading ? 'Signing in...' : isLocked ? `Locked — ${lockCountdown}` : 'Sign in'}
+                icon={loading || isLocked ? undefined : 'arrow-forward'}
                 onPress={handleLogin}
                 disabled={loading || isLocked}
-                activeOpacity={0.87}
-              >
-                {loading ? (
-                  <View style={styles.signInLoadingRow}>
-                    <ActivityIndicator size="small" color="#FFF" />
-                    <Text style={styles.signInBtnText}>Signing in...</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.signInBtnText}>{isLocked ? `Locked — ${lockCountdown}` : 'Sign in  →'}</Text>
-                )}
-              </TouchableOpacity>
+                loading={loading}
+                premiumAuth
+                style={styles.signInBtn}
+              />
+              <View style={styles.trustRow}>
+                <Ionicons name="lock-closed" size={13} color="rgba(255,255,255,0.42)" />
+                <Text style={styles.trustText}>Secure authentication powered by AutoSPF+</Text>
+              </View>
 
             </Animated.View>
 
@@ -272,14 +272,24 @@ const styles = StyleSheet.create({
     width: 140,
     aspectRatio: 604 / 413,
     alignSelf: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
+  },
+  brandLabel: {
+    color: 'rgba(255,255,255,0.44)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+    lineHeight: 14,
+    marginBottom: 18,
+    textAlign: 'center',
+    textTransform: 'uppercase',
   },
   heading: {
     fontSize: 32,
     fontWeight: '800',
     color: '#FFFFFF',
     textAlign: 'center',
-    letterSpacing: -0.5,
+    letterSpacing: 0,
     marginBottom: 6,
   },
   subheading: {
@@ -342,8 +352,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#111111',
   },
   inputWrapFocused: {
-    borderColor: '#FF6B00',
-  },
+    borderColor: '#FF7A1A',
+    backgroundColor: 'rgba(255,122,26,0.06)',
+    boxShadow: '0 0 0 1px rgba(255,122,26,0.85), 0 0 24px rgba(255,122,26,0.20)',
+  } as ViewStyle,
   inputWrapError: {
     borderColor: 'rgba(239,68,68,0.70)',
     backgroundColor: 'rgba(239,68,68,0.06)',
@@ -408,28 +420,21 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Sign In Button — orange
+  // Sign In Button — premium orange
   signInBtn: {
-    height: 50,
-    borderRadius: 13,
-    backgroundColor: '#F97316',
-    justifyContent: 'center',
+    marginTop: 0,
+  },
+  trustRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#F97316',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.30,
-    shadowRadius: 10,
-    elevation: 4,
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
   },
-  signInBtnOff: {
-    backgroundColor: '#1A1A1A',
-    shadowOpacity: 0,
-  },
-  signInBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: 0.2,
+  trustText: {
+    color: 'rgba(255,255,255,0.42)',
+    fontSize: 11,
+    fontWeight: '500',
   },
 
   // Footer

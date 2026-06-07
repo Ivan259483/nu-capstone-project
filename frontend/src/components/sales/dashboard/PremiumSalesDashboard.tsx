@@ -35,7 +35,7 @@ import { useSalesContext } from '@/contexts/SalesAnalyticsContext';
 import type { Transaction } from '@/lib/salesData';
 import { DASHBOARD_TIMEZONE, formatYmdInTz } from '@/lib/dashboard-time';
 
-type SalesView = 'dashboard' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
+type SalesView = 'dashboard' | 'concierge-inbox' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
 
 type PremiumSalesDashboardProps = {
   onNavigate: (view: SalesView) => void;

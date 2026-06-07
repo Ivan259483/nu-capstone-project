@@ -60,10 +60,9 @@ import {
   buildComplaintSoftReply,
   isExplicitHumanHandoffRequest,
   isStrongComplaintOrPaymentDispute,
-  markSpecialistEscalationOffered,
   shouldEscalateToSpecialist,
-  SPECIALIST_ESCALATION_REPLY,
 } from '../utils/chatEscalation.utils.js';
+import { detectSalesHandoffOffer } from '../utils/chatSalesHandoff.utils.js';
 import {
   alignOnboardingAnalysisToCollectingStep,
   applyExplicitFieldCorrectionToAnalysis,
@@ -89,6 +88,9 @@ import {
   serializeConversation,
   touchConversationActivity,
 } from '../services/chatConversation.service.js';
+import {
+  assertAiMessageAllowed,
+} from '../services/chatSalesHandoff.service.js';
 import {
   buildConversationalState,
   buildGreetingConversationalState,
@@ -260,7 +262,10 @@ const getCachedRecentMessages = async (sessionId, limit = CHAT_HISTORY_LIMIT) =>
     return cached.messages.slice(-limit);
   }
 
-  const history = await ChatMessage.find({ sessionId })
+  const history = await ChatMessage.find({
+    sessionId,
+    sender: { $in: ['user', 'assistant'] },
+  })
     .sort({ createdAt: -1 })
     .limit(limit)
     .select('sender message createdAt')
@@ -2372,11 +2377,14 @@ const processMessage = async ({
     return { reply: 'Please share a message so I can help.', leadRequired: false };
   }
 
+  await assertAiMessageAllowed(sessionId);
+
   const session = await getCachedSession(sessionId, user);
   const languageSwitch = detectLanguageSwitch(trimmed);
   const detectedLanguage = detectMessageLanguage(trimmed);
   const activeLanguage = resolveConversationLanguage(session, trimmed);
   const currentIntent = inferIntent(trimmed);
+  const handoffOffer = detectSalesHandoffOffer(trimmed);
   const vehicleProfile = detectVehicleProfileFromMessage(trimmed);
   const serviceSignal = detectServiceInterestFromMessage(trimmed);
   const packageSignal = detectPackageInterestFromMessage(trimmed);
@@ -2406,29 +2414,6 @@ const processMessage = async ({
     });
   }
 
-  runChatSideEffect('create chat notification', async () => {
-    const displayName = session.leadName || user?.email || 'Guest';
-    const createdNotification = await Notification.create({
-      title: 'Chat Message',
-      message: `${displayName}: ${trimmed}`.slice(0, 240),
-      type: 'chat',
-      recipientRole: 'admin_family',
-      metadata: { sessionId },
-    });
-    const shouldVoiceNotify = !user?.role || user?.role === 'customer';
-    if (createdNotification && shouldVoiceNotify) {
-      emitAdminChatNotification({
-        id: createdNotification._id,
-        title: createdNotification.title,
-        message: createdNotification.message,
-        type: createdNotification.type,
-        isRead: createdNotification.isRead,
-        createdAt: createdNotification.createdAt,
-        metadata: createdNotification.metadata,
-      });
-    }
-  });
-
   const recordAssistantReply = (reply, metadata = undefined) => {
     rememberChatMessage(sessionId, 'assistant', reply);
     saveChatMessageLater({
@@ -2445,6 +2430,7 @@ const processMessage = async ({
       ...metadata,
       language: activeLanguage,
       detectedLanguage,
+      ...(handoffOffer ? { salesHandoffOffer: handoffOffer } : {}),
     };
     const dedupeResult = applyReplyDeduplication({
       reply,
@@ -2467,7 +2453,12 @@ const processMessage = async ({
     persistSessionLater(session, 'persist chat intelligence memory');
     recordAssistantReply(reply, finalMetadata);
 
-    return { reply, metadata: finalMetadata, ...extra };
+    return {
+      reply,
+      metadata: finalMetadata,
+      handoffOffer,
+      ...extra,
+    };
   };
 
   if (languageSwitch) {
@@ -2499,39 +2490,16 @@ const processMessage = async ({
   }
 
   if (isExplicitHumanHandoffRequest(trimmed)) {
-    markSpecialistEscalationOffered(session);
-    persistSessionLater(session, 'record explicit handoff prompt');
-
-    runChatSideEffect('create handoff notification', async () => {
-      const handoffNotification = await Notification.create({
-        title: 'Chatbot Handoff Requested',
-        message: SPECIALIST_ESCALATION_REPLY,
-        type: 'chat',
-        recipientRole: 'admin_family',
-        metadata: { sessionId },
-      });
-      emitAdminChatNotification({
-        id: handoffNotification._id,
-        title: handoffNotification.title,
-        message: handoffNotification.message,
-        type: handoffNotification.type,
-        isRead: handoffNotification.isRead,
-        createdAt: handoffNotification.createdAt,
-        metadata: handoffNotification.metadata,
-      });
-    });
-
     return completeAssistantReply(
-      SPECIALIST_ESCALATION_REPLY,
+      'I can keep helping here. If you prefer a person, use Connect to Sales below and I will pass this conversation to the AutoSPF+ Sales team.',
       {
-        type: 'handoff',
-        intent: 'handoff',
+        type: 'handoff_offer',
+        intent: 'human_help',
         topic: 'support',
         reason: 'explicit_human_request',
       },
       {
-        action: { type: 'handoff' },
-        leadRequired: isGuest && !hasLead,
+        leadRequired: false,
       }
     );
   }
@@ -2641,41 +2609,16 @@ const processMessage = async ({
   }
 
   if (escalationDecision.escalate) {
-    markSpecialistEscalationOffered(session);
-    persistSessionLater(session, 'record handoff prompt');
-
-    if (escalationDecision.reason === 'explicit_human_request') {
-      runChatSideEffect('create handoff notification', async () => {
-        const handoffNotification = await Notification.create({
-          title: 'Chatbot Handoff Requested',
-          message: SPECIALIST_ESCALATION_REPLY,
-          type: 'chat',
-          recipientRole: 'admin_family',
-          metadata: { sessionId },
-        });
-        emitAdminChatNotification({
-          id: handoffNotification._id,
-          title: handoffNotification.title,
-          message: handoffNotification.message,
-          type: handoffNotification.type,
-          isRead: handoffNotification.isRead,
-          createdAt: handoffNotification.createdAt,
-          metadata: handoffNotification.metadata,
-        });
-      });
-    }
-
     return completeAssistantReply(
-      SPECIALIST_ESCALATION_REPLY,
+      buildComplaintSoftReply(),
       {
-        type: 'handoff',
-        intent: 'handoff',
+        type: 'support_concern',
+        intent: 'support',
         topic: 'support',
         reason: escalationDecision.reason,
       },
       {
-        action: { type: 'handoff' },
-        leadRequired: escalationDecision.reason === 'explicit_human_request' && isGuest && !hasLead,
+        leadRequired: false,
       }
     );
   }
@@ -3059,11 +3002,14 @@ export const getConversation = async (req, res, next) => {
       .lean();
 
     chatHistoryCache.set(conversationId, {
-      messages: messages.slice(-8).map((m) => ({
+      messages: messages
+        .filter((m) => m.sender === 'user' || m.sender === 'assistant')
+        .slice(-8)
+        .map((m) => ({
         role: m.sender === 'user' ? 'user' : 'assistant',
         content: truncateText(m.message, 600),
         createdAt: m.createdAt,
-      })),
+        })),
       expiresAt: Date.now() + CHAT_SESSION_CACHE_TTL_MS,
     });
 
@@ -3095,11 +3041,14 @@ export const startSession = async (req, res, next) => {
       .limit(50)
       .lean();
     chatHistoryCache.set(sessionId, {
-      messages: messages.slice(-8).map((m) => ({
+      messages: messages
+        .filter((m) => m.sender === 'user' || m.sender === 'assistant')
+        .slice(-8)
+        .map((m) => ({
         role: m.sender === 'user' ? 'user' : 'assistant',
         content: truncateText(m.message, 600),
         createdAt: m.createdAt,
-      })),
+        })),
       expiresAt: Date.now() + CHAT_SESSION_CACHE_TTL_MS,
     });
 
@@ -3294,6 +3243,13 @@ export const sendMessage = async (req, res, next) => {
       ...(session ? { session: buildSessionPayload(session) } : {}),
     });
   } catch (error) {
+    if (error?.code === 'SALES_HANDOFF_ACTIVE') {
+      return res.status(409).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+      });
+    }
     next(error);
   }
 };
@@ -3315,6 +3271,8 @@ export const sendMessageStream = async (req, res, next) => {
   try {
     const sessionId = resolveThreadId(req.body || {});
     const { message, context } = req.body || {};
+
+    await assertAiMessageAllowed(sessionId);
 
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -3345,6 +3303,7 @@ export const sendMessageStream = async (req, res, next) => {
     writeSse(res, 'done', {
       reply: result.reply,
       action: result.action || null,
+      handoffOffer: result.handoffOffer || null,
       actionChips: result.actionChips || [],
       leadRequired: Boolean(result.leadRequired),
       metadata: result.metadata || null,
@@ -3353,56 +3312,19 @@ export const sendMessageStream = async (req, res, next) => {
     res.end();
   } catch (error) {
     if (!started) {
+      if (error?.code === 'SALES_HANDOFF_ACTIVE') {
+        return res.status(409).json({
+          success: false,
+          code: error.code,
+          message: error.message,
+        });
+      }
       next(error);
       return;
     }
     console.error('Chatbot stream error:', error?.message || error);
     writeSse(res, 'error', { message: 'Failed to process message' });
     res.end();
-  }
-};
-
-export const requestHandoff = async (req, res, next) => {
-  try {
-    const sessionId = resolveThreadId(req.body || {});
-    const { lastMessage } = req.body || {};
-    if (!sessionId) {
-      return res.status(400).json({ success: false, message: 'Missing conversationId' });
-    }
-
-    const session = await ChatSession.findOne({ sessionId });
-    const leadName = session?.leadName || 'Guest';
-    const leadPhone = session?.leadPhone || 'N/A';
-
-    const message = `${leadName} (${leadPhone}) requested a human handoff.${lastMessage ? ` Last message: "${lastMessage}"` : ''}`;
-
-    const handoffNotification = await Notification.create({
-      title: 'Chatbot Handoff Requested',
-      message,
-      type: 'chat',
-      recipientRole: 'admin_family',
-      metadata: { sessionId },
-    });
-    emitAdminChatNotification({
-      id: handoffNotification._id,
-      title: handoffNotification.title,
-      message: handoffNotification.message,
-      type: handoffNotification.type,
-      isRead: handoffNotification.isRead,
-      createdAt: handoffNotification.createdAt,
-      metadata: handoffNotification.metadata,
-    });
-
-    await ChatMessage.create({
-      sessionId,
-      sender: 'system',
-      message: 'Human handoff requested.',
-      metadata: { type: 'handoff' },
-    });
-
-    res.json({ success: true, message: 'Handoff request sent' });
-  } catch (error) {
-    next(error);
   }
 };
 
@@ -3415,12 +3337,20 @@ export const handleSocketMessage = async (io, socket, payload = {}) => {
     io.to(room).emit('chat:response', {
       message: result.reply,
       action: result.action || null,
+      handoffOffer: result.handoffOffer || null,
       leadRequired: result.leadRequired || false,
       metadata: result.metadata || null,
     });
   } catch (error) {
     console.error('Socket chat error:', error.message);
-    socket.emit('chat:error', { message: 'Failed to process message' });
+    socket.emit('chat:error', {
+      code: error?.code,
+      status: error?.status,
+      message:
+        error?.code === 'SALES_HANDOFF_ACTIVE'
+          ? error.message
+          : 'Failed to process message',
+    });
   }
 };
 
@@ -3455,6 +3385,7 @@ export const handleSocketStreamingMessage = async (io, socket, payload = {}) => 
       ...basePayload,
       reply: result.reply,
       action: result.action || null,
+      handoffOffer: result.handoffOffer || null,
       actionChips: result.actionChips || [],
       leadRequired: Boolean(result.leadRequired),
       metadata: result.metadata || null,
@@ -3463,7 +3394,12 @@ export const handleSocketStreamingMessage = async (io, socket, payload = {}) => 
     console.error('Socket stream chat error:', error?.message || error);
     io.to(room).emit('chat:stream:error', {
       ...basePayload,
-      message: 'Failed to process message',
+      code: error?.code,
+      status: error?.status,
+      message:
+        error?.code === 'SALES_HANDOFF_ACTIVE'
+          ? error.message
+          : 'Failed to process message',
     });
   }
 };

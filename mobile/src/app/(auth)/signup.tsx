@@ -18,9 +18,10 @@ import {
   NativeScrollEvent,
   Dimensions,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import PremiumButton from '@/components/ui/PremiumButton';
 import PremiumInput from '@/components/ui/PremiumInput';
@@ -88,20 +89,27 @@ const validators = {
 };
 
 type FieldKey = keyof typeof validators;
+type RegisterStep = 1 | 2;
+type PasswordStrengthLabel = 'Weak' | 'Fair' | 'Strong' | 'Very Strong';
 
-function PwRule({ met, label }: { met: boolean; label: string }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 5 }}>
-      <Ionicons
-        name={met ? 'checkmark-circle' : 'close-circle'}
-        size={13}
-        color={met ? '#22C55E' : '#EF4444'}
-      />
-      <Text style={{ fontSize: 12, color: met ? '#22C55E' : 'rgba(255,255,255,0.45)', fontWeight: '500' }}>
-        {label}
-      </Text>
-    </View>
-  );
+function getPasswordStrength(password: string): {
+  label: PasswordStrengthLabel;
+  color: string;
+  progress: number;
+} {
+  if (!password) return { label: 'Weak', color: '#EF4444', progress: 0 };
+  const checks = pwCheck(password);
+  let score = 0;
+  if (checks.length) score += 1;
+  if (checks.upper && checks.lower) score += 1;
+  if (checks.number) score += 1;
+  if (checks.special) score += 1;
+  if (password.length >= 12) score += 1;
+
+  if (score <= 1) return { label: 'Weak', color: '#EF4444', progress: 0.25 };
+  if (score <= 3) return { label: 'Fair', color: '#FF7A1A', progress: 0.5 };
+  if (score === 4) return { label: 'Strong', color: '#60A5FA', progress: 0.75 };
+  return { label: 'Very Strong', color: '#22C55E', progress: 1 };
 }
 
 export default function SignUpScreen() {
@@ -113,6 +121,9 @@ export default function SignUpScreen() {
   const [registerPhoneCountryIso, setRegisterPhoneCountryIso] = useState('PH');
   const [registerPhoneNational, setRegisterPhoneNational] = useState('');
   const [registerPhoneTouched, setRegisterPhoneTouched] = useState(false);
+  const [step, setStep] = useState<RegisterStep>(1);
+  const [showRegistrationSuccess, setShowRegistrationSuccess] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
@@ -184,24 +195,31 @@ export default function SignUpScreen() {
   };
 
   const pwRules = useMemo(() => pwCheck(password), [password]);
+  const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
   const pwAllValid =
     pwRules.length && pwRules.upper && pwRules.lower && pwRules.number && pwRules.special;
 
-  const isFormValid = useMemo(() => {
+  const isStepOneValid = useMemo(() => {
     const nameOk = (v: string) => v.trim().length > 0 && !/[0-9]/.test(v);
     const phoneOk =
       registerPhoneNational.replace(/\D/g, '').length > 0 &&
       validateRegisterNationalDigits(dial, registerPhoneNational).ok;
-    return (
-      nameOk(firstName) &&
-      nameOk(lastName) &&
+    return nameOk(firstName) && nameOk(lastName) && phoneOk;
+  }, [firstName, lastName, dial, registerPhoneNational]);
+
+  const isStepTwoValid = useMemo(
+    () =>
       EMAIL_RE.test(email) &&
       pwAllValid &&
       confirmPassword === password &&
-      confirmPassword.length > 0 &&
-      phoneOk
-    );
-  }, [firstName, lastName, email, pwAllValid, confirmPassword, password, dial, registerPhoneNational]);
+      confirmPassword.length > 0,
+    [email, pwAllValid, confirmPassword, password]
+  );
+
+  const isFormValid = useMemo(
+    () => isStepOneValid && isStepTwoValid,
+    [isStepOneValid, isStepTwoValid]
+  );
 
   const canRegister = useMemo(
     () => isFormValid && registerLegalAcknowledged,
@@ -215,6 +233,51 @@ export default function SignUpScreen() {
       setPpfTermsModalScrolledToEnd(true);
     }
   }, []);
+
+  const validateStepOne = (): boolean => {
+    const firstNameError = validators.firstName(firstName);
+    const lastNameError = validators.lastName(lastName);
+
+    setErrors((p) => ({
+      ...p,
+      firstName: firstNameError,
+      lastName: lastNameError,
+    }));
+    setTouched((p) => ({ ...p, firstName: true, lastName: true }));
+    setRegisterPhoneTouched(true);
+
+    if (!registerPhoneNational.replace(/\D/g, '').length) {
+      setPhoneError('Phone number is required.');
+      return false;
+    }
+
+    const phoneCheck = validateRegisterNationalDigits(dial, registerPhoneNational);
+    if (!phoneCheck.ok) {
+      setPhoneError(phoneCheck.message || 'Invalid phone number.');
+      return false;
+    }
+
+    setPhoneError('');
+    return !firstNameError && !lastNameError;
+  };
+
+  const handleContinueStep = () => {
+    if (!validateStepOne()) {
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+    if (apiError) setApiError('');
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setStep(2);
+  };
+
+  const handleRegistrationSuccessContinue = () => {
+    const emailForVerify = registeredEmail || email.trim().toLowerCase();
+    router.replace({
+      pathname: '/(auth)/verify',
+      params: { email: emailForVerify },
+    });
+  };
 
   const validateAll = (): boolean => {
     const newErrors: Record<FieldKey, string> = {
@@ -281,11 +344,8 @@ export default function SignUpScreen() {
 
     if (result.success) {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Toast.show('Account created! Please check your email for a verification code.', 'success');
-      router.replace({
-        pathname: '/(auth)/verify',
-        params: { email: emailNorm },
-      });
+      setRegisteredEmail(emailNorm);
+      setShowRegistrationSuccess(true);
       return;
     }
 
@@ -314,215 +374,282 @@ export default function SignUpScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Animated.View entering={FadeInDown.delay(40).duration(200)} style={s.backWrap}>
-            <TouchableOpacity
-              style={s.backBtn}
-              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-              onPress={() => {
-                hapticLight();
-                router.back();
-              }}
-            >
-              <Ionicons name="chevron-back" size={24} color="rgba(255,255,255,0.80)" />
-            </TouchableOpacity>
-          </Animated.View>
-
-          <Animated.View entering={FadeInDown.delay(80).duration(200)} style={s.header}>
-            <Text style={s.title}>Create Account</Text>
-            <Text style={s.subtitle}>Join AutoSPF+ for premium vehicle service.</Text>
-          </Animated.View>
-
-          <View style={s.form}>
-            <Animated.View entering={FadeInUp.delay(120).duration(200)}>
-              <PremiumInput
-                label="FIRST NAME *"
-                iconName="person-add-outline"
-                placeholder="First name"
-                value={firstName}
-                onChangeText={(v) => handleChange('firstName', v, setFirstName)}
-                onBlur={() => handleBlur('firstName')}
-                autoCapitalize="words"
-                error={touched.firstName ? errors.firstName : ''}
-              />
-            </Animated.View>
-
-            <Animated.View entering={FadeInUp.delay(160).duration(200)}>
-              <PremiumInput
-                label="LAST NAME *"
-                iconName="person-add-outline"
-                placeholder="Last name"
-                value={lastName}
-                onChangeText={(v) => handleChange('lastName', v, setLastName)}
-                onBlur={() => handleBlur('lastName')}
-                autoCapitalize="words"
-                error={touched.lastName ? errors.lastName : ''}
-              />
-            </Animated.View>
-
-            <Animated.View entering={FadeInUp.delay(200).duration(200)}>
-              <RegisterPhoneField
-                countryIso={registerPhoneCountryIso}
-                onCountryIsoChange={(iso) => {
-                  setRegisterPhoneCountryIso(iso);
-                  setPhoneError('');
-                  if (apiError) setApiError('');
-                }}
-                nationalDigits={registerPhoneNational}
-                onNationalDigitsChange={(v) => {
-                  setRegisterPhoneNational(v);
-                  setPhoneError('');
-                  if (apiError) setApiError('');
-                }}
-                hasError={registerPhoneTouched && !!phoneError}
-                error={registerPhoneTouched ? phoneError : undefined}
-              />
-            </Animated.View>
-
-            <Animated.View entering={FadeInUp.delay(240).duration(200)}>
-              <PremiumInput
-                label="EMAIL ADDRESS"
-                iconName="mail-outline"
-                placeholder="Email address"
-                value={email}
-                onChangeText={(v) => handleChange('email', v.trim(), setEmail)}
-                onBlur={() => handleBlur('email')}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                error={touched.email ? errors.email : ''}
-              />
-            </Animated.View>
-
-            <Animated.View entering={FadeInUp.delay(280).duration(200)}>
-              <PremiumInput
-                label="CREATE PASSWORD *"
-                iconName="lock-closed-outline"
-                placeholder="Password"
-                value={password}
-                onChangeText={(v) => {
-                  setPassword(v);
-                  if (errors.password) setErrors((p) => ({ ...p, password: '' }));
-                  if (touched.confirmPassword && confirmPassword) {
-                    setErrors((p) => ({
-                      ...p,
-                      confirmPassword: validators.confirmPassword(confirmPassword, v),
-                    }));
-                  }
-                  if (apiError) setApiError('');
-                  if (!touched.password) setTouched((p) => ({ ...p, password: true }));
-                }}
-                onBlur={() => handleBlur('password')}
-                isPassword
-                containerStyle={password.length > 0 ? s.passwordInputWithChecklist : undefined}
-              />
-              {password.length > 0 && (
-                <View style={s.pwChecklist}>
-                  <PwRule met={pwRules.length} label="8+ characters" />
-                  <PwRule met={pwRules.upper} label="At least 1 uppercase letter (A–Z)" />
-                  <PwRule met={pwRules.lower} label="At least 1 lowercase letter (a–z)" />
-                  <PwRule met={pwRules.number} label="At least 1 number (0–9)" />
-                  <PwRule met={pwRules.special} label="At least 1 special character (!@#$…)" />
-                </View>
-              )}
-            </Animated.View>
-
-            <Animated.View entering={FadeInUp.delay(320).duration(200)} style={s.confirmPasswordGroup}>
-              <PremiumInput
-                label="CONFIRM PASSWORD *"
-                iconName="lock-closed-outline"
-                placeholder="Confirm password"
-                value={confirmPassword}
-                onChangeText={(v) => handleChange('confirmPassword', v, setConfirmPassword)}
-                onBlur={() => handleBlur('confirmPassword')}
-                isPassword
-                error={touched.confirmPassword ? errors.confirmPassword : ''}
-              />
-            </Animated.View>
-
-            {!!apiError && (
-              <Animated.View entering={FadeInUp.duration(200)} style={s.errorBanner}>
-                <Ionicons name="alert-circle" size={18} color="#EF4444" />
-                <Text style={s.errorText}>{apiError}</Text>
+          {showRegistrationSuccess ? (
+            <Animated.View entering={FadeInUp.duration(260)} style={s.successState}>
+              <Animated.View entering={ZoomIn.delay(80).duration(260)} style={s.successIcon}>
+                <Ionicons name="checkmark" size={34} color="#111111" />
               </Animated.View>
-            )}
-
-            <Animated.View entering={FadeInUp.delay(360).duration(200)} style={{ marginTop: 28 }}>
+              <Text style={s.successTitle}>Welcome to AutoSPF+</Text>
+              <Text style={s.successSubtitle}>Your account is ready.</Text>
+              <Text style={s.successBody}>{"Let's set up your first vehicle."}</Text>
               <PremiumButton
-                title={loading ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT'}
-                icon={loading ? undefined : 'person-add-outline'}
-                onPress={handleRegisterSubmit}
-                disabled={loading || !canRegister}
+                title="Continue"
+                icon="arrow-forward"
+                onPress={handleRegistrationSuccessContinue}
+                premiumAuth
+                style={s.successCta}
               />
             </Animated.View>
-
-            {!isFormValid && !loading && (
-              <Animated.View entering={FadeInUp.delay(400).duration(200)}>
-                <Text style={s.hint}>Fill in all required fields to continue</Text>
+          ) : (
+            <>
+              <Animated.View entering={FadeInDown.delay(40).duration(200)} style={s.backWrap}>
+                <TouchableOpacity
+                  style={s.backBtn}
+                  hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                  onPress={() => {
+                    hapticLight();
+                    router.back();
+                  }}
+                >
+                  <Ionicons name="chevron-back" size={24} color="rgba(255,255,255,0.80)" />
+                </TouchableOpacity>
               </Animated.View>
-            )}
 
-            <Animated.View entering={FadeInUp.delay(410).duration(200)} style={{ marginTop: 20 }}>
-              <TouchableOpacity
-                style={s.agreeRow}
-                activeOpacity={0.75}
-                onPress={() => {
-                  if (ppfTermsAgreed) {
-                    setPpfTermsAgreed(false);
+              <Animated.View entering={FadeInDown.delay(80).duration(220)} style={s.header}>
+                <Image
+                  source={require('../../../assets/images/autospf-logo.png')}
+                  style={s.logo}
+                  contentFit="contain"
+                  accessibilityLabel="AutoSPF+ Logo"
+                />
+                <Text style={s.brandLabel}>Premium Automotive Care Platform</Text>
+                <Text style={s.title}>Create Account</Text>
+                <Text style={s.subtitle}>Join AutoSPF+ for premium vehicle service.</Text>
+              </Animated.View>
+
+              <Animated.View entering={FadeInUp.delay(110).duration(220)} style={s.progressWrap}>
+                <View style={s.progressTextRow}>
+                  <Text style={s.stepText}>Step {step} of 2</Text>
+                  <Text style={s.stepContext}>{step === 1 ? 'Contact details' : 'Secure access'}</Text>
+                </View>
+                <View style={s.progressTrack}>
+                  <View style={[s.progressFill, { width: step === 1 ? '50%' : '100%' }]} />
+                </View>
+              </Animated.View>
+
+              <View style={s.form}>
+                {step === 1 ? (
+                  <Animated.View key="register-step-1" entering={FadeInUp.duration(240)} style={s.stepPanel}>
+                    <PremiumInput
+                      label="FIRST NAME *"
+                      iconName="person-add-outline"
+                      placeholder="First name"
+                      value={firstName}
+                      onChangeText={(v) => handleChange('firstName', v, setFirstName)}
+                      onBlur={() => handleBlur('firstName')}
+                      autoCapitalize="words"
+                      error={touched.firstName ? errors.firstName : ''}
+                      premiumFocus
+                    />
+
+                    <PremiumInput
+                      label="LAST NAME *"
+                      iconName="person-add-outline"
+                      placeholder="Last name"
+                      value={lastName}
+                      onChangeText={(v) => handleChange('lastName', v, setLastName)}
+                      onBlur={() => handleBlur('lastName')}
+                      autoCapitalize="words"
+                      error={touched.lastName ? errors.lastName : ''}
+                      premiumFocus
+                    />
+
+                    <RegisterPhoneField
+                      countryIso={registerPhoneCountryIso}
+                      onCountryIsoChange={(iso) => {
+                        setRegisterPhoneCountryIso(iso);
+                        setPhoneError('');
+                        if (apiError) setApiError('');
+                      }}
+                      nationalDigits={registerPhoneNational}
+                      onNationalDigitsChange={(v) => {
+                        setRegisterPhoneNational(v);
+                        setPhoneError('');
+                        if (apiError) setApiError('');
+                      }}
+                      hasError={registerPhoneTouched && !!phoneError}
+                      error={registerPhoneTouched ? phoneError : undefined}
+                      premiumFocus
+                    />
+
+                    <PremiumButton
+                      title="Continue"
+                      icon="arrow-forward"
+                      onPress={handleContinueStep}
+                      premiumAuth
+                      style={s.stepCta}
+                    />
+                  </Animated.View>
+                ) : (
+                  <Animated.View key="register-step-2" entering={FadeInUp.duration(240)} style={s.stepPanel}>
+                    <TouchableOpacity
+                      style={s.stepBackBtn}
+                      activeOpacity={0.78}
+                      onPress={() => {
+                        hapticLight();
+                        setStep(1);
+                      }}
+                    >
+                      <Ionicons name="chevron-back" size={17} color="#FDBA74" />
+                      <Text style={s.stepBackText}>Contact details</Text>
+                    </TouchableOpacity>
+
+                    <PremiumInput
+                      label="EMAIL ADDRESS *"
+                      iconName="mail-outline"
+                      placeholder="Email address"
+                      value={email}
+                      onChangeText={(v) => handleChange('email', v.trim(), setEmail)}
+                      onBlur={() => handleBlur('email')}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      error={touched.email ? errors.email : ''}
+                      premiumFocus
+                    />
+
+                    <PremiumInput
+                      label="PASSWORD *"
+                      iconName="lock-closed-outline"
+                      placeholder="Password"
+                      value={password}
+                      onChangeText={(v) => {
+                        setPassword(v);
+                        if (errors.password) setErrors((p) => ({ ...p, password: '' }));
+                        if (touched.confirmPassword && confirmPassword) {
+                          setErrors((p) => ({
+                            ...p,
+                            confirmPassword: validators.confirmPassword(confirmPassword, v),
+                          }));
+                        }
+                        if (apiError) setApiError('');
+                        if (!touched.password) setTouched((p) => ({ ...p, password: true }));
+                      }}
+                      onBlur={() => handleBlur('password')}
+                      isPassword
+                      error={touched.password ? errors.password : ''}
+                      containerStyle={password.length > 0 ? s.passwordInputWithMeter : undefined}
+                      premiumFocus
+                    />
+                    {password.length > 0 && (
+                      <Animated.View entering={FadeInUp.duration(200)} style={s.strengthWrap}>
+                        <View style={s.strengthTextRow}>
+                          <Text style={s.strengthText}>Password strength:</Text>
+                          <Text style={[s.strengthValue, { color: passwordStrength.color }]}>
+                            {passwordStrength.label}
+                          </Text>
+                        </View>
+                        <View style={s.strengthTrack}>
+                          <View
+                            style={[
+                              s.strengthFill,
+                              {
+                                width: `${passwordStrength.progress * 100}%`,
+                                backgroundColor: passwordStrength.color,
+                              },
+                            ]}
+                          />
+                        </View>
+                      </Animated.View>
+                    )}
+
+                    <PremiumInput
+                      label="CONFIRM PASSWORD *"
+                      iconName="lock-closed-outline"
+                      placeholder="Confirm password"
+                      value={confirmPassword}
+                      onChangeText={(v) => handleChange('confirmPassword', v, setConfirmPassword)}
+                      onBlur={() => handleBlur('confirmPassword')}
+                      isPassword
+                      error={touched.confirmPassword ? errors.confirmPassword : ''}
+                      premiumFocus
+                    />
+
+                    <Animated.View entering={FadeInUp.delay(80).duration(220)} style={s.legalGroup}>
+                      <TouchableOpacity
+                        style={s.agreeRow}
+                        activeOpacity={0.75}
+                        onPress={() => {
+                          if (ppfTermsAgreed) {
+                            setPpfTermsAgreed(false);
+                            hapticLight();
+                          } else {
+                            setPpfTermsModalScrolledToEnd(false);
+                            setPpfTermsModalBodyKey((k) => k + 1);
+                            setPpfTermsModalOpen(true);
+                            hapticLight();
+                          }
+                        }}
+                      >
+                        <View style={[s.agreeBox, ppfTermsAgreed && s.agreeBoxOn]}>
+                          {ppfTermsAgreed ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
+                        </View>
+                        <View style={s.agreeTextWrap}>
+                          <Text style={s.agreeText}>
+                            I acknowledge the{' '}
+                            <Text style={s.agreeLink}>Paint Protection Film General Terms and Conditions</Text>.
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={s.agreeRow}
+                        activeOpacity={0.75}
+                        onPress={() => {
+                          setRegisterWebsiteTermsAgreed((v) => !v);
+                          hapticLight();
+                        }}
+                      >
+                        <View style={[s.agreeBox, registerWebsiteTermsAgreed && s.agreeBoxOn]}>
+                          {registerWebsiteTermsAgreed ? (
+                            <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                          ) : null}
+                        </View>
+                        <Text style={s.agreeText}>
+                          I confirm the website <Text style={s.agreeLink}>Terms of Service</Text>.
+                        </Text>
+                      </TouchableOpacity>
+                    </Animated.View>
+
+                    {!!apiError && (
+                      <Animated.View entering={FadeInUp.duration(200)} style={s.errorBanner}>
+                        <Ionicons name="alert-circle" size={18} color="#EF4444" />
+                        <Text style={s.errorText}>{apiError}</Text>
+                      </Animated.View>
+                    )}
+
+                    <Animated.View entering={FadeInUp.delay(120).duration(220)} style={s.stepCta}>
+                      <PremiumButton
+                        title={loading ? 'Creating account...' : 'Create Account'}
+                        icon={loading ? undefined : 'person-add-outline'}
+                        onPress={handleRegisterSubmit}
+                        disabled={loading || !canRegister}
+                        loading={loading}
+                        premiumAuth
+                      />
+                    </Animated.View>
+
+                    {!isFormValid && !loading && (
+                      <Animated.View entering={FadeInUp.delay(150).duration(200)}>
+                        <Text style={s.hint}>Complete step 2 and required acknowledgements to continue</Text>
+                      </Animated.View>
+                    )}
+                  </Animated.View>
+                )}
+              </View>
+
+              <Animated.View entering={FadeInUp.delay(180).duration(220)} style={s.footer}>
+                <Text style={s.footerText}>Already have an account? </Text>
+                <TouchableOpacity
+                  onPress={() => {
                     hapticLight();
-                  } else {
-                    setPpfTermsModalScrolledToEnd(false);
-                    setPpfTermsModalBodyKey((k) => k + 1);
-                    setPpfTermsModalOpen(true);
-                    hapticLight();
-                  }
-                }}
-              >
-                <View style={[s.agreeBox, ppfTermsAgreed && s.agreeBoxOn]}>
-                  {ppfTermsAgreed ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
-                </View>
-                <View style={s.agreeTextWrap}>
-                  <Text style={s.agreeText}>
-                    I acknowledge the{' '}
-                    <Text style={s.agreeLink}>Paint Protection Film General Terms and Conditions</Text>. Tap the
-                    checkbox to read and accept in the popup, then use <Text style={s.agreeLink}>Create Account</Text>{' '}
-                    above.
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </Animated.View>
-
-            <Animated.View entering={FadeInUp.delay(430).duration(200)} style={{ marginTop: 16 }}>
-              <TouchableOpacity
-                style={s.agreeRow}
-                activeOpacity={0.75}
-                onPress={() => {
-                  setRegisterWebsiteTermsAgreed((v) => !v);
-                  hapticLight();
-                }}
-              >
-                <View style={[s.agreeBox, registerWebsiteTermsAgreed && s.agreeBoxOn]}>
-                  {registerWebsiteTermsAgreed ? (
-                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                  ) : null}
-                </View>
-                <Text style={s.agreeText}>
-                  By registering, you confirm the PPF terms (via the popup) and our website{' '}
-                  <Text style={s.agreeLink}>Terms of Service</Text>.
-                </Text>
-              </TouchableOpacity>
-            </Animated.View>
-          </View>
-
-          <Animated.View entering={FadeInUp.delay(460).duration(200)} style={s.footer}>
-            <Text style={s.footerText}>Already have an account? </Text>
-            <TouchableOpacity
-              onPress={() => {
-                hapticLight();
-                router.back();
-              }}
-            >
-              <Text style={s.footerLink}>Sign In</Text>
-            </TouchableOpacity>
-          </Animated.View>
+                    router.back();
+                  }}
+                >
+                  <Text style={s.footerLink}>Sign In</Text>
+                </TouchableOpacity>
+              </Animated.View>
+            </>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -632,7 +759,7 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
   scroll: {
     paddingHorizontal: 28,
-    paddingTop: Platform.OS === 'ios' ? 100 : 80,
+    paddingTop: Platform.OS === 'ios' ? 92 : 72,
     paddingBottom: 56,
     flexGrow: 1,
   },
@@ -652,24 +779,116 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  header: { alignItems: 'flex-start', marginBottom: 28, marginTop: 20 },
-  title: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.5 },
+  header: { alignItems: 'center', marginBottom: 22, marginTop: 8 },
+  logo: {
+    width: 140,
+    aspectRatio: 604 / 413,
+    alignSelf: 'center',
+    marginBottom: 10,
+  },
+  brandLabel: {
+    color: 'rgba(255,255,255,0.44)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+    lineHeight: 14,
+    marginBottom: 18,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  title: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0, textAlign: 'center' },
   subtitle: {
     fontSize: 14,
     color: 'rgba(255,255,255,0.50)',
     marginTop: 8,
     fontWeight: '400',
     lineHeight: 22,
+    textAlign: 'center',
+  },
+  progressWrap: {
+    marginBottom: 24,
+  },
+  progressTextRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  stepText: {
+    color: '#FDBA74',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  stepContext: {
+    color: 'rgba(255,255,255,0.42)',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  progressTrack: {
+    height: 4,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#FF7A1A',
   },
   form: { width: '100%' },
-  passwordInputWithChecklist: { marginBottom: 10 },
-  pwChecklist: {
-    paddingHorizontal: 4,
-    paddingTop: 4,
-    paddingBottom: 8,
+  stepPanel: {
+    width: '100%',
+  },
+  stepBackBtn: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
     marginBottom: 12,
   },
-  confirmPasswordGroup: { marginTop: 16 },
+  stepBackText: {
+    color: '#FDBA74',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  stepCta: { marginTop: 10 },
+  passwordInputWithMeter: { marginBottom: 8 },
+  strengthWrap: {
+    marginBottom: 18,
+    paddingHorizontal: 2,
+  },
+  strengthTextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 8,
+  },
+  strengthText: {
+    color: 'rgba(255,255,255,0.48)',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  strengthValue: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  strengthTrack: {
+    height: 4,
+    overflow: 'hidden',
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  strengthFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  legalGroup: {
+    gap: 12,
+    marginTop: 4,
+  },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -694,8 +913,8 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    padding: 14,
-    borderRadius: 16,
+    padding: 13,
+    borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.055)',
     borderWidth: 1,
     borderColor: 'rgba(249,115,22,0.22)',
@@ -733,6 +952,48 @@ const s = StyleSheet.create({
     fontWeight: '500',
   },
   agreeLink: { color: '#F97316', fontWeight: '700' },
+  successState: {
+    flex: 1,
+    minHeight: SCREEN_H * 0.72,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  successIcon: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFB347',
+    marginBottom: 22,
+    boxShadow: '0 12px 30px rgba(255,122,26,0.28)',
+  },
+  successTitle: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '800',
+    lineHeight: 34,
+    textAlign: 'center',
+    letterSpacing: 0,
+  },
+  successSubtitle: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 17,
+    fontWeight: '700',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  successBody: {
+    color: 'rgba(255,255,255,0.48)',
+    fontSize: 14,
+    fontWeight: '500',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  successCta: {
+    marginTop: 30,
+  },
   ppfModalRoot: { flex: 1, justifyContent: 'flex-end' },
   ppfModalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.76)' },
   ppfModalSheet: {

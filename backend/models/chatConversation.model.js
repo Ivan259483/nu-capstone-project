@@ -1,5 +1,15 @@
 import mongoose from 'mongoose';
 
+export const CHAT_CONVERSATION_STATUSES = Object.freeze([
+  'open',
+  'closed',
+  'ai_handling',
+  'needs_sales',
+  'in_conversation',
+  'resolved',
+  'converted',
+]);
+
 const chatConversationSchema = new mongoose.Schema(
   {
     conversationId: {
@@ -29,10 +39,62 @@ const chatConversationSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['open', 'closed'],
-      default: 'open',
+      enum: CHAT_CONVERSATION_STATUSES,
+      default: 'ai_handling',
     },
-    source: String,
+    source: {
+      type: String,
+      default: 'ai_chatbot',
+    },
+    customerName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    customerEmail: {
+      type: String,
+      default: '',
+      trim: true,
+      lowercase: true,
+    },
+    customerPhone: {
+      type: String,
+      default: '',
+    },
+    vehicleId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Vehicle',
+    },
+    vehicleLabel: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    plateNumber: {
+      type: String,
+      default: '',
+      trim: true,
+      uppercase: true,
+    },
+    serviceInterest: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    assignedSalesId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      index: true,
+    },
+    assignedSalesName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    lastMessage: {
+      type: String,
+      default: '',
+    },
     lastMessagePreview: {
       type: String,
       default: '',
@@ -42,11 +104,27 @@ const chatConversationSchema = new mongoose.Schema(
       default: Date.now,
       index: true,
     },
+    unreadForSales: {
+      type: Boolean,
+      default: false,
+    },
+    unreadForCustomer: {
+      type: Boolean,
+      default: false,
+    },
+    aiSummary: {
+      type: String,
+      default: '',
+    },
+    handedOffAt: Date,
+    salesJoinedAt: Date,
   },
   { timestamps: true }
 );
 
 chatConversationSchema.index({ guestKey: 1, lastMessageAt: -1 });
 chatConversationSchema.index({ userId: 1, lastMessageAt: -1 });
+chatConversationSchema.index({ status: 1, lastMessageAt: -1 });
+chatConversationSchema.index({ handedOffAt: 1, lastMessageAt: -1 });
 
 export default mongoose.model('ChatConversation', chatConversationSchema);

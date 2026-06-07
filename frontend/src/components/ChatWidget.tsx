@@ -19,6 +19,7 @@ import {
     type ChatScreen,
     type PublicTrackerSummary,
     type RegistrationStep,
+    type SalesHandoffStatus,
     getThreadPreview,
     getThreadRelativeTime,
 } from '@/components/chat/chat-utils';
@@ -57,6 +58,37 @@ const TRACKER_PHONE_LOOKUP_PROMPT = 'No worries — just share your registered m
 const TRACKER_PHONE_LOOKUP_REPLY = 'Thanks! Please log in to your dashboard or let our studio\nteam assist you directly via the option below. 🙌';
 const TRACKER_INVALID_REFERENCE_REPLY = 'That does not look like an AutoSPF+ Appointment Reference Number yet. Please send it in this format: ASPF-XXXXXX-XXXX.';
 const TRACKER_REPLY_DELAY_MS = 1200;
+const normalizeHandoffStatus = (status?: string): SalesHandoffStatus => {
+    if (status === 'open') return 'ai_handling';
+    if (status === 'closed') return 'resolved';
+    if (
+        status === 'needs_sales' ||
+        status === 'in_conversation' ||
+        status === 'resolved' ||
+        status === 'converted'
+    ) {
+        return status;
+    }
+    return 'ai_handling';
+};
+
+const shouldOfferSalesHandoff = (message: string, payload: any) => {
+    void message;
+    return Boolean(
+        payload?.handoffOffer?.eligible ||
+        payload?.metadata?.salesHandoffOffer?.eligible ||
+        payload?.action?.type === 'handoff',
+    );
+};
+
+const historyOffersSalesHandoff = (messages: ChatMessage[]) =>
+    [...messages]
+        .reverse()
+        .some(
+            (message) =>
+                message.sender === 'assistant' &&
+                Boolean(message.meta?.salesHandoffOffer?.eligible),
+        );
 
 interface RegistrationDraft {
     firstName: string;
@@ -267,6 +299,11 @@ export default function ChatWidget({
     const [trackerDraft, setTrackerDraft] = useState<TrackerDraft>({ bookingReference: '' });
     const [conversations, setConversations] = useState<ChatConversationThread[]>([]);
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+    const [handoffStatus, setHandoffStatus] = useState<SalesHandoffStatus>('ai_handling');
+    const [showConnectToSales, setShowConnectToSales] = useState(false);
+    const [handoffBusy, setHandoffBusy] = useState(false);
+    const [detectedServiceInterest, setDetectedServiceInterest] = useState('');
+    const [contactCapturePurpose, setContactCapturePurpose] = useState<'quote' | 'handoff' | null>(null);
 
     const endRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -300,6 +337,10 @@ export default function ChatWidget({
         setTrackerDraft({ bookingReference: '' });
         setLeadRequired(false);
         setPendingMessage(null);
+        setHandoffStatus('ai_handling');
+        setShowConnectToSales(false);
+        setDetectedServiceInterest('');
+        setContactCapturePurpose(null);
     };
 
     const loadConversationsList = async () => {
@@ -330,6 +371,9 @@ export default function ChatWidget({
             setActiveConversationId(conversationId);
             setStoredActiveConversationId(conversationId);
             setMessages(hydrated);
+            setHandoffStatus(normalizeHandoffStatus(res.data?.conversation?.status));
+            setShowConnectToSales(historyOffersSalesHandoff(hydrated));
+            setDetectedServiceInterest(res.data?.session?.lastServiceInterest || '');
             syncRegistrationFromBackend({ session: res.data?.session });
             setChatReturnTo(returnTo);
             setScreen('chat');
@@ -362,6 +406,9 @@ export default function ChatWidget({
             setActiveConversationId(conversation.conversationId);
             setStoredActiveConversationId(conversation.conversationId);
             setMessages(hydrated);
+            setHandoffStatus(normalizeHandoffStatus(conversation.status));
+            setShowConnectToSales(historyOffersSalesHandoff(hydrated));
+            setDetectedServiceInterest(res.data?.session?.lastServiceInterest || '');
             syncRegistrationFromBackend({ session: res.data?.session });
             setChatReturnTo(returnTo);
             setScreen('chat');
@@ -505,6 +552,68 @@ export default function ChatWidget({
             window.clearInterval(intervalId);
         };
     }, [registrationStep, activeConversationId]);
+
+    useEffect(() => {
+        const isSalesThread = handoffStatus !== 'ai_handling';
+        if (!isOpen || screen !== 'chat' || !activeConversationId || !isSalesThread) {
+            return undefined;
+        }
+
+        let cancelled = false;
+        let requestActive = false;
+        const poll = async () => {
+            if (cancelled || requestActive || isSending) return;
+            requestActive = true;
+            try {
+                const res = await api.get(
+                    `/chat/conversations/${activeConversationId}/messages`,
+                    {
+                        params: { guestKey: getChatGuestKey() },
+                        meta: { suppressErrorToast: true },
+                    } as any,
+                );
+                if (cancelled) return;
+                const nextStatus = normalizeHandoffStatus(res.data?.conversation?.status);
+                const hydrated = mapApiMessages(res.data?.messages || []);
+                setMessages(hydrated);
+                setHandoffStatus(nextStatus);
+                setConversations((current) =>
+                    current.map((thread) =>
+                        thread.conversationId === activeConversationId
+                            ? {
+                                ...thread,
+                                status: nextStatus,
+                                lastMessagePreview:
+                                    res.data?.conversation?.lastMessagePreview ||
+                                    thread.lastMessagePreview,
+                                lastMessageAt:
+                                    res.data?.conversation?.lastMessageAt ||
+                                    thread.lastMessageAt,
+                            }
+                            : thread,
+                    ),
+                );
+                if (res.data?.conversation?.unreadForCustomer) {
+                    await api.patch(
+                        `/chat/conversations/${activeConversationId}/read`,
+                        { guestKey: getChatGuestKey() },
+                        { meta: { suppressErrorToast: true } } as any,
+                    );
+                }
+            } catch {
+                // Polling is best-effort; the next interval retries.
+            } finally {
+                requestActive = false;
+            }
+        };
+
+        void poll();
+        const intervalId = window.setInterval(() => void poll(), 5_000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+        };
+    }, [activeConversationId, handoffStatus, isOpen, isSending, screen]);
 
     const appendMessage = (msg: ChatMessage) =>
         setMessages(prev => [...prev, { ...msg, createdAt: msg.createdAt ?? new Date().toISOString() }]);
@@ -712,6 +821,7 @@ export default function ChatWidget({
 
     const beginNoLoginTrackerLookup = async (message: string) => {
         setLeadRequired(false);
+        setContactCapturePurpose(null);
         setPendingMessage(null);
         const reference = extractBookingReference(message);
         const phone = extractPhoneNumber(message);
@@ -734,6 +844,7 @@ export default function ChatWidget({
 
     const beginTrackerLookup = async (message: string) => {
         setLeadRequired(false);
+        setContactCapturePurpose(null);
         setPendingMessage(null);
         const reference = extractBookingReference(message);
         if (reference) {
@@ -906,6 +1017,9 @@ export default function ChatWidget({
         setActiveConversationId(conversation.conversationId);
         setStoredActiveConversationId(conversation.conversationId);
         setMessages(hydrated);
+        setHandoffStatus(normalizeHandoffStatus(conversation.status));
+        setShowConnectToSales(false);
+        setDetectedServiceInterest(res.data?.session?.lastServiceInterest || '');
         syncRegistrationFromBackend({ session: res.data?.session });
         return conversation.conversationId;
     };
@@ -964,6 +1078,9 @@ export default function ChatWidget({
 
         const reply = data?.reply || streamedReply || 'Sorry, I could not generate a response.';
         syncRegistrationFromBackend({ ...data, metadata: data?.metadata || data });
+        if (data?.session?.lastServiceInterest) {
+            setDetectedServiceInterest(data.session.lastServiceInterest);
+        }
 
         if (streamStarted) {
             upsertAssistantMessage(assistantId, reply);
@@ -996,20 +1113,77 @@ export default function ChatWidget({
         }
         if (applyActions && data?.leadRequired) {
             setLeadRequired(true);
+            setContactCapturePurpose('quote');
             setPendingMessage(content);
+        }
+        if (applyActions && shouldOfferSalesHandoff(content, data)) {
+            setShowConnectToSales(true);
         }
     };
 
     const handleSend = async (overrideText?: string) => {
         const trimmed = (overrideText ?? input).trim();
         if (!trimmed) return;
+        if (handoffStatus === 'resolved' || handoffStatus === 'converted') {
+            toast.info('This Sales conversation is resolved. Start a new conversation for more help.');
+            return;
+        }
 
         if (screen !== 'chat') {
             openChat(chatReturnTo);
         }
 
-        appendMessage({ id: createMessageId('user'), sender: 'user', message: trimmed });
+        const optimisticMessageId = createMessageId('user');
+        appendMessage({ id: optimisticMessageId, sender: 'user', message: trimmed });
         setInput('');
+
+        if (handoffStatus === 'needs_sales' || handoffStatus === 'in_conversation') {
+            setIsSending(true);
+            try {
+                const conversationId = await ensureActiveConversationId();
+                const res = await api.post(
+                    `/chat/conversations/${conversationId}/messages`,
+                    {
+                        guestKey: getChatGuestKey(),
+                        senderType: 'customer',
+                        message: trimmed,
+                    },
+                    { meta: { suppressErrorToast: true } } as any,
+                );
+                const savedMessage = res.data?.message
+                    ? mapApiMessages([res.data.message])[0]
+                    : null;
+                if (savedMessage) {
+                    setMessages((current) =>
+                        current.map((message) =>
+                            message.id === optimisticMessageId ? savedMessage : message,
+                        ),
+                    );
+                }
+                const nextStatus = normalizeHandoffStatus(res.data?.conversation?.status);
+                setHandoffStatus(nextStatus);
+                setConversations((current) =>
+                    current.map((thread) =>
+                        thread.conversationId === conversationId
+                            ? {
+                                ...thread,
+                                status: nextStatus,
+                                lastMessagePreview: trimmed.slice(0, 120),
+                                lastMessageAt: new Date().toISOString(),
+                            }
+                            : thread,
+                    ),
+                );
+            } catch (error) {
+                setMessages((current) =>
+                    current.filter((message) => message.id !== optimisticMessageId),
+                );
+                toast.error('Unable to send your message to Sales.');
+            } finally {
+                setIsSending(false);
+            }
+            return;
+        }
 
         if (registrationStep === 'submitting') {
             if (/\b(try\s+again|retry|resend|ulitin|subukan\s+muli)\b/i.test(trimmed)) {
@@ -1067,6 +1241,7 @@ export default function ChatWidget({
             !PRICE_LIST_INTENT_REGEX.test(trimmed);
         if (needsLead) {
             setLeadRequired(true);
+            setContactCapturePurpose('quote');
             setPendingMessage(trimmed);
             appendMessage({
                 id: createMessageId('assistant'),
@@ -1086,21 +1261,96 @@ export default function ChatWidget({
         }
     };
 
+    const performHandoff = async (contact?: { name: string; phone: string }) => {
+        const lastUserMessage = [...messages].reverse().find(m => m.sender === 'user')?.message;
+        if (handoffBusy || handoffStatus !== 'ai_handling') return;
+        setHandoffBusy(true);
+        try {
+            const conversationId = await ensureActiveConversationId();
+            const res = await api.post('/chat/handoff', {
+                conversationId,
+                sessionId: conversationId,
+                guestKey: getChatGuestKey(),
+                source: 'web',
+                initialMessage: lastUserMessage,
+                lastMessage: lastUserMessage,
+                serviceInterest: detectedServiceInterest,
+                ...(!authed && contact
+                    ? {
+                        customerName: contact.name,
+                        customerPhone: contact.phone,
+                    }
+                    : {}),
+            });
+            if (res.data?.success) {
+                const nextStatus = normalizeHandoffStatus(res.data?.conversation?.status);
+                setMessages(mapApiMessages(res.data?.messages || []));
+                setHandoffStatus(nextStatus);
+                setShowConnectToSales(false);
+                setLeadRequired(false);
+                setContactCapturePurpose(null);
+                setPendingMessage(null);
+                setConversations((current) =>
+                    current.map((thread) =>
+                        thread.conversationId === conversationId
+                            ? {
+                                ...thread,
+                                status: nextStatus,
+                                lastMessagePreview:
+                                    res.data?.conversation?.lastMessagePreview ||
+                                    thread.lastMessagePreview,
+                                lastMessageAt:
+                                    res.data?.conversation?.lastMessageAt ||
+                                    new Date().toISOString(),
+                            }
+                            : thread,
+                    ),
+                );
+                toast.success('You are now connected to AutoSPF+ Sales.');
+                return true;
+            }
+        } catch (error: any) {
+            if (error?.response?.data?.code === 'SALES_CONTACT_REQUIRED') {
+                setLeadRequired(true);
+                setContactCapturePurpose('handoff');
+                setPendingMessage(null);
+                toast.info('Share your name and mobile number to connect to Sales.');
+                return false;
+            }
+            toast.error('Unable to connect to Sales right now.');
+        } finally {
+            setHandoffBusy(false);
+        }
+        return false;
+    };
+
     const handleLeadSubmit = async () => {
-        if (!leadName.trim() || !leadPhone.trim()) {
+        const name = leadName.trim();
+        const phone = leadPhone.trim();
+        if (!name || !phone) {
             toast.error('Please enter your name and phone number.');
             return;
         }
+
+        if (contactCapturePurpose === 'handoff') {
+            const connected = await performHandoff({ name, phone });
+            if (connected) {
+                localStorage.setItem('autospf_chat_lead', JSON.stringify({ name, phone }));
+            }
+            return;
+        }
+
         try {
             const conversationId = await ensureActiveConversationId();
             const res = await api.post('/chat/lead', {
                 conversationId,
                 sessionId: conversationId,
-                name: leadName.trim(),
-                phone: leadPhone.trim(),
+                name,
+                phone,
             });
-            localStorage.setItem('autospf_chat_lead', JSON.stringify({ name: leadName.trim(), phone: leadPhone.trim() }));
+            localStorage.setItem('autospf_chat_lead', JSON.stringify({ name, phone }));
             setLeadRequired(false);
+            setContactCapturePurpose(null);
             if (res.data?.reply) {
                 appendMessage({ id: createMessageId('assistant'), sender: 'assistant', message: res.data.reply });
                 if (res.data?.action?.type === 'open_booking' && onOpenBooking) {
@@ -1116,29 +1366,26 @@ export default function ChatWidget({
     };
 
     const handleHandoff = async () => {
-        const lastUserMessage = [...messages].reverse().find(m => m.sender === 'user')?.message;
-        try {
-            const conversationId = await ensureActiveConversationId();
-            const res = await api.post('/chat/handoff', {
-                conversationId,
-                sessionId: conversationId,
-                lastMessage: lastUserMessage,
-            });
-            if (res.data?.success) {
-                appendMessage({
-                    id: createMessageId('assistant'),
-                    sender: 'assistant',
-                    message: 'Let me connect you with a specialist who can help you better! Please use Talk to a protection specialist below.',
-                });
-                toast.success('Human handoff requested.');
-            }
-        } catch {
-            toast.error('Unable to request a human agent.');
+        if (handoffBusy || handoffStatus !== 'ai_handling') return;
+        if (!authed && (!leadName.trim() || !leadPhone.trim())) {
+            setLeadRequired(true);
+            setContactCapturePurpose('handoff');
+            setPendingMessage(null);
+            return;
         }
+        await performHandoff(
+            !authed
+                ? { name: leadName.trim(), phone: leadPhone.trim() }
+                : undefined,
+        );
     };
 
     const chatInputPlaceholder =
-        registrationStep === 'firstName' ? 'First name'
+        handoffStatus === 'resolved' || handoffStatus === 'converted'
+            ? 'This conversation is resolved'
+            : handoffStatus === 'needs_sales' || handoffStatus === 'in_conversation'
+                ? 'Message...'
+        : registrationStep === 'firstName' ? 'First name'
             : registrationStep === 'lastName' ? 'Last name'
                 : registrationStep === 'email' ? 'Email address'
                     : registrationStep === 'phone' ? 'Mobile number'
@@ -1202,6 +1449,10 @@ export default function ChatWidget({
                                 inputFocused={inputFocused}
                                 chatInputPlaceholder={chatInputPlaceholder}
                                 isSending={isSending}
+                                handoffStatus={handoffStatus}
+                                showConnectToSales={showConnectToSales}
+                                handoffBusy={handoffBusy}
+                                contactCapturePurpose={contactCapturePurpose}
                                 registrationStep={registrationStep}
                                 registrationEmailSent={registrationEmailSent}
                                 isResendingSetupEmail={isResendingSetupEmail}
@@ -1221,6 +1472,7 @@ export default function ChatWidget({
                                 onLeadPhoneChange={setLeadPhone}
                                 onLeadSubmit={() => void handleLeadSubmit()}
                                 onHandoff={() => void handleHandoff()}
+                                onStartNewChat={() => void createNewConversation(chatReturnTo)}
                                 onResendSetupEmail={() => void handleResendSetupEmail()}
                                 onChangeRegistrationEmail={handleChangeRegistrationEmail}
                             />

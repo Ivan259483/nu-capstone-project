@@ -24,7 +24,14 @@ import { Input } from '@/components/ui/input';
 import ChatBrandAvatar from './ChatBrandAvatar';
 import { CHAT_BLUE } from './chat-theme';
 import { SendArrowIcon } from './ChatIcons';
-import { formatChatMessageText, formatRelativeTime, type ChatMessage, type PublicTrackerSummary, type RegistrationStep } from './chat-utils';
+import {
+    formatChatMessageText,
+    formatRelativeTime,
+    type ChatMessage,
+    type PublicTrackerSummary,
+    type RegistrationStep,
+    type SalesHandoffStatus,
+} from './chat-utils';
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -33,12 +40,48 @@ const msgVariants: Variants = {
     visible: { opacity: 1, y: 0, transition: { duration: 0.22, ease: EASE } },
 };
 
+const FRIENDLY_HANDOFF_COPY =
+    'You’re now connected to AutoSPF+ Sales. Please wait for a reply.';
+const FRIENDLY_SALES_JOINED_COPY = 'AutoSPF+ Sales joined the conversation.';
+
+function getSystemMessageCopy(message: ChatMessage): string {
+    if (
+        message.meta?.type === 'sales_handoff' ||
+        message.message === 'Chat was escalated from AutoSPF+ AI to Sales.'
+    ) {
+        return FRIENDLY_HANDOFF_COPY;
+    }
+    if (
+        message.meta?.type === 'sales_joined' ||
+        message.message === 'Sales joined the conversation.'
+    ) {
+        return FRIENDLY_SALES_JOINED_COPY;
+    }
+    return formatChatMessageText(message.message);
+}
+
+function MiniBrandMark() {
+    return (
+        <span
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#171717] text-[9px] font-black tracking-[-0.04em]"
+            aria-hidden="true"
+        >
+            <span className="text-white">A</span>
+            <span className="text-[#FF6B35]">+</span>
+        </span>
+    );
+}
+
 interface ChatConversationScreenProps {
     messages: ChatMessage[];
     input: string;
     inputFocused: boolean;
     chatInputPlaceholder: string;
     isSending: boolean;
+    handoffStatus: SalesHandoffStatus;
+    showConnectToSales: boolean;
+    handoffBusy: boolean;
+    contactCapturePurpose: 'quote' | 'handoff' | null;
     registrationStep: RegistrationStep;
     registrationEmailSent: string;
     isResendingSetupEmail: boolean;
@@ -58,6 +101,7 @@ interface ChatConversationScreenProps {
     onLeadPhoneChange: (value: string) => void;
     onLeadSubmit: () => void;
     onHandoff: () => void;
+    onStartNewChat: () => void;
     onResendSetupEmail: () => void;
     onChangeRegistrationEmail: () => void;
 }
@@ -212,6 +256,10 @@ export default function ChatConversationScreen({
     inputFocused,
     chatInputPlaceholder,
     isSending,
+    handoffStatus,
+    showConnectToSales,
+    handoffBusy,
+    contactCapturePurpose,
     registrationStep,
     registrationEmailSent,
     isResendingSetupEmail,
@@ -231,19 +279,34 @@ export default function ChatConversationScreen({
     onLeadPhoneChange,
     onLeadSubmit,
     onHandoff,
+    onStartNewChat,
     onResendSetupEmail,
     onChangeRegistrationEmail,
 }: ChatConversationScreenProps) {
-    const canSend = !isSending && input.trim().length > 0 && registrationStep !== 'submitting';
+    const isClosedHandoff = handoffStatus === 'resolved' || handoffStatus === 'converted';
+    const isSalesHandoff =
+        handoffStatus === 'needs_sales' || handoffStatus === 'in_conversation';
+    const canSend =
+        !isSending &&
+        !handoffBusy &&
+        !isClosedHandoff &&
+        input.trim().length > 0 &&
+        registrationStep !== 'submitting';
     const showTypingIndicator = isSending || registrationStep === 'submitting';
+    const hasPersistedHandoffMessage = messages.some(
+        message =>
+            message.sender === 'system' &&
+            (message.meta?.type === 'sales_handoff' ||
+                message.message === 'Chat was escalated from AutoSPF+ AI to Sales.')
+    );
 
     return (
         <div className="flex min-h-0 flex-1 flex-col bg-white">
-            <header className="flex shrink-0 items-center gap-2 border-b !border-gray-200 px-4 py-4">
+            <header className="flex shrink-0 items-center gap-2 border-b !border-[#EEF0F3] bg-white px-4 py-3.5">
                 <button
                     type="button"
                     onClick={onBack}
-                    className="flex h-10 w-10 items-center justify-center rounded-full text-[#6B7280] transition-colors hover:bg-gray-100 hover:text-[#15171C] cursor-pointer"
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-[#70747D] transition-colors hover:bg-[#F5F6F7] hover:text-[#15171C] cursor-pointer"
                     aria-label="Go back"
                 >
                     <ChevronLeft className="h-6 w-6" strokeWidth={2.1} />
@@ -251,13 +314,13 @@ export default function ChatConversationScreen({
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                     <ChatBrandAvatar size="md" />
                     <div className="min-w-0">
-                        <p className="truncate text-[18px] font-semibold leading-tight text-[#15171C]">AutoSPF+</p>
-                        <p className="truncate text-[14px] leading-tight text-[#6B7280]">Team can help</p>
+                        <p className="truncate text-[17px] font-semibold leading-tight text-[#15171C]">AutoSPF+</p>
+                        <p className="mt-0.5 truncate text-[13px] leading-tight text-[#747983]">Team can help</p>
                     </div>
                 </div>
                 <button
                     type="button"
-                    className="flex h-10 w-10 items-center justify-center rounded-[15px] text-[#6B7280] transition-colors hover:bg-gray-100 hover:text-[#15171C] cursor-pointer"
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-[#70747D] transition-colors hover:bg-[#F5F6F7] hover:text-[#15171C] cursor-pointer"
                     aria-label="More options"
                 >
                     <MoreHorizontal className="h-6 w-6" strokeWidth={2.2} />
@@ -265,7 +328,7 @@ export default function ChatConversationScreen({
                 <button
                     type="button"
                     onClick={onClose}
-                    className="flex h-10 w-10 items-center justify-center rounded-full text-[#6B7280] transition-colors hover:bg-gray-100 hover:text-[#15171C] cursor-pointer"
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-[#70747D] transition-colors hover:bg-[#F5F6F7] hover:text-[#15171C] cursor-pointer"
                     aria-label="Close chat"
                 >
                     <X className="h-6 w-6" strokeWidth={2.1} />
@@ -273,7 +336,7 @@ export default function ChatConversationScreen({
             </header>
 
             <div
-                className="min-h-0 flex-1 overflow-y-auto px-6 py-6 space-y-3 bg-white"
+                className="min-h-0 flex-1 scroll-smooth overflow-y-auto overscroll-contain bg-white px-5 py-7"
                 style={{ scrollbarWidth: 'thin', scrollbarColor: '#E5E7EB transparent' }}
             >
                 {messages.length === 0 && (
@@ -282,15 +345,31 @@ export default function ChatConversationScreen({
                     </p>
                 )}
 
-                {messages.map(msg => {
+                {messages.map((msg, index) => {
                     if (!msg.message.trim() && !msg.meta?.type) return null;
+                    if (msg.sender === 'system') {
+                        return (
+                            <div key={msg.id} className="flex justify-center py-4">
+                                <div className="flex max-w-[92%] items-center gap-2 rounded-full bg-[#F7F7F8] px-3 py-1.5 text-center text-[13px] leading-5 text-[#6B7280]">
+                                    <MiniBrandMark />
+                                    <span>{getSystemMessageCopy(msg)}</span>
+                                </div>
+                            </div>
+                        );
+                    }
+                    const isSales = msg.sender === 'sales';
+                    const isCustomer = msg.sender === 'user';
+                    const startsSenderGroup = messages[index - 1]?.sender !== msg.sender;
+                    const endsSenderGroup = messages[index + 1]?.sender !== msg.sender;
                     return (
                     <motion.div
                         key={msg.id}
                         variants={msgVariants}
                         initial="hidden"
                         animate="visible"
-                        className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                        className={`flex ${isCustomer ? 'justify-end' : 'justify-start'} ${
+                            startsSenderGroup ? 'mt-5' : 'mt-1.5'
+                        }`}
                     >
                         {msg.meta?.type === 'tracker_result' && msg.meta.tracker ? (
                             <TrackerResultCard tracker={msg.meta.tracker} trackerUrl={msg.meta.trackerUrl} />
@@ -301,15 +380,28 @@ export default function ChatConversationScreen({
                                 message={msg.message}
                             />
                         ) : (
-                            <div
-                                className={`max-w-[82%] whitespace-pre-wrap px-4 py-3 text-[15px] leading-relaxed ${
-                                    msg.sender === 'user'
-                                        ? 'rounded-[22px] rounded-br-[10px] text-white shadow-[0_8px_20px_rgba(0,102,255,0.22)]'
-                                        : 'rounded-[22px] rounded-tl-[10px] bg-[#F4F4F5] text-[#15171C]'
-                                }`}
-                                style={msg.sender === 'user' ? { backgroundColor: CHAT_BLUE } : undefined}
-                            >
-                                {formatChatMessageText(msg.message)}
+                            <div className="max-w-[78%]">
+                                {!isCustomer && !isSales && startsSenderGroup ? (
+                                    <p className="mb-1.5 px-1 text-[12px] font-medium text-[#777C85]">
+                                        AutoSPF+ AI
+                                    </p>
+                                ) : null}
+                                <div
+                                    className={`whitespace-pre-wrap px-[18px] py-3.5 text-[15px] leading-[1.55] ${
+                                        isCustomer
+                                            ? 'rounded-[22px] text-white'
+                                            : 'rounded-[22px] bg-[#F3F4F6] text-[#17191D]'
+                                    }`}
+                                    style={isCustomer ? { backgroundColor: CHAT_BLUE } : undefined}
+                                >
+                                    {formatChatMessageText(msg.message)}
+                                </div>
+                                {isSales && endsSenderGroup ? (
+                                    <p className="mt-1.5 px-1 text-[12px] text-[#888D96]">
+                                        AutoSPF+ Sales
+                                        {msg.createdAt ? ` · ${formatRelativeTime(msg.createdAt)}` : ''}
+                                    </p>
+                                ) : null}
                             </div>
                         )}
                     </motion.div>
@@ -382,7 +474,7 @@ export default function ChatConversationScreen({
             </div>
 
             <AnimatePresence>
-                {leadRequired && (registrationStep === 'idle' || registrationStep === 'sent') && (
+                {leadRequired && !isSalesHandoff && (registrationStep === 'idle' || registrationStep === 'sent') && (
                     <motion.div
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
@@ -390,9 +482,15 @@ export default function ChatConversationScreen({
                         className="shrink-0 border-t !border-gray-100 px-6 py-4"
                     >
                         <div className="rounded-[28px] border !border-gray-200 bg-white p-5 shadow-[0_12px_32px_rgba(15,23,42,0.08)]">
-                            <p className="text-[16px] font-semibold text-[#15171C]">Get a tailored SPF quote</p>
+                            <p className="text-[16px] font-semibold text-[#15171C]">
+                                {contactCapturePurpose === 'handoff'
+                                    ? 'Connect with AutoSPF+ Sales'
+                                    : 'Get a tailored SPF quote'}
+                            </p>
                             <p className="mt-1 text-[13px] leading-relaxed text-[#6B7280]">
-                                Share your contact details and our studio team will follow up with the right protection package for your vehicle.
+                                {contactCapturePurpose === 'handoff'
+                                    ? 'Share your name and mobile number so Sales can identify and assist you in this conversation.'
+                                    : 'Share your contact details and our studio team will follow up with the right protection package for your vehicle.'}
                             </p>
                             <div className="mt-3 space-y-2">
                                 <div className="flex h-12 items-center gap-2 rounded-[14px] border !border-gray-200 bg-gray-50 px-3 transition-colors focus-within:!border-[#0066FF]">
@@ -417,17 +515,42 @@ export default function ChatConversationScreen({
                             <button
                                 type="button"
                                 onClick={onLeadSubmit}
-                                className="mt-3 flex h-11 w-full items-center justify-center rounded-[14px] text-[13px] font-bold text-white shadow-[0_10px_24px_rgba(0,102,255,0.22)] cursor-pointer"
+                                disabled={handoffBusy}
+                                className="mt-3 flex h-11 w-full items-center justify-center rounded-[14px] text-[13px] font-bold text-white shadow-[0_10px_24px_rgba(0,102,255,0.22)] disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
                                 style={{ backgroundColor: CHAT_BLUE }}
                             >
-                                Submit details
+                                {contactCapturePurpose === 'handoff'
+                                    ? handoffBusy
+                                        ? 'Connecting...'
+                                        : 'Continue to Sales'
+                                    : 'Submit details'}
                             </button>
                         </div>
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            <div className="shrink-0 px-6 pb-5 pt-3">
+            <div className="shrink-0 bg-white px-5 pb-5 pt-3">
+                {handoffStatus === 'needs_sales' && !hasPersistedHandoffMessage ? (
+                    <div className="mb-3 flex items-center justify-center gap-2 rounded-full bg-[#F7F7F8] px-3 py-2 text-center text-[13px] leading-5 text-[#6B7280]">
+                        <MiniBrandMark />
+                        <span>{FRIENDLY_HANDOFF_COPY}</span>
+                    </div>
+                ) : isClosedHandoff ? (
+                    <div className="mb-3 rounded-[18px] bg-[#F7F7F8] px-4 py-3 text-center">
+                        <p className="text-[13px] font-medium text-[#5F646D]">
+                            This conversation has been resolved. Start a new chat if you need more help.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={onStartNewChat}
+                            className="mt-2 text-[12px] font-semibold text-[#0066FF] hover:underline"
+                        >
+                            Start New Chat
+                        </button>
+                    </div>
+                ) : null}
+
                 {messages.length === 0 && !showTypingIndicator && (
                     <div className="mb-3 flex items-center justify-center gap-2 text-[13px] text-[#6B7280]">
                         <ChatBrandAvatar size="sm" />
@@ -435,10 +558,10 @@ export default function ChatConversationScreen({
                     </div>
                 )}
                 <div
-                    className={`rounded-[22px] border bg-white transition-all duration-200 ${
+                    className={`rounded-[28px] border-[1.5px] bg-white transition-all duration-200 ${
                         inputFocused
-                            ? 'border-[#0066FF] shadow-[0_0_0_3px_rgba(0,102,255,0.12)]'
-                            : 'border-[#E5E7EB] shadow-sm'
+                            ? '!border-[#0B5CFF] shadow-[0_0_0_3px_rgba(11,92,255,0.11)]'
+                            : '!border-[#E5E7EB]'
                     }`}
                 >
                     <textarea
@@ -448,9 +571,9 @@ export default function ChatConversationScreen({
                         onFocus={onInputFocus}
                         onBlur={onInputBlur}
                         placeholder={chatInputPlaceholder}
-                        disabled={registrationStep === 'submitting'}
+                        disabled={registrationStep === 'submitting' || isClosedHandoff || handoffBusy}
                         rows={2}
-                        className="w-full resize-none border-0 bg-transparent px-4 pt-3.5 pb-1 text-[15px] text-gray-900 placeholder:text-[#9CA3AF] focus:outline-none focus:ring-0 disabled:opacity-60"
+                        className="w-full resize-none border-0 bg-transparent px-5 pb-1 pt-4 text-[15px] text-gray-900 placeholder:text-[#8B9099] focus:outline-none focus:ring-0 disabled:opacity-60"
                         onKeyDown={e => {
                             if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault();
@@ -458,19 +581,19 @@ export default function ChatConversationScreen({
                             }
                         }}
                     />
-                    <div className="flex items-center justify-between px-3 pb-3 pt-0">
-                        <div className="flex items-center gap-3 text-[#C4C4C4]">
+                    <div className="flex items-center justify-between px-4 pb-3.5 pt-0.5">
+                        <div className="flex items-center gap-3.5 text-[#9CA1A9]">
                             <Paperclip className="h-[18px] w-[18px]" aria-hidden="true" />
                             <Smile className="h-[18px] w-[18px]" aria-hidden="true" />
-                            <span className="text-[11px] font-bold">GIF</span>
+                            <span className="text-[11px] font-semibold">GIF</span>
                             <Mic className="h-[18px] w-[18px]" aria-hidden="true" />
                         </div>
                         <button
                             type="button"
                             onClick={onSend}
                             disabled={!canSend}
-                            className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors cursor-pointer ${
-                                canSend ? 'text-white' : 'bg-[#F3F4F6] text-[#D1D5DB]'
+                            className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors cursor-pointer ${
+                                canSend ? 'text-white' : 'bg-[#F0F1F2] text-[#CACDD2]'
                             }`}
                             style={canSend ? { backgroundColor: CHAT_BLUE } : undefined}
                             aria-label="Send message"
@@ -480,14 +603,17 @@ export default function ChatConversationScreen({
                     </div>
                 </div>
 
-                <button
-                    type="button"
-                    onClick={onHandoff}
-                    className="mx-auto mt-2 flex w-full items-center justify-center gap-1.5 py-1 text-[11px] font-semibold text-gray-400 transition-colors hover:text-gray-600 cursor-pointer"
-                >
-                    <Headset className="h-3.5 w-3.5" />
-                    Talk to a protection specialist
-                </button>
+                {showConnectToSales && !leadRequired && handoffStatus === 'ai_handling' ? (
+                    <button
+                        type="button"
+                        onClick={onHandoff}
+                        disabled={handoffBusy}
+                        className="mx-auto mt-2 flex w-full items-center justify-center gap-1.5 rounded-[14px] border border-blue-100 bg-blue-50 py-2 text-[12px] font-bold text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
+                    >
+                        <Headset className="h-3.5 w-3.5" />
+                        {handoffBusy ? 'Connecting...' : 'Connect to Sales'}
+                    </button>
+                ) : null}
 
                 {currentUserName && (
                     <p className="mt-1 text-center text-[10px] text-gray-400">

@@ -17,16 +17,19 @@ import { apiClient } from '@/services/api/client';
 import * as Crypto from 'expo-crypto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
+import { authStorage } from '@/services/storage/authStorage';
 
 const CHAT_SESSION_STORAGE_KEY = '@autospf_chat_session_id';
+const CHAT_GUEST_KEY_STORAGE_KEY = '@autospf_chat_guest_key';
 
 // ── In-memory mirror of the durable per-user/device session ───────────────────
 let _sessionId: string | null = null;
+let _guestKey: string | null = null;
 
 async function getSessionPrefix(): Promise<string> {
   let prefix = 'guest';
   try {
-    const token = await AsyncStorage.getItem('@autospf_token');
+    const token = await authStorage.getToken();
     if (token) {
       prefix = token.substring(0, 8).replace(/[^a-zA-Z0-9]/g, 'x');
     }
@@ -57,16 +60,43 @@ async function getSessionId(): Promise<string> {
   return _sessionId;
 }
 
+async function setSessionId(sessionId: string): Promise<void> {
+  _sessionId = sessionId;
+  await AsyncStorage.setItem(CHAT_SESSION_STORAGE_KEY, sessionId);
+}
+
+async function getGuestKey(): Promise<string> {
+  if (_guestKey) return _guestKey;
+  const stored = await AsyncStorage.getItem(CHAT_GUEST_KEY_STORAGE_KEY);
+  if (stored) {
+    _guestKey = stored;
+    return stored;
+  }
+  _guestKey = `mobile_${Crypto.randomUUID()}`;
+  await AsyncStorage.setItem(CHAT_GUEST_KEY_STORAGE_KEY, _guestKey);
+  return _guestKey;
+}
+
+export type SalesHandoffStatus =
+  | 'ai_handling'
+  | 'needs_sales'
+  | 'in_conversation'
+  | 'resolved'
+  | 'converted';
+
 export interface ChatMessageRecord {
   id: string;
-  sender: 'user' | 'assistant' | 'system';
+  sender: 'user' | 'assistant' | 'sales' | 'system';
   message: string;
   createdAt?: string;
   actionChips?: string[];
+  metadata?: Record<string, any>;
 }
 
 export interface ChatSessionResponse {
   sessionId: string;
+  conversationId: string;
+  status: SalesHandoffStatus;
   leadName?: string;
   leadPhone?: string;
   preferredLanguage?: 'english' | 'tagalog' | 'taglish';
@@ -110,6 +140,17 @@ export interface ChatSendResponse {
   actionChips?: string[];
   leadRequired: boolean;
   metadata?: Record<string, any> | null;
+  handoffOffer?: {
+    eligible: boolean;
+    reason?: string;
+  } | null;
+}
+
+export interface SalesConversationResponse {
+  conversationId: string;
+  status: SalesHandoffStatus;
+  messages: ChatMessageRecord[];
+  unreadForCustomer?: boolean;
 }
 
 export interface ChatStreamHandlers {
@@ -123,17 +164,38 @@ export const chatbotService = {
     return getSessionId();
   },
 
+  async getGuestKey(): Promise<string> {
+    return getGuestKey();
+  },
+
   /** Start or resume the durable chat session */
   async startSession(source = 'mobile'): Promise<ChatSessionResponse> {
-    const sessionId = await getSessionId();
-    const response = await apiClient.post<{ success: boolean; session: any; messages: any[] }>(
-      '/chat/session',
-      { sessionId, source }
-    );
+    let sessionId = await getSessionId();
+    const guestKey = await getGuestKey();
+    let data: any;
 
-    const data = response.data;
+    try {
+      const response = await apiClient.get(
+        `/chat/conversations/${sessionId}`,
+        {
+          params: { guestKey },
+          meta: { suppressExpectedErrorLog: true },
+        } as any,
+      );
+      data = response.data;
+    } catch (error: any) {
+      if (error?.response?.status !== 404) throw error;
+      const legacyResponse = await apiClient.post('/chat/session', {
+        sessionId,
+        source,
+      });
+      data = legacyResponse.data;
+    }
+
     return {
       sessionId: data.session?.sessionId || sessionId,
+      conversationId: data.conversation?.conversationId || sessionId,
+      status: data.conversation?.status || 'ai_handling',
       leadName: data.session?.leadName,
       leadPhone: data.session?.leadPhone,
       preferredLanguage: data.session?.preferredLanguage,
@@ -153,8 +215,21 @@ export const chatbotService = {
         sender: m.sender,
         message: m.message,
         createdAt: m.createdAt,
+        metadata: m.metadata,
       })),
     };
+  },
+
+  async startNewConversation(source = 'mobile'): Promise<ChatSessionResponse> {
+    const guestKey = await getGuestKey();
+    const response = await apiClient.post('/chat/conversations', {
+      guestKey,
+      source,
+    });
+    const conversationId = response.data?.conversation?.conversationId;
+    if (!conversationId) throw new Error('Missing conversationId');
+    await setSessionId(conversationId);
+    return this.startSession(source);
   },
 
   /** Send a message and receive an AI reply */
@@ -171,6 +246,7 @@ export const chatbotService = {
       actionChips: response.data.actionChips || [],
       leadRequired: response.data.leadRequired || false,
       metadata: response.data.metadata || null,
+      handoffOffer: response.data.handoffOffer || null,
     };
   },
 
@@ -227,6 +303,7 @@ export const chatbotService = {
           actionChips: payload.actionChips || [],
           leadRequired: Boolean(payload.leadRequired),
           metadata: payload.metadata || null,
+          handoffOffer: payload.handoffOffer || null,
         });
       };
 
@@ -258,10 +335,78 @@ export const chatbotService = {
     };
   },
 
-  /** Request handoff to a human agent */
-  async requestHandoff(lastMessage?: string): Promise<void> {
+  async requestHandoff(
+    lastMessage?: string,
+    contact?: { name: string; phone: string },
+  ): Promise<SalesConversationResponse> {
     const sessionId = await getSessionId();
-    await apiClient.post('/chat/handoff', { sessionId, lastMessage });
+    const guestKey = await getGuestKey();
+    const response = await apiClient.post('/chat/handoff', {
+      conversationId: sessionId,
+      sessionId,
+      guestKey,
+      source: 'mobile',
+      initialMessage: lastMessage,
+      lastMessage,
+      ...(contact
+        ? {
+            customerName: contact.name,
+            customerPhone: contact.phone,
+          }
+        : {}),
+    });
+    return {
+      conversationId: response.data.conversation.conversationId,
+      status: response.data.conversation.status,
+      unreadForCustomer: response.data.conversation.unreadForCustomer,
+      messages: (response.data.messages || []).map((m: any) => ({
+        id: m.id || m._id || String(Math.random()),
+        sender: m.sender,
+        message: m.message,
+        createdAt: m.createdAt,
+        metadata: m.metadata,
+      })),
+    };
+  },
+
+  async getSalesConversation(): Promise<SalesConversationResponse> {
+    const conversationId = await getSessionId();
+    const guestKey = await getGuestKey();
+    const response = await apiClient.get(
+      `/chat/conversations/${conversationId}/messages`,
+      { params: { guestKey } },
+    );
+    return {
+      conversationId,
+      status: response.data.conversation.status,
+      unreadForCustomer: response.data.conversation.unreadForCustomer,
+      messages: (response.data.messages || []).map((m: any) => ({
+        id: m.id || m._id || String(Math.random()),
+        sender: m.sender,
+        message: m.message,
+        createdAt: m.createdAt,
+        metadata: m.metadata,
+      })),
+    };
+  },
+
+  async sendCustomerMessage(message: string): Promise<SalesConversationResponse> {
+    const conversationId = await getSessionId();
+    const guestKey = await getGuestKey();
+    await apiClient.post(`/chat/conversations/${conversationId}/messages`, {
+      guestKey,
+      senderType: 'customer',
+      message,
+    });
+    return this.getSalesConversation();
+  },
+
+  async markCustomerRead(): Promise<void> {
+    const conversationId = await getSessionId();
+    const guestKey = await getGuestKey();
+    await apiClient.patch(`/chat/conversations/${conversationId}/read`, {
+      guestKey,
+    });
   },
 
   /**
