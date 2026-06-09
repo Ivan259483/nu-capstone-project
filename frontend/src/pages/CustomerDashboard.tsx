@@ -6451,7 +6451,7 @@ export default function CustomerDashboard() {
       {bookingOpen && (
         <div className="customer-modal-layer customer-booking-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-3 sm:p-5" onClick={closeBookingModal}>
           <div
-            className={`customer-modal-panel customer-booking-modal flex w-full min-h-0 max-h-[94vh] flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white ${
+            className={`customer-modal-panel customer-booking-modal flex w-full min-h-0 max-h-[94vh] flex-col overflow-hidden rounded-[1.75rem] border border-slate-200/70 bg-white shadow-2xl shadow-slate-900/10 ring-1 ring-slate-100/80 ${
               !bookingDone && bookingStep === 3
                 ? 'max-w-[920px]'
                 : !bookingDone && (bookingStep === 4 || bookingStep === 5 || bookingStep === 6)
@@ -6492,9 +6492,15 @@ export default function CustomerDashboard() {
                   </div>
                 </div>
                 {!bookingSubmitting && (
-                  <button onClick={closeBookingModal}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50 text-slate-500 shadow-sm transition-all hover:bg-slate-100 hover:text-slate-700">
-                    <iconify-icon icon="solar:close-circle-linear" width="16"></iconify-icon>
+                  <button
+                    onClick={closeBookingModal}
+                    aria-label="Close"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm transition-all duration-150 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-600 hover:shadow"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <line x1="2" y1="2" x2="12" y2="12" />
+                      <line x1="12" y1="2" x2="2" y2="12" />
+                    </svg>
                   </button>
                 )}
               </div>

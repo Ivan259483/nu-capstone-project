@@ -2,13 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard, ShoppingCart, Receipt, Users, BarChart3,
   Settings, ChevronLeft, LogOut, CheckSquare, CalendarDays,
-  MessagesSquare,
+  MessagesSquare, User,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSharedSocket } from '@/hooks/useRealtimeSync';
 
-type SalesView = 'dashboard' | 'concierge-inbox' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
+type SalesView = 'dashboard' | 'concierge-inbox' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar' | 'profile';
 
 interface Props {
   activeView: SalesView;
@@ -30,6 +30,7 @@ const NAV_MGMT = [
   { key: 'customers' as SalesView, label: 'Customers', icon: Users },
   { key: 'reports' as SalesView, label: 'Sales Reports', icon: BarChart3 },
   { key: 'settings' as SalesView, label: 'Settings', icon: Settings },
+  { key: 'profile' as SalesView, label: 'My Profile', icon: User },
 ];
 
 export default function SalesSidebar({ activeView, onNavigate, collapsed, onToggle }: Props) {

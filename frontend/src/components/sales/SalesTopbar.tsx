@@ -119,11 +119,15 @@ export type SalesTopbarProps = {
   onNavigateToApprovals?: (orderId?: string) => void;
   /** Opens POS and optionally preloads an order for balance checkout */
   onNavigateToPos?: (orderId?: string) => void;
+  onNavigateToProfile?: () => void;
+  onNavigateToSettings?: () => void;
 };
 
 export default function SalesTopbar({
   onNavigateToApprovals,
   onNavigateToPos,
+  onNavigateToProfile,
+  onNavigateToSettings,
 }: SalesTopbarProps) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -443,9 +447,18 @@ export default function SalesTopbar({
             }}
             className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors duration-150"
           >
-            <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center text-white text-xs font-bold shrink-0">
-              {initials}
-            </div>
+            {user?.avatar && (user.avatar.startsWith('http') || user.avatar.startsWith('data:image/')) ? (
+              <img
+                src={user.avatar}
+                alt={user?.name || 'Profile'}
+                className="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                {initials}
+              </div>
+            )}
             <div className="text-left hidden md:block">
               <p className="text-xs font-semibold text-slate-900 leading-tight">{user?.name || 'Sales Staff'}</p>
               <p className="text-[10px] text-slate-500 leading-tight capitalize">{(user?.role || 'sales').replace(/_/g, ' ')}</p>
@@ -462,6 +475,10 @@ export default function SalesTopbar({
               <div className="py-1">
                 <button
                   type="button"
+                  onClick={() => {
+                    setProfileOpen(false);
+                    onNavigateToProfile?.();
+                  }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all duration-150 cursor-pointer"
                 >
                   <User size={15} />
@@ -469,6 +486,10 @@ export default function SalesTopbar({
                 </button>
                 <button
                   type="button"
+                  onClick={() => {
+                    setProfileOpen(false);
+                    onNavigateToSettings?.();
+                  }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all duration-150 cursor-pointer"
                 >
                   <Settings size={15} />

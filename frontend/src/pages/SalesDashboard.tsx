@@ -7,13 +7,14 @@ import TransactionsTable from '@/components/sales/transactions/TransactionsTable
 import CustomersView from '@/components/sales/customers/CustomersView';
 import SalesReportsView from '@/components/sales/reports/SalesReportsView';
 import SettingsView from '@/components/sales/settings/SettingsView';
+import SalesProfileView from '@/components/sales/profile/SalesProfileView';
 import ToastProvider from '@/components/sales/ui/ToastProvider';
 import SalesSmartCalendar from '@/components/sales/calendar/SalesSmartCalendar';
 import BookingApprovalsPage from '@/components/sales/booking/BookingApprovalsPage';
 import SalesConciergeInbox from '@/components/sales/concierge/SalesConciergeInbox';
 import { SalesAnalyticsProvider } from '@/contexts/SalesAnalyticsContext';
 
-type SalesView = 'dashboard' | 'concierge-inbox' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar';
+type SalesView = 'dashboard' | 'concierge-inbox' | 'pos' | 'transactions' | 'customers' | 'reports' | 'settings' | 'approvals' | 'calendar' | 'profile';
 
 
 // ── Transactions View ─────────────────────────────────────────────────────────
@@ -101,6 +102,7 @@ export default function SalesDashboard() {
       case 'customers': return <CustomersView />;
       case 'reports': return <SalesReportsView />;
       case 'settings': return <SettingsView />;
+      case 'profile': return <SalesProfileView onNavigateHome={() => setActiveView('dashboard')} />;
       case 'approvals':
         return (
           <BookingApprovalsPage
@@ -132,13 +134,19 @@ export default function SalesDashboard() {
               if (orderId) setPosPreloadOrderId(orderId);
               setActiveView('pos');
             }}
+            onNavigateToProfile={() => setActiveView('profile')}
           />
-          <main className={`min-h-0 flex-1 scrollbar-thin ${activeView === 'concierge-inbox' ? 'p-0' : 'p-6'} ${activeView === 'pos' ? 'flex flex-col overflow-hidden' :
+          <main className={`min-h-0 flex-1 scrollbar-thin ${activeView === 'concierge-inbox' ? 'p-0' : activeView === 'profile' ? 'p-0' : 'p-6'} ${activeView === 'pos' ? 'flex flex-col overflow-hidden' :
               activeView === 'calendar' ? 'flex flex-col overflow-hidden' :
-                activeView === 'concierge-inbox' ? 'flex flex-col overflow-hidden' :
-                'overflow-y-auto'
+              activeView === 'concierge-inbox' ? 'flex flex-col overflow-hidden' :
+              activeView === 'profile' ? 'flex flex-col overflow-hidden' :
+              'overflow-y-auto'
             }`}>
-            {renderView()}
+            {activeView === 'profile' ? (
+              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-slate-50" style={{ padding: '20px clamp(16px, 2vw, 28px) 32px' }}>
+                {renderView()}
+              </div>
+            ) : renderView()}
           </main>
         </div>
         <ToastProvider />

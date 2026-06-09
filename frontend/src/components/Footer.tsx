@@ -53,19 +53,12 @@ const brandDescription =
 
 function FooterColumnLink({ link }: { link: FooterLink }) {
     const className =
-        "group inline-flex w-fit items-center text-sm leading-6 text-white/66 transition-colors duration-200 hover:text-[#f4b43f] focus:outline-none focus-visible:text-[#f4b43f]";
-
-    const content = (
-        <>
-            <span className="mr-2 h-px w-0 bg-[#f4b43f]/70 transition-all duration-200 group-hover:w-3" aria-hidden />
-            {link.label}
-        </>
-    );
+        "inline-flex w-fit items-center text-sm leading-6 text-white/66 transition-colors duration-200 hover:text-[#f4b43f] focus:outline-none focus-visible:text-[#f4b43f]";
 
     if (link.to) {
         return (
             <Link to={link.to} className={className}>
-                {content}
+                {link.label}
             </Link>
         );
     }
@@ -77,7 +70,7 @@ function FooterColumnLink({ link }: { link: FooterLink }) {
             target={link.external ? "_blank" : undefined}
             rel={link.external ? "noopener noreferrer" : undefined}
         >
-            {content}
+            {link.label}
         </a>
     );
 }
@@ -142,19 +135,19 @@ export default function Footer() {
                                 className="flex w-fit items-center gap-3 transition-colors duration-200 hover:text-[#f4b43f]"
                             >
                                 <Facebook className="h-4 w-4 shrink-0 text-[#f4b43f]/80" aria-hidden />
-                                <span>Facebook: AutoSPFmain</span>
+                                <span>@AutoSPFmain</span>
                             </a>
                         </div>
                     </div>
 
                     {footerColumns.map((column) => (
-                        <nav key={column.title} aria-label={column.title}>
+                        <nav key={column.title} aria-label={column.title} className="text-center">
                             <h2 className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[#f4b43f]/88">
                                 {column.title}
                             </h2>
                             <ul className="mt-5 space-y-3">
                                 {column.links.map((link) => (
-                                    <li key={`${column.title}-${link.label}`}>
+                                    <li key={`${column.title}-${link.label}`} className="flex justify-center">
                                         <FooterColumnLink link={link} />
                                     </li>
                                 ))}

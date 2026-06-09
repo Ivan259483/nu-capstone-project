@@ -6,7 +6,7 @@ export const CHAT_INBOX_NAME = 'AutoSPF+ Concierge';
 
 /** Main messenger panel */
 export const chatWindowClass =
-    'relative flex w-full flex-col overflow-hidden rounded-[32px] border !border-white/80 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.22),0_10px_28px_rgba(15,23,42,0.12)]';
+    'relative flex w-full flex-col overflow-hidden rounded-[32px] bg-white shadow-[0_28px_90px_rgba(15,23,42,0.22),0_10px_28px_rgba(15,23,42,0.12)]';
 
 /** Shadowed home/action cards */
 export const chatCardClass =
