@@ -287,8 +287,10 @@ function _ConditionalChatWidget() {
     const { pathname } = useLocation();
     const { user } = useAuth();
     const isDashboardRoute = /^\/(customer|detailer|admin|sales|inventory|ops)/.test(pathname);
+    const isAuthRoute = /^\/(login|register|verify-otp|set-password|forgot-password|reset-password)(\/|$)/.test(pathname);
     const isPublicTrackerRoute = /^\/track\//.test(pathname);
     if (isDashboardRoute) return null;
+    if (isAuthRoute) return null;
     if (isPublicTrackerRoute) return null;
     if (getSafeUserRole(user?.role) === 'sales') return null;
     return (

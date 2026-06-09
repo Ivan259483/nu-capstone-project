@@ -36,11 +36,11 @@ export function FloatingLabelField({
         <div className={cn("relative", containerClassName)}>
             <div
                 className={cn(
-                    "relative overflow-hidden rounded-[18px] border bg-white/[0.045] backdrop-blur-xl",
-                    "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-[border-color,box-shadow,background-color] duration-300",
+                    "relative overflow-hidden rounded-[14px] border bg-white/[0.065] backdrop-blur-xl",
+                    "shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] transition-[border-color,box-shadow,background-color] duration-300",
                     error
                         ? "border-red-400/55 ring-1 ring-red-400/15"
-                        : "border-white/10 focus-within:border-amber-300/40 focus-within:bg-white/[0.055] focus-within:ring-1 focus-within:ring-amber-300/15",
+                        : "border-white/[0.12] focus-within:border-white/30 focus-within:bg-white/[0.085] focus-within:ring-1 focus-within:ring-white/[0.09]",
                     disabled && "opacity-60"
                 )}
             >
@@ -54,8 +54,8 @@ export function FloatingLabelField({
                     onBlur={onBlur}
                     placeholder=" "
                     className={cn(
-                        "peer block w-full bg-transparent px-4 pb-2 pt-5 text-sm font-medium text-white",
-                        "placeholder-transparent focus:outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-slate-400",
+                        "peer block h-12 w-full bg-transparent px-4 pb-1.5 pt-5 text-sm font-medium text-white",
+                        "placeholder-transparent focus:outline-none focus:ring-0 disabled:cursor-not-allowed disabled:text-zinc-500",
                         className
                     )}
                     aria-invalid={error ? true : undefined}
@@ -64,11 +64,11 @@ export function FloatingLabelField({
                 <label
                     htmlFor={id}
                     className={cn(
-                        "pointer-events-none absolute left-4 bg-transparent text-slate-500/85 shadow-none transition-all duration-200 ease-out",
+                        "pointer-events-none absolute left-4 bg-transparent text-zinc-500 shadow-none transition-all duration-200 ease-out",
                         "peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm",
-                        "peer-focus:top-1.5 peer-focus:translate-y-0 peer-focus:text-[11px] peer-focus:font-medium peer-focus:text-slate-300",
+                        "peer-focus:top-1.5 peer-focus:translate-y-0 peer-focus:text-[11px] peer-focus:font-medium peer-focus:text-zinc-300",
                         (hasValue || inputProps.type === "date") &&
-                            "top-1.5 translate-y-0 text-[11px] font-medium text-slate-400"
+                            "top-1.5 translate-y-0 text-[11px] font-medium text-zinc-400"
                     )}
                 >
                     {label}

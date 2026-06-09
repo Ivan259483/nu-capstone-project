@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, Loader2, UserPlus, CheckCircle2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -44,11 +44,10 @@ function phoneValidationMessage(
 }
 
 type ManualRegisterFormProps = {
-    onSignIn: () => void;
     onRegistrationComplete: (role: string) => void;
 };
 
-export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualRegisterFormProps) {
+export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFormProps) {
     const { t } = useLanguage();
     const { setAuthUser } = useAuth();
 
@@ -262,12 +261,12 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
         <>
             <form
                 onSubmit={handleSubmit}
-                className="max-h-[min(calc(100dvh-10rem),42rem)] space-y-2.5 overflow-y-auto pr-1.5 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-amber-200/20"
+                className="mx-auto max-h-[min(calc(100dvh-13.25rem),39rem)] w-full space-y-3 overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20"
                 noValidate
             >
                 {attemptedSubmit && Object.keys(errors).length > 0 ? (
                     <p
-                        className="rounded-2xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-[11px] leading-snug text-red-300"
+                        className="rounded-[14px] border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-[11px] leading-snug text-red-300"
                         role="status"
                     >
                         {t("register.summaryError")}
@@ -278,35 +277,35 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                     <FloatingLabelField
                         compactError
                         id="manual-reg-first-name"
-                            label={t("register.firstName")}
-                            autoComplete="given-name"
-                            value={firstName}
-                            onChange={(v) => {
-                                setFirstName(v);
-                                if (touched.firstName) runFieldValidation("firstName");
-                            }}
-                            onBlur={() => {
-                                setTouched((t) => ({ ...t, firstName: true }));
-                                runFieldValidation("firstName");
-                            }}
+                        label={t("register.firstName")}
+                        autoComplete="given-name"
+                        value={firstName}
+                        onChange={(v) => {
+                            setFirstName(v);
+                            if (touched.firstName) runFieldValidation("firstName");
+                        }}
+                        onBlur={() => {
+                            setTouched((t) => ({ ...t, firstName: true }));
+                            runFieldValidation("firstName");
+                        }}
                         error={showFieldError("firstName") ? errors.firstName : undefined}
                         disabled={isSubmitting || otpOpen}
                     />
                     <FloatingLabelField
                         compactError
                         id="manual-reg-last-name"
-                            label={t("register.lastName")}
-                            autoComplete="family-name"
-                            value={lastName}
-                            onChange={(v) => {
-                                setLastName(v);
-                                if (touched.lastName) runFieldValidation("lastName");
-                            }}
-                            onBlur={() => {
-                                setTouched((t) => ({ ...t, lastName: true }));
-                                runFieldValidation("lastName");
-                            }}
-                            error={showFieldError("lastName") ? errors.lastName : undefined}
+                        label={t("register.lastName")}
+                        autoComplete="family-name"
+                        value={lastName}
+                        onChange={(v) => {
+                            setLastName(v);
+                            if (touched.lastName) runFieldValidation("lastName");
+                        }}
+                        onBlur={() => {
+                            setTouched((t) => ({ ...t, lastName: true }));
+                            runFieldValidation("lastName");
+                        }}
+                        error={showFieldError("lastName") ? errors.lastName : undefined}
                         disabled={isSubmitting || otpOpen}
                     />
                 </div>
@@ -314,30 +313,30 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                 <FloatingLabelField
                     compactError
                     id="manual-reg-email"
-                        label={t("register.email")}
-                        type="email"
-                        autoComplete="email"
-                        inputMode="email"
-                        value={email}
-                        onChange={(v) => {
-                            setEmail(v);
-                            if (touched.email) runFieldValidation("email");
-                        }}
-                        onBlur={() => {
-                            setTouched((t) => ({ ...t, email: true }));
-                            runFieldValidation("email");
-                        }}
-                        error={showFieldError("email") ? errors.email : undefined}
+                    label={t("register.email")}
+                    type="email"
+                    autoComplete="email"
+                    inputMode="email"
+                    value={email}
+                    onChange={(v) => {
+                        setEmail(v);
+                        if (touched.email) runFieldValidation("email");
+                    }}
+                    onBlur={() => {
+                        setTouched((t) => ({ ...t, email: true }));
+                        runFieldValidation("email");
+                    }}
+                    error={showFieldError("email") ? errors.email : undefined}
                     disabled={isSubmitting || otpOpen}
                 />
 
                 <div
                     className={cn(
-                        "relative overflow-hidden rounded-[18px] border bg-white/[0.045] backdrop-blur-xl transition-all duration-300",
-                        "px-4 pb-2 pt-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+                        "relative overflow-hidden rounded-[14px] border bg-white/[0.065] backdrop-blur-xl transition-all duration-300",
+                        "px-4 pb-2 pt-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]",
                         phoneError && touched.phone
                             ? "border-red-400/55 ring-1 ring-red-400/15"
-                            : "border-white/10 focus-within:border-amber-300/40 focus-within:ring-1 focus-within:ring-amber-300/15"
+                            : "border-white/[0.12] focus-within:border-white/30 focus-within:bg-white/[0.085] focus-within:ring-1 focus-within:ring-white/[0.09]"
                     )}
                     onBlur={(e) => {
                         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
@@ -346,7 +345,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                         }
                     }}
                 >
-                    <span className="pointer-events-none absolute left-4 top-1.5 z-[1] bg-transparent text-[11px] font-medium text-slate-400 shadow-none">
+                    <span className="pointer-events-none absolute left-4 top-1.5 z-[1] bg-transparent text-[11px] font-medium text-zinc-400 shadow-none">
                         {t("register.phone")}
                     </span>
                     <RegisterPhoneField
@@ -393,7 +392,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                     endAdornment={
                         <button
                             type="button"
-                            className="text-slate-500 transition-colors hover:text-slate-200"
+                            className="text-zinc-500 transition-colors hover:text-zinc-200"
                             onClick={() => setShowPasswords((v) => !v)}
                             aria-label={showPasswords ? t("register.hidePasswords") : t("register.showPasswords")}
                             tabIndex={-1}
@@ -427,7 +426,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                         ) : (
                             <button
                                 type="button"
-                                className="text-slate-500 transition-colors hover:text-slate-200"
+                                className="text-zinc-500 transition-colors hover:text-zinc-200"
                                 onClick={() => setShowPasswords((v) => !v)}
                                 aria-label={showPasswords ? t("register.hidePasswords") : t("register.showPasswords")}
                                 tabIndex={-1}
@@ -439,7 +438,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                 />
 
                 {password.length > 0 && pwStrength ? (
-                    <p className={cn("px-1 text-[11px] font-semibold", pwStrength.textClass)}>
+                    <p className="px-1 text-[11px] font-semibold text-zinc-400">
                         {t("register.strengthLabel")} {pwStrength.text}
                     </p>
                 ) : null}
@@ -460,7 +459,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                                 className={cn(
                                     "rounded-md px-2 py-0.5 text-[10px] font-medium ring-1",
                                     met
-                                        ? "bg-amber-300/10 text-amber-100/85 ring-amber-300/20"
+                                        ? "bg-white/[0.09] text-zinc-200 ring-white/15"
                                         : "bg-white/[0.025] text-slate-500 ring-white/10"
                                 )}
                             >
@@ -473,7 +472,6 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                 <div className="space-y-2.5 pt-0.5">
                     <RegisterLegalCheckboxes
                         idPrefix="manual-reg"
-                        submitActionLabel={t("register.createAccount")}
                         ppfTermsAgreed={legal.ppfTermsAgreed}
                         setPpfTermsAgreed={legal.setPpfTermsAgreed}
                         registerWebsiteTermsAgreed={legal.registerWebsiteTermsAgreed}
@@ -484,7 +482,7 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                     <Button
                         type="submit"
                         disabled={!canSubmit}
-                        className="h-12 w-full rounded-2xl bg-[linear-gradient(135deg,rgba(255,222,142,0.98),rgba(245,166,35,0.94)_45%,rgba(232,111,30,0.90))] text-sm font-bold text-[#070A12] shadow-[0_18px_46px_-20px_rgba(245,158,11,0.95),inset_0_1px_0_rgba(255,255,255,0.42)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[linear-gradient(135deg,rgba(255,232,170,1),rgba(251,183,62,0.96)_45%,rgba(242,120,36,0.94))] hover:shadow-[0_22px_58px_-22px_rgba(245,158,11,1),inset_0_1px_0_rgba(255,255,255,0.5)] disabled:translate-y-0 disabled:opacity-55"
+                        className="h-[46px] w-full rounded-[14px] border border-white/[0.085] bg-zinc-950/70 text-sm font-semibold text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.075),0_18px_48px_-36px_rgba(255,255,255,0.24)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-white/[0.18] hover:bg-black/80 hover:text-white hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.11),0_22px_58px_-38px_rgba(255,255,255,0.28)] disabled:translate-y-0 disabled:border-white/[0.07] disabled:bg-zinc-950/45 disabled:text-zinc-500 disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]"
                     >
                         {isSubmitting ? (
                             <>
@@ -492,23 +490,9 @@ export function ManualRegisterForm({ onSignIn, onRegistrationComplete }: ManualR
                                 {t("register.sendingCode")}
                             </>
                         ) : (
-                            <>
-                                <UserPlus className="mr-2 h-4 w-4" />
-                                {t("register.createAccount")}
-                            </>
+                            t("register.createAccount")
                         )}
                     </Button>
-
-                    <p className="text-center text-xs text-slate-400">
-                        {t("register.haveAccount")}{" "}
-                        <button
-                            type="button"
-                            onClick={onSignIn}
-                            className="font-semibold text-amber-200/85 transition-colors hover:text-amber-100"
-                        >
-                            {t("register.signInLink")}
-                        </button>
-                    </p>
                 </div>
 
                 <PpfTermsAcceptanceDialog

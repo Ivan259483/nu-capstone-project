@@ -602,12 +602,13 @@ html.dark * {
 .customer-sidebar-brand-row {
     box-sizing: border-box;
     display: flex !important;
-    height: 84px !important;
+    width: 100%;
+    height: 64px !important;
     min-height: 0;
     align-items: center !important;
-    gap: 12px !important;
+    gap: 14px !important;
     flex-shrink: 0;
-    padding: 20px 18px !important;
+    padding: 12px 24px !important;
     border-bottom: none !important;
     background: #ffffff !important;
     box-shadow: none !important;
@@ -628,16 +629,16 @@ html.dark * {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    width: 36px !important;
-    height: 36px !important;
-    min-width: 36px !important;
-    min-height: 36px !important;
-    flex: 0 0 36px !important;
+    width: 26px !important;
+    height: 26px !important;
+    min-width: 26px !important;
+    min-height: 26px !important;
+    flex: 0 0 26px !important;
     border: none;
-    border-radius: 10px !important;
+    border-radius: 8px !important;
     background: linear-gradient(135deg, #5540a6, #6b5cf6) !important;
     box-shadow: none !important;
-    font-size: 0.8125rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     color: #ffffff;
 }
@@ -645,7 +646,7 @@ html.dark * {
 .customer-sidebar-user-header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
     width: 100%;
     min-width: 0;
 }
@@ -657,8 +658,8 @@ html.dark * {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1 1 auto;
-    font-size: 14px;
+    flex: 0 1 auto;
+    font-size: 12px;
     font-weight: 600;
     line-height: 1;
     color: #242424;
@@ -667,9 +668,9 @@ html.dark * {
 .customer-sidebar-chevron,
 .customer-sidebar-header-chevron {
     display: inline-flex;
-    width: 15px !important;
-    height: 15px !important;
-    flex: 0 0 15px !important;
+    width: 11px !important;
+    height: 11px !important;
+    flex: 0 0 11px !important;
     align-items: center !important;
     justify-content: center !important;
     margin-left: auto !important;
@@ -678,10 +679,10 @@ html.dark * {
 
 .customer-sidebar-chevron svg,
 .customer-sidebar-header-chevron svg {
-    width: 15px !important;
-    height: 15px !important;
+    width: 20px !important;
+    height: 20px !important;
     stroke: currentColor;
-    stroke-width: 1.8;
+    stroke-width: 2.25;
     stroke-linecap: round;
     stroke-linejoin: round;
 }
@@ -709,8 +710,8 @@ html.dark * {
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
-    font-size: 14px !important;
-    line-height: 18px !important;
+    font-size: 12px !important;
+    line-height: 14px !important;
     font-weight: 600 !important;
     color: #242424 !important;
 }
@@ -723,8 +724,8 @@ html.dark * {
 
 .customer-sidebar.is-collapsed .customer-sidebar-brand-row {
     justify-content: center;
-    height: 80px;
-    padding: 22px 0.5rem 14px;
+    height: 60px !important;
+    padding: 14px 0.5rem 10px !important;
 }
 
 .customer-sidebar.is-collapsed .customer-sidebar-user-header {
@@ -735,12 +736,13 @@ html.dark * {
 }
 
 .customer-sidebar.is-collapsed .customer-sidebar-avatar {
-    width: 32px !important;
-    height: 32px !important;
-    min-width: 32px;
-    min-height: 32px;
-    border-radius: 10px !important;
-    font-size: 0.8125rem;
+    width: 24px !important;
+    height: 24px !important;
+    min-width: 24px !important;
+    min-height: 24px !important;
+    flex: 0 0 24px !important;
+    border-radius: 8px !important;
+    font-size: 0.6875rem;
 }
 
 .customer-sidebar-section-heading {
@@ -3217,12 +3219,16 @@ html.dark * {
 
 .customer-overview-card {
     min-height: 112px !important;
-    border: 1px solid #E5E7EB !important;
+    border: 1px solid rgba(226, 232, 240, 0.92) !important;
     border-radius: 20px !important;
     background: #FFFFFF !important;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
+    box-shadow:
+        0 18px 38px -30px rgba(15, 23, 42, 0.36),
+        0 10px 18px -18px rgba(15, 23, 42, 0.16),
+        inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
     transition:
         border-color 0.18s ease,
+        background 0.18s ease,
         box-shadow 0.18s ease,
         transform 0.18s ease;
 }
@@ -3230,26 +3236,34 @@ html.dark * {
 .customer-overview-card.border-l-blue-500 {
     border-left-color: #2563eb !important;
     border-left-width: 4px !important;
+    background: linear-gradient(135deg, #FFFFFF 0%, #F8FBFF 55%, #EFF6FF 100%) !important;
 }
 
 .customer-overview-card.border-l-emerald-500 {
     border-left-color: #7B977F !important;
     border-left-width: 4px !important;
+    background: linear-gradient(135deg, #FFFFFF 0%, #FAFFFC 55%, #EEF8F1 100%) !important;
 }
 
+.customer-overview-card.border-l-rose-500,
 .customer-overview-card.border-l-orange-500 {
     border-left-color: #B78384 !important;
     border-left-width: 4px !important;
+    background: linear-gradient(135deg, #FFFFFF 0%, #FFFBFA 55%, #FFF1EA 100%) !important;
 }
 
 .customer-overview-card.border-l-amber-500 {
     border-left-color: #C2A25F !important;
     border-left-width: 4px !important;
+    background: linear-gradient(135deg, #FFFFFF 0%, #FFFCF4 55%, #FFF4D9 100%) !important;
 }
 
 .customer-overview-card:hover {
     border-color: #E2E8F0 !important;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02) !important;
+    box-shadow:
+        0 22px 44px -32px rgba(15, 23, 42, 0.42),
+        0 12px 24px -20px rgba(15, 23, 42, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
     transform: translateY(-1px);
 }
 
@@ -3261,6 +3275,7 @@ html.dark * {
     border-left-color: #7B977F !important;
 }
 
+.customer-overview-card.border-l-rose-500:hover,
 .customer-overview-card.border-l-orange-500:hover {
     border-left-color: #B78384 !important;
 }
@@ -3271,13 +3286,15 @@ html.dark * {
 
 .customer-overview-icon {
     display: inline-flex;
-    width: 2rem;
-    height: 2rem;
+    width: 2.25rem;
+    height: 2.25rem;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    border-radius: 0.8rem;
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+    border-radius: 0.9rem;
+    box-shadow:
+        0 10px 22px -18px currentColor,
+        0 1px 0 rgba(255, 255, 255, 0.84) inset;
 }
 
 .customer-overview-label {
@@ -3286,6 +3303,20 @@ html.dark * {
 
 .customer-overview-helper {
     color: #64748B !important;
+}
+
+.customer-overview-loyalty-track {
+    border: 1px solid rgba(194, 162, 95, 0.2);
+    background: rgba(254, 243, 199, 0.72) !important;
+    box-shadow: inset 0 1px 2px rgba(146, 64, 14, 0.08);
+}
+
+.customer-overview-loyalty-shell {
+    box-shadow: inset 0 0 0 1px rgba(217, 119, 6, 0.12);
+}
+
+.customer-overview-loyalty-fill {
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.28);
 }
 
 @property --customer-live-ring-angle {

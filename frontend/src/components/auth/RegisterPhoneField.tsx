@@ -73,7 +73,7 @@ export function RegisterPhoneField({
   };
 
   const popoverSurface =
-    "border-border bg-[#1A1A2E] text-white shadow-lg p-0 w-[min(100vw-2rem,320px)] overflow-hidden";
+    "w-[min(100vw-2rem,320px)] overflow-hidden border border-white/[0.08] bg-[#0B0B0B] p-0 text-white shadow-[0_24px_80px_-36px_rgba(0,0,0,0.9)]";
 
   return (
     <div
@@ -96,7 +96,7 @@ export function RegisterPhoneField({
               className={cn(
                 "inline-flex shrink-0 items-center gap-0.5 border-0 bg-transparent p-0",
                 "text-sm font-medium tabular-nums text-white shadow-none outline-none",
-                "hover:text-orange-300 focus-visible:text-orange-300",
+                "hover:text-zinc-200 focus-visible:text-zinc-200",
                 "focus-visible:ring-0 focus-visible:ring-offset-0"
               )}
               aria-label="Country code"
@@ -123,9 +123,9 @@ export function RegisterPhoneField({
         <PopoverContent align="start" className={popoverSurface} sideOffset={6}>
           <Command
             className={cn(
-              "bg-[#1A1A2E] text-white rounded-lg",
+              "rounded-lg bg-[#0B0B0B] text-white",
               "[&_[cmdk-input-wrapper]]:border-b [&_[cmdk-input-wrapper]]:border-white/10",
-              "[&_[cmdk-item][data-selected=true]]:bg-white/15 [&_[cmdk-item][data-selected=true]]:text-white",
+              "[&_[cmdk-item][data-selected=true]]:bg-white/10 [&_[cmdk-item][data-selected=true]]:text-white",
               "[&_[cmdk-group-heading]]:text-white/50"
             )}
           >
@@ -148,7 +148,7 @@ export function RegisterPhoneField({
                   >
                     <span className="flex-1 truncate">{c.name}</span>
                     <span className="tabular-nums text-white/80">+{c.dial}</span>
-                    {c.iso === countryIso ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}
+                    {c.iso === countryIso ? <Check className="h-4 w-4 shrink-0 text-white" /> : null}
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -166,7 +166,7 @@ export function RegisterPhoneField({
                   >
                     <span className="flex-1 truncate">{c.name}</span>
                     <span className="tabular-nums text-white/80">+{c.dial}</span>
-                    {c.iso === countryIso ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}
+                    {c.iso === countryIso ? <Check className="h-4 w-4 shrink-0 text-white" /> : null}
                   </CommandItem>
                 ))}
               </CommandGroup>

@@ -26,24 +26,31 @@ export function CustomerDashboardOverviewStrip({
         <div
           key={card.key}
           data-card={card.key}
-          className="customer-overview-card relative min-h-[104px] overflow-hidden rounded-[18px] border bg-white p-3.5"
+          className={`customer-overview-card relative min-h-[112px] overflow-hidden rounded-2xl border border-l-4 bg-white p-3.5 ${card.borderClass}`}
         >
+          <div className={`pointer-events-none absolute inset-y-0 left-0 w-24 bg-gradient-to-r ${card.glowClass} to-transparent`} />
           <div className="customer-overview-content relative flex h-full flex-col">
             <div className="flex items-start justify-between gap-2.5">
               <div className="min-w-0">
-                <span className="customer-overview-label text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">{card.label}</span>
-                <div className="customer-overview-value mt-1.5 flex min-w-0 items-center gap-2 text-base font-semibold text-slate-900">
+                <span className="customer-overview-label text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{card.label}</span>
+                <div className={`customer-overview-value mt-1.5 flex min-w-0 items-center gap-2 text-base font-black ${card.valueClass}`}>
+                  {card.showPulse && (
+                    <span className="relative flex h-2.5 w-2.5 shrink-0">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-60"></span>
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"></span>
+                    </span>
+                  )}
                   <span className="truncate">{card.value}</span>
                 </div>
               </div>
-              <div className="customer-overview-icon ring-1 ring-inset">
+              <div className={`customer-overview-icon ring-1 ring-inset ${card.iconClass}`}>
                 <iconify-icon icon={card.icon} width="19"></iconify-icon>
               </div>
             </div>
             {card.key === 'loyalty' && (
-              <div className="customer-overview-loyalty-track mt-2.5 rounded-full bg-slate-100 p-0.5">
-                <div className="h-1.5 overflow-hidden rounded-full bg-white">
-                  <div className="customer-overview-loyalty-fill h-full rounded-full bg-slate-500" style={{ width: `${rewardTierProgressPct}%` }} />
+              <div className="customer-overview-loyalty-track mt-2.5 rounded-full bg-amber-100/80 p-0.5">
+                <div className="customer-overview-loyalty-shell h-1.5 overflow-hidden rounded-full bg-white/70">
+                  <div className="customer-overview-loyalty-fill h-full rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-500" style={{ width: `${rewardTierProgressPct}%` }} />
                 </div>
               </div>
             )}
