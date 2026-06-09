@@ -14,7 +14,7 @@ interface SidebarProps {
     className?: string;
 }
 
-/** Standalone customer sidebar — styles match CustomerDashboard / Admin Hub (see index.css `.customer-sidebar-*`). */
+/** Standalone customer sidebar — styles match CustomerDashboard (see index.css `.customer-sidebar-*`). */
 export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, className }) => {
     const { user } = useAuth();
     const [collapsed, setCollapsed] = useState(false);
@@ -32,6 +32,9 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
 
     const displayName = (user?.name || 'Customer').trim() || 'Customer';
     const email = (user?.email || '').trim();
+    const sidebarUsername = email.includes('@')
+        ? email.split('@')[0]
+        : displayName.toLowerCase().replace(/\s+/g, '') || 'customer';
 
     return (
         <aside
@@ -42,25 +45,26 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
                 className
             )}
         >
-            <div className="customer-sidebar-brand-row flex h-16 shrink-0 items-center border-b border-slate-100 px-3 overflow-hidden">
-                <div className="customer-sidebar-user-header min-w-0 flex-1">
-                    <div
-                        className="customer-sidebar-avatar flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-700 text-sm font-bold text-white shadow-sm"
-                        aria-hidden
-                    >
-                        {(displayName || email || '?').charAt(0).toUpperCase()}
+            <div className="customer-sidebar-header customer-sidebar-brand-row" title="">
+                <div className="customer-sidebar-user-header" title="">
+                    <div className="customer-sidebar-avatar" aria-hidden title="">
+                        {(sidebarUsername || email || '?').charAt(0).toUpperCase()}
                     </div>
                     {!collapsed && (
-                        <div className="min-w-0 flex-1">
-                            <div className="truncate text-[13px] font-bold text-slate-900 leading-tight">{displayName}</div>
-                            <div className="truncate text-[11px] text-slate-500 leading-tight">{email || '—'}</div>
-                        </div>
+                        <>
+                            <span className="customer-sidebar-profile-name customer-sidebar-username">{sidebarUsername}</span>
+                            <span className="customer-sidebar-chevron customer-sidebar-header-chevron" aria-hidden>
+                                <svg viewBox="0 0 16 16" fill="none">
+                                    <path d="M4.5 6.25 8 2.75l3.5 3.5" />
+                                    <path d="M4.5 9.75 8 13.25l3.5-3.5" />
+                                </svg>
+                            </span>
+                        </>
                     )}
                 </div>
             </div>
 
             <nav className="customer-sidebar-nav">
-                {!collapsed && <p className="customer-sidebar-section-heading">Main Menu</p>}
                 {navItems.map((item) => {
                     const isActive = activeTab === item.id;
                     return (
@@ -72,8 +76,8 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
                             aria-label={item.label}
                             title={collapsed ? item.label : undefined}
                         >
-                            <CustomerSidebarAnimatedIcon name={item.icon} />
-                            <span className="customer-sidebar-label flex-1 min-w-0 text-left">{item.label}</span>
+                            <CustomerSidebarAnimatedIcon name={item.icon} size={18} />
+                            <span className="customer-sidebar-label flex-1 text-left">{item.label}</span>
                         </button>
                     );
                 })}
@@ -104,7 +108,7 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
                         )}
                     ></iconify-icon>
                     {!collapsed && (
-                        <span className="customer-sidebar-label font-medium">Collapse</span>
+                        <span className="customer-sidebar-label text-sm font-normal">Collapse</span>
                     )}
                 </button>
             </div>

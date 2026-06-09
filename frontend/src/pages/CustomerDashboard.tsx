@@ -2713,6 +2713,9 @@ export default function CustomerDashboard() {
   };
   const sidebarDisplayName = (user?.name || 'Customer').trim() || 'Customer';
   const sidebarUserEmail = (user?.email || '').trim();
+  const sidebarUsername = sidebarUserEmail.includes('@')
+    ? sidebarUserEmail.split('@')[0]
+    : sidebarDisplayName.toLowerCase().replace(/\s+/g, '') || 'customer';
   const customerSectionDataLoading =
     Boolean(user) &&
     CUSTOMER_SKELETON_SECTIONS.includes(activeSection) &&
@@ -2787,30 +2790,31 @@ export default function CustomerDashboard() {
           />
         )}
 
-        {/* Sidebar — theme aligned with Admin Hub sidebar */}
+        {/* Sidebar — clean neutral customer dashboard rail */}
         <aside
           className={`customer-sidebar ${sidebarCollapsed ? 'is-collapsed' : 'is-expanded'} ${sidebarLabelsHidden ? 'is-labels-hidden' : ''} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} fixed inset-y-0 left-0 z-30 flex flex-col bg-white ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
             }`}
         >
-          <div className="customer-sidebar-brand-row flex h-16 shrink-0 items-center border-b border-slate-100 px-3 overflow-hidden">
-            <div className="customer-sidebar-user-header min-w-0 flex-1">
-              <div
-                className="customer-sidebar-avatar flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-700 text-sm font-bold text-white shadow-sm"
-                aria-hidden
-              >
-                {(sidebarDisplayName || sidebarUserEmail || '?').charAt(0).toUpperCase()}
+          <div className="customer-sidebar-header customer-sidebar-brand-row" title="">
+            <div className="customer-sidebar-user-header" title="">
+              <div className="customer-sidebar-avatar" aria-hidden title="">
+                {(sidebarUsername || sidebarUserEmail || '?').charAt(0).toUpperCase()}
               </div>
               {!sidebarCollapsed && (
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-bold text-slate-900 leading-tight">{sidebarDisplayName}</div>
-                  <div className="truncate text-[11px] text-slate-500 leading-tight">{sidebarUserEmail || '—'}</div>
-                </div>
+                <>
+                  <span className="customer-sidebar-profile-name customer-sidebar-username">{sidebarUsername}</span>
+                  <span className="customer-sidebar-chevron customer-sidebar-header-chevron" aria-hidden>
+                    <svg viewBox="0 0 16 16" fill="none">
+                      <path d="M4.5 6.25 8 2.75l3.5 3.5" />
+                      <path d="M4.5 9.75 8 13.25l3.5-3.5" />
+                    </svg>
+                  </span>
+                </>
               )}
             </div>
           </div>
 
           <nav className="customer-sidebar-nav">
-            {!sidebarCollapsed && <p className="customer-sidebar-section-heading">Main Menu</p>}
             <button
               onClick={() => nav('dashboard')}
               type="button"
@@ -2818,7 +2822,7 @@ export default function CustomerDashboard() {
               aria-label="Dashboard"
               title={sidebarCollapsed ? 'Dashboard' : undefined}
             >
-              <CustomerSidebarAnimatedIcon name="dashboard" />
+              <CustomerSidebarAnimatedIcon name="dashboard" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Dashboard</span>
             </button>
             <button
@@ -2829,9 +2833,9 @@ export default function CustomerDashboard() {
               aria-label="AI Inspection History"
               className={`customer-sidebar-item ${AI_INSPECTION_HISTORY_ENABLED && activeSection === 'scan' ? 'is-active' : ''}`}
             >
-              <CustomerSidebarAnimatedIcon name="scan" />
-              <span className="customer-sidebar-label flex-1 min-w-0 text-left leading-snug">AI Inspection History</span>
-              <span className={`customer-sidebar-extra shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${AI_INSPECTION_HISTORY_ENABLED ? 'uppercase tracking-wider bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>
+              <CustomerSidebarAnimatedIcon name="scan" size={18} />
+              <span className="customer-sidebar-label flex-1 text-left">AI Inspection History</span>
+              <span className={`customer-sidebar-extra customer-sidebar-soon-badge ${AI_INSPECTION_HISTORY_ENABLED ? 'uppercase tracking-wider' : ''}`}>
                 {AI_INSPECTION_HISTORY_ENABLED ? 'AI Lab' : 'Soon'}
               </span>
             </button>
@@ -2842,10 +2846,10 @@ export default function CustomerDashboard() {
               aria-label="My Bookings"
               title={sidebarCollapsed ? 'My Bookings' : undefined}
             >
-              <CustomerSidebarAnimatedIcon name="bookings" />
+              <CustomerSidebarAnimatedIcon name="bookings" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">My Bookings</span>
               {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length > 0 && (
-                <span className="customer-sidebar-extra ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                <span className="customer-sidebar-extra ml-auto">
                   {myBookings.filter(b => ['pending_confirmation', 'pending', 'confirmed', 'approved'].includes(b.status)).length}
                 </span>
               )}
@@ -2857,7 +2861,7 @@ export default function CustomerDashboard() {
               aria-label="Services"
               title={sidebarCollapsed ? 'Services' : undefined}
             >
-              <CustomerSidebarAnimatedIcon name="services" />
+              <CustomerSidebarAnimatedIcon name="services" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Services</span>
             </button>
             <button
@@ -2867,7 +2871,7 @@ export default function CustomerDashboard() {
               aria-label="Live Tracker"
               title={sidebarCollapsed ? 'Live Tracker' : undefined}
             >
-              <CustomerSidebarAnimatedIcon name="tracker" />
+              <CustomerSidebarAnimatedIcon name="tracker" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Live Tracker</span>
             </button>
 
@@ -2878,7 +2882,7 @@ export default function CustomerDashboard() {
               aria-label="Documents"
               title={sidebarCollapsed ? 'Documents' : undefined}
             >
-              <CustomerSidebarAnimatedIcon name="documents" />
+              <CustomerSidebarAnimatedIcon name="documents" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Documents</span>
             </button>
 
@@ -2889,7 +2893,7 @@ export default function CustomerDashboard() {
               aria-label="Payment History"
               title={sidebarCollapsed ? 'Payment History' : undefined}
             >
-              <CustomerSidebarAnimatedIcon name="payments" />
+              <CustomerSidebarAnimatedIcon name="payments" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Payment History</span>
             </button>
 
@@ -2900,7 +2904,7 @@ export default function CustomerDashboard() {
               aria-label="Rewards"
               title={sidebarCollapsed ? 'Rewards' : undefined}
             >
-              <CustomerSidebarAnimatedIcon name="rewards" />
+              <CustomerSidebarAnimatedIcon name="rewards" size={18} />
               <span className="customer-sidebar-label flex-1 min-w-0 text-left">Rewards</span>
             </button>
           </nav>
@@ -2921,7 +2925,7 @@ export default function CustomerDashboard() {
                 className={`shrink-0 text-slate-500 ${sidebarCollapsed ? 'customer-sidebar-collapse-icon--expand' : ''}`}
               ></iconify-icon>
               {!sidebarCollapsed && (
-                <span className="customer-sidebar-label font-medium">Collapse</span>
+                <span className="customer-sidebar-label text-sm font-normal">Collapse</span>
               )}
             </button>
           </div>
@@ -3063,7 +3067,6 @@ export default function CustomerDashboard() {
                     <div className="fixed inset-0 z-40" onClick={() => { setProfileMenuOpen(false); setProfileSubMenu(null); }} />
                     <div className="absolute right-0 top-11 w-[360px] bg-white rounded-xl z-50 max-h-[calc(100vh-80px)] overflow-y-auto" style={{ boxShadow: '0 4px 24px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.04)' }}>
 
-                      {/* Main Menu */}
                       {!profileSubMenu && (
                         <div className="py-1.5">
                           <div className="px-2 pt-1 pb-1.5">

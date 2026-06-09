@@ -5,6 +5,9 @@
     },
     "resend": {
       "enabled": true
+    },
+    "linear": {
+      "enabled": true
     }
   }
 }
