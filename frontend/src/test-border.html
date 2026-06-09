@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Border</title>
+    <style>
+        body {
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .card {
+            width: 400px;
+            height: 300px;
+            position: relative;
+            border-radius: 24px;
+            overflow: hidden;
+            background: linear-gradient(135deg, rgba(244,182,61,0.06) 0%, rgba(10,10,20,0.95) 40%, rgba(244,182,61,0.03) 100%);
+            border: 1px solid rgba(244,182,61,0.15);
+        }
+        .accent-old-1 { position: absolute; top: 0; left: 0; width: 48px; height: 1px; background: linear-gradient(to right, rgba(244,182,61,0.4), transparent); }
+        .accent-old-2 { position: absolute; top: 0; left: 0; width: 1px; height: 48px; background: linear-gradient(to bottom, rgba(244,182,61,0.4), transparent); }
+        
+        .accent-new {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            border-radius: inherit;
+            box-shadow: inset 0 0 0 1px rgba(244,182,61,0.6);
+            -webkit-mask-image: linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%);
+            mask-image: linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%);
+        }
+    </style>
+</head>
+<body>
+    <div class="card" style="margin-right: 20px;">
+        <div style="padding: 20px; color: white;">Old Style (Cut off corners)</div>
+        <div class="accent-old-1"></div>
+        <div class="accent-old-2"></div>
+    </div>
+
+    <div class="card">
+        <div style="padding: 20px; color: white;">New Style (Gradient Border)</div>
+        <div class="accent-new"></div>
+    </div>
+</body>
+</html>

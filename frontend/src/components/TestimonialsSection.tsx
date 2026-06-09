@@ -313,11 +313,15 @@ function FeaturedTestimonial() {
                     ))}
                 </div>
 
-                {/* Corner accents */}
-                <div className="absolute top-0 left-0 w-12 h-[1px] bg-gradient-to-r from-[#F4B63D]/40 to-transparent" />
-                <div className="absolute top-0 left-0 w-[1px] h-12 bg-gradient-to-b from-[#F4B63D]/40 to-transparent" />
-                <div className="absolute bottom-0 right-0 w-12 h-[1px] bg-gradient-to-l from-[#F4B63D]/40 to-transparent" />
-                <div className="absolute bottom-0 right-0 w-[1px] h-12 bg-gradient-to-t from-[#F4B63D]/40 to-transparent" />
+                {/* Corner accents (Gradient Border) */}
+                <div 
+                    className="absolute inset-0 pointer-events-none rounded-3xl"
+                    style={{
+                        boxShadow: "inset 0 0 0 1px rgba(244,182,61,0.6)",
+                        maskImage: "linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%)",
+                        WebkitMaskImage: "linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%)"
+                    }}
+                />
             </div>
         </div>
     );
@@ -554,11 +558,15 @@ export default function TestimonialsSection() {
                                 </p>
                             </div>
 
-                            {/* Corner accents */}
-                            <div className="absolute top-0 left-0 w-10 h-[1px] bg-gradient-to-r from-[#F4B63D]/30 to-transparent" />
-                            <div className="absolute top-0 left-0 w-[1px] h-10 bg-gradient-to-b from-[#F4B63D]/30 to-transparent" />
-                            <div className="absolute bottom-0 right-0 w-10 h-[1px] bg-gradient-to-l from-[#F4B63D]/30 to-transparent" />
-                            <div className="absolute bottom-0 right-0 w-[1px] h-10 bg-gradient-to-t from-[#F4B63D]/30 to-transparent" />
+                            {/* Corner accents (Gradient Border) */}
+                            <div 
+                                className="absolute inset-0 pointer-events-none rounded-3xl"
+                                style={{
+                                    boxShadow: "inset 0 0 0 1px rgba(244,182,61,0.5)",
+                                    maskImage: "linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%)",
+                                    WebkitMaskImage: "linear-gradient(135deg, black 0%, transparent 30%, transparent 70%, black 100%)"
+                                }}
+                            />
                         </motion.div>
                     </motion.div>
                 )}
