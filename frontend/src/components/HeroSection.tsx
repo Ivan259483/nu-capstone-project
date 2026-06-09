@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Star } from "lucide-react";
 import { motion } from "framer-motion";
@@ -29,18 +29,12 @@ export default function HeroSection() {
     const [activeServiceKey, setActiveServiceKey] = useState<(typeof HERO_SERVICE_KEYS)[number]>("ceramicCoating");
     const [displayText, setDisplayText] = useState("");
     const [wordIndex, setWordIndex] = useState(0);
-    const [isDeleting, setIsDeleting] = useState(false);
     const [showCursor, setShowCursor] = useState(true);
     const [heroVideoFailed, setHeroVideoFailed] = useState(false);
     const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
         typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
     );
-
-    useEffect(() => {
-        setWordIndex(0);
-        setDisplayText("");
-        setIsDeleting(false);
-    }, [lang, typingWords]);
+    const videoRef = useRef<HTMLVideoElement>(null);
 
     // Cursor blink
     useEffect(() => {
@@ -58,34 +52,103 @@ export default function HeroSection() {
         return () => mediaQuery.removeEventListener("change", updateMotionPreference);
     }, []);
 
-    // Typing engine
+    // Typing engine & Video playback resilience
     useEffect(() => {
-        const currentWord = typingWords[wordIndex] ?? "";
         let timeout: ReturnType<typeof setTimeout>;
+        let isCancelled = false;
+        let currentText = "";
+        let isDeletingLocal = false;
+        let wordIdx = 0;
 
-        if (!isDeleting) {
-            if (displayText.length < currentWord.length) {
-                timeout = setTimeout(() => {
-                    setDisplayText(currentWord.slice(0, displayText.length + 1));
-                }, TYPING_SPEED);
-            } else {
-                timeout = setTimeout(() => setIsDeleting(true), PAUSE_AFTER_WORD);
-            }
-        } else {
-            if (displayText.length > 0) {
-                timeout = setTimeout(() => {
-                    setDisplayText(currentWord.slice(0, displayText.length - 1));
-                }, DELETING_SPEED);
-            } else {
-                timeout = setTimeout(() => {
-                    setIsDeleting(false);
-                    setWordIndex((i) => (i + 1) % typingWords.length);
-                }, PAUSE_BEFORE_TYPE);
-            }
-        }
+        setWordIndex(wordIdx);
+        setDisplayText(currentText);
 
-        return () => clearTimeout(timeout);
-    }, [displayText, isDeleting, wordIndex, typingWords]);
+        const tick = () => {
+            if (isCancelled) return;
+            const currentWord = typingWords[wordIdx] || "";
+            
+            // Fallback for visibility change - if tab is hidden, complete the word immediately
+            if (document.hidden) {
+                if (!isDeletingLocal && currentText.length < currentWord.length) {
+                    currentText = currentWord;
+                    setDisplayText(currentText);
+                }
+                timeout = setTimeout(tick, PAUSE_AFTER_WORD);
+                return;
+            }
+            
+            if (!isDeletingLocal) {
+                if (currentText.length < currentWord.length) {
+                    currentText = currentWord.slice(0, currentText.length + 1);
+                    setDisplayText(currentText);
+                    timeout = setTimeout(tick, TYPING_SPEED);
+                } else {
+                    isDeletingLocal = true;
+                    timeout = setTimeout(tick, PAUSE_AFTER_WORD);
+                }
+            } else {
+                if (currentText.length > 0) {
+                    currentText = currentWord.slice(0, currentText.length - 1);
+                    setDisplayText(currentText);
+                    timeout = setTimeout(tick, DELETING_SPEED);
+                } else {
+                    isDeletingLocal = false;
+                    wordIdx = (wordIdx + 1) % typingWords.length;
+                    currentText = "";
+                    setWordIndex(wordIdx);
+                    setDisplayText(currentText);
+                    timeout = setTimeout(tick, PAUSE_BEFORE_TYPE);
+                }
+            }
+        };
+
+        timeout = setTimeout(tick, TYPING_SPEED);
+
+        const handleVisibilityChange = () => {
+            if (document.hidden) {
+                const currentWord = typingWords[wordIdx] || "";
+                if (!isDeletingLocal && currentText.length < currentWord.length) {
+                    currentText = currentWord;
+                    setDisplayText(currentText);
+                }
+            } else {
+                // Resume video when returning to the tab
+                const video = videoRef.current;
+                if (video && video.paused) {
+                    video.play().catch(() => {});
+                }
+            }
+        };
+
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        return () => {
+            isCancelled = true;
+            clearTimeout(timeout);
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+        };
+    }, [typingWords]);
+
+    // Initial video play attempt
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video) return;
+
+        const attemptPlay = () => {
+            if (video.paused) {
+                video.play().catch(() => {});
+            }
+        };
+
+        attemptPlay();
+        video.addEventListener("canplay", attemptPlay);
+        video.addEventListener("loadeddata", attemptPlay);
+        
+        return () => {
+            video.removeEventListener("canplay", attemptPlay);
+            video.removeEventListener("loadeddata", attemptPlay);
+        };
+    }, [prefersReducedMotion, heroVideoFailed]);
 
     return (
         <section
@@ -110,6 +173,7 @@ export default function HeroSection() {
                 />
                 {!prefersReducedMotion && !heroVideoFailed && (
                     <video
+                        ref={videoRef}
                         aria-hidden
                         autoPlay
                         muted
