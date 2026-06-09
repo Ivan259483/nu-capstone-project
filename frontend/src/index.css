@@ -9712,3 +9712,59 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     background: rgba(255, 255, 255, 0.14);
     color: #fff;
 }
+
+.auth-login-button:not(:disabled) {
+    cursor: pointer;
+}
+
+.auth-login-button:hover:not(:disabled) {
+    background: #f5f5f5 !important;
+    color: #111111 !important;
+    border-color: rgba(255, 255, 255, 0.75) !important;
+}
+
+.auth-login-button:hover:not(:disabled) svg {
+    color: #111111 !important;
+    stroke: #111111 !important;
+}
+
+.auth-login-button:disabled {
+    cursor: not-allowed;
+    pointer-events: auto;
+}
+
+.auth-button-dots {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+}
+
+.auth-button-dots span {
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.65);
+    animation: authDotPulse 1s infinite ease-in-out;
+}
+
+.auth-button-dots span:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.auth-button-dots span:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+@keyframes authDotPulse {
+    0%, 80%, 100% {
+        opacity: 0.35;
+        transform: translateY(0);
+    }
+
+    40% {
+        opacity: 1;
+        transform: translateY(-2px);
+    }
+}

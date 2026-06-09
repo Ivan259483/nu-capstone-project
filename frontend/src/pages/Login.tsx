@@ -1,10 +1,8 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type KeyboardEvent, type ClipboardEvent } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, type KeyboardEvent } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
     Eye,
     EyeOff,
-    Mail,
-    Lock,
     Loader2,
     ArrowLeft,
     ShieldCheck,
@@ -12,8 +10,6 @@ import {
     AlertTriangle,
     LockKeyhole,
     Clock,
-    CheckCircle2,
-    XCircle,
 } from "lucide-react";
 
 import { AnimatePresence, motion } from "motion/react";
@@ -44,14 +40,6 @@ import {
     RegisterLegalCheckboxes,
     useRegisterLegalAcknowledgement,
 } from "@/components/auth/RegisterLegalAcknowledgement";
-
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogDescription,
-} from "@/components/ui/dialog";
 const DEFAULT_LOGIN_REDIRECT = "/customer/dashboard";
 
 const LOGIN_TAB_CONTENT_TRANSITION = {
@@ -62,9 +50,6 @@ const LOGIN_TAB_CONTENT_TRANSITION = {
 const AUTH_INPUT_CLASS =
     "h-12 rounded-[14px] border-white/[0.12] bg-white/[0.065] text-sm font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] placeholder:text-zinc-500 transition-[border-color,background-color,box-shadow] duration-300 focus-visible:border-white/30 focus-visible:bg-white/[0.085] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white/[0.09]";
 
-const AUTH_ICON_CLASS =
-    "absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500";
-
 const AUTH_PRIMARY_BUTTON_CLASS =
     "h-[46px] w-full rounded-[14px] border border-white/[0.085] bg-zinc-950/60 text-sm font-semibold text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.075),0_18px_48px_-36px_rgba(255,255,255,0.24)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-white/[0.18] hover:bg-black/75 hover:text-white hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.11),0_22px_58px_-38px_rgba(255,255,255,0.28)] disabled:translate-y-0 disabled:border-white/[0.045] disabled:bg-zinc-900/25 disabled:text-zinc-600 disabled:shadow-none";
 
@@ -72,6 +57,14 @@ const AUTH_MUTED_LINK_CLASS =
     "font-medium text-zinc-300 transition-colors hover:text-white";
 
 const LOGIN_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const LOGIN_EMAIL_STEP_LOADER_MS = 650;
+const LOGIN_INVALID_CREDENTIALS_MESSAGE =
+    "Invalid credentials. Please make sure you are using the correct email and password.";
+
+function isInvalidCredentialsMessage(message?: string): boolean {
+    const normalized = (message || "").trim().toLowerCase();
+    return normalized.includes("invalid credentials") || normalized.includes("invalid email or password");
+}
 
 function getSafeLoginRedirect(value: string | null): string {
     if (!value) return "";
@@ -103,7 +96,9 @@ export default function Login() {
     const [showPassword, setShowPassword] = useState(false);
     const [loginStep, setLoginStep] = useState<"email" | "password">("email");
     const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+    const [loginInlineError, setLoginInlineError] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [isButtonLoading, setIsButtonLoading] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
     const emailInputRef = useRef<HTMLInputElement | null>(null);
     const passwordInputRef = useRef<HTMLInputElement | null>(null);
@@ -131,29 +126,6 @@ export default function Login() {
     const [loginOtpError, setLoginOtpError] = useState("");
     const loginOtpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-    /* ── Forgot password (backend OTP via Resend — same as mobile) ── */
-    const [showForgotModal, setShowForgotModal] = useState(false);
-    const [forgotStep, setForgotStep] = useState<"email" | "otp" | "password">("email");
-    const [forgotEmail, setForgotEmail] = useState("");
-    const [forgotLoading, setForgotLoading] = useState(false);
-    const [forgotOtpDigits, setForgotOtpDigits] = useState(["", "", "", "", "", ""]);
-    const [forgotOtpError, setForgotOtpError] = useState("");
-    const [forgotOtpShake, setForgotOtpShake] = useState(false);
-    const [forgotNewPassword, setForgotNewPassword] = useState("");
-    const [forgotConfirmPassword, setForgotConfirmPassword] = useState("");
-    const [forgotShowPassword, setForgotShowPassword] = useState(false);
-    const forgotOtpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
-
-    const resetForgotModal = useCallback(() => {
-        setForgotStep("email");
-        setForgotEmail("");
-        setForgotOtpDigits(["", "", "", "", "", ""]);
-        setForgotOtpError("");
-        setForgotNewPassword("");
-        setForgotConfirmPassword("");
-        setForgotShowPassword(false);
-    }, []);
-
     /* ── Tab ── */
     const [tab, setTab] = useState<"login" | "register">("login");
 
@@ -178,10 +150,11 @@ export default function Login() {
     const loginEmailValue = loginForm.email.trim();
     const isLoginEmailValid = LOGIN_EMAIL_PATTERN.test(loginEmailValue);
     const isPasswordStep = loginStep === "password";
-    const isLoginActionBlocked = isLoading || isAuthLoading || isLocked;
+    const isLoginActionBlocked = isLoading || isButtonLoading || isAuthLoading || isLocked;
     const isLoginButtonDisabled = isPasswordStep
         ? !isLoginEmailValid || !loginForm.password || isLoginActionBlocked
         : !isLoginEmailValid || isLoginActionBlocked;
+    const showLoginButtonDots = isButtonLoading || isLoading;
 
     const registerPwRules = useMemo(() => registerPasswordRules(registerForm.password), [registerForm.password]);
     const registerPwAllValid = useMemo(
@@ -303,8 +276,8 @@ export default function Login() {
 
 
     /* ── Login submit ── */
-    const handleLoginEmailContinue = () => {
-        if (isLoading || isAuthLoading) return;
+    const handleLoginEmailContinue = async () => {
+        if (isLoading || isButtonLoading || isAuthLoading) return;
         if (isLocked) {
             toast.error(`Account locked. Try again in ${lockCountdown}.`);
             return;
@@ -319,27 +292,40 @@ export default function Login() {
             return;
         }
         setLoginForm((current) => ({ ...current, email: emailNorm }));
+        setIsButtonLoading(true);
+        await new Promise((resolve) => window.setTimeout(resolve, LOGIN_EMAIL_STEP_LOADER_MS));
         setLoginStep("password");
         window.setTimeout(() => passwordInputRef.current?.focus(), 120);
+        setIsButtonLoading(false);
     };
 
-    const handlePasswordLoginAttempt = () => {
-        if (isLoading || isAuthLoading) return;
+    const handlePasswordLoginAttempt = async () => {
+        if (isLoading || isButtonLoading || isAuthLoading) return;
         if (!isLoginEmailValid) {
             toast.error(t("validation.emailInvalid"));
             return;
         }
-        void handleLoginSubmit();
+        setIsButtonLoading(true);
+        try {
+            await handleLoginSubmit();
+        } finally {
+            setIsButtonLoading(false);
+        }
     };
 
     const handleLoginEmailKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
         if (e.key !== "Enter") return;
         e.preventDefault();
         if (isPasswordStep) {
-            handlePasswordLoginAttempt();
+            void handlePasswordLoginAttempt();
             return;
         }
-        handleLoginEmailContinue();
+        void handleLoginEmailContinue();
+    };
+
+    const handleForgotPasswordClick = () => {
+        const emailParam = loginForm.email.trim();
+        navigate(emailParam ? `/reset-password?email=${encodeURIComponent(emailParam)}` : "/reset-password");
     };
 
     async function handleLoginSubmit() {
@@ -351,6 +337,7 @@ export default function Login() {
             toast.error(`Account locked. Try again in ${lockCountdown}.`);
             return;
         }
+        setLoginInlineError("");
         setIsLoading(true);
         try {
             const emailNorm = loginForm.email.trim().toLowerCase();
@@ -398,9 +385,11 @@ export default function Login() {
                 } else if (result.data?.remainingAttempts !== undefined) {
                     setLoginAttempts(result.data.loginAttempts ?? loginAttempts + 1);
                     setRemainingAttempts(result.data.remainingAttempts);
-                    toast.error(result.message || t("auth.invalidCredentials"));
+                    setLoginInlineError(LOGIN_INVALID_CREDENTIALS_MESSAGE);
+                } else if (!result.message || isInvalidCredentialsMessage(result.message)) {
+                    setLoginInlineError(LOGIN_INVALID_CREDENTIALS_MESSAGE);
                 } else {
-                    toast.error(result.message || t("auth.invalidCredentials"));
+                    toast.error(result.message);
                 }
                 return;
             }
@@ -623,137 +612,6 @@ export default function Login() {
         }
     };
 
-
-
-    /* ── Forgot password: send OTP (Resend) ── */
-    const handleForgotSendOtp = async () => {
-        const emailNorm = forgotEmail.trim().toLowerCase();
-        if (!emailNorm) {
-            toast.error(t("validation.enterEmail"));
-            return;
-        }
-        setForgotLoading(true);
-        setForgotOtpError("");
-        try {
-            const resp = await fetch(`${getBaseApiUrl()}/auth/forgot-password`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email: emailNorm }),
-                signal: AbortSignal.timeout(15000),
-            });
-            const json = await resp.json();
-            if (!resp.ok || !json.success) {
-                toast.error(json.message || t("auth.resetSendFailed"));
-                return;
-            }
-            setForgotEmail(emailNorm);
-            setForgotStep("otp");
-            setForgotOtpDigits(["", "", "", "", "", ""]);
-            toast.success(t("auth.resetSent"));
-            setTimeout(() => forgotOtpInputRefs.current[0]?.focus(), 120);
-        } catch {
-            toast.error(t("auth.resetSendFailed"));
-        } finally {
-            setForgotLoading(false);
-        }
-    };
-
-    const handleForgotOtpChange = (index: number, value: string) => {
-        if (!/^\d*$/.test(value)) return;
-        const updated = [...forgotOtpDigits];
-        updated[index] = value.slice(-1);
-        setForgotOtpDigits(updated);
-        setForgotOtpError("");
-        if (value && index < 5) forgotOtpInputRefs.current[index + 1]?.focus();
-    };
-
-    const handleForgotOtpKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === "Backspace" && !forgotOtpDigits[index] && index > 0) {
-            forgotOtpInputRefs.current[index - 1]?.focus();
-        }
-    };
-
-    const handleForgotOtpPaste = (e: ClipboardEvent) => {
-        const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-        if (!pasted) return;
-        e.preventDefault();
-        const updated = ["", "", "", "", "", ""];
-        for (let i = 0; i < pasted.length; i++) updated[i] = pasted[i];
-        setForgotOtpDigits(updated);
-        forgotOtpInputRefs.current[Math.min(pasted.length, 5)]?.focus();
-    };
-
-    /* ── Forgot password: verify OTP ── */
-    const handleForgotVerifyOtp = async () => {
-        const code = forgotOtpDigits.join("");
-        if (code.length !== 6) {
-            setForgotOtpError(t("validation.otpIncomplete"));
-            return;
-        }
-        setForgotLoading(true);
-        setForgotOtpError("");
-        try {
-            const resp = await fetch(`${getBaseApiUrl()}/auth/verify-otp`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email: forgotEmail, otp: code }),
-                signal: AbortSignal.timeout(12000),
-            });
-            const json = await resp.json();
-            if (!resp.ok || !json.success) {
-                setForgotOtpShake(true);
-                setTimeout(() => setForgotOtpShake(false), 600);
-                setForgotOtpDigits(["", "", "", "", "", ""]);
-                setForgotOtpError(json.message || t("auth.invalidCode"));
-                setTimeout(() => forgotOtpInputRefs.current[0]?.focus(), 50);
-                return;
-            }
-            setForgotStep("password");
-        } catch {
-            setForgotOtpError(t("auth.verifyFailed"));
-        } finally {
-            setForgotLoading(false);
-        }
-    };
-
-    /* ── Forgot password: set new password ── */
-    const handleForgotResetPassword = async () => {
-        const policyError = registerPasswordPolicyError(forgotNewPassword, t);
-        if (policyError) {
-            toast.error(policyError);
-            return;
-        }
-        if (forgotNewPassword !== forgotConfirmPassword) {
-            toast.error(t("validation.passwordMismatch"));
-            return;
-        }
-        setForgotLoading(true);
-        try {
-            const resp = await fetch(`${getBaseApiUrl()}/auth/reset-password`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    email: forgotEmail,
-                    otp: forgotOtpDigits.join(""),
-                    newPassword: forgotNewPassword,
-                }),
-                signal: AbortSignal.timeout(12000),
-            });
-            const json = await resp.json();
-            if (!resp.ok || !json.success) {
-                toast.error(json.message || t("auth.resetFailed"));
-                return;
-            }
-            toast.success(t("auth.passwordUpdated"));
-            setShowForgotModal(false);
-            resetForgotModal();
-        } catch {
-            toast.error(t("auth.resetFailed"));
-        } finally {
-            setForgotLoading(false);
-        }
-    };
-
     /* ═══════════════════════════════════════════════════════
        RENDER
     ═══════════════════════════════════════════════════════ */
@@ -872,7 +730,10 @@ export default function Login() {
                                             type="email"
                                             autoComplete="email"
                                             value={loginForm.email}
-                                            onChange={(e) => setLoginForm((f) => ({ ...f, email: e.target.value }))}
+                                            onChange={(e) => {
+                                                setLoginInlineError("");
+                                                setLoginForm((f) => ({ ...f, email: e.target.value }));
+                                            }}
                                             onKeyDown={handleLoginEmailKeyDown}
                                             placeholder={t("login.emailPlaceholder")}
                                             className={AUTH_INPUT_CLASS}
@@ -897,7 +758,7 @@ export default function Login() {
                                                             </label>
                                                             <button
                                                                 type="button"
-                                                                onClick={() => setShowForgotModal(true)}
+                                                                onClick={handleForgotPasswordClick}
                                                                 className={cn("text-xs", AUTH_MUTED_LINK_CLASS)}
                                                             >
                                                                 {t("login.forgotPassword")}
@@ -911,9 +772,14 @@ export default function Login() {
                                                                 type={showPassword ? "text" : "password"}
                                                                 autoComplete="current-password"
                                                                 value={loginForm.password}
-                                                                onChange={(e) => setLoginForm((f) => ({ ...f, password: e.target.value }))}
+                                                                onChange={(e) => {
+                                                                    setLoginInlineError("");
+                                                                    setLoginForm((f) => ({ ...f, password: e.target.value }));
+                                                                }}
                                                                 placeholder={t("login.passwordPlaceholder")}
                                                                 className={cn(AUTH_INPUT_CLASS, "pr-11")}
+                                                                aria-invalid={!!loginInlineError}
+                                                                aria-describedby={loginInlineError ? "login-inline-error" : undefined}
                                                                 onKeyDown={(e) => {
                                                                     if (e.key === "Enter") {
                                                                         e.preventDefault();
@@ -931,6 +797,24 @@ export default function Login() {
                                                             </button>
                                                         </div>
                                                     </div>
+
+                                                    <AnimatePresence initial={false}>
+                                                        {loginInlineError && (
+                                                            <motion.div
+                                                                id="login-inline-error"
+                                                                key="login-inline-error"
+                                                                role="alert"
+                                                                initial={{ opacity: 0, y: -4 }}
+                                                                animate={{ opacity: 1, y: 0 }}
+                                                                exit={{ opacity: 0, y: -4 }}
+                                                                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] as const }}
+                                                                className="flex w-full items-start gap-2.5 rounded-[14px] border border-red-400/[0.28] bg-red-950/[0.20] px-3 py-2.5 text-[13px] leading-[1.45] text-red-100/[0.92] shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-xl"
+                                                            >
+                                                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-300/80" aria-hidden="true" />
+                                                                <span>{loginInlineError}</span>
+                                                            </motion.div>
+                                                        )}
+                                                    </AnimatePresence>
 
                                                     {loginAttempts > 0 && !isLocked && remainingAttempts !== null && (
                                                         <div className="flex animate-slide-up items-start gap-2.5 rounded-[14px] border border-yellow-500/25 bg-yellow-500/[0.08] px-3.5 py-3 text-xs">
@@ -971,12 +855,22 @@ export default function Login() {
 
                                     <Button
                                         type="button"
-                                        onClick={isPasswordStep ? handlePasswordLoginAttempt : handleLoginEmailContinue}
-                                        className={AUTH_PRIMARY_BUTTON_CLASS}
+                                        onClick={() => {
+                                            if (isPasswordStep) void handlePasswordLoginAttempt();
+                                            else void handleLoginEmailContinue();
+                                        }}
+                                        className={cn(AUTH_PRIMARY_BUTTON_CLASS, "auth-login-button")}
                                         disabled={isLoginButtonDisabled}
                                     >
-                                        {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                        {isLoading ? t("login.signingIn") : t("login.signIn")}
+                                        {showLoginButtonDots ? (
+                                            <span className="auth-button-dots" aria-label="Loading">
+                                                <span />
+                                                <span />
+                                                <span />
+                                            </span>
+                                        ) : (
+                                            t("login.signIn")
+                                        )}
                                     </Button>
 
                                     <p className="mx-auto max-w-[25rem] text-center text-xs leading-5 text-zinc-500">
@@ -1127,154 +1021,6 @@ export default function Login() {
                 onScroll={legal.checkPpfModalTermsScrollEnd}
                 onAccept={() => legal.setPpfTermsAgreed(true)}
             />
-
-            {/* ═══════════════ Forgot Password Modal (backend OTP) ═══════════════ */}
-            <Dialog
-                open={showForgotModal}
-                onOpenChange={(open) => {
-                    setShowForgotModal(open);
-                    if (!open) resetForgotModal();
-                }}
-            >
-                <DialogContent className="rounded-[26px] border border-white/10 bg-[#070707]/95 text-white shadow-[0_28px_90px_-36px_rgba(0,0,0,0.95),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle className="text-white">{t("login.forgotTitle")}</DialogTitle>
-                        <DialogDescription className="text-zinc-500">
-                            {forgotStep === "email" && t("login.forgotEmailStep")}
-                            {forgotStep === "otp" &&
-                                t("login.forgotOtpStep").replace("{email}", forgotEmail)}
-                            {forgotStep === "password" && t("login.forgotPasswordStep")}
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    {forgotStep === "email" && (
-                        <div className="space-y-4 mt-2">
-                            <div className="relative">
-                                <Mail className={AUTH_ICON_CLASS} />
-                                <Input
-                                    type="email"
-                                    value={forgotEmail}
-                                    onChange={(e) => setForgotEmail(e.target.value)}
-                                    placeholder="your@email.com"
-                                    className={cn(AUTH_INPUT_CLASS, "pl-10")}
-                                    onKeyDown={(e) => e.key === "Enter" && handleForgotSendOtp()}
-                                />
-                            </div>
-                            <Button
-                                onClick={handleForgotSendOtp}
-                                className={AUTH_PRIMARY_BUTTON_CLASS}
-                                disabled={!forgotEmail.trim() || forgotLoading}
-                            >
-                                {forgotLoading ? (
-                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                ) : (
-                                    <Mail className="w-4 h-4 mr-2" />
-                                )}
-                                {forgotLoading ? t("login.forgotSending") : t("login.forgotSend")}
-                            </Button>
-                        </div>
-                    )}
-
-                    {forgotStep === "otp" && (
-                        <div className="space-y-4 mt-2">
-                            <div
-                                className={cn(
-                                    "flex gap-2 justify-center",
-                                    forgotOtpShake && "animate-[shake_0.4s_ease-in-out]"
-                                )}
-                            >
-                                {forgotOtpDigits.map((digit, idx) => (
-                                    <input
-                                        key={idx}
-                                        ref={(el) => {
-                                            forgotOtpInputRefs.current[idx] = el;
-                                        }}
-                                        type="text"
-                                        inputMode="numeric"
-                                        maxLength={1}
-                                        value={digit}
-                                        onChange={(e) => handleForgotOtpChange(idx, e.target.value)}
-                                        onKeyDown={(e) => handleForgotOtpKeyDown(idx, e)}
-                                        onPaste={idx === 0 ? handleForgotOtpPaste : undefined}
-                                        className="h-12 w-10 rounded-xl border border-white/10 bg-white/[0.045] text-center text-lg font-semibold text-white shadow-inner transition-all focus:border-white/35 focus:outline-none focus:ring-1 focus:ring-white/[0.10]"
-                                    />
-                                ))}
-                            </div>
-                            {forgotOtpError && (
-                                <p className="text-center text-xs text-red-300">{forgotOtpError}</p>
-                            )}
-                            <Button
-                                onClick={handleForgotVerifyOtp}
-                                className={AUTH_PRIMARY_BUTTON_CLASS}
-                                disabled={forgotOtpDigits.join("").length !== 6 || forgotLoading}
-                            >
-                                {forgotLoading ? (
-                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                ) : null}
-                                {forgotLoading ? t("login.otpVerifying") : t("login.forgotVerify")}
-                            </Button>
-                            <button
-                                type="button"
-                                className="w-full text-xs text-zinc-500 transition-colors hover:text-zinc-200"
-                                onClick={() => {
-                                    setForgotStep("email");
-                                    setForgotOtpDigits(["", "", "", "", "", ""]);
-                                    setForgotOtpError("");
-                                }}
-                            >
-                                {t("login.forgotDifferentEmail")}
-                            </button>
-                        </div>
-                    )}
-
-                    {forgotStep === "password" && (
-                        <div className="space-y-4 mt-2">
-                            <div className="relative">
-                                <Lock className={AUTH_ICON_CLASS} />
-                                <Input
-                                    type={forgotShowPassword ? "text" : "password"}
-                                    value={forgotNewPassword}
-                                    onChange={(e) => setForgotNewPassword(e.target.value)}
-                                    placeholder={t("login.forgotNewPassword")}
-                                    className={cn(AUTH_INPUT_CLASS, "pl-10 pr-10")}
-                                />
-                                <button
-                                    type="button"
-                                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-zinc-200"
-                                    onClick={() => setForgotShowPassword((v) => !v)}
-                                >
-                                    {forgotShowPassword ? (
-                                        <EyeOff className="w-4 h-4" />
-                                    ) : (
-                                        <Eye className="w-4 h-4" />
-                                    )}
-                                </button>
-                            </div>
-                            <div className="relative">
-                                <Lock className={AUTH_ICON_CLASS} />
-                                <Input
-                                    type={forgotShowPassword ? "text" : "password"}
-                                    value={forgotConfirmPassword}
-                                    onChange={(e) => setForgotConfirmPassword(e.target.value)}
-                                    placeholder={t("login.forgotConfirmPassword")}
-                                    className={cn(AUTH_INPUT_CLASS, "pl-10")}
-                                    onKeyDown={(e) => e.key === "Enter" && handleForgotResetPassword()}
-                                />
-                            </div>
-                            <Button
-                                onClick={handleForgotResetPassword}
-                                className={AUTH_PRIMARY_BUTTON_CLASS}
-                                disabled={!forgotNewPassword || !forgotConfirmPassword || forgotLoading}
-                            >
-                                {forgotLoading ? (
-                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                ) : null}
-                                {forgotLoading ? t("login.forgotUpdating") : t("login.forgotUpdate")}
-                            </Button>
-                        </div>
-                    )}
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }

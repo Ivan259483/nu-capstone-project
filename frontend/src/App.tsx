@@ -7,6 +7,7 @@ import { LanguageProvider } from "@/contexts/LanguageContext";
 import { useEffect, lazy, Suspense, type ReactNode } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Login from "./pages/Login";
+import ResetPassword from "./pages/ResetPassword";
 import Home from "./pages/Home";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
@@ -165,7 +166,7 @@ function AppRoutes() {
 
     // Hide the public Navbar on dashboard routes — they have their own navigation
     const isDashboardRoute = /^\/(customer|detailer|admin|sales|inventory|ops)/.test(location.pathname);
-    const isAuthRoute = /^\/(login|verify-otp|set-password)/.test(location.pathname);
+    const isAuthRoute = /^\/(login|reset-password|verify-otp|set-password)/.test(location.pathname);
     const isStandaloneRoute = /^\/track/.test(location.pathname);
 
     return (
@@ -183,6 +184,7 @@ function AppRoutes() {
                     <Route path="/booking" element={<Navigate to="/login" replace />} />
                     <Route path="/ar-estimator" element={<AIEstimatorPage />} />
                     <Route path="/login" element={<Login />} />
+                    <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="/verify-otp" element={<VerifyOtpPage />} />
                     <Route path="/set-password" element={<SetPasswordPage />} />
                     <Route path="/track/:token" element={<PublicTrackerPage />} />
