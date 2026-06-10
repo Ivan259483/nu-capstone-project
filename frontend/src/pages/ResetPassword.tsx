@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/contexts/LanguageContext";
+import AuthSpotlight from "@/components/effects/AuthSpotlight";
 import { getBaseApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { registerPasswordPolicyError } from "@/lib/register-validation";
@@ -225,7 +226,7 @@ export default function ResetPassword() {
         step === "email" ? t("login.forgotSending") : step === "otp" ? t("login.otpVerifying") : t("login.forgotUpdating");
 
     return (
-        <div className="relative flex min-h-screen flex-col overflow-y-auto bg-[#030303] text-white">
+        <div className="auth-page relative isolate flex min-h-screen flex-col overflow-y-auto bg-[#030303] text-white">
             <style>{`
                 @keyframes reset-password-shake {
                     0%,100%{transform:translateX(0)}
@@ -236,15 +237,9 @@ export default function ResetPassword() {
                 }
             `}</style>
 
-            <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_50%_43%,rgba(255,255,255,0.035),transparent_30%),linear-gradient(180deg,#050505_0%,#030303_58%,#060606_100%)]" />
-            <div className="pointer-events-none fixed inset-0 overflow-hidden">
-                <div className="absolute -right-[19rem] -top-[28rem] h-[900px] w-[1060px] rotate-[28deg] rounded-[46%] bg-[radial-gradient(ellipse_at_34%_62%,rgba(255,255,255,0.62)_0%,rgba(210,210,210,0.36)_18%,rgba(118,118,118,0.23)_36%,rgba(34,34,34,0.14)_57%,rgba(255,255,255,0)_74%)] opacity-[0.5] blur-[1.1px] [mask-image:radial-gradient(ellipse_at_38%_60%,black_0%,black_55%,transparent_75%)]" />
-                <div className="absolute right-[-2rem] top-[-8rem] h-[720px] w-[210px] rotate-[28deg] rounded-full bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.18)_40%,rgba(255,255,255,0.05)_64%,transparent)] opacity-[0.24] blur-3xl" />
-                <div className="absolute -left-[22rem] bottom-[-6rem] h-[350px] w-[980px] -rotate-[38deg] rounded-full bg-[radial-gradient(ellipse_at_34%_44%,rgba(255,255,255,0.7)_0%,rgba(210,210,210,0.42)_19%,rgba(112,112,112,0.24)_42%,rgba(30,30,30,0.1)_63%,rgba(255,255,255,0)_84%)] opacity-[0.54] blur-[1.2px] [mask-image:linear-gradient(90deg,black_0%,black_68%,transparent_94%)]" />
-                <div className="absolute -left-[17rem] bottom-[9rem] h-[120px] w-[720px] -rotate-[38deg] rounded-full bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.18)_38%,rgba(255,255,255,0.05)_64%,transparent)] opacity-[0.22] blur-3xl" />
+            <div className="auth-spotlight-layer">
+                <AuthSpotlight className="auth-spotlight-main" fill="white" />
             </div>
-            <div className="pointer-events-none fixed inset-0 opacity-[0.028] mix-blend-screen [background-image:radial-gradient(rgba(255,255,255,0.58)_0.45px,transparent_0.45px)] [background-size:2px_2px]" />
-            <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(0,0,0,0.18)_55%,rgba(0,0,0,0.72)_100%)]" />
 
             <main className="relative z-10 flex min-h-screen w-full flex-col items-center justify-center px-5 py-16 sm:px-6">
                 <div className="w-full max-w-[27rem] animate-fade-in">

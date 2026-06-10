@@ -5,7 +5,6 @@ import { useLanguage } from "@/contexts/LanguageContext";
 
 import TransformationsSection from "@/components/TransformationsSection";
 import TestimonialsSection from "@/components/TestimonialsSection";
-import BookingCTA from "@/components/BookingCTA";
 
 const PARALLAX_PRODUCTS: HeroParallaxProduct[] = [
     { title: "Ceramic Coating Application", link: "/gallery", thumbnail: "https://images.unsplash.com/photo-1567808291548-fc3ee04dbcf0?auto=format&fit=crop&q=80&w=800" },
@@ -50,8 +49,6 @@ export default function Home() {
 
             <TransformationsSection />
             <TestimonialsSection />
-
-            <BookingCTA />
         </PageLayout>
     );
 }

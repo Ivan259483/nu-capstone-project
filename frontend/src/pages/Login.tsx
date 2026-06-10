@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type KeyboardEvent } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties, type KeyboardEvent } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
     Eye,
@@ -8,12 +8,11 @@ import {
     ShieldCheck,
     RefreshCw,
     AlertTriangle,
-    LockKeyhole,
     Clock,
 } from "lucide-react";
 
 import { AnimatePresence, motion } from "motion/react";
-import { toast } from "sonner";
+import { toast, type ExternalToast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -40,6 +39,7 @@ import {
     RegisterLegalCheckboxes,
     useRegisterLegalAcknowledgement,
 } from "@/components/auth/RegisterLegalAcknowledgement";
+import AuthSpotlight from "@/components/effects/AuthSpotlight";
 const DEFAULT_LOGIN_REDIRECT = "/customer/dashboard";
 
 const LOGIN_TAB_CONTENT_TRANSITION = {
@@ -60,10 +60,66 @@ const LOGIN_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LOGIN_EMAIL_STEP_LOADER_MS = 650;
 const LOGIN_INVALID_CREDENTIALS_MESSAGE =
     "Invalid credentials. Please make sure you are using the correct email and password.";
+const LOGIN_INVALID_CREDENTIALS_TOAST_ID = "login-invalid-credentials";
+const LOGIN_LEGACY_ATTEMPT_WARNING_TOAST_ID = "login-attempt-warning";
+const LOGIN_AUTH_ERROR_TOAST_ID = "login-auth-error";
+const LOGIN_AUTH_TOAST_IDS = [
+    LOGIN_INVALID_CREDENTIALS_TOAST_ID,
+    LOGIN_LEGACY_ATTEMPT_WARNING_TOAST_ID,
+    LOGIN_AUTH_ERROR_TOAST_ID,
+] as const;
+const LOGIN_AUTH_TOAST_BASE_STYLE: CSSProperties = {
+    background: "rgba(9, 9, 11, 0.96)",
+    color: "#f4f4f5",
+    borderStyle: "solid",
+    borderWidth: 1,
+    borderRadius: 14,
+    boxShadow: "0 22px 70px -34px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.08)",
+    backdropFilter: "blur(18px)",
+    WebkitBackdropFilter: "blur(18px)",
+};
+const LOGIN_AUTH_TOAST_CLASS_NAMES: ExternalToast["classNames"] = {
+    title: "text-[13px] font-medium leading-5 text-zinc-100",
+    description: "text-xs leading-5 text-zinc-400",
+    closeButton:
+        "!border-white/10 !bg-zinc-900 !text-zinc-300 transition-colors hover:!bg-zinc-800 hover:!text-white",
+};
 
 function isInvalidCredentialsMessage(message?: string): boolean {
     const normalized = (message || "").trim().toLowerCase();
     return normalized.includes("invalid credentials") || normalized.includes("invalid email or password");
+}
+
+function dismissLoginAuthToasts() {
+    LOGIN_AUTH_TOAST_IDS.forEach((id) => toast.dismiss(id));
+}
+
+function showLoginAuthToast(
+    message: string,
+    id: (typeof LOGIN_AUTH_TOAST_IDS)[number],
+    description?: string
+) {
+    const options: ExternalToast = {
+        id,
+        description,
+        position: "bottom-right",
+        closeButton: true,
+        duration: 5200,
+        style: {
+            ...LOGIN_AUTH_TOAST_BASE_STYLE,
+            borderColor: "rgba(248, 113, 113, 0.42)",
+        },
+        className: "login-auth-toast",
+        classNames: LOGIN_AUTH_TOAST_CLASS_NAMES,
+    };
+
+    toast.error(message, options);
+}
+
+function getFailedAttemptsToastMessage(loginAttempts: number, remainingAttempts: number) {
+    const failedLabel = loginAttempts === 1 ? "failed attempt" : "failed attempts";
+    const remainingLabel = remainingAttempts === 1 ? "attempt" : "attempts";
+    return `${loginAttempts} ${failedLabel}. ${remainingAttempts} ${remainingLabel} remaining before your account is locked for 15 minutes.`;
 }
 
 function getSafeLoginRedirect(value: string | null): string {
@@ -96,7 +152,6 @@ export default function Login() {
     const [showPassword, setShowPassword] = useState(false);
     const [loginStep, setLoginStep] = useState<"email" | "password">("email");
     const [loginForm, setLoginForm] = useState({ email: "", password: "" });
-    const [loginInlineError, setLoginInlineError] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isButtonLoading, setIsButtonLoading] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
@@ -105,7 +160,6 @@ export default function Login() {
 
     /* ── Login attempt tracking & lock state ── */
     const [loginAttempts, setLoginAttempts] = useState(0);
-    const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
     const [isLocked, setIsLocked] = useState(false);
     const [lockUntilMs, setLockUntilMs] = useState<number | null>(null);
     const [lockCountdown, setLockCountdown] = useState("");
@@ -279,16 +333,19 @@ export default function Login() {
     const handleLoginEmailContinue = async () => {
         if (isLoading || isButtonLoading || isAuthLoading) return;
         if (isLocked) {
-            toast.error(`Account locked. Try again in ${lockCountdown}.`);
+            showLoginAuthToast(
+                `Account locked. Try again in ${lockCountdown || "15:00"}.`,
+                LOGIN_AUTH_ERROR_TOAST_ID
+            );
             return;
         }
         const emailNorm = loginForm.email.trim().toLowerCase();
         if (!emailNorm) {
-            toast.error(t("validation.enterEmail"));
+            showLoginAuthToast(t("validation.enterEmail"), LOGIN_AUTH_ERROR_TOAST_ID);
             return;
         }
         if (!LOGIN_EMAIL_PATTERN.test(emailNorm)) {
-            toast.error(t("validation.emailInvalid"));
+            showLoginAuthToast(t("validation.emailInvalid"), LOGIN_AUTH_ERROR_TOAST_ID);
             return;
         }
         setLoginForm((current) => ({ ...current, email: emailNorm }));
@@ -302,7 +359,7 @@ export default function Login() {
     const handlePasswordLoginAttempt = async () => {
         if (isLoading || isButtonLoading || isAuthLoading) return;
         if (!isLoginEmailValid) {
-            toast.error(t("validation.emailInvalid"));
+            showLoginAuthToast(t("validation.emailInvalid"), LOGIN_AUTH_ERROR_TOAST_ID);
             return;
         }
         setIsButtonLoading(true);
@@ -330,14 +387,16 @@ export default function Login() {
 
     async function handleLoginSubmit() {
         if (!loginForm.email || !loginForm.password) {
-            toast.error(t("validation.fillAllFields"));
+            showLoginAuthToast(t("validation.fillAllFields"), LOGIN_AUTH_ERROR_TOAST_ID);
             return;
         }
         if (isLocked) {
-            toast.error(`Account locked. Try again in ${lockCountdown}.`);
+            showLoginAuthToast(
+                `Account locked. Try again in ${lockCountdown || "15:00"}.`,
+                LOGIN_AUTH_ERROR_TOAST_ID
+            );
             return;
         }
-        setLoginInlineError("");
         setIsLoading(true);
         try {
             const emailNorm = loginForm.email.trim().toLowerCase();
@@ -345,6 +404,7 @@ export default function Login() {
 
             // ── Unverified account: redirect to OTP verification page ──
             if (result.requiresOtp || result.data?.requiresOtp) {
+                dismissLoginAuthToasts();
                 const emailToVerify = result.data?.email || emailNorm;
                 navigate(`/verify-otp?email=${encodeURIComponent(emailToVerify)}`);
                 toast.info(t("auth.verifyEmailContinue"));
@@ -353,6 +413,7 @@ export default function Login() {
 
             // ── Staff first login: force password change ──
             if (result.requiresPasswordChange || result.data?.requiresPasswordChange) {
+                dismissLoginAuthToasts();
                 const tempToken = result.data?.token || result.token;
                 if (tempToken) localStorage.setItem("autospf_set_password_token", tempToken);
                 navigate("/set-password");
@@ -362,6 +423,7 @@ export default function Login() {
 
             // ── 2FA: non-customer role ──
             if (result.requiresOTP) {
+                dismissLoginAuthToasts();
                 setPendingUserId(result.userId ?? "");
                 setLoginMaskedEmail(result.maskedEmail ?? emailNorm);
                 setLoginOtpDigits(["", "", "", "", "", ""]);
@@ -380,29 +442,36 @@ export default function Login() {
                     setIsLocked(true);
                     setLockUntilMs(result.data.lockUntilMs ?? Date.now() + 15 * 60 * 1000);
                     setLoginAttempts(0);
-                    setRemainingAttempts(0);
-                    toast.error(result.message || t("auth.accountLocked"));
+                    showLoginAuthToast(result.message || t("auth.accountLocked"), LOGIN_AUTH_ERROR_TOAST_ID);
                 } else if (result.data?.remainingAttempts !== undefined) {
-                    setLoginAttempts(result.data.loginAttempts ?? loginAttempts + 1);
-                    setRemainingAttempts(result.data.remainingAttempts);
-                    setLoginInlineError(LOGIN_INVALID_CREDENTIALS_MESSAGE);
+                    const nextLoginAttempts = result.data.loginAttempts ?? loginAttempts + 1;
+                    const nextRemainingAttempts = result.data.remainingAttempts;
+                    setLoginAttempts(nextLoginAttempts);
+                    showLoginAuthToast(
+                        LOGIN_INVALID_CREDENTIALS_MESSAGE,
+                        LOGIN_INVALID_CREDENTIALS_TOAST_ID,
+                        getFailedAttemptsToastMessage(nextLoginAttempts, nextRemainingAttempts)
+                    );
                 } else if (!result.message || isInvalidCredentialsMessage(result.message)) {
-                    setLoginInlineError(LOGIN_INVALID_CREDENTIALS_MESSAGE);
+                    showLoginAuthToast(
+                        LOGIN_INVALID_CREDENTIALS_MESSAGE,
+                        LOGIN_INVALID_CREDENTIALS_TOAST_ID
+                    );
                 } else {
-                    toast.error(result.message);
+                    showLoginAuthToast(result.message, LOGIN_AUTH_ERROR_TOAST_ID);
                 }
                 return;
             }
             // Success — reset attempt state
+            dismissLoginAuthToasts();
             setLoginAttempts(0);
-            setRemainingAttempts(null);
             setIsLocked(false);
             setLockUntilMs(null);
             if (rememberMe) localStorage.setItem("remembered_email", emailNorm);
             else localStorage.removeItem("remembered_email");
             performRedirect(getSafeUserRole(result.role || user?.role || "customer"));
         } catch {
-            toast.error(t("auth.loginFailed"));
+            showLoginAuthToast(t("auth.loginFailed"), LOGIN_AUTH_ERROR_TOAST_ID);
         } finally {
             setIsLoading(false);
         }
@@ -570,6 +639,7 @@ export default function Login() {
 
             const role = getSafeUserRole(backendUser?.role);
             if (rememberMe) localStorage.setItem("remembered_email", loginForm.email);
+            dismissLoginAuthToasts();
             toast.success(t("auth.verifySuccess"));
             setLoginOtpStep("form");
             setPendingUserId("");
@@ -616,17 +686,10 @@ export default function Login() {
        RENDER
     ═══════════════════════════════════════════════════════ */
     return (
-        <div className="relative flex min-h-screen flex-col overflow-y-auto bg-[#030303] text-white">
-            {/* ── Resend-inspired metallic background ── */}
-            <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_50%_43%,rgba(255,255,255,0.035),transparent_30%),linear-gradient(180deg,#050505_0%,#030303_58%,#060606_100%)]" />
-            <div className="pointer-events-none fixed inset-0 overflow-hidden">
-                <div className="absolute -right-[19rem] -top-[28rem] h-[900px] w-[1060px] rotate-[28deg] rounded-[46%] bg-[radial-gradient(ellipse_at_34%_62%,rgba(255,255,255,0.62)_0%,rgba(210,210,210,0.36)_18%,rgba(118,118,118,0.23)_36%,rgba(34,34,34,0.14)_57%,rgba(255,255,255,0)_74%)] opacity-[0.5] blur-[1.1px] [mask-image:radial-gradient(ellipse_at_38%_60%,black_0%,black_55%,transparent_75%)]" />
-                <div className="absolute right-[-2rem] top-[-8rem] h-[720px] w-[210px] rotate-[28deg] rounded-full bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.18)_40%,rgba(255,255,255,0.05)_64%,transparent)] opacity-[0.24] blur-3xl" />
-                <div className="absolute -left-[22rem] bottom-[-6rem] h-[350px] w-[980px] -rotate-[38deg] rounded-full bg-[radial-gradient(ellipse_at_34%_44%,rgba(255,255,255,0.7)_0%,rgba(210,210,210,0.42)_19%,rgba(112,112,112,0.24)_42%,rgba(30,30,30,0.1)_63%,rgba(255,255,255,0)_84%)] opacity-[0.54] blur-[1.2px] [mask-image:linear-gradient(90deg,black_0%,black_68%,transparent_94%)]" />
-                <div className="absolute -left-[17rem] bottom-[9rem] h-[120px] w-[720px] -rotate-[38deg] rounded-full bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.18)_38%,rgba(255,255,255,0.05)_64%,transparent)] opacity-[0.22] blur-3xl" />
+        <div className="auth-page relative isolate flex min-h-screen flex-col overflow-y-auto bg-[#030303] text-white">
+            <div className="auth-spotlight-layer">
+                <AuthSpotlight className="auth-spotlight-main" fill="white" />
             </div>
-            <div className="pointer-events-none fixed inset-0 opacity-[0.028] mix-blend-screen [background-image:radial-gradient(rgba(255,255,255,0.58)_0.45px,transparent_0.45px)] [background-size:2px_2px]" />
-            <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(0,0,0,0.18)_55%,rgba(0,0,0,0.72)_100%)]" />
 
             <Link
                 to="/"
@@ -731,7 +794,7 @@ export default function Login() {
                                             autoComplete="email"
                                             value={loginForm.email}
                                             onChange={(e) => {
-                                                setLoginInlineError("");
+                                                dismissLoginAuthToasts();
                                                 setLoginForm((f) => ({ ...f, email: e.target.value }));
                                             }}
                                             onKeyDown={handleLoginEmailKeyDown}
@@ -773,13 +836,11 @@ export default function Login() {
                                                                 autoComplete="current-password"
                                                                 value={loginForm.password}
                                                                 onChange={(e) => {
-                                                                    setLoginInlineError("");
+                                                                    dismissLoginAuthToasts();
                                                                     setLoginForm((f) => ({ ...f, password: e.target.value }));
                                                                 }}
                                                                 placeholder={t("login.passwordPlaceholder")}
                                                                 className={cn(AUTH_INPUT_CLASS, "pr-11")}
-                                                                aria-invalid={!!loginInlineError}
-                                                                aria-describedby={loginInlineError ? "login-inline-error" : undefined}
                                                                 onKeyDown={(e) => {
                                                                     if (e.key === "Enter") {
                                                                         e.preventDefault();
@@ -797,56 +858,6 @@ export default function Login() {
                                                             </button>
                                                         </div>
                                                     </div>
-
-                                                    <AnimatePresence initial={false}>
-                                                        {loginInlineError && (
-                                                            <motion.div
-                                                                id="login-inline-error"
-                                                                key="login-inline-error"
-                                                                role="alert"
-                                                                initial={{ opacity: 0, y: -4 }}
-                                                                animate={{ opacity: 1, y: 0 }}
-                                                                exit={{ opacity: 0, y: -4 }}
-                                                                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] as const }}
-                                                                className="flex w-full items-start gap-2.5 rounded-[14px] border border-red-400/[0.28] bg-red-950/[0.20] px-3 py-2.5 text-[13px] leading-[1.45] text-red-100/[0.92] shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-xl"
-                                                            >
-                                                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-300/80" aria-hidden="true" />
-                                                                <span>{loginInlineError}</span>
-                                                            </motion.div>
-                                                        )}
-                                                    </AnimatePresence>
-
-                                                    {loginAttempts > 0 && !isLocked && remainingAttempts !== null && (
-                                                        <div className="flex animate-slide-up items-start gap-2.5 rounded-[14px] border border-yellow-500/25 bg-yellow-500/[0.08] px-3.5 py-3 text-xs">
-                                                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-300/85" />
-                                                            <div>
-                                                                <p className="font-semibold text-yellow-200/90">
-                                                                    {loginAttempts === 1
-                                                                        ? t("login.failedAttemptOne")
-                                                                        : t("login.failedAttemptMany").replace("{n}", String(loginAttempts))}
-                                                                </p>
-                                                                <p className="mt-0.5 text-yellow-200/65">
-                                                                    {remainingAttempts === 1
-                                                                        ? t("login.remainingAttemptOne")
-                                                                        : t("login.remainingAttemptMany").replace("{n}", String(remainingAttempts ?? 0))}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                    )}
-
-                                                    {isLocked && (
-                                                        <div className="flex animate-slide-up items-start gap-2.5 rounded-[14px] border border-red-500/35 bg-red-500/[0.08] px-3.5 py-3 text-xs">
-                                                            <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
-                                                            <div className="flex-1">
-                                                                <p className="font-semibold text-red-200">{t("login.accountLockedTitle")}</p>
-                                                                <p className="mt-0.5 text-red-200/70">
-                                                                    {t("login.accountLockedTryAgain")}{" "}
-                                                                    <span className="font-mono font-bold text-red-200">{lockCountdown || "15:00"}</span>.
-                                                                </p>
-                                                            </div>
-                                                            <Clock className="mt-0.5 h-4 w-4 shrink-0 text-red-300/60" />
-                                                        </div>
-                                                    )}
 
                                                 </div>
                                             </motion.div>

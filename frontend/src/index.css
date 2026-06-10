@@ -523,6 +523,17 @@ body {
     color: hsl(var(--primary));
 }
 
+.auth-page input::selection,
+.auth-page textarea::selection {
+    background: rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+}
+
+.auth-page ::selection {
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+}
+
 html {
     scroll-behavior: smooth;
     scrollbar-width: thin;
@@ -9273,14 +9284,18 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
     --ppf-canvas: #ebe8e2;
     --ppf-surface: #f7f6f3;
     --ppf-surface-elevated: rgba(255, 255, 255, 0.72);
+    display: flex !important;
+    flex-direction: column;
+    max-height: min(85vh, 820px);
     border-radius: var(--ppf-radius-shell) !important;
     font-feature-settings: 'kern' 1, 'liga' 1;
 }
 
 .ppf-terms-dialog__hero {
     position: relative;
+    flex-shrink: 0;
     overflow: hidden;
-    padding: 1.75rem 1.5rem 2.25rem;
+    padding: 1.35rem 1.5rem 1.75rem;
     padding-right: 4rem;
     color: #f5f2ec;
     background:
@@ -9291,7 +9306,7 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
 
 @media (min-width: 640px) {
     .ppf-terms-dialog__hero {
-        padding: 2rem 2rem 2.5rem;
+        padding: 1.6rem 2rem 2rem;
         padding-right: 4.5rem;
     }
 }
@@ -9380,9 +9395,11 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
 }
 
 .ppf-terms-dialog__scroll {
-    max-height: min(58vh, 540px);
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
     overflow-y: auto;
-    padding: 0.5rem 1.25rem 1.5rem;
+    padding: 0.35rem 1.25rem 1.15rem;
     color: var(--ppf-ink-muted);
     font-size: 0.8125rem;
     line-height: 1.65;
@@ -9393,7 +9410,7 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
 
 @media (min-width: 640px) {
     .ppf-terms-dialog__scroll {
-        padding: 0.75rem 1.5rem 1.75rem;
+        padding: 0.5rem 1.5rem 1.25rem;
     }
 }
 
@@ -9605,10 +9622,11 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
 
 .ppf-terms-dialog__status {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     gap: 0.625rem;
-    margin: 0 1.25rem 0.25rem;
-    padding: 0.65rem 1rem;
+    margin: 0 1.25rem 0;
+    padding: 0.55rem 1rem;
     border-radius: 16px;
     font-size: 0.6875rem;
     font-weight: 500;
@@ -9636,9 +9654,13 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
 
 .ppf-terms-dialog__footer {
     display: flex;
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    flex-shrink: 0;
     flex-direction: column-reverse;
     gap: 0.75rem;
-    padding: 1rem 1.25rem 1.35rem;
+    padding: 0.85rem 1.25rem 1rem;
     border-radius: 0 0 var(--ppf-radius-shell) var(--ppf-radius-shell);
     background: linear-gradient(180deg, var(--ppf-canvas), #f7f6f3);
 }
@@ -9648,7 +9670,7 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
         flex-direction: row;
         align-items: center;
         justify-content: space-between;
-        padding: 1rem 1.5rem 1.5rem;
+        padding: 0.85rem 1.5rem 1.1rem;
     }
 }
 
@@ -9711,6 +9733,112 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
 .ppf-terms-dialog > button[class*='absolute']:hover {
     background: rgba(255, 255, 255, 0.14);
     color: #fff;
+}
+
+.auth-spotlight-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 0;
+    background:
+        radial-gradient(ellipse at 86% 12%, rgba(255, 255, 255, 0.088), transparent 34%),
+        radial-gradient(ellipse at 10% 92%, rgba(255, 255, 255, 0.041), transparent 30%),
+        radial-gradient(circle at 50% 43%, rgba(255, 255, 255, 0.035), transparent 30%),
+        linear-gradient(180deg, #050505 0%, #030303 58%, #060606 100%);
+}
+
+.auth-spotlight-layer::before {
+    content: "";
+    position: absolute;
+    top: -26%;
+    right: -22%;
+    width: min(64rem, 92vw);
+    height: min(38rem, 58vw);
+    pointer-events: none;
+    z-index: 0;
+    background:
+        radial-gradient(ellipse at 72% 26%, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.086) 34%, transparent 68%),
+        linear-gradient(132deg, transparent 18%, rgba(255, 255, 255, 0.09) 40%, rgba(255, 255, 255, 0.02) 56%, transparent 74%);
+    border-radius: 48% 0 0 62%;
+    filter: blur(34px);
+    opacity: 0.46;
+    transform: rotate(-12deg);
+    transform-origin: right top;
+    -webkit-mask-image: radial-gradient(ellipse at 74% 24%, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.55) 46%, transparent 78%);
+    mask-image: radial-gradient(ellipse at 74% 24%, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.55) 46%, transparent 78%);
+}
+
+.auth-spotlight-layer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(42deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.032) 16%, transparent 34%),
+        radial-gradient(ellipse at 0% 100%, rgba(255, 255, 255, 0.069) 0%, rgba(255, 255, 255, 0.027) 30%, transparent 58%),
+        radial-gradient(ellipse at center, transparent 0%, rgba(0, 0, 0, 0.18) 55%, rgba(0, 0, 0, 0.72) 100%);
+    filter: blur(0.5px);
+    z-index: 2;
+}
+
+.auth-spotlight-svg {
+    pointer-events: none;
+    position: absolute;
+    z-index: 1;
+    height: 169%;
+    width: 138%;
+    opacity: 0;
+    animation:
+        authSpotlight 2s ease 0.75s 1 forwards,
+        authSpotlightDrift 12s ease-in-out 2.75s infinite alternate;
+    will-change: opacity, transform;
+}
+
+.auth-spotlight-main {
+    top: -40%;
+    left: 0;
+}
+
+@media (min-width: 768px) {
+    .auth-spotlight-main {
+        left: 15%;
+        top: -20%;
+    }
+}
+
+@media (min-width: 1024px) {
+    .auth-spotlight-svg {
+        width: 84%;
+    }
+}
+
+@keyframes authSpotlight {
+    0% {
+        opacity: 0;
+        transform: translate(-72%, -62%) scale(0.5);
+    }
+
+    100% {
+        opacity: 0.65;
+        transform: translate(-50%, -40%) scale(1);
+    }
+}
+
+@keyframes authSpotlightDrift {
+    0% {
+        transform: translate(-50%, -40%) scale(1);
+    }
+
+    100% {
+        transform: translate(-46%, -36%) scale(1.06);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .auth-spotlight-svg {
+        animation: authSpotlight 2s ease 0.75s 1 forwards;
+    }
 }
 
 .auth-login-button:not(:disabled) {

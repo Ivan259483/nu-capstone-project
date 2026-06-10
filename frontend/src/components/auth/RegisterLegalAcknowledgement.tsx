@@ -193,7 +193,7 @@ export function PpfTermsAcceptanceDialog({
                 data-ppf-terms-dialog
                 className={cn(
                     "ppf-terms-dialog",
-                    "max-h-[min(92vh,880px)] w-[min(700px,calc(100vw-1.25rem))] max-w-[min(700px,calc(100vw-1.25rem))]",
+                    "max-h-[min(85vh,820px)] w-[min(700px,calc(100vw-1.25rem))] max-w-[min(700px,calc(100vw-1.25rem))]",
                     "gap-0 overflow-hidden rounded-[32px] border-0 bg-[var(--ppf-canvas)] p-0",
                     "shadow-[0_40px_100px_-32px_rgba(0,0,0,0.5)] sm:max-w-[min(700px,calc(100vw-1.25rem))] sm:rounded-[32px]",
                     "[&>button]:ring-offset-transparent"
