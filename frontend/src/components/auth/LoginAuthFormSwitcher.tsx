@@ -53,7 +53,7 @@ export function LoginAuthFormSwitcher({
 
         const el = measureRef.current;
         const measure = () => {
-            const next = el.offsetHeight;
+            const next = Math.ceil(el.scrollHeight) + 2;
             if (activeTab === "register") {
                 setPanelHeight("auto");
                 return;
@@ -73,7 +73,7 @@ export function LoginAuthFormSwitcher({
 
     return (
         <motion.div
-            className={isRegister ? "overflow-visible" : "overflow-hidden"}
+            className="overflow-visible"
             animate={{ height: isRegister ? "auto" : panelHeight }}
             transition={{
                 height: isRegister

@@ -35,6 +35,10 @@ import { RegisterPhoneField } from "@/components/auth/RegisterPhoneField";
 import { LoginAuthFormSwitcher } from "@/components/auth/LoginAuthFormSwitcher";
 import { ManualRegisterForm } from "@/components/auth/ManualRegisterForm";
 import {
+    AUTH_STANDALONE_INPUT_CLASS,
+    AUTH_STANDALONE_INPUT_ERROR_CLASS,
+} from "@/components/auth/authInputStyles";
+import {
     PpfTermsAcceptanceDialog,
     RegisterLegalCheckboxes,
     useRegisterLegalAcknowledgement,
@@ -47,17 +51,15 @@ const LOGIN_TAB_CONTENT_TRANSITION = {
     ease: [0.22, 1, 0.36, 1] as const,
 };
 
-const AUTH_INPUT_CLASS =
-    "h-12 rounded-[13px] border-white/[0.12] bg-black/45 text-sm font-medium text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-xl placeholder:text-zinc-600 transition-[border-color,background-color,box-shadow] duration-300 hover:border-white/20 hover:bg-white/[0.045] focus-visible:border-orange-300/45 focus-visible:bg-black/55 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-orange-400/20 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(251,146,60,0.09),0_0_28px_-20px_rgba(251,146,60,0.85)]";
-
 const AUTH_PRIMARY_BUTTON_CLASS =
-    "auth-primary-button h-[48px] w-full rounded-[13px] border border-white/[0.13] bg-white/[0.045] text-sm font-semibold text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_44px_-36px_rgba(0,0,0,0.95)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-orange-300/42 hover:bg-orange-400/[0.11] hover:text-white hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_18px_46px_-34px_rgba(251,146,60,0.68)] focus-visible:ring-orange-400/25 disabled:translate-y-0 disabled:border-white/[0.075] disabled:bg-white/[0.025] disabled:text-zinc-600 disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]";
+    "auth-primary-button h-[48px] w-full rounded-[13px] border border-white/[0.13] bg-white/[0.045] text-sm font-semibold text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_44px_-36px_rgba(0,0,0,0.95)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-orange-300/42 hover:bg-white/[0.06] hover:text-white hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_18px_46px_-34px_rgba(251,146,60,0.5)] focus-visible:ring-orange-400/25 disabled:translate-y-0 disabled:border-white/[0.075] disabled:bg-white/[0.025] disabled:text-zinc-600 disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]";
 
 const AUTH_MUTED_LINK_CLASS =
     "font-medium text-zinc-300 transition-colors hover:text-white";
 
 const LOGIN_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LOGIN_EMAIL_STEP_LOADER_MS = 650;
+const LOGIN_PASSWORD_REQUIRED_MESSAGE = "Enter your password to continue.";
 const LOGIN_INVALID_CREDENTIALS_MESSAGE =
     "Invalid credentials. Please make sure you are using the correct email and password.";
 const LOGIN_INVALID_CREDENTIALS_TOAST_ID = "login-invalid-credentials";
@@ -152,6 +154,7 @@ export default function Login() {
     const [showPassword, setShowPassword] = useState(false);
     const [loginStep, setLoginStep] = useState<"email" | "password">("email");
     const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+    const [loginPasswordError, setLoginPasswordError] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isButtonLoading, setIsButtonLoading] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
@@ -205,9 +208,7 @@ export default function Login() {
     const isLoginEmailValid = LOGIN_EMAIL_PATTERN.test(loginEmailValue);
     const isPasswordStep = loginStep === "password";
     const isLoginActionBlocked = isLoading || isButtonLoading || isAuthLoading || isLocked;
-    const isLoginButtonDisabled = isPasswordStep
-        ? !isLoginEmailValid || !loginForm.password || isLoginActionBlocked
-        : !isLoginEmailValid || isLoginActionBlocked;
+    const isLoginButtonDisabled = isLoginActionBlocked;
     const showLoginButtonDots = isButtonLoading || isLoading;
 
     const registerPwRules = useMemo(() => registerPasswordRules(registerForm.password), [registerForm.password]);
@@ -349,6 +350,7 @@ export default function Login() {
             return;
         }
         setLoginForm((current) => ({ ...current, email: emailNorm }));
+        setLoginPasswordError("");
         setIsButtonLoading(true);
         await new Promise((resolve) => window.setTimeout(resolve, LOGIN_EMAIL_STEP_LOADER_MS));
         setLoginStep("password");
@@ -362,6 +364,12 @@ export default function Login() {
             showLoginAuthToast(t("validation.emailInvalid"), LOGIN_AUTH_ERROR_TOAST_ID);
             return;
         }
+        if (!loginForm.password.trim()) {
+            setLoginPasswordError(LOGIN_PASSWORD_REQUIRED_MESSAGE);
+            window.setTimeout(() => passwordInputRef.current?.focus(), 80);
+            return;
+        }
+        setLoginPasswordError("");
         setIsButtonLoading(true);
         try {
             await handleLoginSubmit();
@@ -387,6 +395,11 @@ export default function Login() {
 
     async function handleLoginSubmit() {
         if (!loginForm.email || !loginForm.password) {
+            if (!loginForm.password) {
+                setLoginPasswordError(LOGIN_PASSWORD_REQUIRED_MESSAGE);
+                window.setTimeout(() => passwordInputRef.current?.focus(), 80);
+                return;
+            }
             showLoginAuthToast(t("validation.fillAllFields"), LOGIN_AUTH_ERROR_TOAST_ID);
             return;
         }
@@ -807,7 +820,7 @@ export default function Login() {
                                                 }}
                                                 onKeyDown={handleLoginEmailKeyDown}
                                                 placeholder={t("login.emailPlaceholder")}
-                                                className={AUTH_INPUT_CLASS}
+                                                className={AUTH_STANDALONE_INPUT_CLASS}
                                             />
                                         </div>
 
@@ -845,10 +858,17 @@ export default function Login() {
                                                                     value={loginForm.password}
                                                                     onChange={(e) => {
                                                                         dismissLoginAuthToasts();
+                                                                        setLoginPasswordError("");
                                                                         setLoginForm((f) => ({ ...f, password: e.target.value }));
                                                                     }}
                                                                     placeholder={t("login.passwordPlaceholder")}
-                                                                    className={cn(AUTH_INPUT_CLASS, "pr-11")}
+                                                                    className={cn(
+                                                                        AUTH_STANDALONE_INPUT_CLASS,
+                                                                        "pr-11",
+                                                                        loginPasswordError && AUTH_STANDALONE_INPUT_ERROR_CLASS
+                                                                    )}
+                                                                    aria-invalid={loginPasswordError ? true : undefined}
+                                                                    aria-describedby={loginPasswordError ? "login-password-error" : undefined}
                                                                     onKeyDown={(e) => {
                                                                         if (e.key === "Enter") {
                                                                             e.preventDefault();
@@ -865,6 +885,21 @@ export default function Login() {
                                                                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                                                 </button>
                                                             </div>
+                                                            <AnimatePresence initial={false}>
+                                                                {loginPasswordError && (
+                                                                    <motion.p
+                                                                        id="login-password-error"
+                                                                        initial={{ opacity: 0, y: -4, height: 0 }}
+                                                                        animate={{ opacity: 1, y: 0, height: "auto" }}
+                                                                        exit={{ opacity: 0, y: -4, height: 0 }}
+                                                                        transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] as const }}
+                                                                        className="overflow-hidden px-1 text-xs font-medium leading-5 text-red-300/85"
+                                                                        role="alert"
+                                                                    >
+                                                                        {loginPasswordError}
+                                                                    </motion.p>
+                                                                )}
+                                                            </AnimatePresence>
                                                         </div>
 
                                                     </div>

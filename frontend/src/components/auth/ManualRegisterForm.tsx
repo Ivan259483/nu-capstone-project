@@ -25,6 +25,10 @@ import {
 } from "@/lib/register-validation";
 import { TOKEN_KEY, persistBackendUser, safeLocalStorageSet } from "@/lib/auth-storage";
 import { cn } from "@/lib/utils";
+import {
+    AUTH_FLOATING_INPUT_ERROR_CLASS,
+    AUTH_FLOATING_INPUT_SHELL_CLASS,
+} from "@/components/auth/authInputStyles";
 import { buildRegisterE164, validateRegisterNationalDigits } from "@/lib/phone";
 import { REGISTER_COUNTRY_DIALS } from "@/lib/countries-dial-data";
 import { getSafeUserRole } from "@/lib/roles";
@@ -332,11 +336,9 @@ export function ManualRegisterForm({ onRegistrationComplete }: ManualRegisterFor
 
                 <div
                     className={cn(
-                        "relative overflow-hidden rounded-[14px] border bg-white/[0.065] backdrop-blur-xl transition-all duration-300",
-                        "px-4 pb-2 pt-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]",
-                        phoneError && touched.phone
-                            ? "border-red-400/55 ring-1 ring-red-400/15"
-                            : "border-white/[0.12] focus-within:border-white/30 focus-within:bg-white/[0.085] focus-within:ring-1 focus-within:ring-white/[0.09]"
+                        AUTH_FLOATING_INPUT_SHELL_CLASS,
+                        "px-4 pb-2 pt-5",
+                        phoneError && touched.phone && AUTH_FLOATING_INPUT_ERROR_CLASS
                     )}
                     onBlur={(e) => {
                         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {

@@ -1,5 +1,9 @@
 import { useId, type InputHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import {
+    AUTH_FLOATING_INPUT_ERROR_CLASS,
+    AUTH_FLOATING_INPUT_SHELL_CLASS,
+} from "@/components/auth/authInputStyles";
 
 type FloatingLabelFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "onChange"> & {
     label: string;
@@ -36,11 +40,8 @@ export function FloatingLabelField({
         <div className={cn("relative", containerClassName)}>
             <div
                 className={cn(
-                    "relative overflow-hidden rounded-[14px] border bg-white/[0.065] backdrop-blur-xl",
-                    "shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] transition-[border-color,box-shadow,background-color] duration-300",
-                    error
-                        ? "border-red-400/55 ring-1 ring-red-400/15"
-                        : "border-white/[0.12] focus-within:border-white/30 focus-within:bg-white/[0.085] focus-within:ring-1 focus-within:ring-white/[0.09]",
+                    AUTH_FLOATING_INPUT_SHELL_CLASS,
+                    error && AUTH_FLOATING_INPUT_ERROR_CLASS,
                     disabled && "opacity-60"
                 )}
             >

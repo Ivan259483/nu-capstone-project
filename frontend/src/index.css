@@ -10054,12 +10054,12 @@ body:has([data-ppf-terms-dialog][data-state='open']) .fixed.inset-0.z-50[data-st
 
 .auth-primary-button:hover:not(:disabled),
 .auth-login-button:hover:not(:disabled) {
-    background: rgba(251, 146, 60, 0.11) !important;
+    background: rgba(255, 255, 255, 0.06) !important;
     color: #ffffff !important;
     border-color: rgba(253, 186, 116, 0.42) !important;
     box-shadow:
         0 1px 0 rgba(255, 255, 255, 0.09) inset,
-        0 18px 46px -34px rgba(251, 146, 60, 0.68) !important;
+        0 18px 46px -34px rgba(251, 146, 60, 0.5) !important;
 }
 
 .auth-primary-button:hover:not(:disabled) svg,
