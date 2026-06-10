@@ -48,10 +48,10 @@ const LOGIN_TAB_CONTENT_TRANSITION = {
 };
 
 const AUTH_INPUT_CLASS =
-    "h-12 rounded-[14px] border-white/[0.12] bg-white/[0.065] text-sm font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] placeholder:text-zinc-500 transition-[border-color,background-color,box-shadow] duration-300 focus-visible:border-white/30 focus-visible:bg-white/[0.085] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white/[0.09]";
+    "h-12 rounded-[13px] border-white/[0.12] bg-black/45 text-sm font-medium text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-xl placeholder:text-zinc-600 transition-[border-color,background-color,box-shadow] duration-300 hover:border-white/20 hover:bg-white/[0.045] focus-visible:border-orange-300/45 focus-visible:bg-black/55 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-orange-400/20 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(251,146,60,0.09),0_0_28px_-20px_rgba(251,146,60,0.85)]";
 
 const AUTH_PRIMARY_BUTTON_CLASS =
-    "h-[46px] w-full rounded-[14px] border border-white/[0.085] bg-zinc-950/60 text-sm font-semibold text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.075),0_18px_48px_-36px_rgba(255,255,255,0.24)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-white/[0.18] hover:bg-black/75 hover:text-white hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.11),0_22px_58px_-38px_rgba(255,255,255,0.28)] disabled:translate-y-0 disabled:border-white/[0.045] disabled:bg-zinc-900/25 disabled:text-zinc-600 disabled:shadow-none";
+    "auth-primary-button h-[48px] w-full rounded-[13px] border border-white/[0.13] bg-white/[0.045] text-sm font-semibold text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_44px_-36px_rgba(0,0,0,0.95)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-orange-300/42 hover:bg-orange-400/[0.11] hover:text-white hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_18px_46px_-34px_rgba(251,146,60,0.68)] focus-visible:ring-orange-400/25 disabled:translate-y-0 disabled:border-white/[0.075] disabled:bg-white/[0.025] disabled:text-zinc-600 disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]";
 
 const AUTH_MUTED_LINK_CLASS =
     "font-medium text-zinc-300 transition-colors hover:text-white";
@@ -686,14 +686,21 @@ export default function Login() {
        RENDER
     ═══════════════════════════════════════════════════════ */
     return (
-        <div className="auth-page relative isolate flex min-h-screen flex-col overflow-y-auto bg-[#030303] text-white">
+        <div className="auth-page auth-page--automotive relative isolate flex min-h-screen flex-col overflow-y-auto bg-[#030303] text-white">
             <div className="auth-spotlight-layer">
                 <AuthSpotlight className="auth-spotlight-main" fill="white" />
+            </div>
+            <div className="auth-automotive-reflections" aria-hidden="true">
+                <span className="auth-reflection auth-reflection--top-right" />
+                <span className="auth-reflection auth-reflection--bottom-left" />
+                <span className="auth-light-streak auth-light-streak--upper" />
+                <span className="auth-light-streak auth-light-streak--lower" />
+                <span className="auth-coating-gloss" />
             </div>
 
             <Link
                 to="/"
-                className="fixed left-5 top-5 z-20 inline-flex items-center gap-1.5 text-sm font-medium text-zinc-400 transition-colors duration-200 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20 sm:left-10 sm:top-10"
+                className="fixed left-5 top-5 z-20 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-500 transition-all duration-200 hover:bg-white/[0.035] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-300/25 sm:left-8 sm:top-8"
             >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 {t("nav.home")}
@@ -705,235 +712,236 @@ export default function Login() {
                     tab === "register" ? "justify-start sm:justify-center" : "justify-center"
                 )}
             >
-                <div className={cn("w-full animate-fade-in", tab === "register" ? "max-w-[28rem]" : "max-w-[27rem]")}>
-                    <div className={cn("text-center", tab === "register" ? "mb-6" : "mb-7")}>
-                        <Link
-                            to="/"
-                            className="group mb-5 inline-flex h-11 min-w-11 items-center justify-center rounded-[14px] border border-white/[0.08] bg-white/[0.035] px-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors duration-300 hover:bg-white/[0.055]"
-                            aria-label="AutoSPF+ Home"
-                        >
-                            <img
-                                src="/images/autospf-logo.png"
-                                alt="AutoSPF+"
-                                className="h-6 w-auto max-w-[80px] object-contain opacity-100 [filter:none]"
-                            />
-                        </Link>
-                        <AnimatePresence initial={false} mode="sync">
-                            <motion.h1
-                                key={tab === "register" ? "register-title" : "login-title"}
-                                initial={{ opacity: 0, y: 4 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -4 }}
-                                transition={LOGIN_TAB_CONTENT_TRANSITION}
-                                className="text-[1.875rem] font-semibold leading-tight tracking-normal text-zinc-50"
+                <div className={cn("w-full animate-fade-in", tab === "register" ? "max-w-[28rem]" : "max-w-[27.5rem]")}>
+                    <div className={cn("auth-login-card", tab === "register" ? "px-4 py-5 sm:px-5 sm:py-6" : "px-2 py-3 sm:px-3 sm:py-4")}>
+                        <div className={cn("text-center", tab === "register" ? "mb-6" : "mb-8")}>
+                            <Link
+                                to="/"
+                                className="auth-logo-badge group mb-6 inline-flex h-10 w-10 items-center justify-center overflow-hidden"
+                                aria-label="AutoSPF+ Home"
                             >
-                                {tab === "register" ? t("login.registerTitle") : t("login.title")}
-                            </motion.h1>
-                        </AnimatePresence>
-                        <AnimatePresence initial={false} mode="sync">
-                            <motion.p
-                                key={tab === "register" ? "register-sub" : "login-sub"}
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ ...LOGIN_TAB_CONTENT_TRANSITION, duration: 0.4 }}
-                                className="mt-2 text-sm leading-5 text-zinc-500"
-                            >
-                                {tab === "register" ? (
-                                    <>
-                                        {t("login.alreadyAccount")}{" "}
-                                        <button
-                                            type="button"
-                                            onClick={() => setTab("login")}
-                                            className="font-semibold text-zinc-200 transition-colors hover:text-white"
-                                        >
-                                            {t("login.signIn")}
-                                        </button>
-                                        .
-                                    </>
-                                ) : (
-                                    <>
-                                        {t("login.noAccount")}{" "}
-                                        <button
-                                            type="button"
-                                            onClick={() => setTab("register")}
-                                            className="font-semibold text-zinc-200 transition-colors hover:text-white"
-                                        >
-                                            {t("login.signUp")}
-                                        </button>
-                                        .
-                                    </>
-                                )}
-                            </motion.p>
-                        </AnimatePresence>
-                    </div>
+                                <img
+                                    src="/images/autospf-logo.png"
+                                    alt="AutoSPF+"
+                                    className="h-6 w-auto max-w-[2.05rem] object-contain opacity-100 [filter:none]"
+                                />
+                            </Link>
+                            <AnimatePresence initial={false} mode="sync">
+                                <motion.h1
+                                    key={tab === "register" ? "register-title" : "login-title"}
+                                    initial={{ opacity: 0, y: 4 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -4 }}
+                                    transition={LOGIN_TAB_CONTENT_TRANSITION}
+                                    className="text-[2rem] font-semibold leading-[1.05] tracking-normal text-zinc-50 sm:text-[2.35rem]"
+                                >
+                                    {tab === "register" ? t("login.registerTitle") : t("login.title")}
+                                </motion.h1>
+                            </AnimatePresence>
+                            <AnimatePresence initial={false} mode="sync">
+                                <motion.p
+                                    key={tab === "register" ? "register-sub" : "login-sub"}
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    transition={{ ...LOGIN_TAB_CONTENT_TRANSITION, duration: 0.4 }}
+                                    className="mx-auto mt-3 max-w-[20rem] text-sm leading-5 text-zinc-500"
+                                >
+                                    {tab === "register" ? (
+                                        <>
+                                            {t("login.alreadyAccount")}{" "}
+                                            <button
+                                                type="button"
+                                                onClick={() => setTab("login")}
+                                                className="font-semibold text-zinc-200 transition-colors hover:text-orange-200"
+                                            >
+                                                {t("login.signIn")}
+                                            </button>
+                                            .
+                                        </>
+                                    ) : (
+                                        <>
+                                            {t("login.noAccount")}{" "}
+                                            <button
+                                                type="button"
+                                                onClick={() => setTab("register")}
+                                                className="font-semibold text-zinc-200 transition-colors hover:text-orange-200"
+                                            >
+                                                {t("login.signUp")}
+                                            </button>
+                                            .
+                                        </>
+                                    )}
+                                </motion.p>
+                            </AnimatePresence>
+                        </div>
 
-                    <div className="relative mx-auto w-full">
-                        {/* ══ Form content — crossfade + animated height ══ */}
-                        <LoginAuthFormSwitcher
-                            activeTab={tab}
-                            visible={loginOtpStep === "form"}
-                            registerPanel={
-                                <div className="mx-auto w-full">
-                                    <ManualRegisterForm
-                                        onRegistrationComplete={(role) => performRedirect(role)}
-                                    />
-                                </div>
-                            }
-                            loginPanel={
-                                <div className="space-y-5">
-                                    <div className="space-y-1.5">
-                                        <label htmlFor="login-email" className="block text-[13px] font-medium text-zinc-400">
-                                            {t("login.email")}
-                                        </label>
-                                        <Input
-                                            ref={emailInputRef}
-                                            id="login-email"
-                                            name="email"
-                                            type="email"
-                                            autoComplete="email"
-                                            value={loginForm.email}
-                                            onChange={(e) => {
-                                                dismissLoginAuthToasts();
-                                                setLoginForm((f) => ({ ...f, email: e.target.value }));
-                                            }}
-                                            onKeyDown={handleLoginEmailKeyDown}
-                                            placeholder={t("login.emailPlaceholder")}
-                                            className={AUTH_INPUT_CLASS}
+                        <div className="relative mx-auto w-full">
+                            {/* ══ Form content — crossfade + animated height ══ */}
+                            <LoginAuthFormSwitcher
+                                activeTab={tab}
+                                visible={loginOtpStep === "form"}
+                                registerPanel={
+                                    <div className="mx-auto w-full">
+                                        <ManualRegisterForm
+                                            onRegistrationComplete={(role) => performRedirect(role)}
                                         />
                                     </div>
+                                }
+                                loginPanel={
+                                    <div className="space-y-5">
+                                        <div className="space-y-1.5">
+                                            <label htmlFor="login-email" className="block text-[13px] font-medium text-zinc-400">
+                                                {t("login.email")}
+                                            </label>
+                                            <Input
+                                                ref={emailInputRef}
+                                                id="login-email"
+                                                name="email"
+                                                type="email"
+                                                autoComplete="email"
+                                                value={loginForm.email}
+                                                onChange={(e) => {
+                                                    dismissLoginAuthToasts();
+                                                    setLoginForm((f) => ({ ...f, email: e.target.value }));
+                                                }}
+                                                onKeyDown={handleLoginEmailKeyDown}
+                                                placeholder={t("login.emailPlaceholder")}
+                                                className={AUTH_INPUT_CLASS}
+                                            />
+                                        </div>
 
-                                    <AnimatePresence initial={false}>
-                                        {isPasswordStep && (
-                                            <motion.div
-                                                key="login-password-step"
-                                                initial={{ opacity: 0, y: -6, height: 0 }}
-                                                animate={{ opacity: 1, y: 0, height: "auto" }}
-                                                exit={{ opacity: 0, y: -6, height: 0 }}
-                                                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] as const }}
-                                                className="overflow-hidden"
-                                            >
-                                                <div className="space-y-3">
-                                                    <div className="space-y-1.5">
-                                                        <div className="flex items-center justify-between gap-4">
-                                                            <label htmlFor="login-password" className="block text-[13px] font-medium text-zinc-400">
-                                                                {t("login.password")}
-                                                            </label>
-                                                            <button
-                                                                type="button"
-                                                                onClick={handleForgotPasswordClick}
-                                                                className={cn("text-xs", AUTH_MUTED_LINK_CLASS)}
-                                                            >
-                                                                {t("login.forgotPassword")}
-                                                            </button>
+                                        <AnimatePresence initial={false}>
+                                            {isPasswordStep && (
+                                                <motion.div
+                                                    key="login-password-step"
+                                                    initial={{ opacity: 0, y: -6, height: 0 }}
+                                                    animate={{ opacity: 1, y: 0, height: "auto" }}
+                                                    exit={{ opacity: 0, y: -6, height: 0 }}
+                                                    transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] as const }}
+                                                    className="overflow-hidden"
+                                                >
+                                                    <div className="space-y-3">
+                                                        <div className="space-y-1.5">
+                                                            <div className="flex items-center justify-between gap-4">
+                                                                <label htmlFor="login-password" className="block text-[13px] font-medium text-zinc-400">
+                                                                    {t("login.password")}
+                                                                </label>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={handleForgotPasswordClick}
+                                                                    className={cn("text-xs", AUTH_MUTED_LINK_CLASS)}
+                                                                >
+                                                                    {t("login.forgotPassword")}
+                                                                </button>
+                                                            </div>
+                                                            <div className="relative">
+                                                                <Input
+                                                                    ref={passwordInputRef}
+                                                                    id="login-password"
+                                                                    name="password"
+                                                                    type={showPassword ? "text" : "password"}
+                                                                    autoComplete="current-password"
+                                                                    value={loginForm.password}
+                                                                    onChange={(e) => {
+                                                                        dismissLoginAuthToasts();
+                                                                        setLoginForm((f) => ({ ...f, password: e.target.value }));
+                                                                    }}
+                                                                    placeholder={t("login.passwordPlaceholder")}
+                                                                    className={cn(AUTH_INPUT_CLASS, "pr-11")}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === "Enter") {
+                                                                            e.preventDefault();
+                                                                            handlePasswordLoginAttempt();
+                                                                        }
+                                                                    }}
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setShowPassword(!showPassword)}
+                                                                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-orange-200"
+                                                                    aria-label={showPassword ? "Hide password" : "Show password"}
+                                                                >
+                                                                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                                </button>
+                                                            </div>
                                                         </div>
-                                                        <div className="relative">
-                                                            <Input
-                                                                ref={passwordInputRef}
-                                                                id="login-password"
-                                                                name="password"
-                                                                type={showPassword ? "text" : "password"}
-                                                                autoComplete="current-password"
-                                                                value={loginForm.password}
-                                                                onChange={(e) => {
-                                                                    dismissLoginAuthToasts();
-                                                                    setLoginForm((f) => ({ ...f, password: e.target.value }));
-                                                                }}
-                                                                placeholder={t("login.passwordPlaceholder")}
-                                                                className={cn(AUTH_INPUT_CLASS, "pr-11")}
-                                                                onKeyDown={(e) => {
-                                                                    if (e.key === "Enter") {
-                                                                        e.preventDefault();
-                                                                        handlePasswordLoginAttempt();
-                                                                    }
-                                                                }}
-                                                            />
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setShowPassword(!showPassword)}
-                                                                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-zinc-200"
-                                                                aria-label={showPassword ? "Hide password" : "Show password"}
-                                                            >
-                                                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                                            </button>
-                                                        </div>
+
                                                     </div>
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
 
-                                                </div>
-                                            </motion.div>
-                                        )}
-                                    </AnimatePresence>
+                                        <Button
+                                            type="button"
+                                            onClick={() => {
+                                                if (isPasswordStep) void handlePasswordLoginAttempt();
+                                                else void handleLoginEmailContinue();
+                                            }}
+                                            className={cn(AUTH_PRIMARY_BUTTON_CLASS, "auth-login-button")}
+                                            disabled={isLoginButtonDisabled}
+                                        >
+                                            {showLoginButtonDots ? (
+                                                <span className="auth-button-dots" aria-label="Loading">
+                                                    <span />
+                                                    <span />
+                                                    <span />
+                                                </span>
+                                            ) : (
+                                                t("login.signIn")
+                                            )}
+                                        </Button>
 
-                                    <Button
-                                        type="button"
-                                        onClick={() => {
-                                            if (isPasswordStep) void handlePasswordLoginAttempt();
-                                            else void handleLoginEmailContinue();
-                                        }}
-                                        className={cn(AUTH_PRIMARY_BUTTON_CLASS, "auth-login-button")}
-                                        disabled={isLoginButtonDisabled}
-                                    >
-                                        {showLoginButtonDots ? (
-                                            <span className="auth-button-dots" aria-label="Loading">
-                                                <span />
-                                                <span />
-                                                <span />
-                                            </span>
-                                        ) : (
-                                            t("login.signIn")
-                                        )}
-                                    </Button>
-
-                                    <p className="mx-auto max-w-[25rem] text-center text-xs leading-5 text-zinc-500">
-                                        {t("login.legalPrefix")}{" "}
-                                        <Link to="/#terms-of-service" className="text-zinc-300 underline decoration-white/25 underline-offset-4 transition-colors hover:text-white">
-                                            {t("footer.terms")}
-                                        </Link>{" "}
-                                        {t("login.legalAnd")}{" "}
-                                        <Link to="/#privacy-policy" className="text-zinc-300 underline decoration-white/25 underline-offset-4 transition-colors hover:text-white">
-                                            {t("footer.privacy")}
-                                        </Link>
-                                        .
-                                    </p>
-                                </div>
-                            }
-                        />
-
-                        {loginOtpStep === "otp" && (
-                            <div className="mx-auto max-w-[30rem] animate-slide-up space-y-6">
-                                <div className="space-y-3 text-center">
-                                    <div className="mb-2 inline-flex h-12 w-12 items-center justify-center rounded-[16px] border border-white/[0.08] bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-                                        <ShieldCheck className="h-6 w-6 text-zinc-200" />
+                                        <p className="mx-auto max-w-[25rem] text-center text-xs leading-5 text-zinc-500">
+                                            {t("login.legalPrefix")}{" "}
+                                            <Link to="/#terms-of-service" className="text-zinc-300 underline decoration-white/25 underline-offset-4 transition-colors hover:text-orange-100">
+                                                {t("footer.terms")}
+                                            </Link>{" "}
+                                            {t("login.legalAnd")}{" "}
+                                            <Link to="/#privacy-policy" className="text-zinc-300 underline decoration-white/25 underline-offset-4 transition-colors hover:text-orange-100">
+                                                {t("footer.privacy")}
+                                            </Link>
+                                            .
+                                        </p>
                                     </div>
-                                    <h2 className="text-xl font-semibold text-zinc-50">{t("login.otpTitle")}</h2>
-                                    <p className="text-sm leading-6 text-zinc-500">
-                                        {t("login.otpSent")}{" "}
-                                        <span className="font-semibold text-zinc-200">{loginMaskedEmail}</span>
-                                    </p>
-                                </div>
+                                }
+                            />
 
-                                {loginOtpExpiry > 0 && (
-                                    <div className="flex items-center justify-center gap-1.5 text-xs text-zinc-500">
-                                        <Clock className="h-3.5 w-3.5" />
-                                        <span>{t("login.otpExpires")}{" "}
-                                            <span className={cn("font-mono font-semibold", loginOtpExpiry <= 60 ? "text-red-300" : "text-zinc-200")}>
-                                                {String(Math.floor(loginOtpExpiry / 60)).padStart(2, "0")}:{String(loginOtpExpiry % 60).padStart(2, "0")}
-                                            </span>
-                                        </span>
+                            {loginOtpStep === "otp" && (
+                                <div className="mx-auto max-w-[30rem] animate-slide-up space-y-6">
+                                    <div className="space-y-3 text-center">
+                                        <div className="mb-2 inline-flex h-12 w-12 items-center justify-center rounded-[16px] border border-white/[0.08] bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                                            <ShieldCheck className="h-6 w-6 text-zinc-200" />
+                                        </div>
+                                        <h2 className="text-xl font-semibold text-zinc-50">{t("login.otpTitle")}</h2>
+                                        <p className="text-sm leading-6 text-zinc-500">
+                                            {t("login.otpSent")}{" "}
+                                            <span className="font-semibold text-zinc-200">{loginMaskedEmail}</span>
+                                        </p>
                                     </div>
-                                )}
-                                {loginOtpExpiry === 0 && (
-                                    <p className="text-center text-xs text-red-300">{t("login.otpExpired")}</p>
-                                )}
 
-                                <div
-                                    className={cn(
-                                        "flex justify-center gap-2 transition-all",
-                                        loginOtpShake && "animate-[shake_0.4s_ease-in-out]"
+                                    {loginOtpExpiry > 0 && (
+                                        <div className="flex items-center justify-center gap-1.5 text-xs text-zinc-500">
+                                            <Clock className="h-3.5 w-3.5" />
+                                            <span>{t("login.otpExpires")}{" "}
+                                                <span className={cn("font-mono font-semibold", loginOtpExpiry <= 60 ? "text-red-300" : "text-zinc-200")}>
+                                                    {String(Math.floor(loginOtpExpiry / 60)).padStart(2, "0")}:{String(loginOtpExpiry % 60).padStart(2, "0")}
+                                                </span>
+                                            </span>
+                                        </div>
                                     )}
-                                    style={loginOtpShake ? { animation: "shake 0.4s ease-in-out" } : undefined}
-                                >
-                                    <style>{`
+                                    {loginOtpExpiry === 0 && (
+                                        <p className="text-center text-xs text-red-300">{t("login.otpExpired")}</p>
+                                    )}
+
+                                    <div
+                                        className={cn(
+                                            "flex justify-center gap-2 transition-all",
+                                            loginOtpShake && "animate-[shake_0.4s_ease-in-out]"
+                                        )}
+                                        style={loginOtpShake ? { animation: "shake 0.4s ease-in-out" } : undefined}
+                                    >
+                                        <style>{`
                                         @keyframes shake {
                                           0%,100%{transform:translateX(0)}
                                           20%{transform:translateX(-6px)}
@@ -942,83 +950,84 @@ export default function Login() {
                                           80%{transform:translateX(4px)}
                                         }
                                     `}</style>
-                                    {loginOtpDigits.map((digit, idx) => (
-                                        <input
-                                            key={idx}
-                                            ref={(el) => { loginOtpInputRefs.current[idx] = el; }}
-                                            type="text"
-                                            inputMode="numeric"
-                                            maxLength={1}
-                                            value={digit}
-                                            onChange={(e) => handleLoginOtpChange(idx, e.target.value)}
-                                            onKeyDown={(e) => handleLoginOtpKeyDown(idx, e)}
-                                            onPaste={idx === 0 ? handleLoginOtpPaste : undefined}
-                                            className={cn(
-                                                "h-14 w-11 rounded-[14px] border text-center text-xl font-semibold text-white shadow-inner transition-all duration-200 focus:outline-none focus:ring-1 focus:ring-white/[0.10]",
-                                                digit ? "border-white/28 bg-white/[0.08]" : "border-white/[0.12] bg-white/[0.045]",
-                                                "focus:border-white/35"
-                                            )}
-                                        />
-                                    ))}
-                                </div>
-
-                                {loginOtpError && (
-                                    <div className="flex items-start gap-2 rounded-[14px] border border-red-500/25 bg-red-500/[0.08] px-3 py-2.5 text-xs text-red-200">
-                                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                                        <span>{loginOtpError}</span>
+                                        {loginOtpDigits.map((digit, idx) => (
+                                            <input
+                                                key={idx}
+                                                ref={(el) => { loginOtpInputRefs.current[idx] = el; }}
+                                                type="text"
+                                                inputMode="numeric"
+                                                maxLength={1}
+                                                value={digit}
+                                                onChange={(e) => handleLoginOtpChange(idx, e.target.value)}
+                                                onKeyDown={(e) => handleLoginOtpKeyDown(idx, e)}
+                                                onPaste={idx === 0 ? handleLoginOtpPaste : undefined}
+                                                className={cn(
+                                                    "h-14 w-11 rounded-[14px] border text-center text-xl font-semibold text-white shadow-inner transition-all duration-200 focus:outline-none focus:ring-1 focus:ring-white/[0.10]",
+                                                    digit ? "border-white/28 bg-white/[0.08]" : "border-white/[0.12] bg-white/[0.045]",
+                                                    "focus:border-white/35"
+                                                )}
+                                            />
+                                        ))}
                                     </div>
-                                )}
 
-                                <Button
-                                    onClick={handleVerifyLoginOtp}
-                                    className={AUTH_PRIMARY_BUTTON_CLASS}
-                                    disabled={loginOtpDigits.some((d) => !d) || loginOtpVerifying}
-                                >
-                                    {loginOtpVerifying ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <ShieldCheck className="mr-2 h-4 w-4" />
+                                    {loginOtpError && (
+                                        <div className="flex items-start gap-2 rounded-[14px] border border-red-500/25 bg-red-500/[0.08] px-3 py-2.5 text-xs text-red-200">
+                                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                                            <span>{loginOtpError}</span>
+                                        </div>
                                     )}
-                                    {loginOtpVerifying ? t("login.otpVerifying") : t("login.otpVerify")}
-                                </Button>
 
-                                <div className="flex items-center justify-between text-xs">
-                                    <button
-                                        onClick={() => {
-                                            setLoginOtpStep("form");
-                                            setPendingUserId("");
-                                            setLoginMaskedEmail("");
-                                            setLoginOtpDigits(["", "", "", "", "", ""]);
-                                            setLoginOtpError("");
-                                        }}
-                                        className="flex items-center gap-1 text-zinc-500 transition-colors hover:text-zinc-200"
+                                    <Button
+                                        onClick={handleVerifyLoginOtp}
+                                        className={AUTH_PRIMARY_BUTTON_CLASS}
+                                        disabled={loginOtpDigits.some((d) => !d) || loginOtpVerifying}
                                     >
-                                        <ArrowLeft className="h-3.5 w-3.5" />
-                                        {t("login.otpBack")}
-                                    </button>
-
-                                    <button
-                                        onClick={handleResendLoginOtp}
-                                        disabled={loginOtpResend > 0 || loginOtpResending}
-                                        className={cn(
-                                            "flex items-center gap-1 transition-colors",
-                                            loginOtpResend > 0 || loginOtpResending
-                                                ? "cursor-not-allowed text-zinc-600"
-                                                : AUTH_MUTED_LINK_CLASS
-                                        )}
-                                    >
-                                        {loginOtpResending ? (
-                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        {loginOtpVerifying ? (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                         ) : (
-                                            <RefreshCw className="h-3.5 w-3.5" />
+                                            <ShieldCheck className="mr-2 h-4 w-4" />
                                         )}
-                                        {loginOtpResend > 0
-                                            ? t("login.otpResendCountdown").replace("{n}", String(loginOtpResend))
-                                            : t("login.otpResend")}
-                                    </button>
+                                        {loginOtpVerifying ? t("login.otpVerifying") : t("login.otpVerify")}
+                                    </Button>
+
+                                    <div className="flex items-center justify-between text-xs">
+                                        <button
+                                            onClick={() => {
+                                                setLoginOtpStep("form");
+                                                setPendingUserId("");
+                                                setLoginMaskedEmail("");
+                                                setLoginOtpDigits(["", "", "", "", "", ""]);
+                                                setLoginOtpError("");
+                                            }}
+                                            className="flex items-center gap-1 text-zinc-500 transition-colors hover:text-zinc-200"
+                                        >
+                                            <ArrowLeft className="h-3.5 w-3.5" />
+                                            {t("login.otpBack")}
+                                        </button>
+
+                                        <button
+                                            onClick={handleResendLoginOtp}
+                                            disabled={loginOtpResend > 0 || loginOtpResending}
+                                            className={cn(
+                                                "flex items-center gap-1 transition-colors",
+                                                loginOtpResend > 0 || loginOtpResending
+                                                    ? "cursor-not-allowed text-zinc-600"
+                                                    : AUTH_MUTED_LINK_CLASS
+                                            )}
+                                        >
+                                            {loginOtpResending ? (
+                                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            ) : (
+                                                <RefreshCw className="h-3.5 w-3.5" />
+                                            )}
+                                            {loginOtpResend > 0
+                                                ? t("login.otpResendCountdown").replace("{n}", String(loginOtpResend))
+                                                : t("login.otpResend")}
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
