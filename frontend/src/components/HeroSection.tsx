@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Star } from "lucide-react";
 import { motion } from "framer-motion";
@@ -6,12 +6,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { en } from "@/translations/en";
 import { fil } from "@/translations/fil";
 
-const TYPING_SPEED = 55;
-const DELETING_SPEED = 30;
-const PAUSE_AFTER_WORD = 1400;
-const PAUSE_BEFORE_TYPE = 200;
 const HERO_VIDEO_SRC = "/videos/hero-autospf.mp4";
-const HERO_VIDEO_POSTER_SRC = "/images/hero/hero-video-poster.webp";
+const HERO_IMAGE_SRC = "/images/hero/hero-hood-detailing.webp";
 
 const HERO_SERVICE_KEYS = [
     "ceramicCoating",
@@ -22,25 +18,15 @@ const HERO_SERVICE_KEYS = [
 
 export default function HeroSection() {
     const { lang, t } = useLanguage();
-    const typingWords = useMemo(
-        () => (lang === "fil" ? fil.hero.typingWords : en.hero.typingWords),
-        [lang]
+    const heroHighlight = useMemo(
+        () => (lang === "fil" ? fil.hero.typingWords : en.hero.typingWords)[0] || t("hero.titleHighlight"),
+        [lang, t]
     );
     const [activeServiceKey, setActiveServiceKey] = useState<(typeof HERO_SERVICE_KEYS)[number]>("ceramicCoating");
-    const [displayText, setDisplayText] = useState("");
-    const [wordIndex, setWordIndex] = useState(0);
-    const [showCursor, setShowCursor] = useState(true);
     const [heroVideoFailed, setHeroVideoFailed] = useState(false);
     const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
         typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
     );
-    const videoRef = useRef<HTMLVideoElement>(null);
-
-    // Cursor blink
-    useEffect(() => {
-        const blink = setInterval(() => setShowCursor((c) => !c), 530);
-        return () => clearInterval(blink);
-    }, []);
 
     useEffect(() => {
         const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -52,137 +38,42 @@ export default function HeroSection() {
         return () => mediaQuery.removeEventListener("change", updateMotionPreference);
     }, []);
 
-    // Typing engine & Video playback resilience
-    useEffect(() => {
-        let timeout: ReturnType<typeof setTimeout>;
-        let isCancelled = false;
-        let currentText = "";
-        let isDeletingLocal = false;
-        let wordIdx = 0;
-
-        setWordIndex(wordIdx);
-        setDisplayText(currentText);
-
-        const tick = () => {
-            if (isCancelled) return;
-            const currentWord = typingWords[wordIdx] || "";
-            
-            // Fallback for visibility change - if tab is hidden, complete the word immediately
-            if (document.hidden) {
-                if (!isDeletingLocal && currentText.length < currentWord.length) {
-                    currentText = currentWord;
-                    setDisplayText(currentText);
-                }
-                timeout = setTimeout(tick, PAUSE_AFTER_WORD);
-                return;
-            }
-            
-            if (!isDeletingLocal) {
-                if (currentText.length < currentWord.length) {
-                    currentText = currentWord.slice(0, currentText.length + 1);
-                    setDisplayText(currentText);
-                    timeout = setTimeout(tick, TYPING_SPEED);
-                } else {
-                    isDeletingLocal = true;
-                    timeout = setTimeout(tick, PAUSE_AFTER_WORD);
-                }
-            } else {
-                if (currentText.length > 0) {
-                    currentText = currentWord.slice(0, currentText.length - 1);
-                    setDisplayText(currentText);
-                    timeout = setTimeout(tick, DELETING_SPEED);
-                } else {
-                    isDeletingLocal = false;
-                    wordIdx = (wordIdx + 1) % typingWords.length;
-                    currentText = "";
-                    setWordIndex(wordIdx);
-                    setDisplayText(currentText);
-                    timeout = setTimeout(tick, PAUSE_BEFORE_TYPE);
-                }
-            }
-        };
-
-        timeout = setTimeout(tick, TYPING_SPEED);
-
-        const handleVisibilityChange = () => {
-            if (document.hidden) {
-                const currentWord = typingWords[wordIdx] || "";
-                if (!isDeletingLocal && currentText.length < currentWord.length) {
-                    currentText = currentWord;
-                    setDisplayText(currentText);
-                }
-            } else {
-                // Resume video when returning to the tab
-                const video = videoRef.current;
-                if (video && video.paused) {
-                    video.play().catch(() => {});
-                }
-            }
-        };
-
-        document.addEventListener("visibilitychange", handleVisibilityChange);
-
-        return () => {
-            isCancelled = true;
-            clearTimeout(timeout);
-            document.removeEventListener("visibilitychange", handleVisibilityChange);
-        };
-    }, [typingWords]);
-
-    // Initial video play attempt
-    useEffect(() => {
-        const video = videoRef.current;
-        if (!video) return;
-
-        const attemptPlay = () => {
-            if (video.paused) {
-                video.play().catch(() => {});
-            }
-        };
-
-        attemptPlay();
-        video.addEventListener("canplay", attemptPlay);
-        video.addEventListener("loadeddata", attemptPlay);
-        
-        return () => {
-            video.removeEventListener("canplay", attemptPlay);
-            video.removeEventListener("loadeddata", attemptPlay);
-        };
-    }, [prefersReducedMotion, heroVideoFailed]);
-
     return (
         <section
             className="relative min-h-screen w-full flex items-center overflow-hidden"
             style={{
                 background:
-                    "radial-gradient(ellipse 62% 48% at 66% 16%, rgba(128,143,153,0.14) 0%, rgba(38,46,56,0.08) 34%, transparent 68%), radial-gradient(ellipse 44% 36% at 46% 46%, rgba(224,150,44,0.08) 0%, rgba(169,88,24,0.035) 38%, transparent 72%), linear-gradient(145deg, #020306 0%, #07070A 44%, #030407 100%)",
+                    "radial-gradient(ellipse 62% 48% at 66% 16%, rgba(255,228,177,0.12) 0%, rgba(68,52,32,0.08) 34%, transparent 68%), radial-gradient(ellipse 44% 36% at 46% 46%, rgba(224,150,44,0.1) 0%, rgba(169,88,24,0.04) 38%, transparent 72%), linear-gradient(145deg, #010204 0%, #07070A 44%, #020306 100%)",
             }}
         >
 
             {/* Full-bleed hero media — wide soft fade (avoids hard vertical seam under nav) */}
             <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden border-0">
-                <img
-                    src={HERO_VIDEO_POSTER_SRC}
-                    alt=""
-                    aria-hidden
-                    width={1920}
-                    height={1080}
-                    decoding="async"
-                    fetchPriority="high"
-                    className="absolute inset-0 z-0 h-full w-full object-cover object-[47%_52%] opacity-100 sm:object-[48%_52%] lg:object-[47%_51%]"
-                />
+                {(prefersReducedMotion || heroVideoFailed) && (
+                    <img
+                        src={HERO_IMAGE_SRC}
+                        alt=""
+                        aria-hidden
+                        width={1920}
+                        height={1080}
+                        decoding="async"
+                        fetchPriority="high"
+                        className="absolute inset-0 z-0 h-full w-full object-cover object-[47%_52%] opacity-100 sm:object-[48%_52%] lg:object-[47%_51%]"
+                        style={{ filter: "saturate(1.08) contrast(1.08) brightness(0.92)" }}
+                    />
+                )}
                 {!prefersReducedMotion && !heroVideoFailed && (
                     <video
-                        ref={videoRef}
                         aria-hidden
                         autoPlay
                         muted
                         loop
                         playsInline
-                        preload="metadata"
-                        poster={HERO_VIDEO_POSTER_SRC}
+                        preload="auto"
+                        poster={HERO_IMAGE_SRC}
                         onError={() => setHeroVideoFailed(true)}
                         className="absolute inset-0 z-[1] h-full w-full object-cover object-[47%_52%] opacity-100 sm:object-[48%_52%] lg:object-[47%_51%]"
+                        style={{ filter: "saturate(1.08) contrast(1.08) brightness(0.92)" }}
                     >
                         <source src={HERO_VIDEO_SRC} type="video/mp4" />
                     </video>
@@ -192,7 +83,7 @@ export default function HeroSection() {
                     aria-hidden
                     style={{
                         background:
-                            "linear-gradient(90deg, rgba(2,3,6,0.5) 0%, rgba(2,3,6,0.18) 34%, rgba(2,3,6,0.08) 100%)",
+                            "linear-gradient(90deg, rgba(1,2,4,0.72) 0%, rgba(3,4,7,0.5) 28%, rgba(6,7,9,0.18) 56%, rgba(2,3,6,0.06) 100%), linear-gradient(to bottom, rgba(1,2,4,0.18) 0%, transparent 38%, rgba(1,2,4,0.4) 100%)",
                     }}
                 />
                 <div
@@ -200,9 +91,9 @@ export default function HeroSection() {
                     aria-hidden
                     style={{
                         background:
-                            "radial-gradient(ellipse 78% 58% at 68% 20%, rgba(223,232,235,0.24) 0%, rgba(97,113,124,0.12) 29%, rgba(7,7,10,0.02) 62%, transparent 76%), radial-gradient(ellipse 42% 34% at 50% 54%, rgba(239,156,54,0.09) 0%, rgba(166,83,22,0.035) 38%, transparent 74%)",
+                            "radial-gradient(ellipse 74% 54% at 68% 18%, rgba(255,239,202,0.16) 0%, rgba(147,112,70,0.08) 28%, rgba(7,7,10,0.015) 62%, transparent 78%), radial-gradient(ellipse 42% 34% at 50% 54%, rgba(239,156,54,0.1) 0%, rgba(166,83,22,0.04) 38%, transparent 74%)",
                         mixBlendMode: "screen",
-                        opacity: 0.82,
+                        opacity: 0.68,
                     }}
                 />
                 <div
@@ -210,11 +101,11 @@ export default function HeroSection() {
                     aria-hidden
                     style={{
                         background:
-                            "radial-gradient(ellipse 100% 82% at 66% 24%, transparent 0%, transparent 48%, rgba(2,3,6,0.32) 78%, rgba(2,3,6,0.68) 100%), radial-gradient(ellipse 50% 34% at 78% 92%, rgba(207,115,32,0.08) 0%, transparent 68%)",
+                            "radial-gradient(ellipse 100% 82% at 66% 24%, transparent 0%, transparent 46%, rgba(2,3,6,0.34) 78%, rgba(1,2,4,0.72) 100%), radial-gradient(ellipse 50% 34% at 78% 92%, rgba(207,115,32,0.08) 0%, transparent 68%)",
                     }}
                 />
                 <div
-                    className="absolute inset-0 z-[5] opacity-[0.045]"
+                    className="absolute inset-0 z-[5] opacity-[0.035]"
                     aria-hidden
                     style={{
                         backgroundImage:
@@ -227,14 +118,14 @@ export default function HeroSection() {
                     aria-hidden
                     style={{
                         background:
-                            "linear-gradient(100deg, rgba(2,3,6,0.96) 0%, rgba(3,4,7,0.78) 25%, rgba(7,7,10,0.34) 46%, rgba(7,7,10,0.1) 67%, rgba(7,7,10,0.02) 100%), linear-gradient(to bottom, rgba(2,3,6,0.14) 0%, transparent 42%, rgba(2,3,6,0.42) 100%)",
+                            "linear-gradient(100deg, rgba(1,2,4,0.98) 0%, rgba(5,5,7,0.92) 24%, rgba(13,11,8,0.58) 43%, rgba(8,8,9,0.2) 64%, rgba(5,5,6,0.04) 100%), radial-gradient(ellipse 60% 64% at 20% 48%, rgba(40,27,10,0.46) 0%, rgba(5,6,8,0.18) 58%, transparent 78%), linear-gradient(to bottom, rgba(2,3,6,0.2) 0%, transparent 42%, rgba(1,2,4,0.52) 100%)",
                     }}
                 />
                 <div
                     className="absolute inset-0 z-10 lg:hidden"
                     aria-hidden
                     style={{
-                        background: "linear-gradient(to top, rgba(2,3,6,0.96) 0%, rgba(3,4,7,0.78) 46%, rgba(7,7,10,0.24) 100%), linear-gradient(90deg, rgba(2,3,6,0.76) 0%, rgba(7,7,10,0.12) 100%), radial-gradient(ellipse 80% 56% at 64% 18%, rgba(171,188,198,0.14) 0%, transparent 66%)",
+                        background: "linear-gradient(to top, rgba(1,2,4,0.98) 0%, rgba(3,4,7,0.82) 46%, rgba(7,7,10,0.28) 100%), linear-gradient(90deg, rgba(1,2,4,0.82) 0%, rgba(7,7,10,0.14) 100%), radial-gradient(ellipse 80% 56% at 64% 18%, rgba(255,225,170,0.1) 0%, transparent 66%)",
                     }}
                 />
             </div>
@@ -248,24 +139,30 @@ export default function HeroSection() {
 
 
                     <div
-                        className="mb-5 inline-flex w-fit items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f4c96b]/85 animate-slide-up"
+                        className="mb-5 inline-flex w-fit items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f6d78a]/90 drop-shadow-[0_8px_18px_rgba(0,0,0,0.52)] animate-slide-up"
                         style={{ animationDelay: "0.12s" }}
                     >
-                        <span className="h-px w-9 bg-gradient-to-r from-[#f4c96b] to-transparent" aria-hidden />
+                        <span className="h-px w-9 bg-gradient-to-r from-[#ffe2a1] via-[#f4c96b] to-transparent shadow-[0_0_18px_rgba(244,201,107,0.28)]" aria-hidden />
                         {t("hero.badge")}
                     </div>
 
                     {/* Headline */}
                     <h1
-                        className="flex max-w-[760px] flex-col text-5xl font-serif font-medium leading-[1.03] text-white sm:text-6xl lg:text-[72px] xl:text-[78px] animate-slide-up"
+                        className="flex max-w-[760px] flex-col text-5xl font-serif font-medium leading-[1.03] text-white drop-shadow-[0_16px_30px_rgba(0,0,0,0.62)] sm:text-6xl lg:text-[72px] xl:text-[78px] animate-slide-up"
                         style={{ animationDelay: "0.2s" }}
                     >
-                        <span className="pb-1 text-white/95">{t("hero.titleLine1")}</span>
-                        <span className="pb-1 text-white/88">{t("hero.titleLine2")}</span>
-                        <span className="block min-h-[1.08em] italic font-semibold text-[#f4b43f] drop-shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
-                            {displayText.split("").map((char, i) => (
+                        <span className="pb-1 text-white/98">{t("hero.titleLine1")}</span>
+                        <span className="pb-1 text-white/92">{t("hero.titleLine2")}</span>
+                        <span
+                            className="block min-h-[1.08em] italic font-semibold text-[#f5bd4e]"
+                            style={{
+                                textShadow:
+                                    "0 12px 30px rgba(0,0,0,0.58), 0 0 24px rgba(244,180,63,0.2)",
+                            }}
+                        >
+                            {heroHighlight.split("").map((char, i) => (
                                 <motion.span
-                                    key={`${wordIndex}-${i}`}
+                                    key={`${heroHighlight}-${i}`}
                                     initial={{ opacity: 0, y: 8 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
@@ -274,39 +171,26 @@ export default function HeroSection() {
                                     {char}
                                 </motion.span>
                             ))}
-                            <span
-                                className="inline-block ml-[2px] align-middle"
-                                style={{
-                                    width: "2px",
-                                    height: "0.85em",
-                                    background: showCursor ? "#f4b43f" : "transparent",
-                                    boxShadow: showCursor ? "0 0 12px rgba(244,180,63,0.5), 0 0 4px rgba(244,180,63,0.72)" : "none",
-                                    borderRadius: "1px",
-                                    transition: "all 0.1s ease",
-                                    verticalAlign: "middle",
-                                    marginBottom: "4px",
-                                }}
-                            />
                         </span>
                     </h1>
 
                     {/* Subtitle */}
-                    <p className="mt-7 max-w-[34rem] text-base leading-7 font-sans text-white/72 animate-slide-up" style={{ animationDelay: "0.4s" }}>
+                    <p className="mt-7 max-w-[35rem] text-base leading-[1.78] font-sans text-white/78 drop-shadow-[0_10px_20px_rgba(0,0,0,0.52)] animate-slide-up" style={{ animationDelay: "0.4s" }}>
                         {t("hero.subtitle")}
                     </p>
 
                     {/* Rating */}
                     <div
-                        className="my-8 inline-flex w-fit items-center gap-3 rounded-full border border-white/[0.105] bg-white/[0.045] px-3.5 py-2 shadow-[0_12px_28px_rgba(0,0,0,0.18)] backdrop-blur-md animate-slide-up"
+                        className="my-8 inline-flex w-fit items-center gap-3 rounded-full border border-[#f4c96b]/24 bg-[linear-gradient(135deg,rgba(255,255,255,0.115),rgba(255,255,255,0.04)_48%,rgba(7,7,10,0.58))] px-3.5 py-2 shadow-[0_16px_36px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.11)] backdrop-blur-md animate-slide-up"
                         style={{ animationDelay: "0.5s" }}
                         aria-label={`${t("stats.rating")}: 4.9, ${t("hero.reviews")}`}
                     >
-                        <span className="flex h-8 min-w-[3rem] items-center justify-center text-[28px] font-serif font-light leading-none text-white/96 tabular-nums">
+                        <span className="flex h-8 min-w-[3rem] items-center justify-center text-[28px] font-serif font-light leading-none text-white/95 tabular-nums">
                             <span className="block -translate-y-[5px]">4.9</span>
                         </span>
-                        <span className="h-6 w-px bg-white/[0.12]" aria-hidden />
+                        <span className="h-6 w-px bg-gradient-to-b from-transparent via-[#f4c96b]/22 to-transparent" aria-hidden />
                         <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-[1px] text-[#f4b43f]/95">
+                            <div className="flex items-center gap-[1px] text-[#f7c760]">
                                 {[...Array(5)].map((_, i) => (
                                     <motion.div
                                         key={i}
@@ -320,7 +204,7 @@ export default function HeroSection() {
                                     </motion.div>
                                 ))}
                             </div>
-                            <span className="text-[10px] font-sans font-medium uppercase tracking-[0.1em] text-white/60">
+                            <span className="text-[10px] font-sans font-medium uppercase tracking-[0.1em] text-white/74">
                                 {t("stats.rating")} · {t("hero.reviews")}
                             </span>
                         </div>
@@ -344,16 +228,16 @@ export default function HeroSection() {
                     </div>
 
                     {/* Service tags */}
-                    <div className="mt-3 grid max-w-[15rem] grid-cols-1 gap-2 animate-slide-up font-sans opacity-[0.88] transition-opacity duration-300 hover:opacity-100 sm:max-w-[600px] sm:flex sm:flex-wrap sm:items-center sm:gap-2" style={{ animationDelay: "0.7s" }}>
+                    <div className="mt-3 grid max-w-[15rem] grid-cols-1 gap-2 animate-slide-up font-sans opacity-[0.92] transition-opacity duration-300 hover:opacity-100 sm:max-w-[600px] sm:flex sm:flex-wrap sm:items-center sm:gap-2" style={{ animationDelay: "0.7s" }}>
                         {HERO_SERVICE_KEYS.map((key) => (
                             <button
                                 key={key}
                                 type="button"
                                 onClick={() => setActiveServiceKey(key)}
                                 aria-pressed={activeServiceKey === key}
-                                className={`inline-flex min-h-8 items-center justify-center rounded-full border px-3.5 text-center text-[10px] font-medium uppercase tracking-[0.08em] transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/35 sm:justify-start ${activeServiceKey === key
-                                    ? "border-[#e0a020]/34 bg-[#e0a020]/7 text-[#f4c96b]/86 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]"
-                                    : "border-white/[0.105] bg-white/[0.03] text-white/58 hover:border-[#e0a020]/24 hover:bg-white/[0.045] hover:text-white/76"
+                                className={`inline-flex min-h-8 items-center justify-center rounded-full border px-3.5 text-center text-[10px] font-medium uppercase tracking-[0.08em] shadow-[0_10px_22px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e0a020]/35 sm:justify-start ${activeServiceKey === key
+                                    ? "border-[#f4c96b]/42 bg-[#e0a020]/12 text-[#ffe1a1] shadow-[0_10px_24px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.08)]"
+                                    : "border-white/[0.12] bg-white/[0.035] text-white/64 hover:border-[#e0a020]/34 hover:bg-white/[0.055] hover:text-white/82"
                                     }`}
                             >
                                 {t(`hero.serviceTags.${key}`)}
