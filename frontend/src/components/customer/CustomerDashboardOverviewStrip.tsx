@@ -4,9 +4,7 @@ type CustomerDashboardOverviewCard = {
   value: string;
   helper: string;
   icon: string;
-  borderClass: string;
   iconClass: string;
-  glowClass: string;
   valueClass: string;
   showPulse: boolean;
 };
@@ -26,9 +24,9 @@ export function CustomerDashboardOverviewStrip({
         <div
           key={card.key}
           data-card={card.key}
-          className={`customer-overview-card relative min-h-[112px] overflow-hidden rounded-2xl border border-l-4 bg-white p-3.5 ${card.borderClass}`}
+          className="customer-overview-card relative min-h-[112px] overflow-hidden rounded-2xl border bg-white p-4"
         >
-          <div className={`pointer-events-none absolute inset-y-0 left-0 w-24 bg-gradient-to-r ${card.glowClass} to-transparent`} />
+          <span className="customer-overview-accent" aria-hidden="true" />
           <div className="customer-overview-content relative flex h-full flex-col">
             <div className="flex items-start justify-between gap-2.5">
               <div className="min-w-0">

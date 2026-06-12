@@ -7,7 +7,7 @@ import {
   getPaymentMethodLabel,
 } from '@/lib/salesData';
 import { sanitizeVehiclePlate } from '@/lib/vehicle-display';
-import { COMPANY_BRANDING, companyContactLine } from '@/lib/company-branding';
+import { COMPANY_BRANDING } from '@/lib/company-branding';
 
 export type DetailedReceiptLine = {
   name: string;
@@ -67,6 +67,21 @@ const formatDateTime = (iso: string) => {
 
 const formatPdfMoney = (amount: number) =>
   `PHP ${safeNumber(amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const RECEIPT_LOGO_URL = '/images/autospf-logo-trimmed.png';
+
+const loadReceiptLogo = () =>
+  new Promise<HTMLImageElement | null>((resolve) => {
+    if (typeof Image === 'undefined') {
+      resolve(null);
+      return;
+    }
+
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = RECEIPT_LOGO_URL;
+  });
 
 const normalizePaymentMethod = (method?: string) => {
   const m = String(method || 'cash').toLowerCase().replace(/\s+/g, '_');
@@ -183,14 +198,16 @@ export const receiptFromBooking = (booking: Booking): DetailedReceipt => {
 export const buildDetailedReceiptHtml = (receipt: DetailedReceipt) => {
   const issued = formatDateTime(receipt.issuedAt);
   const paid = receipt.paidAt ? formatDateTime(receipt.paidAt) : null;
+  const serviceTotal = Math.max(
+    0,
+    receipt.subtotal - receipt.discount + receipt.tax + receipt.additionalFees
+  );
+  const bookingReference = receipt.bookingReference || receipt.orderNumber || '—';
   const lineRows = receipt.lineItems.map((item) => {
     const lineTotal = item.unitPrice * item.qty;
     return `
       <tr>
-        <td>
-          <strong>${escapeHtml(item.name)}</strong>
-          <span>${item.qty} x ${escapeHtml(formatPeso(item.unitPrice))}</span>
-        </td>
+        <td><strong>${escapeHtml(item.name)}</strong></td>
         <td>${item.qty}</td>
         <td>${escapeHtml(formatPeso(item.unitPrice))}</td>
         <td>${escapeHtml(formatPeso(lineTotal))}</td>
@@ -198,10 +215,10 @@ export const buildDetailedReceiptHtml = (receipt: DetailedReceipt) => {
     `;
   }).join('');
 
-  const optionalRow = (label: string, value: number, negative = false) => {
-    if (!value) return '';
-    return `<div class="summary-row muted"><span>${escapeHtml(label)}</span><strong>${negative ? '-' : ''}${escapeHtml(formatPeso(value))}</strong></div>`;
-  };
+  const moneyValue = (value: number, negative = false) =>
+    `${negative && value ? '−' : ''}${formatPeso(value)}`;
+  const summaryRow = (label: string, value: number, negative = false, className = '') =>
+    `<div class="summary-row ${className}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(moneyValue(value, negative))}</strong></div>`;
 
   return `<!doctype html>
 <html>
@@ -210,104 +227,151 @@ export const buildDetailedReceiptHtml = (receipt: DetailedReceipt) => {
     <title>Receipt ${escapeHtml(receipt.receiptNumber)}</title>
     <style>
       * { box-sizing: border-box; }
-      body { margin: 0; background: #f8fafc; color: #0f172a; font-family: Inter, Arial, sans-serif; }
-      .page { width: 760px; margin: 0 auto; padding: 28px; background: #fff; }
-      .top { display: flex; justify-content: space-between; gap: 24px; padding-bottom: 18px; border-bottom: 1px solid #e2e8f0; }
-      .brand h1 { margin: 0; font-size: 26px; color: #1d4ed8; letter-spacing: -0.02em; }
-      .brand p { margin: 4px 0 0; color: #64748b; font-size: 12px; }
-      .title { text-align: right; }
-      .title h2 { margin: 0; font-size: 18px; }
-      .title p { margin: 4px 0 0; color: #64748b; font-size: 12px; }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px; }
-      .box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; }
-      .label { margin: 0 0 8px; color: #94a3b8; font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
-      .line { display: flex; justify-content: space-between; gap: 16px; margin: 6px 0; font-size: 12px; }
-      .line span:first-child { color: #64748b; }
-      .line strong { text-align: right; }
-      table { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: 12px; }
-      th { text-align: right; padding: 10px 8px; color: #64748b; border-bottom: 1px solid #cbd5e1; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+      body { margin: 0; background: #f4f7fb; color: #172033; font-family: Inter, Arial, sans-serif; }
+      .page { width: 794px; min-height: 1123px; margin: 24px auto; padding: 40px 44px 32px; background: #fff; box-shadow: 0 24px 70px -42px rgba(15, 23, 42, .35); }
+      .top { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(230px, .75fr); gap: 34px; align-items: start; padding-bottom: 24px; border-bottom: 1px solid #dfe5ec; }
+      .brand-lockup { display: flex; align-items: flex-start; gap: 16px; min-width: 0; }
+      .logo-plate { display: flex; width: 116px; height: 70px; flex: 0 0 116px; align-items: center; justify-content: center; padding: 9px 10px; border-radius: 12px; background: #13243d; }
+      .logo-plate img { display: block; width: 100%; height: auto; }
+      .brand h1 { margin: 0; color: #172033; font-size: 20px; font-weight: 800; letter-spacing: -.025em; }
+      .brand .service-type { margin: 3px 0 8px; color: #3569b8; font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+      .brand p { margin: 2px 0 0; color: #667085; font-size: 10.5px; line-height: 1.45; }
+      .receipt-heading { text-align: right; }
+      .receipt-heading .eyebrow { margin: 0; color: #3569b8; font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+      .receipt-heading h2 { margin: 4px 0 14px; color: #172033; font-size: 23px; letter-spacing: -.025em; }
+      .receipt-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 12px; align-items: baseline; font-size: 10.5px; }
+      .receipt-meta span { color: #7b8797; }
+      .receipt-meta strong { overflow-wrap: anywhere; color: #25334a; text-align: right; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 22px; }
+      .box { border: 1px solid #e1e6ed; border-radius: 10px; background: #fcfdff; overflow: hidden; }
+      .box-header { margin: 0; padding: 9px 13px; border-bottom: 1px solid #e7ebf0; background: #f5f8fc; color: #3569b8; font-size: 9px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+      .box-body { padding: 9px 13px 10px; }
+      .line { display: grid; grid-template-columns: minmax(90px, .7fr) minmax(0, 1.3fr); gap: 14px; align-items: baseline; padding: 4px 0; font-size: 10.5px; }
+      .line span:first-child { color: #7a8696; }
+      .line strong { overflow-wrap: anywhere; color: #25334a; text-align: right; }
+      .section-title { margin: 24px 0 8px; color: #344054; font-size: 10px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+      table { width: 100%; border: 1px solid #dfe5ec; border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; font-size: 11px; }
+      th { background: #f3f6fa; text-align: right; padding: 10px 11px; color: #667085; border-bottom: 1px solid #dfe5ec; font-size: 9px; text-transform: uppercase; letter-spacing: .07em; }
       th:first-child, td:first-child { text-align: left; }
-      td { text-align: right; padding: 12px 8px; border-bottom: 1px solid #edf2f7; vertical-align: top; }
-      td:first-child span { display: block; margin-top: 3px; color: #64748b; font-size: 10px; }
-      .summary { width: 320px; margin: 22px 0 0 auto; }
-      .summary-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 7px 0; font-size: 12px; }
+      th:first-child { width: 56%; }
+      td { text-align: right; padding: 11px; border-bottom: 1px solid #edf0f4; color: #344054; vertical-align: top; }
+      tbody tr:last-child td { border-bottom: 0; }
+      td strong { color: #25334a; font-weight: 700; }
+      .lower-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; margin-top: 22px; }
+      .payment { border: 1px solid #e1e6ed; border-radius: 10px; background: #fcfdff; overflow: hidden; }
+      .payment-grid { display: grid; grid-template-columns: 1fr 1fr; }
+      .payment-item { padding: 12px 13px; }
+      .payment-item + .payment-item { border-left: 1px solid #e7ebf0; }
+      .payment-item span { display: block; margin-bottom: 4px; color: #7b8797; font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+      .payment-item strong { color: #25334a; font-size: 12px; }
+      .status { display: inline-flex; padding: 4px 8px; border: 1px solid #bfd3ef; border-radius: 999px; background: #edf5ff; color: #285eaa !important; font-size: 10px !important; text-transform: capitalize; }
+      .summary { border: 1px solid #dfe5ec; border-radius: 10px; padding: 11px 14px 13px; background: #fff; }
+      .summary .section-title { margin: 0 0 7px; }
+      .summary-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 5px 0; color: #526074; font-size: 10.5px; }
       .summary-row > span:first-child { flex: 1; min-width: 0; padding-right: 8px; line-height: 1.4; word-break: break-word; }
       .summary-row > strong { flex-shrink: 0; white-space: nowrap; text-align: right; font-weight: 700; }
-      .summary-row.muted { color: #475569; }
-      .total { border-top: 1px solid #cbd5e1; margin-top: 6px; padding-top: 12px; font-size: 20px; font-weight: 800; color: #1d4ed8; }
-      .payment { margin-top: 20px; border-top: 1px dashed #cbd5e1; padding-top: 16px; }
-      .notes { margin-top: 18px; color: #475569; font-size: 12px; line-height: 1.5; }
-      .footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid #e2e8f0; text-align: center; color: #64748b; font-size: 11px; }
+      .summary-row.service-total { margin-top: 4px; padding-top: 8px; border-top: 1px solid #dfe5ec; color: #25334a; font-weight: 700; }
+      .summary-row.collected { margin: 8px -6px -5px; padding: 11px 8px; border-radius: 8px; background: #edf5ff; color: #285eaa; font-size: 13px; font-weight: 800; }
+      .notes { margin-top: 14px; padding: 11px 13px; border-left: 3px solid #9bbbe5; background: #f7f9fc; color: #526074; font-size: 10.5px; line-height: 1.5; }
+      .footer { margin-top: 28px; padding-top: 17px; border-top: 1px solid #dfe5ec; text-align: center; color: #667085; font-size: 10px; line-height: 1.55; }
+      .footer strong { display: block; margin-bottom: 2px; color: #25334a; font-size: 11px; }
       @media print {
-        @page { size: A4; margin: 14mm; }
+        @page { size: A4; margin: 12mm; }
         body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .page { width: auto; padding: 0; }
+        .page { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
       }
     </style>
   </head>
   <body>
     <main class="page">
       <section class="top">
-        <div class="brand">
-          <h1>${COMPANY_BRANDING.brandName}</h1>
-          <p>${COMPANY_BRANDING.tagline}</p>
-          <p>${COMPANY_BRANDING.address}</p>
-          <p>${companyContactLine()}</p>
+        <div class="brand-lockup">
+          <div class="logo-plate">
+            <img data-receipt-logo src="${RECEIPT_LOGO_URL}" alt="${COMPANY_BRANDING.brandName} logo" />
+          </div>
+          <div class="brand">
+            <h1>${COMPANY_BRANDING.brandName}</h1>
+            <p class="service-type">${COMPANY_BRANDING.category}</p>
+            <p>${COMPANY_BRANDING.tagline}</p>
+            <p>${COMPANY_BRANDING.address}</p>
+            <p>${COMPANY_BRANDING.phone} · ${COMPANY_BRANDING.email}</p>
+          </div>
         </div>
-        <div class="title">
-          <h2>Official Digital Receipt</h2>
-          <p>${escapeHtml(receipt.receiptNumber)}</p>
-          ${receipt.invoiceNumber ? `<p>Invoice: ${escapeHtml(receipt.invoiceNumber)}</p>` : ''}
+        <div class="receipt-heading">
+          <p class="eyebrow">Payment Record</p>
+          <h2>Official Receipt</h2>
+          <div class="receipt-meta">
+            <span>Receipt Number</span><strong>${escapeHtml(receipt.receiptNumber)}</strong>
+            <span>Booking Reference</span><strong>${escapeHtml(bookingReference)}</strong>
+            <span>Date Issued</span><strong>${escapeHtml(issued.date)}</strong>
+          </div>
         </div>
       </section>
 
       <section class="grid">
         <div class="box">
-          <p class="label">Transaction Details</p>
-          <div class="line"><span>Date</span><strong>${escapeHtml(issued.date)}</strong></div>
-          <div class="line"><span>Time</span><strong>${escapeHtml(issued.time)}</strong></div>
-          ${paid ? `<div class="line"><span>Paid</span><strong>${escapeHtml(`${paid.date} ${paid.time}`)}</strong></div>` : ''}
-          ${receipt.bookingReference ? `<div class="line"><span>Booking ref</span><strong>${escapeHtml(receipt.bookingReference)}</strong></div>` : ''}
-          ${receipt.orderNumber ? `<div class="line"><span>Order no.</span><strong>${escapeHtml(receipt.orderNumber)}</strong></div>` : ''}
-          <div class="line"><span>Served by</span><strong>${escapeHtml(receipt.staffName || 'AutoSPF+')}</strong></div>
+          <p class="box-header">Transaction Details</p>
+          <div class="box-body">
+            <div class="line"><span>Date Issued</span><strong>${escapeHtml(issued.date)}</strong></div>
+            <div class="line"><span>Time Issued</span><strong>${escapeHtml(issued.time)}</strong></div>
+            ${paid ? `<div class="line"><span>Payment Date</span><strong>${escapeHtml(`${paid.date} ${paid.time}`)}</strong></div>` : ''}
+            ${receipt.orderNumber ? `<div class="line"><span>Order Number</span><strong>${escapeHtml(receipt.orderNumber)}</strong></div>` : ''}
+            <div class="line"><span>Served By</span><strong>${escapeHtml(receipt.staffName || COMPANY_BRANDING.brandName)}</strong></div>
+          </div>
         </div>
         <div class="box">
-          <p class="label">Customer & Vehicle</p>
-          <div class="line"><span>Customer</span><strong>${escapeHtml(receipt.customerName)}</strong></div>
-          ${receipt.customerPhone ? `<div class="line"><span>Phone</span><strong>${escapeHtml(receipt.customerPhone)}</strong></div>` : ''}
-          ${receipt.customerEmail ? `<div class="line"><span>Email</span><strong>${escapeHtml(receipt.customerEmail)}</strong></div>` : ''}
-          ${receipt.vehiclePlate ? `<div class="line"><span>Plate</span><strong>${escapeHtml(receipt.vehiclePlate)}</strong></div>` : ''}
-          ${receipt.vehicleInfo ? `<div class="line"><span>Vehicle</span><strong>${escapeHtml(receipt.vehicleInfo)}</strong></div>` : ''}
+          <p class="box-header">Customer & Vehicle</p>
+          <div class="box-body">
+            <div class="line"><span>Customer</span><strong>${escapeHtml(receipt.customerName)}</strong></div>
+            ${receipt.customerPhone ? `<div class="line"><span>Phone</span><strong>${escapeHtml(receipt.customerPhone)}</strong></div>` : ''}
+            ${receipt.customerEmail ? `<div class="line"><span>Email</span><strong>${escapeHtml(receipt.customerEmail)}</strong></div>` : ''}
+            ${receipt.vehiclePlate ? `<div class="line"><span>Plate Number</span><strong>${escapeHtml(receipt.vehiclePlate)}</strong></div>` : ''}
+            ${receipt.vehicleInfo ? `<div class="line"><span>Vehicle</span><strong>${escapeHtml(receipt.vehicleInfo)}</strong></div>` : ''}
+          </div>
         </div>
       </section>
 
+      <p class="section-title">Services & Charges</p>
       <table>
         <thead>
-          <tr><th>Services Rendered</th><th>Qty</th><th>Unit Price</th><th>Amount</th></tr>
+          <tr><th>Service Description</th><th>Qty</th><th>Unit Price</th><th>Amount</th></tr>
         </thead>
         <tbody>${lineRows}</tbody>
       </table>
 
-      <section class="summary">
-        <div class="summary-row muted"><span>Subtotal</span><strong>${escapeHtml(formatPeso(receipt.subtotal))}</strong></div>
-        ${optionalRow('Discount', receipt.discount, true)}
-        <div class="summary-row muted"><span>VAT / Tax</span><strong>${escapeHtml(formatPeso(receipt.tax))}</strong></div>
-        ${optionalRow('Additional fees', receipt.additionalFees)}
-        ${optionalRow('Less reservation / downpayment (paid earlier)', receipt.downpayment, true)}
-        <div class="summary-row total"><span>Balance collected</span><strong>${escapeHtml(formatPeso(receipt.total))}</strong></div>
-        ${receipt.balanceDue > 0 ? `<div class="summary-row muted"><span>Balance Due</span><strong>${escapeHtml(formatPeso(receipt.balanceDue))}</strong></div>` : ''}
+      <section class="lower-grid">
+        <div>
+          <section class="payment">
+            <p class="box-header">Payment Details</p>
+            <div class="payment-grid">
+              <div class="payment-item">
+                <span>Payment Method</span>
+                <strong>${escapeHtml(receipt.paymentMethod)}</strong>
+              </div>
+              <div class="payment-item">
+                <span>Payment Status</span>
+                <strong class="status">${escapeHtml(receipt.paymentStatus)}</strong>
+              </div>
+            </div>
+          </section>
+          ${receipt.notes ? `<section class="notes"><strong>Notes:</strong> ${escapeHtml(receipt.notes)}</section>` : ''}
+        </div>
+        <section class="summary">
+          <p class="section-title">Billing Summary</p>
+          ${summaryRow('Subtotal', receipt.subtotal)}
+          ${summaryRow('Discount', receipt.discount, true)}
+          ${summaryRow('VAT / Tax', receipt.tax)}
+          ${receipt.additionalFees ? summaryRow('Additional Fees', receipt.additionalFees) : ''}
+          ${summaryRow('Service Total', serviceTotal, false, 'service-total')}
+          ${summaryRow('Less Reservation / Downpayment', receipt.downpayment, true)}
+          ${summaryRow('Amount Collected Today', receipt.total, false, 'collected')}
+          ${receipt.balanceDue > 0 ? summaryRow('Remaining Balance', receipt.balanceDue) : ''}
+        </section>
       </section>
-
-      <section class="payment">
-        <div class="line"><span>Payment Method</span><strong>${escapeHtml(receipt.paymentMethod)}</strong></div>
-        <div class="line"><span>Payment Status</span><strong>${escapeHtml(receipt.paymentStatus)}</strong></div>
-      </section>
-
-      ${receipt.notes ? `<section class="notes"><strong>Notes:</strong> ${escapeHtml(receipt.notes)}</section>` : ''}
 
       <section class="footer">
-        <strong>Thank you for choosing AutoSPF+.</strong><br />
-        This serves as your official digital receipt. Keep this copy for your records.
+        <strong>Thank you for trusting AutoSPF+ with your vehicle.</strong>
+        This document serves as an official digital receipt issued by ${COMPANY_BRANDING.brandName}. Please keep it for your records.
       </section>
     </main>
   </body>
@@ -320,16 +384,41 @@ export const printDetailedReceipt = (receipt: DetailedReceipt) => {
   win.document.write(buildDetailedReceiptHtml(receipt));
   win.document.close();
   win.focus();
-  setTimeout(() => win.print(), 250);
+  const logo = win.document.querySelector<HTMLImageElement>('[data-receipt-logo]');
+  let printQueued = false;
+  const print = () => {
+    if (printQueued) return;
+    printQueued = true;
+    setTimeout(() => win.print(), 120);
+  };
+  if (!logo || logo.complete) {
+    print();
+    return;
+  }
+  logo.addEventListener('load', print, { once: true });
+  logo.addEventListener('error', print, { once: true });
+  setTimeout(print, 800);
 };
 
-export const downloadDetailedReceiptPdf = (receipt: DetailedReceipt) => {
+export const downloadDetailedReceiptPdf = async (receipt: DetailedReceipt) => {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const margin = 44;
+  const margin = 42;
   const contentW = pageW - margin * 2;
-  let y = 44;
+  let y = 42;
+  const logo = await loadReceiptLogo();
+  const issued = formatDateTime(receipt.issuedAt);
+  const paid = receipt.paidAt ? formatDateTime(receipt.paidAt) : null;
+  const serviceTotal = Math.max(
+    0,
+    receipt.subtotal - receipt.discount + receipt.tax + receipt.additionalFees
+  );
+  const bookingReference = receipt.bookingReference || receipt.orderNumber || '-';
+  const moneyValue = (value: number, negative = false) =>
+    `${negative && value ? '-' : ''}${formatPdfMoney(value)}`;
+  const rightText = (text: string, x: number, yy: number) =>
+    doc.text(text, x, yy, { align: 'right' });
 
   const ensureSpace = (height: number) => {
     if (y + height <= pageH - margin) return;
@@ -337,111 +426,152 @@ export const downloadDetailedReceiptPdf = (receipt: DetailedReceipt) => {
     y = margin;
   };
 
-  const line = (x1 = margin, x2 = pageW - margin) => {
-    doc.setDrawColor(226, 232, 240);
+  const divider = (x1 = margin, x2 = pageW - margin) => {
+    doc.setDrawColor(223, 229, 236);
     doc.line(x1, y, x2, y);
   };
 
-  const rightText = (text: string, x: number, yy: number) => doc.text(text, x, yy, { align: 'right' });
-  const issued = formatDateTime(receipt.issuedAt);
-  const paid = receipt.paidAt ? formatDateTime(receipt.paidAt) : null;
+  doc.setFillColor(19, 36, 61);
+  doc.roundedRect(margin, y, 112, 66, 8, 8, 'F');
+  if (logo) {
+    doc.addImage(logo, 'PNG', margin + 9, y + 8, 94, 51);
+  } else {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(15);
+    doc.setTextColor(255, 255, 255);
+    doc.text(COMPANY_BRANDING.brandName, margin + 56, y + 38, { align: 'center' });
+  }
 
+  const brandX = margin + 126;
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(22);
-  doc.setTextColor(29, 78, 216);
-  doc.text(COMPANY_BRANDING.brandName, margin, y);
-  doc.setTextColor(15, 23, 42);
-  rightText('Official Digital Receipt', pageW - margin, y);
-  y += 18;
-
+  doc.setFontSize(15);
+  doc.setTextColor(23, 32, 51);
+  doc.text(COMPANY_BRANDING.brandName, brandX, y + 13);
+  doc.setFontSize(8);
+  doc.setTextColor(53, 105, 184);
+  doc.text(COMPANY_BRANDING.category.toUpperCase(), brandX, y + 27);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(100, 116, 139);
-  doc.text(COMPANY_BRANDING.tagline, margin, y);
-  rightText(receipt.receiptNumber, pageW - margin, y);
-  y += 13;
-  doc.text(COMPANY_BRANDING.address, margin, y);
-  if (receipt.invoiceNumber) rightText(`Invoice ${receipt.invoiceNumber}`, pageW - margin, y);
-  y += 13;
-  doc.text(companyContactLine(), margin, y);
-  y += 22;
-  line();
+  doc.setFontSize(7.5);
+  doc.setTextColor(102, 112, 133);
+  doc.text(COMPANY_BRANDING.tagline, brandX, y + 40);
+  doc.text(COMPANY_BRANDING.address, brandX, y + 51);
+  doc.text(`${COMPANY_BRANDING.phone}  |  ${COMPANY_BRANDING.email}`, brandX, y + 62);
+
+  const metaRight = pageW - margin;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(53, 105, 184);
+  rightText('PAYMENT RECORD', metaRight, y + 8);
+  doc.setFontSize(17);
+  doc.setTextColor(23, 32, 51);
+  rightText('Official Receipt', metaRight, y + 25);
+  doc.setFontSize(7);
+  doc.setTextColor(123, 135, 151);
+  rightText('RECEIPT NUMBER', metaRight, y + 39);
+  doc.setFontSize(8.5);
+  doc.setTextColor(37, 51, 74);
+  rightText(doc.splitTextToSize(receipt.receiptNumber, 126)[0] || '-', metaRight, y + 49);
+  doc.setFontSize(7);
+  doc.setTextColor(123, 135, 151);
+  rightText('BOOKING REFERENCE', metaRight, y + 61);
+  doc.setFontSize(8.5);
+  doc.setTextColor(37, 51, 74);
+  rightText(doc.splitTextToSize(bookingReference, 126)[0] || '-', metaRight, y + 71);
+  doc.setFontSize(7);
+  doc.setTextColor(123, 135, 151);
+  rightText('DATE ISSUED', metaRight, y + 83);
+  doc.setFontSize(8.5);
+  doc.setTextColor(37, 51, 74);
+  rightText(issued.date || '-', metaRight, y + 93);
+
+  y += 106;
+  divider();
   y += 18;
 
-  const boxW = (contentW - 18) / 2;
+  const boxW = (contentW - 14) / 2;
   const drawBox = (x: number, title: string, rows: Array<[string, string]>) => {
     const startY = y;
-    const h = 30 + rows.length * 16;
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(x, startY, boxW, h, 8, 8);
+    const h = 29 + rows.length * 15;
+    doc.setFillColor(252, 253, 255);
+    doc.setDrawColor(225, 230, 237);
+    doc.roundedRect(x, startY, boxW, h, 7, 7, 'FD');
+    doc.setFillColor(245, 248, 252);
+    doc.roundedRect(x, startY, boxW, 26, 7, 7, 'F');
+    doc.rect(x, startY + 13, boxW, 13, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(148, 163, 184);
-    doc.text(title.toUpperCase(), x + 12, startY + 18);
-    doc.setFontSize(9);
-    rows.forEach(([label, value], idx) => {
-      const rowY = startY + 36 + idx * 16;
+    doc.setFontSize(7.5);
+    doc.setTextColor(53, 105, 184);
+    doc.text(title.toUpperCase(), x + 12, startY + 17);
+    rows.forEach(([label, value], index) => {
+      const rowY = startY + 39 + index * 15;
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
+      doc.setFontSize(8);
+      doc.setTextColor(123, 135, 151);
       doc.text(label, x + 12, rowY);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(15, 23, 42);
-      const split = doc.splitTextToSize(String(value || '-'), boxW - 92);
+      doc.setTextColor(37, 51, 74);
+      const split = doc.splitTextToSize(String(value || '-'), boxW - 104);
       rightText(split[0] || '-', x + boxW - 12, rowY);
     });
     return h;
   };
 
   const detailsRows: Array<[string, string]> = [
-    ['Date', issued.date],
-    ['Time', issued.time],
-    ['Served by', receipt.staffName || 'AutoSPF+'],
+    ['Date Issued', issued.date],
+    ['Time Issued', issued.time],
+    ['Served By', receipt.staffName || COMPANY_BRANDING.brandName],
   ];
-  if (paid) detailsRows.splice(2, 0, ['Paid', `${paid.date} ${paid.time}`]);
-  if (receipt.bookingReference) detailsRows.push(['Booking ref', receipt.bookingReference]);
-  if (receipt.orderNumber) detailsRows.push(['Order no.', receipt.orderNumber]);
+  if (paid) detailsRows.splice(2, 0, ['Payment Date', `${paid.date} ${paid.time}`]);
+  if (receipt.orderNumber) detailsRows.push(['Order Number', receipt.orderNumber]);
 
-  const customerRows: Array<[string, string]> = [
-    ['Customer', receipt.customerName],
-  ];
+  const customerRows: Array<[string, string]> = [['Customer', receipt.customerName]];
   if (receipt.customerPhone) customerRows.push(['Phone', receipt.customerPhone]);
   if (receipt.customerEmail) customerRows.push(['Email', receipt.customerEmail]);
-  if (receipt.vehiclePlate) customerRows.push(['Plate', receipt.vehiclePlate]);
+  if (receipt.vehiclePlate) customerRows.push(['Plate Number', receipt.vehiclePlate]);
   if (receipt.vehicleInfo) customerRows.push(['Vehicle', receipt.vehicleInfo]);
 
   const leftH = drawBox(margin, 'Transaction Details', detailsRows);
-  const rightH = drawBox(margin + boxW + 18, 'Customer & Vehicle', customerRows);
-  y += Math.max(leftH, rightH) + 28;
+  const rightH = drawBox(margin + boxW + 14, 'Customer & Vehicle', customerRows);
+  y += Math.max(leftH, rightH) + 24;
 
   ensureSpace(80);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(100, 116, 139);
-  doc.text('SERVICES RENDERED', margin, y);
-  rightText('QTY', pageW - margin - 178, y);
-  rightText('UNIT', pageW - margin - 78, y);
-  rightText('AMOUNT', pageW - margin, y);
-  y += 8;
-  line();
-  y += 18;
+  doc.setFontSize(8);
+  doc.setTextColor(52, 64, 84);
+  doc.text('SERVICES & CHARGES', margin, y);
+  y += 11;
 
-  doc.setFontSize(10);
+  const tableHeaderY = y;
+  doc.setFillColor(243, 246, 250);
+  doc.setDrawColor(223, 229, 236);
+  doc.roundedRect(margin, tableHeaderY, contentW, 28, 7, 7, 'FD');
+  doc.setFillColor(243, 246, 250);
+  doc.rect(margin, tableHeaderY + 14, contentW, 14, 'F');
+  doc.setFontSize(7.5);
+  doc.setTextColor(102, 112, 133);
+  doc.text('SERVICE DESCRIPTION', margin + 11, tableHeaderY + 18);
+  rightText('QTY', pageW - margin - 178, tableHeaderY + 18);
+  rightText('UNIT PRICE', pageW - margin - 78, tableHeaderY + 18);
+  rightText('AMOUNT', pageW - margin - 11, tableHeaderY + 18);
+  y += 38;
+
+  doc.setFontSize(9);
   receipt.lineItems.forEach((item) => {
-    const nameLines = doc.splitTextToSize(item.name, contentW - 250);
-    const rowH = Math.max(18, nameLines.length * 12 + 4);
+    const nameLines = doc.splitTextToSize(item.name, contentW - 245);
+    const rowH = Math.max(20, nameLines.length * 11 + 6);
     ensureSpace(rowH + 8);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.text(nameLines, margin, y);
+    doc.setTextColor(37, 51, 74);
+    doc.text(nameLines, margin + 11, y);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text(`${item.qty} x ${formatPdfMoney(item.unitPrice)}`, margin, y + rowH - 4);
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(52, 64, 84);
     rightText(String(item.qty), pageW - margin - 178, y);
     rightText(formatPdfMoney(item.unitPrice), pageW - margin - 78, y);
-    rightText(formatPdfMoney(item.unitPrice * item.qty), pageW - margin, y);
+    doc.setFont('helvetica', 'bold');
+    rightText(formatPdfMoney(item.unitPrice * item.qty), pageW - margin - 11, y);
     y += rowH + 8;
-    line();
+    doc.setDrawColor(237, 240, 244);
+    doc.line(margin, y, pageW - margin, y);
     y += 10;
   });
 
@@ -449,88 +579,115 @@ export const downloadDetailedReceiptPdf = (receipt: DetailedReceipt) => {
     ['Subtotal', receipt.subtotal],
     ['Discount', receipt.discount, true],
     ['VAT / Tax', receipt.tax],
-    ['Additional fees', receipt.additionalFees],
-    ['Less reservation / downpayment (paid earlier)', receipt.downpayment, true],
-  ].filter(([, value]) => value !== 0) as Array<[string, number, boolean?]>;
+    ...(receipt.additionalFees
+      ? [['Additional Fees', receipt.additionalFees] as [string, number, boolean?]]
+      : []),
+    ['Service Total', serviceTotal],
+    ['Less Reservation / Downpayment', receipt.downpayment, true],
+  ];
+  const summaryW = 284;
+  const summaryX = pageW - margin - summaryW;
+  const paymentW = contentW - summaryW - 18;
+  const summaryH = 47 + summaryRows.length * 15 + 40 + (receipt.balanceDue > 0 ? 16 : 0);
+  const paymentH = 82;
+  const lowerH = Math.max(summaryH, paymentH);
+  ensureSpace(lowerH + 28);
+  const lowerY = y + 4;
 
-  ensureSpace(150);
-  const summaryX = pageW - margin - 250;
-  const amountColumnW = 200;
-  const labelMaxW = pageW - margin - summaryX - amountColumnW - 8;
-
-  const drawSummaryLabelValue = (label: string, valueText: string, opts: { fontSize?: number; labelRgb?: [number, number, number]; valueRgb?: [number, number, number] } = {}) => {
-    const fs = opts.fontSize ?? 10;
-    const labelRgb = opts.labelRgb ?? [71, 85, 105];
-    const valueRgb = opts.valueRgb ?? [15, 23, 42];
-    doc.setFontSize(fs);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...labelRgb);
-    const labelLines = doc.splitTextToSize(String(label), Math.max(80, labelMaxW));
-    doc.text(labelLines, summaryX, y);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...valueRgb);
-    rightText(valueText, pageW - margin, y);
-    const lineGap = fs >= 14 ? 17 : 13;
-    y += Math.max(lineGap, labelLines.length * lineGap);
-  };
-
-  for (const [label, value, neg] of summaryRows) {
-    const valueStr = `${neg ? '-' : ''}${formatPdfMoney(value)}`;
-    drawSummaryLabelValue(label, valueStr);
-  }
-  y += 4;
-  doc.setDrawColor(203, 213, 225);
-  doc.line(summaryX, y, pageW - margin, y);
-  y += 22;
-  drawSummaryLabelValue('Balance collected', formatPdfMoney(receipt.total), {
-    fontSize: 15,
-    labelRgb: [29, 78, 216],
-    valueRgb: [29, 78, 216],
-  });
-  if (receipt.balanceDue > 0) {
-    doc.setFontSize(10);
-    doc.setTextColor(71, 85, 105);
-    doc.text('Balance Due', summaryX, y);
-    rightText(formatPdfMoney(receipt.balanceDue), pageW - margin, y);
-    y += 18;
-  }
-
-  y += 12;
-  line();
-  y += 18;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(71, 85, 105);
-  doc.text('Payment Method', margin, y);
-  doc.text('Payment Status', margin + 190, y);
+  doc.setFillColor(252, 253, 255);
+  doc.setDrawColor(225, 230, 237);
+  doc.roundedRect(margin, lowerY, paymentW, paymentH, 7, 7, 'FD');
+  doc.setFillColor(245, 248, 252);
+  doc.roundedRect(margin, lowerY, paymentW, 26, 7, 7, 'F');
+  doc.rect(margin, lowerY + 13, paymentW, 13, 'F');
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text(receipt.paymentMethod, margin, y + 16);
-  doc.text(receipt.paymentStatus, margin + 190, y + 16);
-  y += 44;
+  doc.setFontSize(7.5);
+  doc.setTextColor(53, 105, 184);
+  doc.text('PAYMENT DETAILS', margin + 12, lowerY + 17);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(123, 135, 151);
+  doc.text('PAYMENT METHOD', margin + 12, lowerY + 43);
+  doc.text('PAYMENT STATUS', margin + paymentW / 2 + 5, lowerY + 43);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(37, 51, 74);
+  doc.text(receipt.paymentMethod, margin + 12, lowerY + 59);
+  doc.setTextColor(40, 94, 170);
+  doc.text(receipt.paymentStatus, margin + paymentW / 2 + 5, lowerY + 59);
+
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(223, 229, 236);
+  doc.roundedRect(summaryX, lowerY, summaryW, summaryH, 7, 7, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(52, 64, 84);
+  doc.text('BILLING SUMMARY', summaryX + 12, lowerY + 18);
+  let summaryY = lowerY + 38;
+  summaryRows.forEach(([label, value, negative]) => {
+    const isServiceTotal = label === 'Service Total';
+    if (isServiceTotal) {
+      doc.setDrawColor(223, 229, 236);
+      doc.line(summaryX + 12, summaryY - 8, summaryX + summaryW - 12, summaryY - 8);
+    }
+    doc.setFont('helvetica', isServiceTotal ? 'bold' : 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(isServiceTotal ? 37 : 82, isServiceTotal ? 51 : 96, isServiceTotal ? 74 : 116);
+    doc.text(label, summaryX + 12, summaryY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(37, 51, 74);
+    rightText(moneyValue(value, negative), summaryX + summaryW - 12, summaryY);
+    summaryY += 15;
+  });
+
+  doc.setFillColor(237, 245, 255);
+  doc.roundedRect(summaryX + 7, summaryY - 3, summaryW - 14, 31, 6, 6, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(40, 94, 170);
+  doc.text('Amount Collected Today', summaryX + 15, summaryY + 16);
+  rightText(formatPdfMoney(receipt.total), summaryX + summaryW - 15, summaryY + 16);
+  summaryY += 40;
+  if (receipt.balanceDue > 0) {
+    doc.setFontSize(8);
+    doc.setTextColor(82, 96, 116);
+    doc.text('Remaining Balance', summaryX + 12, summaryY);
+    doc.setTextColor(37, 51, 74);
+    rightText(formatPdfMoney(receipt.balanceDue), summaryX + summaryW - 12, summaryY);
+  }
+  y = lowerY + lowerH + 20;
 
   if (receipt.notes) {
     ensureSpace(50);
     doc.setFont('helvetica', 'bold');
-    doc.text('Notes', margin, y);
+    doc.setFontSize(8);
+    doc.setTextColor(52, 64, 84);
+    doc.text('NOTES', margin, y);
     y += 14;
     doc.setFont('helvetica', 'normal');
+    doc.setTextColor(82, 96, 116);
     const notes = doc.splitTextToSize(receipt.notes, contentW);
     doc.text(notes, margin, y);
     y += notes.length * 12 + 18;
   }
 
   ensureSpace(42);
-  line();
+  divider();
   y += 20;
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text('Thank you for choosing AutoSPF+.', pageW / 2, y, { align: 'center' });
+  doc.setFontSize(9);
+  doc.setTextColor(37, 51, 74);
+  doc.text('Thank you for trusting AutoSPF+ with your vehicle.', pageW / 2, y, { align: 'center' });
   y += 14;
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(100, 116, 139);
-  doc.text('This serves as your official digital receipt. Keep this copy for your records.', pageW / 2, y, { align: 'center' });
+  doc.setFontSize(7.5);
+  doc.setTextColor(102, 112, 133);
+  doc.text(
+    'This document serves as an official digital receipt issued by AutoSPF+. Please keep it for your records.',
+    pageW / 2,
+    y,
+    { align: 'center' }
+  );
 
   doc.save(`AutoSPF-Receipt-${fileSafe(receipt.receiptNumber || 'receipt')}.pdf`);
 };

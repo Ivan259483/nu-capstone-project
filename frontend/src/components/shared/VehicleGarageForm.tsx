@@ -41,6 +41,8 @@ type Props = {
   footerHint?: React.ReactNode;
   /** Customer Add Vehicle only: searchable brand/model database */
   enableVehicleDatabase?: boolean;
+  /** Add-only presentation treatment; leaves edit and sales forms unchanged. */
+  experience?: 'default' | 'customer-add';
 };
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
@@ -149,12 +151,14 @@ export default function VehicleGarageForm({
   bookingPackages = [],
   footerHint,
   enableVehicleDatabase = false,
+  experience = 'default',
 }: Props) {
   const set = (patch: Partial<VehicleGarageFormValues>) => {
     onChange((prev) => ({ ...prev, ...patch }));
   };
 
   const rich = variant === 'customer-rich';
+  const customerAddExperience = experience === 'customer-add';
   const [customBrandMode, setCustomBrandMode] = React.useState(false);
   const [customModelMode, setCustomModelMode] = React.useState(false);
   const knownBrandModels = enableVehicleDatabase && !customBrandMode ? getModelsForBrand(v.brand) : [];
@@ -231,8 +235,28 @@ export default function VehicleGarageForm({
       : 'linear-gradient(135deg, #1e3a5f 0%, #334155 48%, #475569 100%)';
   const previewTextLight = !v.color || ['White', 'Silver', 'Yellow', ''].includes(v.color);
 
-  const RichSectionLabel = ({ children }: { children: React.ReactNode }) => (
-    <div className="customer-vehicle-section-label">
+  const RichSectionLabel = ({
+    children,
+    description,
+    icon,
+    className = '',
+  }: {
+    children: React.ReactNode;
+    description?: string;
+    icon?: string;
+    className?: string;
+  }) => customerAddExperience ? (
+    <div className={`customer-vehicle-section-label customer-vehicle-section-label--concierge ${className}`}>
+      <div className="customer-vehicle-section-icon" aria-hidden>
+        <iconify-icon icon={icon || 'solar:widget-2-linear'} width="16"></iconify-icon>
+      </div>
+      <div>
+        <span>{children}</span>
+        {description ? <p>{description}</p> : null}
+      </div>
+    </div>
+  ) : (
+    <div className={`customer-vehicle-section-label ${className}`}>
       <span>{children}</span>
     </div>
   );
@@ -253,7 +277,42 @@ export default function VehicleGarageForm({
       )}
 
       {/* Preview */}
-      {rich ? (
+      {rich && customerAddExperience ? (
+        <div className="customer-vehicle-identity-preview">
+          <div className="customer-vehicle-identity-main">
+            <div
+              className="customer-vehicle-identity-icon"
+              style={{ '--vehicle-preview-color': colorHex[v.color] || '#2563eb' } as React.CSSProperties}
+              aria-hidden
+            >
+              <iconify-icon icon="solar:car-bold" width="24"></iconify-icon>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="customer-vehicle-identity-eyebrow">Live vehicle profile</p>
+              <p className="customer-vehicle-identity-name">{previewName}</p>
+              <p className="customer-vehicle-identity-helper">Your garage card updates as details are added.</p>
+            </div>
+          </div>
+          <div className="customer-vehicle-identity-chips">
+            {[
+              { label: 'Plate', value: previewPlate, icon: 'solar:hashtag-linear' },
+              { label: 'Brand', value: v.brand || 'Not selected', icon: 'solar:shield-check-linear' },
+              { label: 'Class', value: v.type || 'Not selected', icon: 'solar:wheel-angle-linear' },
+              { label: 'Color', value: v.color || 'Not selected', icon: 'solar:palette-linear', color: v.color ? colorHex[v.color] : undefined },
+            ].map((item) => (
+              <div key={item.label} className="customer-vehicle-identity-chip">
+                {item.color ? (
+                  <span className="customer-vehicle-identity-color" style={{ background: item.color }} aria-hidden />
+                ) : (
+                  <iconify-icon icon={item.icon} width="14" aria-hidden></iconify-icon>
+                )}
+                <span className="customer-vehicle-identity-chip-label">{item.label}</span>
+                <strong>{item.value}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : rich ? (
         <div className="customer-vehicle-preview customer-vehicle-preview--premium overflow-hidden rounded-[1.625rem] border border-slate-200/60 bg-gradient-to-b from-white to-slate-50/90">
           <div className="border-b border-slate-200/50 bg-slate-50/80 px-4 py-2 text-center">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Live garage preview</p>
@@ -348,8 +407,15 @@ export default function VehicleGarageForm({
         )
       )}
 
-      <div className={rich ? 'space-y-3' : ''}>
-        {rich ? <RichSectionLabel>Required</RichSectionLabel> : null}
+      <div className={rich ? 'customer-vehicle-identity-primary space-y-3' : ''}>
+        {rich ? (
+          <RichSectionLabel
+            icon="solar:card-2-linear"
+            description={customerAddExperience ? 'The essentials used to identify this vehicle in your garage.' : undefined}
+          >
+            {customerAddExperience ? 'Vehicle Identity' : 'Required'}
+          </RichSectionLabel>
+        ) : null}
         <div className={rich ? 'grid grid-cols-1' : 'grid grid-cols-2 gap-3'}>
           <div className={rich ? '' : 'col-span-2'}>
             <label
@@ -403,7 +469,7 @@ export default function VehicleGarageForm({
         </div>
       </div>
 
-      <div className={rich ? 'grid grid-cols-1 gap-3.5 sm:grid-cols-2' : 'grid grid-cols-2 gap-3'}>
+      <div className={rich ? 'customer-vehicle-brand-model grid grid-cols-1 gap-3.5 sm:grid-cols-2' : 'grid grid-cols-2 gap-3'}>
         <div>
           <label
             className={
@@ -564,7 +630,17 @@ export default function VehicleGarageForm({
         </div>
       </div>
 
-      <div className={rich ? 'grid grid-cols-1 gap-3.5 sm:grid-cols-2' : 'grid grid-cols-2 gap-3'}>
+      {rich && customerAddExperience ? (
+        <RichSectionLabel
+          className="customer-vehicle-specifications-label"
+          icon="solar:tuning-square-2-linear"
+          description="Classify the vehicle and add useful service specifications."
+        >
+          Specifications
+        </RichSectionLabel>
+      ) : null}
+
+      <div className={rich ? 'customer-vehicle-year-type grid grid-cols-1 gap-3.5 sm:grid-cols-2' : 'grid grid-cols-2 gap-3'}>
         <div>
           <label
             className={
@@ -666,7 +742,7 @@ export default function VehicleGarageForm({
               <div className="mb-2.5 flex items-center gap-2">
                 <iconify-icon icon="solar:tag-price-bold" width="14" style={{ color: '#f97316' }} />
                 <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400/95">
-                  {v.type} pricing (linked to this vehicle)
+                  {customerAddExperience ? `Pricing will follow ${v.type} rates` : `${v.type} pricing (linked to this vehicle)`}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -681,7 +757,9 @@ export default function VehicleGarageForm({
                   );
                 })}
               </div>
-              <p className="mt-2.5 text-center text-[10px] font-medium text-slate-500">Shown rates apply when you book for this vehicle</p>
+              <p className="mt-2.5 text-center text-[10px] font-medium text-slate-500">
+                {customerAddExperience ? 'Package estimates are ready for this vehicle class' : 'Shown rates apply when you book for this vehicle'}
+              </p>
             </div>
           ) : (
             <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-3.5 shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45),inset_0_1px_0_rgba(255,255,255,0.08)] ring-1 ring-white/10">
@@ -715,9 +793,17 @@ export default function VehicleGarageForm({
         </>
       )}
 
-      {rich ? <RichSectionLabel>Optional</RichSectionLabel> : null}
+      {rich ? (
+        <RichSectionLabel
+          className="customer-vehicle-appearance-label"
+          icon="solar:palette-linear"
+          description={customerAddExperience ? 'Choose the finish that makes this vehicle easy to recognize.' : undefined}
+        >
+          {customerAddExperience ? 'Appearance' : 'Optional'}
+        </RichSectionLabel>
+      ) : null}
 
-      <div>
+      <div className="customer-vehicle-color-field">
         <label
           className={
             rich
@@ -746,15 +832,23 @@ export default function VehicleGarageForm({
                 key={c.name}
                 type="button"
                 title={c.name}
+                aria-label={c.name}
+                aria-pressed={sel}
                 onClick={() => {
                   set({ color: c.name });
                   onShowCustomColorInput(false);
                 }}
-                className={`h-8 w-8 shrink-0 rounded-full border-0 shadow-[0_1px_3px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.25)] transition-all duration-200 outline-none ring-2 ${
+                className={`customer-vehicle-color-chip flex shrink-0 items-center justify-center rounded-full border-0 shadow-[0_1px_3px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.25)] transition-all duration-200 outline-none ring-2 ${
+                  customerAddExperience ? 'h-7 w-7' : 'h-8 w-8'
+                } ${
                   sel ? 'ring-slate-400/55 ring-offset-2 ring-offset-white scale-[1.06]' : 'ring-white/80 ring-slate-200/50 hover:ring-slate-300/65'
                 }`}
                 style={{ background: c.hex }}
-              />
+              >
+                {sel && customerAddExperience ? (
+                  <Check className={`h-3.5 w-3.5 ${['White', 'Silver', 'Yellow'].includes(c.name) ? 'text-slate-800' : 'text-white'}`} strokeWidth={3} />
+                ) : null}
+              </button>
             ) : (
               <button
                 key={c.name}
@@ -780,7 +874,7 @@ export default function VehicleGarageForm({
                 onShowCustomColorInput(true);
                 set({ color: '' });
               }}
-              className={`h-8 shrink-0 rounded-full border px-3.5 text-[11px] font-semibold transition-all duration-200 shadow-[0_1px_2px_rgba(15,23,42,0.05)] ${
+              className={`${customerAddExperience ? 'h-7 px-3' : 'h-8 px-3.5'} shrink-0 rounded-full border text-[11px] font-semibold transition-all duration-200 shadow-[0_1px_2px_rgba(15,23,42,0.05)] ${
                 showCustomColorInput
                   ? 'border-slate-200/70 bg-gradient-to-b from-slate-50 to-slate-100/80 text-slate-800 ring-2 ring-slate-300/35 ring-offset-2 ring-offset-white'
                   : 'border border-slate-100/90 bg-gradient-to-b from-white to-slate-50/70 text-slate-500 hover:border-slate-200/90 hover:text-slate-700'
@@ -826,7 +920,7 @@ export default function VehicleGarageForm({
         )}
       </div>
 
-      <div className={rich ? 'grid grid-cols-1 gap-3.5 sm:grid-cols-2' : 'grid grid-cols-2 gap-3'}>
+      <div className={rich ? 'customer-vehicle-powertrain grid grid-cols-1 gap-3.5 sm:grid-cols-2' : 'grid grid-cols-2 gap-3'}>
         <div>
           <label
             className={

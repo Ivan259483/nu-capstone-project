@@ -2790,7 +2790,7 @@ export default function CustomerDashboard() {
           />
         )}
 
-        {/* Sidebar — clean neutral customer dashboard rail */}
+        {/* Sidebar — warm pearl customer dashboard rail */}
         <aside
           className={`customer-sidebar ${sidebarCollapsed ? 'is-collapsed' : 'is-expanded'} ${sidebarLabelsHidden ? 'is-labels-hidden' : ''} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} fixed inset-y-0 left-0 z-30 flex flex-col bg-white ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
             }`}
@@ -2801,15 +2801,10 @@ export default function CustomerDashboard() {
                 {(sidebarUsername || sidebarUserEmail || '?').charAt(0).toUpperCase()}
               </div>
               {!sidebarCollapsed && (
-                <>
-                  <span className="customer-sidebar-profile-name customer-sidebar-username">{sidebarUsername}</span>
-                  <span className="customer-sidebar-chevron customer-sidebar-header-chevron" aria-hidden>
-                    <svg viewBox="0 0 16 16" fill="none">
-                      <path d="M4.5 6.25 8 2.75l3.5 3.5" />
-                      <path d="M4.5 9.75 8 13.25l3.5-3.5" />
-                    </svg>
-                  </span>
-                </>
+                <span className="customer-sidebar-profile-copy">
+                  <span className="customer-sidebar-profile-name">{sidebarDisplayName}</span>
+                  <span className="customer-sidebar-profile-email">Private customer garage</span>
+                </span>
               )}
             </div>
           </div>
@@ -2831,11 +2826,11 @@ export default function CustomerDashboard() {
               onClick={() => nav('scan')}
               title={sidebarCollapsed ? 'AI Inspection History' : AI_INSPECTION_HISTORY_ENABLED ? undefined : 'Coming soon'}
               aria-label="AI Inspection History"
-              className={`customer-sidebar-item ${AI_INSPECTION_HISTORY_ENABLED && activeSection === 'scan' ? 'is-active' : ''}`}
+              className={`customer-sidebar-item customer-sidebar-item--soon ${AI_INSPECTION_HISTORY_ENABLED && activeSection === 'scan' ? 'is-active' : ''}`}
             >
               <CustomerSidebarAnimatedIcon name="scan" size={18} />
-              <span className="customer-sidebar-label flex-1 text-left">AI Inspection History</span>
-              <span className={`customer-sidebar-extra customer-sidebar-soon-badge ${AI_INSPECTION_HISTORY_ENABLED ? 'uppercase tracking-wider' : ''}`}>
+              <span className="customer-sidebar-label min-w-0 flex-1 text-left">AI Inspection</span>
+              <span className={`customer-sidebar-extra customer-sidebar-soon-badge ml-auto ${AI_INSPECTION_HISTORY_ENABLED ? 'uppercase tracking-wider' : ''}`}>
                 {AI_INSPECTION_HISTORY_ENABLED ? 'AI Lab' : 'Soon'}
               </span>
             </button>
@@ -2935,7 +2930,7 @@ export default function CustomerDashboard() {
         <div className={`customer-main-shell ${sidebarCollapsed ? 'is-sidebar-collapsed' : 'is-sidebar-expanded'} ${sidebarTransitionsReady ? 'is-transition-ready' : 'is-initial'} ${bookingOpen ? 'is-booking-modal-open' : ''} ${customerModalOpen ? 'is-customer-modal-open' : ''} flex flex-1 flex-col min-w-0`}>
 
           {/* Header */}
-          <header className="customer-dashboard-header h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-10">
+          <header className="customer-dashboard-header bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-10">
             <div className="flex items-center gap-4">
               <button
                 className="md:hidden text-slate-500 hover:text-slate-900"
@@ -2943,23 +2938,26 @@ export default function CustomerDashboard() {
               >
                 <iconify-icon icon="solar:hamburger-menu-linear" width="24"></iconify-icon>
               </button>
-              <h1 className="text-xl font-medium tracking-tight text-slate-900 hidden sm:block" style={{ color: '#0f172a' }}>
-                {(() => {
-                  const h = new Date().getHours();
-                  const greeting = h >= 5 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : h >= 17 && h < 21 ? 'Good evening' : 'Good night';
-                  const firstName = (user?.name || 'Customer').split(' ')[0];
-                  return `${greeting}, ${firstName}`;
-                })()}
-              </h1>
+              <div className="customer-dashboard-heading hidden sm:block">
+                <h1 className="text-xl font-medium tracking-tight text-slate-900" style={{ color: '#0f172a' }}>
+                  {(() => {
+                    const h = new Date().getHours();
+                    const greeting = h >= 5 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : h >= 17 && h < 21 ? 'Good evening' : 'Good night';
+                    const firstName = (user?.name || 'Customer').split(' ')[0];
+                    return `${greeting}, ${firstName}`;
+                  })()}
+                </h1>
+                <p>Your garage, bookings, and service progress at a glance.</p>
+              </div>
             </div>
 
             <div className="customer-dashboard-actions flex items-center gap-2">
               {activeSection !== 'bookings' && (
                 <button
                   onClick={() => void openBookingModal()}
-                  className="customer-dashboard-header-action hidden sm:inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-[0_6px_18px_-16px_rgba(15,23,42,0.32)] transition-colors hover:border-blue-200 hover:bg-blue-50/70 hover:text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25"
+                  className="customer-dashboard-header-action hidden sm:inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25"
                 >
-                  <iconify-icon icon="solar:calendar-add-linear" width="16" height="16" className="shrink-0 text-blue-600"></iconify-icon>
+                  <iconify-icon icon="solar:calendar-add-bold" width="17" height="17" className="shrink-0"></iconify-icon>
                   Book Service
                 </button>
               )}
@@ -5331,22 +5329,35 @@ export default function CustomerDashboard() {
 
                 {/* ── REJECTED booking card ── */}
                 {rejectedBooking && !hasActiveTrackerBooking && !pendingConfirmationBooking && (
-                  <section style={{ marginBottom: 32 }}>
-                    <div style={{ background: 'linear-gradient(145deg,#1a0a0a 0%,#1e0f0f 100%)', borderRadius: 20, overflow: 'hidden', boxShadow: '0 16px 40px rgba(239,68,68,.1), 0 0 0 1px rgba(239,68,68,.15)', position: 'relative', padding: '24px 24px 20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-                        <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          <iconify-icon icon="solar:close-circle-bold" width="22" style={{ color: '#ef4444' }}></iconify-icon>
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <h3 style={{ fontSize: 15, fontWeight: 800, color: '#fff', margin: '0 0 4px', letterSpacing: '-.02em' }}>Booking Not Confirmed</h3>
-                          <p style={{ fontSize: 12, color: 'rgba(255,255,255,.4)', margin: '0 0 12px', fontWeight: 500 }}>
-                            {rejectedBooking.rejectionReason || 'Your payment proof could not be verified.'}
-                          </p>
-                          <button onClick={() => void openBookingModal()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(37,99,235,.15)', border: '1px solid rgba(37,99,235,.3)', borderRadius: 10, padding: '8px 16px', color: '#93c5fd', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                            <iconify-icon icon="solar:restart-bold" width="13"></iconify-icon>
-                            Book Again
-                          </button>
-                        </div>
+                  <section className="customer-booking-alert customer-booking-alert--rejected" aria-labelledby="rejected-booking-title">
+                    <div className="customer-booking-alert-icon">
+                      <iconify-icon icon="solar:danger-triangle-bold" width="20"></iconify-icon>
+                    </div>
+                    <div className="customer-booking-alert-copy">
+                      <div>
+                        <p className="customer-booking-alert-eyebrow">Action needed</p>
+                        <h2 id="rejected-booking-title">Booking not confirmed</h2>
+                        <p>
+                          {rejectedBooking.rejectionReason || 'Your payment proof could not be verified.'}
+                          {' '}You can review your bookings or start a new request.
+                        </p>
+                      </div>
+                      <div className="customer-booking-alert-actions">
+                        <button
+                          type="button"
+                          onClick={() => nav('bookings')}
+                          className="customer-booking-alert-button customer-booking-alert-button--secondary"
+                        >
+                          View Bookings
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void openBookingModal()}
+                          className="customer-booking-alert-button customer-booking-alert-button--primary"
+                        >
+                          <iconify-icon icon="solar:restart-bold" width="14"></iconify-icon>
+                          Book Again
+                        </button>
                       </div>
                     </div>
                   </section>
@@ -5795,22 +5806,22 @@ export default function CustomerDashboard() {
 
 
                 {/* Your Vehicles */}
-                <section className="customer-home-section customer-garage-section rounded-2xl border border-slate-200/80 bg-white/80 p-3.5 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.28)] sm:p-3.5">
-                  <div className="customer-section-header mb-2.5 flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
+                <section className="customer-home-section customer-garage-section rounded-2xl border border-slate-200/80 bg-white/80 p-4 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.28)] sm:p-5">
+                  <div className="customer-section-header mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
                     <div>
                       <p className="text-[11px] font-bold tracking-[0.08em] text-slate-500">Garage</p>
                       <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Your Garage</h2>
                     </div>
                     <button
                       onClick={() => setAddVehicleOpen(true)}
-                      className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 ring-1 ring-blue-100 transition-colors hover:bg-blue-100"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 px-3.5 py-2 text-sm font-semibold text-blue-700 ring-1 ring-blue-100 transition-colors hover:bg-blue-100"
                     >
                       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>
                       Add Vehicle
                     </button>
                   </div>
 
-                  <div className="customer-garage-layout grid gap-2.5 xl:grid-cols-[minmax(0,1fr)_minmax(270px,316px)] 2xl:grid-cols-[minmax(0,1fr)_minmax(292px,328px)] xl:items-start">
+                  <div className="customer-garage-layout grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] 2xl:grid-cols-[minmax(0,1fr)_minmax(292px,328px)] xl:items-start">
                     <div className="customer-garage-grid-column min-w-0">
                   {vehicles.length === 0 ? (
 	                    <div className="customer-garage-empty-state rounded-3xl overflow-hidden">
@@ -5876,7 +5887,7 @@ export default function CustomerDashboard() {
                         return (
                           <div
                             key={i}
-                            className="customer-garage-card rounded-[28px] overflow-hidden flex flex-col group border border-white/65 backdrop-blur-2xl"
+                            className="customer-garage-card overflow-hidden flex flex-col group"
                             style={{
                               '--vehicle-accent': theme.from,
                               '--vehicle-accent-strong': theme.to,
@@ -5962,7 +5973,7 @@ export default function CustomerDashboard() {
                             </div>
 
                             {/* ── Card Body ── */}
-                            <div className="customer-garage-card-body flex flex-col bg-white/58 p-2.5 backdrop-blur-xl">
+                            <div className="customer-garage-card-body flex flex-col p-3.5">
                               <h3 className="font-bold text-[15px] text-slate-900 leading-tight">{v.name}</h3>
                               <div className="flex items-center gap-1.5 mt-1">
                                 <div className="customer-garage-color-dot w-3 h-3 rounded-full border border-slate-200 shadow-sm" style={{ background: theme.border }}></div>
@@ -5970,21 +5981,21 @@ export default function CustomerDashboard() {
                               </div>
 
                               {/* Actions */}
-                              <div className="customer-garage-actions mt-2 grid grid-cols-2 gap-1.5 pt-1.5">
+                              <div className="customer-garage-actions mt-3 grid grid-cols-2 gap-2 pt-3">
 	                                <button
 	                                  type="button"
 	                                  onClick={() => openBookingModal(v)}
-	                                  className="customer-garage-book-button flex min-h-10 flex-col items-center justify-center gap-0.5 rounded-2xl bg-blue-600 px-1 py-1.5 font-medium text-white shadow-[0_12px_28px_-18px_rgba(37,99,235,0.72)] transition-all hover:-translate-y-0.5 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-	                                >
+                                  className="customer-garage-book-button flex min-h-10 items-center justify-center gap-1.5 px-2 py-2 font-medium text-white transition-all hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                                >
                                   <iconify-icon icon="solar:calendar-add-linear" width="16"></iconify-icon>
-                                  <span className="text-[10px] font-semibold text-center leading-tight">Book Service</span>
+                                  <span className="text-[11px] font-semibold text-center leading-tight">Book Service</span>
                                 </button>
                                 <button
                                   onClick={() => openVehicleHistory(v)}
-                                  className="flex min-h-10 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 py-1.5 text-slate-400 transition-colors hover:bg-white/56 hover:text-slate-700"
+                                  className="flex min-h-10 items-center justify-center gap-1.5 px-2 py-2 text-slate-500 transition-colors hover:text-slate-700"
                                 >
                                   <iconify-icon icon="solar:history-linear" width="16"></iconify-icon>
-                                  <span className="text-[10px] font-semibold text-center leading-tight">View Vehicle History</span>
+                                  <span className="text-[11px] font-semibold text-center leading-tight">History</span>
                                 </button>
                               </div>
                             </div>
@@ -5996,7 +6007,7 @@ export default function CustomerDashboard() {
                         <button
                           type="button"
                           onClick={() => setAddVehicleOpen(true)}
-                          className="customer-garage-add-card flex h-full min-h-0 w-full cursor-pointer flex-col overflow-hidden rounded-[28px] border-2 border-dashed border-[#CBD5E1] bg-[#F8FAFC] text-left transition-all hover:border-solid hover:border-slate-400 hover:bg-slate-100/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                          className="customer-garage-add-card flex h-full min-h-0 w-full cursor-pointer flex-col overflow-hidden text-left transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                         >
                           <div className="relative flex h-[6.75rem] items-center justify-center">
                             <iconify-icon
@@ -6018,8 +6029,8 @@ export default function CustomerDashboard() {
                   )}
                     </div>
 
-                    <aside className="customer-garage-rail grid h-fit content-start gap-1.5 self-start lg:grid-cols-2 xl:grid-cols-1">
-                      <div className="customer-side-card customer-recommendation-card relative overflow-hidden rounded-[24px] border border-blue-100 bg-white p-3 shadow-[0_18px_48px_-30px_rgba(37,99,235,0.34)]">
+                    <aside className="customer-garage-rail grid h-fit content-start gap-3 self-start lg:grid-cols-2 xl:grid-cols-1">
+                      <div className="customer-side-card customer-recommendation-card relative overflow-hidden p-4">
                         <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-blue-100/80 blur-3xl" />
                         <div className="relative">
                           <div className="mb-2 flex items-start justify-between gap-3">
@@ -6075,8 +6086,8 @@ export default function CustomerDashboard() {
                         </div>
                       </div>
 
-                      <div className="customer-side-card customer-quick-actions-card rounded-[24px] border border-slate-200/80 bg-white p-2.5 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.28)]">
-                        <div className="mb-2 flex items-center justify-between gap-3">
+                      <div className="customer-side-card customer-quick-actions-card p-4">
+                        <div className="mb-3 flex items-center justify-between gap-3">
                           <div>
                             <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Shortcuts</p>
                             <h3 className="mt-0.5 text-sm font-black tracking-tight text-slate-900">Quick Actions</h3>
@@ -6085,7 +6096,7 @@ export default function CustomerDashboard() {
                             <iconify-icon icon="solar:bolt-circle-bold" width="17"></iconify-icon>
                           </div>
                         </div>
-                        <div className="grid gap-1">
+                        <div className="grid gap-2">
                           {[
                             { label: 'Book a Service', icon: 'solar:calendar-add-linear', onClick: () => void openBookingModal() },
                             { label: 'View My Bookings', icon: 'solar:calendar-linear', onClick: () => nav('bookings') },
@@ -6095,7 +6106,7 @@ export default function CustomerDashboard() {
                               key={action.label}
                               type="button"
                               onClick={action.onClick}
-                              className="customer-quick-action group flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/70 px-2.5 py-1 text-left transition-all hover:border-blue-100 hover:bg-blue-50/70 hover:shadow-sm"
+                              className="customer-quick-action group flex min-h-11 items-center justify-between px-3 py-2 text-left transition-all"
                             >
                               <span className="flex min-w-0 items-center gap-2.5">
                                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white text-blue-600 shadow-sm ring-1 ring-slate-100 transition-colors group-hover:ring-blue-100">
@@ -6373,7 +6384,7 @@ export default function CustomerDashboard() {
       {addVehicleOpen && (
         <div className="customer-modal-layer fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-xl sm:p-5" onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}>
           <div
-            className="customer-modal-panel customer-vehicle-modal customer-vehicle-modal--premium flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
+            className="customer-modal-panel customer-vehicle-modal customer-vehicle-modal--premium customer-add-vehicle-modal flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border-0 bg-white"
             onClick={e => e.stopPropagation()}
             style={{
               animation: 'customerModalPanelIn .18s cubic-bezier(0.22,1,0.36,1) both',
@@ -6420,9 +6431,10 @@ export default function CustomerDashboard() {
                 onShowCustomColorInput={setNewVehicleShowColorInput}
                 apiError={vehicleApiError}
                 showPricingPreview
-                bookingPackages={bookingPackages}
-                enableVehicleDatabase
-                footerHint={
+	                bookingPackages={bookingPackages}
+	                enableVehicleDatabase
+	                experience="customer-add"
+	                footerHint={
                   <>
                     After you save, open <span className="font-semibold text-slate-800">Book</span> on your vehicle card to schedule a service with these details pre-filled.
                   </>
@@ -6430,18 +6442,19 @@ export default function CustomerDashboard() {
               />
 
               {/* Actions */}
-              <div className="customer-modal-sticky customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white/95 px-5 pt-4 shadow-[0_-12px_32px_-16px_rgba(15,23,42,0.08)] backdrop-blur sm:-mx-6 sm:flex-row sm:px-6">
+              <div className="customer-modal-sticky customer-vehicle-actions sticky bottom-0 -mx-5 flex flex-col gap-3 border-0 bg-white px-5 py-4 sm:-mx-6 sm:flex-row sm:px-6">
                 <button
                   type="button"
                   onClick={() => { setAddVehicleOpen(false); setVehicleErrors({}); setNewVehicle({ plate: '', year: '', brand: '', model: '', color: '', type: '', transmission: '', fuelType: '' }); setNewVehicleShowColorInput(false); }}
-                  className="flex-1 rounded-2xl border border-slate-200/75 bg-gradient-to-b from-white to-slate-50/90 py-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all hover:border-slate-300/85 hover:shadow-[0_4px_14px_-6px_rgba(15,23,42,0.1)]"
+                  className="customer-vehicle-cancel-button flex-1 rounded-2xl border border-slate-200/75 bg-white py-3 text-sm font-medium text-slate-700 transition-all"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="customer-vehicle-btn-primary flex-1 rounded-2xl py-3.5 text-sm font-semibold text-white transition-all duration-200"
+                  className="customer-vehicle-btn-primary flex flex-1 items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold text-white transition-all duration-200"
                 >
+                  <iconify-icon icon="solar:add-circle-bold" width="17"></iconify-icon>
                   Add Vehicle
                 </button>
               </div>
@@ -6709,7 +6722,7 @@ export default function CustomerDashboard() {
 
               ) : bookingStep === 1 ? (
                 /* ── Step 1: Service ── */
-                <div className="space-y-4 p-4 sm:p-5">
+                <div className="booking-step1 space-y-4 p-4 pb-12 sm:p-5 sm:pb-14">
                   <section className="booking-service-panel rounded-[22px] border-0 bg-slate-50/60 p-4">
                     <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">

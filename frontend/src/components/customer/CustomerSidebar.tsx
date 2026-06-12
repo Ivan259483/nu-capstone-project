@@ -51,15 +51,10 @@ export const CustomerSidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange
                         {(sidebarUsername || email || '?').charAt(0).toUpperCase()}
                     </div>
                     {!collapsed && (
-                        <>
-                            <span className="customer-sidebar-profile-name customer-sidebar-username">{sidebarUsername}</span>
-                            <span className="customer-sidebar-chevron customer-sidebar-header-chevron" aria-hidden>
-                                <svg viewBox="0 0 16 16" fill="none">
-                                    <path d="M4.5 6.25 8 2.75l3.5 3.5" />
-                                    <path d="M4.5 9.75 8 13.25l3.5-3.5" />
-                                </svg>
-                            </span>
-                        </>
+                        <span className="customer-sidebar-profile-copy">
+                            <span className="customer-sidebar-profile-name">{displayName}</span>
+                            <span className="customer-sidebar-profile-email">Private customer garage</span>
+                        </span>
                     )}
                 </div>
             </div>

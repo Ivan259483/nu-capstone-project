@@ -60,6 +60,7 @@ import Animated, {
   useAnimatedProps, withRepeat, withTiming, withSequence,
 withDelay, Easing, interpolate, Extrapolation,
   runOnJS,
+  type SharedValue,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
@@ -232,29 +233,51 @@ const OrbConfig = [
   { w:260, h:260, top:740,  right:-90, color:'rgba(79,145,255,0.12)', d:22000 },
 ] as const;
 
-function Orbs() {
-  const vs = OrbConfig.map(() => useSharedValue(0));
+function AmbientOrb({ orb, index }: { orb: typeof OrbConfig[number]; index: number }) {
+  const progress = useSharedValue(0);
+
   useEffect(() => {
-    vs.forEach((v, i) => {
-      v.value = withRepeat(withTiming(1, { duration: OrbConfig[i].d, easing: Easing.inOut(Easing.sin) }), -1, true);
-    });
-  }, []);
+    progress.value = withRepeat(
+      withTiming(1, { duration: orb.d, easing: Easing.inOut(Easing.sin) }),
+      -1,
+      true
+    );
+  }, [orb.d, progress]);
+
+  const anim = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0,0.5,1],[0.12,0.28,0.12]),
+    transform:[
+      {translateX: interpolate(progress.value,[0,1],[0,index%2===0?42:-36])},
+      {translateY: interpolate(progress.value,[0,1],[0,index%2===0?28:32])},
+    ],
+  }));
+
+  const horizontalPosition =
+    'right' in orb ? { right: orb.right } : { left: orb.left };
+
+  return (
+    <Animated.View
+      style={[
+        $.orb,
+        {
+          width: orb.w,
+          height: orb.h,
+          top: orb.top,
+          backgroundColor: orb.color,
+          ...horizontalPosition,
+        },
+        anim,
+      ]}
+    />
+  );
+}
+
+function Orbs() {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {OrbConfig.map((o, i) => {
-        const anim = useAnimatedStyle(() => ({
-          opacity: interpolate(vs[i].value, [0,0.5,1],[0.12,0.28,0.12]),
-          transform:[
-            {translateX: interpolate(vs[i].value,[0,1],[0,i%2===0?42:-36])},
-            {translateY: interpolate(vs[i].value,[0,1],[0,i%2===0?28:32])},
-          ],
-        }));
-        return (
-          <Animated.View key={i}
-            style={[$.orb,{width:o.w,height:o.h,top:(o as any).top,right:(o as any).right,left:(o as any).left,backgroundColor:o.color},anim]}
-          />
-        );
-      })}
+      {OrbConfig.map((orb, index) => (
+        <AmbientOrb key={orb.d} orb={orb} index={index} />
+      ))}
     </View>
   );
 }
@@ -481,7 +504,7 @@ function HeaderSection({
 
       {/* Action cluster */}
       <View style={$.hdrActions}>
-        <Tap onPress={() => router.push('/(screens)/appointments')} targetScale={0.92}>
+        <Tap onPress={() => router.push('/(screens)/notifications')} targetScale={0.92}>
           <View style={$.bellBtn}>
             <Ionicons name="notifications-outline" size={18} color={D.w55} />
             {active.length > 0 && (
@@ -582,20 +605,20 @@ function HeroSection({ job, isLoading, st, stepFor, router, scrollY }: any) {
       <Tap onPress={() => router.push('/(customer)/book')} h="Medium">
         <View style={$.heroCard}>
           <LinearGradient
-            colors={['#FF8C28','#E25A08','#B83C00']}
+            colors={['#D85A1B','#A3320B','#5F1609']}
             start={{x:0,y:0}} end={{x:1.1,y:1.1}}
             style={StyleSheet.absoluteFill}
           />
           {/* Specular diagonal shine */}
           <LinearGradient
-            colors={['rgba(255,255,255,0.12)','rgba(255,255,255,0.05)','transparent']}
+            colors={['rgba(255,255,255,0.09)','rgba(255,255,255,0.03)','transparent']}
             start={{x:0,y:0}} end={{x:0.8,y:0.55}}
             style={StyleSheet.absoluteFill}
           />
           {/* Depth circles */}
-          <View style={[$.hC, {width:220,height:220,top:-72,right:-72,opacity:0.11}]} />
-          <View style={[$.hC, {width:150,height:150,top:48, right:-18,opacity:0.07}]} />
-          <View style={[$.hC, {width:90, height:90, bottom:-28,left:66,  opacity:0.08}]} />
+          <View style={[$.hC, {width:220,height:220,top:-72,right:-72,opacity:0.055}]} />
+          <View style={[$.hC, {width:150,height:150,top:48, right:-18,opacity:0.04}]} />
+          <View style={[$.hC, {width:90, height:90, bottom:-28,left:66,  opacity:0.045}]} />
           {/* Gold chassis line */}
           <LinearGradient
             colors={['transparent','rgba(255,216,110,0.20)','transparent']}
@@ -634,7 +657,7 @@ function HeroSection({ job, isLoading, st, stepFor, router, scrollY }: any) {
               <View style={$.heroCTA}>
                 <Text style={$.heroCTATxt}>Book Now</Text>
                 <View style={$.heroCTAdge}>
-                  <Ionicons name="arrow-forward" size={13} color={D.AD} />
+                  <Ionicons name="arrow-forward" size={13} color="#81270A" />
                 </View>
               </View>
               <View style={$.heroMeta}>
@@ -660,42 +683,77 @@ function HeroSection({ job, isLoading, st, stepFor, router, scrollY }: any) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SECTION: Stats — animated CountBounce numbers + mini bars
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+type StatCellConfig = {
+  n: number;
+  lbl: string;
+  col: string;
+  fi: string;
+  ic: keyof typeof Ionicons.glyphMap;
+  delay: number;
+};
+
+function StatCell({
+  cell,
+  index,
+  total,
+  barW,
+}: {
+  cell: StatCellConfig;
+  index: number;
+  total: number;
+  barW: SharedValue<number>;
+}) {
+  const barAnim = useAnimatedStyle(() => ({
+    width: `${barW.value * Math.round((cell.n / Math.max(total, 1)) * 100)}%` as any,
+  }));
+
+  return (
+    <React.Fragment>
+      {index > 0 && <View style={$.statDiv} />}
+      <View style={$.statCell}>
+        <Animated.View
+          entering={FadeInDown.delay(280 + cell.delay).duration(200)}
+          style={[$.statIconBg, { backgroundColor: cell.fi }]}
+        >
+          <Ionicons name={cell.ic} size={13} color={cell.col} />
+        </Animated.View>
+        <CountBounce n={cell.n} color={cell.col} delay={300 + cell.delay} />
+        <Text style={$.statLbl}>{cell.lbl}</Text>
+        <View style={$.statBar}>
+          <Animated.View
+            style={[$.statBarFill, { backgroundColor: cell.col }, barAnim]}
+          />
+        </View>
+      </View>
+    </React.Fragment>
+  );
+}
+
 function StatsSection({ active, completed, total }: { active:number; completed:number; total:number }) {
-  const cells = [
-    { n:active,    lbl:'Active',    col:D.A, fi:D.Af, ic:'flash-outline'          as const, delay:0   },
-    { n:completed, lbl:'Completed', col:D.G, fi:D.Gf, ic:'checkmark-done-outline' as const, delay:80  },
-    { n:total,     lbl:'Total Jobs',col:D.B, fi:D.Bf, ic:'layers-outline'         as const, delay:160 },
-  ] as const;
+  const cells: StatCellConfig[] = [
+    { n:active,    lbl:'Active',    col:'#D98235', fi:'rgba(217,130,53,0.12)', ic:'flash-outline'          as const, delay:0   },
+    { n:completed, lbl:'Completed', col:'#6BC7A4', fi:'rgba(107,199,164,0.11)', ic:'checkmark-done-outline' as const, delay:80  },
+    { n:total,     lbl:'Total Jobs',col:'#8CA6D6', fi:'rgba(140,166,214,0.11)', ic:'layers-outline'         as const, delay:160 },
+  ];
 
   const barW = useSharedValue(0);
   useEffect(() => {
     barW.value = withDelay(400, withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) }));
-  }, [total]);
+  }, [barW, total]);
 
   return (
     <Animated.View entering={FadeInUp.delay(260).duration(200)}>
-      <GBCard colors={GB.neutral} radius={26} style={sh('#000',0.30,14,4)}>
+      <GBCard colors={GB.neutral} radius={24} style={sh('#000',0.20,10,3)}>
         <View style={$.statsRow}>
-          {cells.map((s, i) => {
-            const barAnim = useAnimatedStyle(() => ({
-              width: `${barW.value * Math.round((s.n / Math.max(total, 1)) * 100)}%` as any,
-            }));
-            return (
-              <React.Fragment key={s.lbl}>
-                {i > 0 && <View style={$.statDiv} />}
-                <View style={$.statCell}>
-                  <Animated.View entering={FadeInDown.delay(280 + s.delay).duration(200)} style={[$.statIconBg, {backgroundColor:s.fi}]}>
-                    <Ionicons name={s.ic} size={13} color={s.col} />
-                  </Animated.View>
-                  <CountBounce n={s.n} color={s.col} delay={300 + s.delay} />
-                  <Text style={$.statLbl}>{s.lbl}</Text>
-                  <View style={$.statBar}>
-                    <Animated.View style={[$.statBarFill, {backgroundColor:s.col}, barAnim]} />
-                  </View>
-                </View>
-              </React.Fragment>
-            );
-          })}
+          {cells.map((cell, index) => (
+            <StatCell
+              key={cell.lbl}
+              cell={cell}
+              index={index}
+              total={total}
+              barW={barW}
+            />
+          ))}
         </View>
       </GBCard>
     </Animated.View>
@@ -708,12 +766,21 @@ function StatsSection({ active, completed, total }: { active:number; completed:n
 function TrustSection() {
   return (
     <Animated.View entering={FadeIn.delay(285).duration(500)}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={$.trustScroll}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={$.trustStrip}
+        contentContainerStyle={$.trustScroll}
+      >
         {TRUST.map((t, i) => (
-          <Animated.View key={t.label} entering={SlideInRight.delay(300 + i * 50).duration(200)}>
+          <Animated.View
+            key={t.label}
+            entering={SlideInRight.delay(300 + i * 50).duration(200)}
+            style={$.trustChipWrap}
+          >
             <View style={$.trustChip}>
               <Ionicons name={t.icon} size={12} color={D.Go} />
-              <Text style={$.trustTxt}>{t.label}</Text>
+              <Text style={$.trustTxt} numberOfLines={1}>{t.label}</Text>
             </View>
           </Animated.View>
         ))}
@@ -1234,7 +1301,7 @@ export default function HomeScreen() {
 
       <Animated.ScrollView
         style={$.scroll}
-        contentContainerStyle={[$.body, { paddingBottom: TabBarHeight + 190 }]}
+        contentContainerStyle={[$.body, { paddingBottom: TabBarHeight + 240 }]}
         showsVerticalScrollIndicator={false}
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -1339,7 +1406,7 @@ const $ = StyleSheet.create({
   appBar:  { position:'absolute', top:0, left:0, right:0, height: IOS?108:80, zIndex:10, overflow:'hidden' },
 
   // ── HEADER ────────────────────────────────────────────────────
-  hdr:      { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', marginBottom:30 },
+  hdr:      { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', marginBottom:28 },
   greet:    { fontSize:13, color:D.w38, fontWeight:'500', marginBottom:5 },
   nameText: { fontSize:48, fontWeight:'900', color:D.w100, letterSpacing:-2.2, lineHeight:52 },
   summPill: {
@@ -1348,21 +1415,21 @@ const $ = StyleSheet.create({
     borderWidth:1, borderColor:D.w10, marginTop:10,
   },
   summTxt:  { fontSize:11, color:D.w55, fontWeight:'600' },
-  hdrActions:{ flexDirection:'row', alignItems:'center', gap:10, marginTop:6 },
+  hdrActions:{ flexDirection:'row', alignItems:'center', gap:8, marginTop:4 },
   bellBtn:{
-    width:44, height:44, borderRadius:15, backgroundColor:D.w07,
-    borderWidth:1, borderColor:D.w10, alignItems:'center', justifyContent:'center',
-    ...sh('#000',0.18,8,2),
+    width:42, height:42, borderRadius:14, backgroundColor:'rgba(255,255,255,0.055)',
+    borderWidth:1, borderColor:'rgba(255,255,255,0.09)', alignItems:'center', justifyContent:'center',
+    ...sh('#000',0.14,7,2),
   },
   notifBubble:{
-    position:'absolute', top:7, right:7, minWidth:17, height:17, borderRadius:9,
+    position:'absolute', top:6, right:6, minWidth:16, height:16, borderRadius:8,
     backgroundColor:D.A, borderWidth:1.5, borderColor:D.bg,
     alignItems:'center', justifyContent:'center', paddingHorizontal:3,
   },
   notifTxt: { color:'#fff', fontSize:8, fontWeight:'900' },
-  avRing:   { width:50, height:50, borderRadius:25, padding:2.5, ...sh(D.A,0.45,16,5) },
-  avCore:   { flex:1, borderRadius:22.5, backgroundColor:D.s0, alignItems:'center', justifyContent:'center', overflow:'hidden' },
-  avChar:   { color:D.w100, fontWeight:'800', fontSize:17 },
+  avRing:   { width:42, height:42, borderRadius:14, padding:1.4, ...sh(D.A,0.24,10,3) },
+  avCore:   { flex:1, borderRadius:12.5, backgroundColor:'rgba(10,10,18,0.96)', alignItems:'center', justifyContent:'center', overflow:'hidden' },
+  avChar:   { color:D.w100, fontWeight:'800', fontSize:15 },
 
   // ── TRACKER CARD ──────────────────────────────────────────────
   trGlow: { position:'absolute', top:-70, right:-70, width:200, height:200, borderRadius:100, backgroundColor:'rgba(255,124,30,0.08)' },
@@ -1389,7 +1456,7 @@ const $ = StyleSheet.create({
   trViewTxt: { color:D.w38, fontSize:11, fontWeight:'700', letterSpacing:0.3 },
 
   // ── HERO BOOK CTA ─────────────────────────────────────────────
-  heroCard:  { borderRadius:30, overflow:'hidden', minHeight:246, ...sh(D.A,0.58,44,18) },
+  heroCard:  { borderRadius:30, overflow:'hidden', minHeight:246, ...sh('#B33A12',0.34,28,10) },
   hC:        { position:'absolute', borderRadius:999, backgroundColor:'#fff' },
   heroLine:  { position:'absolute', top:'38%', left:0, right:0, height:1.5 },
   heroBody:  { padding:26, flex:1, minHeight:246, justifyContent:'space-between' },
@@ -1400,32 +1467,36 @@ const $ = StyleSheet.create({
   heroSub:   { fontSize:12, color:'rgba(255,255,255,0.46)', fontWeight:'500', letterSpacing:0.5 },
   heroBot:   { gap:10 },
   heroCTA:{
-    flexDirection:'row', alignItems:'center', backgroundColor:'#fff',
-    borderRadius:18, alignSelf:'flex-start', paddingVertical:2, paddingLeft:20,
-    ...sh('#000',0.18,8,4),
+    flexDirection:'row', alignItems:'center', backgroundColor:'rgba(255,255,255,0.94)',
+    borderRadius:17, alignSelf:'flex-start', paddingVertical:1, paddingLeft:18,
+    borderWidth:1, borderColor:'rgba(255,255,255,0.42)',
+    ...sh('#000',0.16,7,3),
   },
-  heroCTATxt:  { fontSize:14, fontWeight:'800', color:D.AD, paddingRight:4 },
-  heroCTAdge:  { width:38, height:38, margin:4, borderRadius:14, backgroundColor:'rgba(200,85,0,0.12)', alignItems:'center', justifyContent:'center' },
+  heroCTATxt:  { fontSize:14, fontWeight:'800', color:'#81270A', paddingRight:5 },
+  heroCTAdge:  { width:34, height:34, margin:4, borderRadius:13, backgroundColor:'rgba(129,39,10,0.10)', alignItems:'center', justifyContent:'center' },
   heroMeta:    { flexDirection:'row', gap:12 },
   heroMetaChip:{ flexDirection:'row', alignItems:'center', gap:4 },
   heroMetaTxt: { fontSize:11, color:'rgba(255,255,255,0.40)', fontWeight:'500' },
 
   // ── STATS ────────────────────────────────────────────────────
-  statsRow:   { flexDirection:'row', paddingVertical:20 },
-  statDiv:    { width:1, height:50, backgroundColor:D.w07, alignSelf:'center' },
-  statCell:   { flex:1, alignItems:'center', gap:4 },
-  statIconBg: { width:30, height:30, borderRadius:10, alignItems:'center', justifyContent:'center' },
-  statN:      { fontSize:30, fontWeight:'900', letterSpacing:-0.6 },
-  statLbl:    { fontSize:9, color:D.w38, fontWeight:'700', letterSpacing:2.2, textTransform:'uppercase' },
-  statBar:    { width:44, height:3, backgroundColor:D.w07, borderRadius:2, overflow:'hidden', marginTop:2 },
-  statBarFill:{ height:'100%', borderRadius:2, opacity:0.75 },
+  statsRow:   { flexDirection:'row', paddingVertical:17, paddingHorizontal:4 },
+  statDiv:    { width:StyleSheet.hairlineWidth, height:44, backgroundColor:'rgba(255,255,255,0.055)', alignSelf:'center' },
+  statCell:   { flex:1, alignItems:'center', gap:5, paddingHorizontal:4 },
+  statIconBg: { width:28, height:28, borderRadius:10, alignItems:'center', justifyContent:'center' },
+  statN:      { fontSize:28, fontWeight:'800', letterSpacing:-0.4 },
+  statLbl:    { fontSize:9, color:D.w38, fontWeight:'700', letterSpacing:1.8, textTransform:'uppercase' },
+  statBar:    { width:40, height:2.5, backgroundColor:'rgba(255,255,255,0.055)', borderRadius:2, overflow:'hidden', marginTop:2 },
+  statBarFill:{ height:'100%', borderRadius:2, opacity:0.58 },
 
   // ── TRUST ────────────────────────────────────────────────────
-  trustScroll:{ paddingRight:22, gap:8 },
+  trustStrip:{ marginRight:-22 },
+  trustScroll:{ paddingLeft:2, paddingRight:40, gap:9 },
+  trustChipWrap:{ flexShrink:0 },
   trustChip:{
     flexDirection:'row', alignItems:'center', gap:6,
-    backgroundColor:D.Gof, borderWidth:1, borderColor:D.Gob,
+    backgroundColor:'rgba(207,168,64,0.085)', borderWidth:1, borderColor:'rgba(207,168,64,0.16)',
     paddingHorizontal:13, paddingVertical:7, borderRadius:20,
+    flexShrink:0,
   },
   trustTxt:{ fontSize:11, color:D.Go, fontWeight:'700', letterSpacing:0.3 },
 

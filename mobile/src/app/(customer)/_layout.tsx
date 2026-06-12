@@ -19,7 +19,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useThemeContext';
-import { Palette, Glass, Shadows } from '@/constants/theme';
+import { Palette, Glass } from '@/constants/theme';
 import AskAiFab from '@/components/ui/AskAiFab';
 
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -47,7 +47,6 @@ function TabBarButton({
   isFocused: boolean;
   onPress: () => void;
 }) {
-  const { colors } = useTheme();
   const scale = useSharedValue(1);
 
   const animStyle = useAnimatedStyle(() => ({
@@ -64,6 +63,7 @@ function TabBarButton({
     ? iconName
     : (`${iconName}-outline` as keyof typeof Ionicons.glyphMap);
   const label = TAB_LABELS[route] || route;
+  const inactiveColor = 'rgba(255, 255, 255, 0.38)';
 
   return (
     <TouchableOpacity
@@ -74,15 +74,14 @@ function TabBarButton({
       <Animated.View style={[styles.tabButtonInner, animStyle]}>
         <Ionicons
           name={isFocused ? iconName : inactiveIconName}
-          size={24}
-          color={isFocused ? Palette.accent : colors.textSecondary}
-          style={isFocused && Shadows.glow}
+          size={22}
+          color={isFocused ? Palette.accent : inactiveColor}
         />
         <Animated.Text
           style={[
             styles.tabLabel,
             {
-              color: isFocused ? Palette.accent : colors.textSecondary,
+              color: isFocused ? Palette.accent : inactiveColor,
               fontWeight: isFocused ? '700' : '500',
             },
           ]}
@@ -118,7 +117,7 @@ function CustomTabBar({ state, navigation }: any) {
           bottom: 0,
           left: 0,
           right: 0,
-          height: 60 + insets.bottom,
+          height: 56 + insets.bottom,
           paddingBottom: insets.bottom,
         },
       ]}
@@ -131,7 +130,7 @@ function CustomTabBar({ state, navigation }: any) {
       <View
         style={[
           StyleSheet.absoluteFill,
-          { backgroundColor: 'rgba(17, 17, 24, 0.85)' },
+          { backgroundColor: 'rgba(10, 10, 16, 0.74)' },
         ]}
       />
       <View style={styles.tabBarInner}>
@@ -188,15 +187,15 @@ const styles = StyleSheet.create({
   tabBarContainer: {
     overflow: 'hidden',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(200, 169, 110, 0.15)',
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
   },
   tabBarInner: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 8,
-    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingHorizontal: 10,
   },
   tabButton: {
     flex: 1,
@@ -205,19 +204,22 @@ const styles = StyleSheet.create({
   tabButtonInner: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: 3,
   },
   tabLabel: {
-    fontSize: 10,
-    marginTop: 2,
+    fontSize: 9.5,
+    marginTop: 1,
   },
   activeUnderline: {
     position: 'absolute',
-    bottom: -10,
-    width: 20,
-    height: 3,
+    bottom: -8,
+    width: 18,
+    height: 2,
     borderRadius: 2,
     backgroundColor: Palette.accent,
-    ...Shadows.glow,
+    shadowColor: Palette.accent,
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
   },
 });
