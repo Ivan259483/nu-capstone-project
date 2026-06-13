@@ -184,6 +184,7 @@ const ORDER_LIST_SELECT_FIELDS = [
   'orderNumber',
   'bookingReference',
   'customer',
+  'vehicle',
   'customerName',
   'customerPhone',
   'serviceId',
@@ -365,6 +366,7 @@ const formatBookingDto = (orderDoc) => {
     ...order,
     id,
     customerId,
+    vehicleId: order.vehicle?.toString?.() || order.vehicle || '',
     serviceName,
     bookingReference: order.bookingReference || order.orderNumber,
     hasPaymentProof: Boolean(order.paymentProofUrl || order.downpaymentProof || order.status === 'pending_confirmation'),
@@ -434,6 +436,7 @@ const formatBookingListDto = (orderDoc) => {
     customerName,
     customerPhone,
     customerAvatar,
+    vehicleId: order.vehicle?.toString?.() || order.vehicle || '',
     serviceId: order.serviceId?.toString?.() || order.serviceId || '',
     serviceType: order.serviceType,
     serviceName,
@@ -1032,6 +1035,7 @@ export const createOrder = async (req, res, next) => {
       vehicle: vehicleId,
       service: serviceId,
       customerName: customerNameInput,
+      customerId: customerIdInput,
       customerPhone: customerPhoneInput,
       serviceType: serviceTypeInput,
       serviceName: serviceNameInput,
@@ -1044,9 +1048,10 @@ export const createOrder = async (req, res, next) => {
 
     // Always trust the authenticated user for customer bookings.
     // Only admins can create bookings on behalf of another customer.
+    const requestedCustomerId = customerInput || customerIdInput;
     const resolvedCustomerId =
-      isBookingManagerRole(req.user.role) && customerInput && mongoose.Types.ObjectId.isValid(customerInput)
-        ? customerInput
+      isBookingManagerRole(req.user.role) && requestedCustomerId && mongoose.Types.ObjectId.isValid(requestedCustomerId)
+        ? requestedCustomerId
         : req.user.id;
 
     let fallbackCustomerName = (typeof customerNameInput === 'string' && customerNameInput.trim())
@@ -1231,6 +1236,7 @@ export const createOrder = async (req, res, next) => {
       orderNumber: `ORD-${Date.now()}`,
       bookingReference: generateBookingReference(),
       customer: resolvedCustomerId,
+      vehicle: mongoose.Types.ObjectId.isValid(vehicleId) ? vehicleId : null,
       customerName: fallbackCustomerName,
       customerPhone: resolvedCustomerPhone,
       serviceId: resolvedServiceId,

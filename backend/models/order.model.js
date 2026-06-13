@@ -13,6 +13,11 @@ const orderSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+    vehicle: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Vehicle',
+      default: null,
+    },
     customerName: String,
     customerPhone: String,
     serviceId: {

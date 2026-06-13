@@ -37,6 +37,24 @@ const generateInvoiceId = () => {
   return `INV-${date}-${random}`;
 };
 
+const allocateUniquePaymentInvoiceId = async (preferredInvoiceId) => {
+  const preferred = String(preferredInvoiceId || '').trim();
+  if (preferred) {
+    const existing = await Payment.exists({ invoiceId: preferred });
+    if (!existing) return preferred;
+  }
+
+  for (let i = 0; i < 12; i += 1) {
+    const candidate = generateInvoiceId();
+    const existing = await Payment.exists({ invoiceId: candidate });
+    if (!existing) return candidate;
+  }
+
+  const err = new Error('Could not allocate payment invoice id');
+  err.statusCode = 500;
+  throw err;
+};
+
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const findProductByName = async (name) => {
@@ -957,13 +975,15 @@ export const runPosCheckoutCore = async ({
     staffUser = await User.findById(staffId).select('name email');
   }
 
-  const invoiceId = order.invoiceId || generateInvoiceId();
+  const invoiceId = await allocateUniquePaymentInvoiceId(order.invoiceId);
   const balanceRemaining = normalizeMoney(Math.max(0, grandTotal - dp - amountCollected));
 
   const payment = await Payment.create({
     invoiceId,
     order: order._id,
     customer: order.customer?._id || order.customer,
+    vehicle: order.vehicle || null,
+    service: order.serviceId || null,
     amount: amountCollected,
     subtotal,
     discountAmount,
@@ -1002,11 +1022,24 @@ export const runPosCheckoutCore = async ({
   // Full balance collected at POS can mark the order paid, but release still waits
   // for ready-pickup final output photos.
   const fullySettled = balanceRemaining <= 0;
+  const prevStatusKey = String(prevPosStatus || '').toLowerCase().replace(/-/g, '_');
+  const prevStageKey = String(prevTrackingStage || '').toLowerCase().replace(/-/g, '_');
   if (fullySettled && readyPickupPhotosComplete) {
     order.status = 'released';
     order.serviceTrackingStage = 'released';
   } else if (fullySettled) {
-    order.status = 'paid';
+    if (['pending_confirmation', 'pending', 'approved', 'confirmed', 'assigned', 'queued'].includes(prevStatusKey)) {
+      order.status = ['approved', 'assigned'].includes(prevStatusKey) ? prevPosStatus : 'confirmed';
+      order.serviceTrackingStage = order.serviceTrackingStage || 'confirmed';
+    } else if (['received', 'in_progress', 'processing'].includes(prevStatusKey)) {
+      order.status = prevStatusKey === 'received' ? 'received' : 'in_progress';
+      order.serviceTrackingStage = order.serviceTrackingStage || (prevStatusKey === 'received' ? 'received' : 'in_progress');
+    } else if (prevStatusKey === 'ready_for_payment' || prevStatusKey === 'completed' || prevStageKey === 'ready_pickup') {
+      order.status = 'paid';
+      order.serviceTrackingStage = order.serviceTrackingStage || 'ready_pickup';
+    } else {
+      order.status = 'paid';
+    }
   } else {
     if (
       ['pending', 'confirmed', 'assigned', 'processing', 'in-progress', 'in_progress', 'ready_for_payment'].includes(
@@ -1019,8 +1052,22 @@ export const runPosCheckoutCore = async ({
       order.serviceTrackingStage = 'released';
     }
   }
-  order.customerStatus = 'ready';
+  const nextStatusKey = String(order.status || '').toLowerCase().replace(/-/g, '_');
+  const nextStageKey = String(order.serviceTrackingStage || '').toLowerCase().replace(/-/g, '_');
+  if (['released', 'ready_pickup'].includes(nextStageKey) || ['paid', 'released', 'ready_for_payment', 'completed'].includes(nextStatusKey)) {
+    order.customerStatus = 'ready';
+  } else if (nextStatusKey === 'received') {
+    order.customerStatus = 'received';
+  } else if (nextStatusKey === 'in_progress') {
+    order.customerStatus = 'in-progress';
+  } else {
+    order.customerStatus = 'queued';
+  }
   order.customerStatusUpdatedAt = new Date();
+  if (String(prevTrackingStage || '') !== String(order.serviceTrackingStage || '')) {
+    order.serviceTrackingUpdatedAt = new Date();
+    order.serviceTrackingUpdatedBy = req.user?.name || req.user?.id || 'POS';
+  }
   await order.save();
   if (isSlotConsumingStatus(prevPosStatus) && !isSlotConsumingStatus(order.status)) {
     await releaseBookingSlot(order.bookingDate, order.bookingTime);
@@ -1218,8 +1265,24 @@ export const createPOSTransaction = async (req, res, next) => {
     }
 
     const allItems = [
-      ...items.map((i) => ({ name: i.name, price: Number(i.price), quantity: i.quantity || 1, isAddon: false })),
-      ...addons.map((a) => ({ name: a.name, price: Number(a.price), quantity: a.quantity || 1, isAddon: true })),
+      ...items.map((i) => ({
+        serviceId: mongoose.Types.ObjectId.isValid(String(i.serviceId || i.id || ''))
+          ? String(i.serviceId || i.id)
+          : null,
+        name: i.name,
+        price: Number(i.price),
+        quantity: i.quantity || 1,
+        isAddon: false,
+      })),
+      ...addons.map((a) => ({
+        serviceId: mongoose.Types.ObjectId.isValid(String(a.serviceId || a.id || ''))
+          ? String(a.serviceId || a.id)
+          : null,
+        name: a.name,
+        price: Number(a.price),
+        quantity: a.quantity || 1,
+        isAddon: true,
+      })),
     ];
 
     const lineItemsForTotals = allItems.map((i) => ({

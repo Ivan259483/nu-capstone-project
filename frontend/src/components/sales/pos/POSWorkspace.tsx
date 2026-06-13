@@ -136,6 +136,27 @@ function chargesToPutBody(charges: PosBillingCharges) {
   };
 }
 
+function cartItemsFromSavedReceipt(items: any[] | undefined, fallback: CartItem[]): CartItem[] {
+  if (!Array.isArray(items) || items.length === 0) return fallback.map((c) => ({ ...c }));
+  return items.map((item, index) => ({
+    id: String(item.serviceId || item.id || item.name || `receipt-line-${index}`),
+    name: String(item.name || 'Service'),
+    category: item.isAddon ? 'Add-on' : 'Service',
+    price: Math.max(0, Number(item.price) || 0),
+    duration: '',
+    description: '',
+    quantity: Math.max(1, Math.floor(Number(item.quantity)) || 1),
+  }));
+}
+
+function discountAmountFromSavedReceipt(receipt: any, fallback: number): number {
+  const savedDiscount = receipt?.discount;
+  if (savedDiscount && typeof savedDiscount === 'object') {
+    return Math.max(0, Number(savedDiscount.amount) || 0);
+  }
+  return Math.max(0, Number(fallback) || 0);
+}
+
 function resolvePosDownpayment(
   billingDownpayment: unknown,
   orderDownPaymentAmount: unknown,
@@ -938,17 +959,24 @@ export default function POSWorkspace({
           toast.error(chk.message || 'Checkout failed');
         } else {
           const chkData = chk.data;
-          const txnId = chkData.invoiceNumber || chkData.posInvoiceId || `TXN-${Date.now()}`;
+          const savedReceipt = (chkData.receipt || {}) as any;
+          const txnId = String(
+            savedReceipt.transactionId ||
+            chkData.posInvoiceId ||
+            chkData.invoiceNumber ||
+            chkData.paymentId ||
+            ''
+          );
           const discTotal = put.data.computed?.discountTotal ?? 0;
           setReceiptData({
             txnId,
-            cartItems: cartItems.map((c) => ({ ...c })),
-            subtotal,
-            discount: discTotal,
-            vatAmount: billingCharges.taxVatAmount,
-            total: balanceDue,
-            paymentMethod,
-            reservationApplied: billingCharges.downpayment,
+            cartItems: cartItemsFromSavedReceipt(savedReceipt.items, cartItems),
+            subtotal: Number(savedReceipt.subtotal ?? put.data.computed?.subtotal ?? subtotal),
+            discount: discountAmountFromSavedReceipt(savedReceipt, discTotal),
+            vatAmount: Number(savedReceipt.taxVatAmount ?? billingCharges.taxVatAmount),
+            total: Number(savedReceipt.amountCollected ?? savedReceipt.total ?? balanceDue),
+            paymentMethod: String(savedReceipt.paymentMethod || paymentMethod),
+            reservationApplied: Number(savedReceipt.downpayment ?? billingCharges.downpayment),
           });
           setCompletedTxnId(txnId);
           setShowReceipt(true);
@@ -974,64 +1002,113 @@ export default function POSWorkspace({
       }
 
       const { OrderService } = await import('@/lib/order-service');
+      if (selectedCustomer.isSynthetic) {
+        toast.error('Reload the linked booking before processing payment.');
+        return;
+      }
+
+      const lineItems = buildLineItemsFromCart();
+      const computed = totalsFromCharges(lineItems as BillingLineItem[]);
+      const serviceType = cartItems.map((c) => c.name).join(', ') || 'POS service';
       const orderPayload = {
+        customer: selectedCustomer.id,
+        customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
         customerEmail: selectedCustomer.email,
         customerPhone: selectedCustomer.phone,
+        vehicle: selectedVehicle.id,
+        vehicleYear: selectedVehicle.year ? String(selectedVehicle.year) : '',
         vehiclePlate: selectedVehicle.plate,
         vehicleMake: selectedVehicle.make,
         vehicleModel: selectedVehicle.model,
         vehicleType: selectedVehicle.type,
         vehicleColor: selectedVehicle.color,
-        items: cartItems.map(c => ({
-          name: c.name,
-          price: c.price,
-          quantity: c.quantity,
-        })),
-        totalAmount: subtotal,
-        totalPrice: total,
-        discount: walkInDiscountDisplay,
-        paymentMethod: paymentMethod,
-        status: 'completed',
+        serviceType,
+        serviceName: serviceType,
+        items: [],
+        totalAmount: computed.grandTotal,
+        totalPrice: computed.grandTotal,
+        price: computed.grandTotal,
         notes: '',
       };
-      const res = await OrderService.createOrder(orderPayload);
-      if (res.success) {
-        const txnId = res.data?.bookingReference || res.data?._id || `TXN-${Date.now()}`;
-        setReceiptData({
-          txnId,
-          cartItems: cartItems.map((c) => ({ ...c })),
-          subtotal,
-          discount: walkInDiscountDisplay,
-          vatAmount: billingCharges.taxVatAmount,
-          total,
-          paymentMethod,
-          reservationApplied: 0,
-        });
-        setCompletedTxnId(txnId);
-        setShowReceipt(true);
-        toast.success(`Payment processed! ${txnId}`);
-        setCartItems([]);
-        setBillingCharges(emptyBillingCharges());
-      } else {
-        toast.error(res.message || 'Failed to process payment');
+      const createRes = await OrderService.createOrder(orderPayload);
+      if (!createRes.success) {
+        toast.error(createRes.message || 'Failed to create booking for POS payment');
+        return;
       }
+
+      const createdOrderId = String(createRes.data?._id || createRes.data?.id || '');
+      if (!createdOrderId) {
+        toast.error('Booking was created, but no order id was returned.');
+        return;
+      }
+
+      const put = await BillingService.putBilling(createdOrderId, {
+        lineItems,
+        ...chargesToPutBody(billingCharges),
+        downpayment: 0,
+      });
+      if (!put.success || !('data' in put) || !put.data) {
+        toast.error((put as { message?: string }).message || 'Could not save POS billing');
+        return;
+      }
+
+      const balanceDue = put.data.computed?.balanceDue ?? computed.balanceDue;
+      const mapPm = (pm: string): 'cash' | 'gcash' => (pm === 'gcash' ? 'gcash' : 'cash');
+      const pm = mapPm(paymentMethod);
+      const chk = await BillingService.checkout(createdOrderId, {
+        paymentMethod: pm,
+        cashReceived: pm === 'cash' ? balanceDue : undefined,
+      });
+      if (!chk.success || !('data' in chk) || !chk.data) {
+        toast.error(chk.message || 'Checkout failed');
+        return;
+      }
+
+      const chkData = chk.data;
+      const savedReceipt = (chkData.receipt || {}) as any;
+      const txnId = String(
+        savedReceipt.transactionId ||
+        chkData.posInvoiceId ||
+        chkData.invoiceNumber ||
+        chkData.paymentId ||
+        ''
+      );
+      setReceiptData({
+        txnId,
+        cartItems: cartItemsFromSavedReceipt(savedReceipt.items, cartItems),
+        subtotal: Number(savedReceipt.subtotal ?? put.data.computed?.subtotal ?? subtotal),
+        discount: discountAmountFromSavedReceipt(savedReceipt, put.data.computed?.discountTotal ?? walkInDiscountDisplay),
+        vatAmount: Number(savedReceipt.taxVatAmount ?? billingCharges.taxVatAmount),
+        total: Number(savedReceipt.amountCollected ?? savedReceipt.total ?? balanceDue),
+        paymentMethod: String(savedReceipt.paymentMethod || paymentMethod),
+        reservationApplied: Number(savedReceipt.downpayment ?? 0),
+      });
+      setCompletedTxnId(txnId);
+      setShowReceipt(true);
+      const invNum = chkData.invoiceNumber || '';
+      toast.success(invNum ? `Invoice ${invNum} generated` : 'Payment recorded');
+      if (invNum) {
+        const snapFromCheckout =
+          chkData.snapshot && typeof chkData.snapshot === 'object'
+            ? (chkData.snapshot as InvoiceA4Snapshot)
+            : extractInvoiceSnapshot({ success: true, data: chkData });
+        await persistInvoiceAfterCheckout(invNum, snapFromCheckout ?? undefined);
+      }
+      setCartItems([]);
+      setBillingCharges(emptyBillingCharges());
+      setBillingComputedLive(null);
+      setLinkedOrderId(null);
+      setPosBillingOrderId(null);
+      loadUnpaidOrders();
+      setCheckInQueueTick((n) => n + 1);
     } catch (err: any) {
       console.error('POS Payment Error:', err);
-      const fallbackId = `TXN-LOCAL-${Date.now()}`;
-      setReceiptData({
-        txnId: fallbackId,
-        cartItems: cartItems.map((c) => ({ ...c })),
-        subtotal,
-        discount: walkInDiscountDisplay,
-        vatAmount: billingCharges.taxVatAmount,
-        total,
-        paymentMethod,
-        reservationApplied: 0,
-      });
-      setCompletedTxnId(fallbackId);
-      setShowReceipt(true);
-      toast.warning('Payment saved locally — sync may be delayed.');
+      toast.error(
+        err?.response?.data?.message ||
+        err?.message ||
+        'Payment was not saved. No receipt was generated.'
+      );
     } finally {
       setProcessing(false);
     }

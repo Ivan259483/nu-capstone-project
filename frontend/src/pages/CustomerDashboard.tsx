@@ -48,6 +48,10 @@ import {
   CustomerServicesSkeleton,
 } from '../components/customer/CustomerSkeleton';
 import { compressImageForBookingProof } from '../lib/compress-image-for-upload';
+import {
+  createDetailedReceiptPdfBlob,
+  receiptFromBooking,
+} from '../lib/receipt-document';
 import VehicleGarageForm from '@/components/shared/VehicleGarageForm';
 import { CustomerSidebarAnimatedIcon } from '@/components/customer/CustomerSidebarAnimatedIcon';
 import {
@@ -315,8 +319,9 @@ const CUSTOMER_TRACKER_STATUS_SET = new Set([
   'in-progress',
   'ready_for_payment',
   'completed',
-  'paid',
 ]);
+
+const CUSTOMER_TRACKER_FINAL_STATUS_SET = new Set(['paid', 'released', 'cancelled', 'failed', 'rejected']);
 
 /** Prefer fine-grained QC stage when ranking which booking to show. */
 const CUSTOMER_TRACKER_STAGE_RANK: Record<string, number> = {
@@ -351,8 +356,9 @@ function normTrackerStr(s: unknown) {
 function bookingShowsCustomerLiveTracker(b: unknown): boolean {
   const row = b as Record<string, unknown> | null | undefined;
   if (!row) return false;
-  if (String(row.paymentStatus ?? '').toLowerCase() === 'paid') return false;
-  return CUSTOMER_TRACKER_STATUS_SET.has(normTrackerStr(row.status));
+  const status = normTrackerStr(row.status);
+  if (CUSTOMER_TRACKER_FINAL_STATUS_SET.has(status)) return false;
+  return CUSTOMER_TRACKER_STATUS_SET.has(status);
 }
 
 /**
@@ -662,6 +668,7 @@ export default function CustomerDashboard() {
   // Payment History lightbox
   const [paymentLightboxUrl, setPaymentLightboxUrl] = useState<string | null>(null);
   const [orderReceiptPdfUrl, setOrderReceiptPdfUrl] = useState<string | null>(null);
+  const [orderReceiptPdfName, setOrderReceiptPdfName] = useState('AutoSPF-Official-Receipt.pdf');
   const orderReceiptPdfUrlRef = useRef<string | null>(null);
   /** Tracker evidence photos — in-page gallery (arrow keys + prev/next). */
   const [trackerEvidenceLightbox, setTrackerEvidenceLightbox] = useState<{
@@ -690,6 +697,7 @@ export default function CustomerDashboard() {
   }, [myBookings]);
 
   const closeCustomerOrderReceiptPdf = useCallback(() => {
+    setOrderReceiptPdfName('AutoSPF-Official-Receipt.pdf');
     setOrderReceiptPdfUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       orderReceiptPdfUrlRef.current = null;
@@ -710,12 +718,26 @@ export default function CustomerDashboard() {
     try {
       await ensureBackendAuthToken();
       const { BillingService } = await import('../lib/billing-service');
-      const blob = await BillingService.getOrderReceiptPdfBlob(resolvedOrderId);
-      const pdfBlob =
-        blob.type === 'application/pdf'
-          ? blob
-          : new Blob([blob], { type: 'application/pdf' });
+      await BillingService.getOrderReceiptPdfBlob(resolvedOrderId);
+
+      const booking = myBookingsRef.current.find((candidate) => {
+        const row = candidate as Record<string, unknown>;
+        return (
+          bookingRowId(candidate) === resolvedOrderId ||
+          String(row.orderNumber || '') === orderId ||
+          String(row.bookingReference || '') === orderId
+        );
+      });
+      if (!booking) {
+        throw new Error('Receipt details are unavailable. Try refreshing Payment History.');
+      }
+
+      const receipt = receiptFromBooking(booking);
+      const pdfBlob = await createDetailedReceiptPdfBlob(receipt);
       toast.dismiss(t);
+      setOrderReceiptPdfName(
+        `AutoSPF-Receipt-${String(receipt.receiptNumber || resolvedOrderId).replace(/[^a-z0-9_-]+/gi, '-')}.pdf`,
+      );
       setOrderReceiptPdfUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         const next = URL.createObjectURL(pdfBlob);
@@ -933,10 +955,7 @@ export default function CustomerDashboard() {
     const norm = (s: unknown) => String(s || '').toLowerCase();
 
     const activeStatuses = ['in-progress', 'assigned', 'checked-in', 'processing', 'confirmed', 'approved', 'in_progress', 'received', 'completed', 'ready_for_payment'];
-    const activeOrder = myOrders.find((o: any) => {
-      if (String(o?.paymentStatus || '').toLowerCase() === 'paid') return false;
-      return activeStatuses.includes(norm(o.status));
-    });
+    const activeOrder = myOrders.find((o: any) => activeStatuses.includes(norm(o.status)));
     let currentStatus = '';
     if (activeOrder) {
       const statusMap: Record<string, string> = {
@@ -8231,7 +8250,10 @@ export default function CustomerDashboard() {
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3">
-                  <p className="text-sm font-bold text-slate-800">Payment receipt</p>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">Official AutoSPF+ Receipt</p>
+                    <p className="text-[11px] text-slate-500">Professional digital copy</p>
+                  </div>
                   <div className="flex items-center gap-3">
                     <a
                       href={orderReceiptPdfUrl}
@@ -8240,6 +8262,13 @@ export default function CustomerDashboard() {
                       className="text-xs font-semibold text-blue-600 hover:text-blue-800"
                     >
                       Open in new tab
+                    </a>
+                    <a
+                      href={orderReceiptPdfUrl}
+                      download={orderReceiptPdfName}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                    >
+                      Download
                     </a>
                     <button
                       type="button"

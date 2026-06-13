@@ -25,8 +25,9 @@ const CUSTOMER_TRACKER_STATUS_SET = new Set([
   'in-progress',
   'ready_for_payment',
   'completed',
-  'paid',
 ]);
+
+const CUSTOMER_TRACKER_FINAL_STATUS_SET = new Set(['paid', 'released', 'cancelled', 'failed', 'rejected']);
 
 /** Prefer fine-grained QC stage when ranking which booking to show. */
 const CUSTOMER_TRACKER_STAGE_RANK: Record<string, number> = {
@@ -57,8 +58,9 @@ const CUSTOMER_TRACKER_STATUS_FALLBACK_RANK: Record<string, number> = {
 export function bookingShowsCustomerLiveTracker(b: unknown): boolean {
   const row = b as Record<string, unknown> | null | undefined;
   if (!row) return false;
-  if (String(row.paymentStatus ?? '').toLowerCase() === 'paid') return false;
-  return CUSTOMER_TRACKER_STATUS_SET.has(normTrackerStr(row.status));
+  const status = normTrackerStr(row.status);
+  if (CUSTOMER_TRACKER_FINAL_STATUS_SET.has(status)) return false;
+  return CUSTOMER_TRACKER_STATUS_SET.has(status);
 }
 
 /**

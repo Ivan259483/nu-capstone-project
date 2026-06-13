@@ -5,6 +5,8 @@ const paymentSchema = new mongoose.Schema(
     invoiceId: { type: String, required: true, unique: true, index: true },
     order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', required: true },
     customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    vehicle: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle', default: null },
+    service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', default: null },
     amount: { type: Number, required: true },
     currency: { type: String, default: 'PHP' },
     status: {
@@ -45,6 +47,7 @@ const paymentSchema = new mongoose.Schema(
     items: {
       type: [
         {
+          serviceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', default: null },
           name: String,
           price: Number,
           quantity: { type: Number, default: 1 },

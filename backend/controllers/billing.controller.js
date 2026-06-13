@@ -330,6 +330,7 @@ export const checkoutBilling = async (req, res, next) => {
     });
 
     const allItems = billing.lineItems.map((li) => ({
+      serviceId: li.serviceId || null,
       name: li.name,
       price: li.unitPrice,
       quantity: li.quantity,
