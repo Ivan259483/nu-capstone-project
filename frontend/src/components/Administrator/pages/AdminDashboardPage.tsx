@@ -1,64 +1,339 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Users,
-  UserCheck,
-  Clock,
-  ShieldCheck,
-  TrendingUp,
-  TrendingDown,
-  Minus,
+  Activity,
   AlertTriangle,
-  RefreshCw,
+  CalendarDays,
+  Car,
+  CheckCircle2,
+  CircleDollarSign,
+  Clock3,
+  CreditCard,
   Download,
+  PackageSearch,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+  Wrench,
+  type LucideIcon,
 } from 'lucide-react';
 import {
-  AreaChart,
   Area,
-  BarChart,
+  AreaChart,
   Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-  PieChart,
-  Pie,
-  Cell,
 } from 'recharts';
-import { getRoleLabel, getSafeUserRole } from '@/lib/roles';
 
 interface Props {
   users: any[];
   activityLogs: any[];
   bookings?: any[];
+  services?: any[];
+  inventory?: any[];
+  payments?: any[];
   loading: boolean;
-  /** When false (dashboard tab hidden), charts are not mounted — avoids Recharts -1 size warnings. */
+  /** When false (dashboard tab hidden), charts are not mounted to avoid Recharts size warnings. */
   chartsVisible?: boolean;
   onRefreshOverview?: () => void | Promise<void>;
   onExportReport?: () => void | Promise<void>;
 }
 
-const GROWTH_CHART_HEIGHT = 148;
-const ROLE_CHART_HEIGHT = 148;
-const DONUT_CHART_HEIGHT = 210;
-const HOURLY_CHART_HEIGHT = 238;
+type PipelineStage = 'pending' | 'confirmed' | 'in_progress' | 'quality_check' | 'completed' | 'cancelled';
+type TrendDirection = 'up' | 'down' | 'neutral';
+type TrendTone = 'positive' | 'negative' | 'neutral';
+type ActivityKind = 'sales' | 'qc' | 'inventory' | 'system';
 
-const CHART_GRID_STROKE = '#EEF2F7';
-const CHART_TICK = { fontSize: 10, fill: '#64748B' };
-const CHART_TOOLTIP_STYLE = {
-  fontSize: 11,
-  borderRadius: 10,
-  border: '1px solid #E2E8F0',
-  boxShadow: '0 14px 30px rgba(15, 23, 42, 0.12)',
+type TrendInfo = {
+  direction: TrendDirection;
+  tone: TrendTone;
+  label: string;
 };
 
-/** Renders Recharts only after the container has a real layout size (avoids width/height -1). */
+type ActivityItem = {
+  id: string;
+  title: string;
+  description: string;
+  timestamp: string;
+  kind: ActivityKind;
+};
+
+type TransactionRow = {
+  id: string;
+  reference: string;
+  customer: string;
+  vehicle: string;
+  service: string;
+  scheduleDate: string;
+  scheduleTime: string;
+  amount: number;
+  paymentStatus: string;
+  paymentTone: string;
+  jobStatus: string;
+  jobTone: string;
+  timestamp: string;
+};
+
+const CHART_GRID_STROKE = '#E8EDF4';
+const CHART_TICK = { fontSize: 11, fill: '#64748B' };
+const SERVICE_CATEGORY_DEFS = [
+  { key: 'ppf', label: 'PPF', color: '#2563EB' },
+  { key: 'ceramic', label: 'Ceramic Coating', color: '#F97316' },
+  { key: 'tint', label: 'Window Tint', color: '#8B5CF6' },
+  { key: 'interior', label: 'Interior Detailing', color: '#14B8A6' },
+  { key: 'exterior', label: 'Exterior Detailing', color: '#22C55E' },
+  { key: 'other', label: 'Other Services', color: '#94A3B8' },
+] as const;
+
+const PIPELINE_DEFS: Array<{ key: PipelineStage; label: string; color: string }> = [
+  { key: 'pending', label: 'Pending', color: '#F59E0B' },
+  { key: 'confirmed', label: 'Confirmed', color: '#2563EB' },
+  { key: 'in_progress', label: 'In Service', color: '#0891B2' },
+  { key: 'quality_check', label: 'Quality Check', color: '#7C3AED' },
+  { key: 'completed', label: 'Completed', color: '#10B981' },
+  { key: 'cancelled', label: 'Cancelled', color: '#EF4444' },
+];
+
+function startOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function addDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
+
+function toValidDate(value: unknown): Date | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDateKey(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function getBookingDate(booking: any) {
+  return toValidDate(
+    booking?.bookingDate ||
+    booking?.date ||
+    booking?.scheduledDate ||
+    booking?.appointmentDate ||
+    booking?.createdAt,
+  );
+}
+
+function getBookingActivityDate(booking: any) {
+  return toValidDate(booking?.createdAt || booking?.updatedAt || booking?.bookingDate || booking?.date);
+}
+
+function getBookingTimestamp(booking: any) {
+  return String(
+    booking?.serviceTrackingUpdatedAt ||
+    booking?.updatedAt ||
+    booking?.paidAt ||
+    booking?.createdAt ||
+    booking?.bookingDate ||
+    booking?.date ||
+    '',
+  );
+}
+
+function getBookingAmount(booking: any) {
+  return Math.max(0, Number(booking?.totalPrice ?? booking?.totalAmount ?? 0) || 0);
+}
+
+function getPendingBalance(booking: any) {
+  const total = getBookingAmount(booking);
+  const downpayment = Math.max(
+    0,
+    Number(
+      booking?.downPaymentAmount ??
+      booking?.downpayment ??
+      booking?.billing?.downpayment ??
+      booking?.warrantyAndReceipt?.amountPaid ??
+      0,
+    ) || 0,
+  );
+  return Math.max(0, total - downpayment);
+}
+
+function getServiceName(booking: any) {
+  return String(
+    booking?.serviceName ||
+    booking?.serviceType ||
+    booking?.jobOrder?.serviceCategory ||
+    booking?.items?.[0]?.product?.name ||
+    booking?.items?.[0]?.name ||
+    'Service',
+  ).trim();
+}
+
+function classifyService(value: string) {
+  const name = value.toLowerCase();
+  if (/\bppf\b|paint protection film|xpel|zivent|vinyl frog/.test(name)) return 'ppf';
+  if (/ceramic|graphene|sonax|\bspf\b|coating/.test(name)) return 'ceramic';
+  if (/tint|window film|nano ceramic window/.test(name)) return 'tint';
+  if (/interior|cabin|upholstery|leather|deep clean/.test(name)) return 'interior';
+  if (/exterior|wash|paint correction|polish|wax|engine detail/.test(name)) return 'exterior';
+  return 'other';
+}
+
+function getPipelineStage(booking: any): PipelineStage {
+  const rawStage = String(
+    booking?.serviceTrackingStage ||
+    booking?.trackingStage ||
+    booking?.customerStatus ||
+    booking?.stage ||
+    booking?.status ||
+    '',
+  )
+    .toLowerCase()
+    .replace(/-/g, '_');
+
+  if (['cancelled', 'canceled', 'rejected', 'failed', 'expired', 'no_show'].includes(rawStage)) return 'cancelled';
+  if (rawStage.includes('quality_check') || rawStage === 'qc' || rawStage === 'ready_pickup' || rawStage === 'ready') {
+    return 'quality_check';
+  }
+  if (['completed', 'paid', 'released'].includes(rawStage)) return 'completed';
+  if (['in_progress', 'started', 'active', 'received', 'washing', 'detailing', 'finishing'].includes(rawStage)) {
+    return 'in_progress';
+  }
+  if (['confirmed', 'approved', 'assigned'].includes(rawStage)) return 'confirmed';
+  return 'pending';
+}
+
+function isCancelledBooking(booking: any) {
+  return getPipelineStage(booking) === 'cancelled';
+}
+
+function isPaidBooking(booking: any) {
+  return ['paid', 'succeeded', 'completed'].includes(String(booking?.paymentStatus || '').toLowerCase());
+}
+
+function isSuccessfulPayment(payment: any) {
+  return ['succeeded', 'paid', 'completed'].includes(String(payment?.status || '').toLowerCase());
+}
+
+function formatPeso(value: number) {
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(value) ? value : 0);
+}
+
+function formatCompactPeso(value: number) {
+  const amount = Number.isFinite(value) ? value : 0;
+  if (Math.abs(amount) < 1000) return formatPeso(amount);
+  return `₱${new Intl.NumberFormat('en-PH', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(amount)}`;
+}
+
+function formatShortDate(value: unknown) {
+  const date = toValidDate(value);
+  if (!date) return '—';
+  return date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatShortTime(value: unknown) {
+  const date = toValidDate(value);
+  if (!date) return '';
+  return date.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatRelativeTime(value: unknown) {
+  const date = toValidDate(value);
+  if (!date) return '—';
+  const minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60_000));
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return formatShortDate(date);
+}
+
+function formatSchedule(booking: any) {
+  const date = getBookingDate(booking);
+  const rawTime = booking?.bookingTime || booking?.time || booking?.scheduledTime || '';
+  return {
+    date: date ? date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—',
+    time: rawTime ? String(rawTime) : date ? formatShortTime(date) : '',
+  };
+}
+
+function percentageChange(current: number, previous: number) {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}
+
+function buildTrend(current: number, previous: number, lowerIsBetter = false): TrendInfo {
+  const change = percentageChange(current, previous);
+  const direction: TrendDirection = change > 0.05 ? 'up' : change < -0.05 ? 'down' : 'neutral';
+  const favorable = lowerIsBetter ? change < 0 : change > 0;
+  const tone: TrendTone = direction === 'neutral' ? 'neutral' : favorable ? 'positive' : 'negative';
+  const rounded = Math.abs(change) >= 10 ? Math.round(Math.abs(change)) : Math.round(Math.abs(change) * 10) / 10;
+  return {
+    direction,
+    tone,
+    label: `${rounded}% vs prior period`,
+  };
+}
+
+function pipelineLabel(stage: PipelineStage) {
+  return PIPELINE_DEFS.find((item) => item.key === stage)?.label || 'Pending';
+}
+
+function paymentStatusMeta(rawStatus: unknown) {
+  const status = String(rawStatus || 'unpaid').toLowerCase();
+  if (['succeeded', 'paid', 'completed'].includes(status)) return { label: 'Paid', tone: 'paid' };
+  if (status === 'refunded') return { label: 'Refunded', tone: 'refunded' };
+  if (status === 'failed') return { label: 'Failed', tone: 'failed' };
+  return { label: status === 'pending' ? 'Pending' : 'Unpaid', tone: 'pending' };
+}
+
+function jobStatusTone(stage: PipelineStage) {
+  if (stage === 'completed') return 'complete';
+  if (stage === 'cancelled') return 'cancelled';
+  if (stage === 'quality_check') return 'qc';
+  if (stage === 'in_progress') return 'active';
+  if (stage === 'confirmed') return 'confirmed';
+  return 'pending';
+}
+
+function activityKind(log: any): ActivityKind {
+  const value = `${log?.type || ''} ${log?.module || ''} ${log?.action || ''} ${log?.title || ''}`.toLowerCase();
+  if (/quality|qc|checker|inspection/.test(value)) return 'qc';
+  if (/inventory|stock|product/.test(value)) return 'inventory';
+  if (/sale|payment|booking|invoice|transaction|order/.test(value)) return 'sales';
+  return 'system';
+}
+
 function AdminChartBox({
   height,
+  className = '',
   children,
 }: {
   height: number;
+  className?: string;
   children: React.ReactElement;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -69,8 +344,8 @@ function AdminChartBox({
     if (!node) return;
 
     const update = () => {
-      const { width, height: h } = node.getBoundingClientRect();
-      setReady(width > 0 && h > 0);
+      const rect = node.getBoundingClientRect();
+      setReady(rect.width > 0 && rect.height > 0);
     };
 
     update();
@@ -82,7 +357,7 @@ function AdminChartBox({
   return (
     <div
       ref={containerRef}
-      className="ah-dashboard-chart-canvas"
+      className={`ah-analytics-chart-canvas ${className}`}
       style={{ width: '100%', height, minHeight: height, minWidth: 0 }}
     >
       {ready ? (
@@ -94,152 +369,124 @@ function AdminChartBox({
   );
 }
 
-type PipelineStage = 'pending' | 'confirmed' | 'in_progress' | 'quality_check' | 'completed' | 'cancelled';
-type TodayStatKey = Extract<PipelineStage, 'pending' | 'confirmed' | 'in_progress' | 'completed'>;
-
-const PIPELINE_STAGES: Array<{ key: PipelineStage; label: string; color: string }> = [
-  { key: 'pending', label: 'Pending', color: '#F59E0B' },
-  { key: 'confirmed', label: 'Confirmed', color: '#2563eb' },
-  { key: 'in_progress', label: 'In Progress', color: '#0891B2' },
-  { key: 'quality_check', label: 'Quality Check', color: '#6366F1' },
-  { key: 'completed', label: 'Completed', color: '#10b981' },
-  { key: 'cancelled', label: 'Cancelled', color: '#ef4444' },
-];
-
-const TODAY_STATUS_STAGES: Array<{ key: TodayStatKey; label: string; color: string }> = [
-  { key: 'pending', label: 'Pending', color: '#F59E0B' },
-  { key: 'confirmed', label: 'Confirmed', color: '#2563eb' },
-  { key: 'in_progress', label: 'In Progress', color: '#0891B2' },
-  { key: 'completed', label: 'Completed', color: '#10b981' },
-];
-
-const DASHBOARD_HOURS = Array.from({ length: 11 }, (_, index) => index + 8);
-const ROLE_CHART_LABELS: Record<string, string> = {
-  administrator: 'Admin',
-  office_admin: 'Office Admin',
-  sales: 'Sales',
-  staff_quality_checker: 'QC Tech',
-  customer: 'Customer',
-};
-
-function formatDateKey(date: Date) {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
-}
-
-function getAppointmentDateKey(booking: any) {
-  const raw = booking?.bookingDate || booking?.date || booking?.scheduledDate || booking?.appointmentDate || booking?.createdAt;
-  if (!raw) return '';
-  if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-  const date = new Date(raw);
-  return Number.isNaN(date.getTime()) ? '' : formatDateKey(date);
-}
-
-function getAppointmentTimeRaw(booking: any) {
-  return booking?.bookingTime || booking?.time || booking?.scheduledTime || booking?.appointmentTime;
-}
-
-function getAppointmentTimeSortValue(booking: any) {
-  const raw = getAppointmentTimeRaw(booking);
-  if (!raw) return Number.MAX_SAFE_INTEGER;
-
-  const value = String(raw).trim();
-  const timeMatch = value.match(/^(\d{1,2}):(\d{2})(?:\s?([AP]M))?$/i);
-  if (timeMatch) {
-    let hour = Number(timeMatch[1]);
-    const minute = Number(timeMatch[2]);
-    const period = timeMatch[3]?.toUpperCase();
-    if (period === 'PM' && hour < 12) hour += 12;
-    if (period === 'AM' && hour === 12) hour = 0;
-    return hour * 60 + minute;
-  }
-
-  const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) return parsed.getHours() * 60 + parsed.getMinutes();
-  return Number.MAX_SAFE_INTEGER;
-}
-
-function formatHourLabel(hour: number) {
-  const period = hour >= 12 ? 'PM' : 'AM';
-  const displayHour = hour % 12 || 12;
-  return `${displayHour}${period}`;
-}
-
-function compareAppointmentsBySchedule(a: any, b: any) {
-  const dateCompare = getAppointmentDateKey(a).localeCompare(getAppointmentDateKey(b));
-  if (dateCompare !== 0) return dateCompare;
-  return getAppointmentTimeSortValue(a) - getAppointmentTimeSortValue(b);
-}
-
-function getPipelineStage(booking: any): PipelineStage {
-  const rawStage = String(
-    booking?.serviceTrackingStage ||
-    booking?.trackingStage ||
-    booking?.stage ||
-    booking?.status ||
-    '',
-  ).toLowerCase().replace(/-/g, '_');
-  const paymentStatus = String(booking?.paymentStatus || '').toLowerCase();
-
-  if (['cancelled', 'canceled', 'rejected', 'failed', 'expired', 'no_show'].includes(rawStage)) return 'cancelled';
-  if (['completed', 'paid', 'released'].includes(rawStage) || paymentStatus === 'paid') return 'completed';
-  if (rawStage.includes('quality_check') || rawStage === 'qc' || rawStage === 'ready_pickup') return 'quality_check';
-  if (['in_progress', 'started', 'active', 'received'].includes(rawStage)) return 'in_progress';
-  if (['confirmed', 'approved', 'assigned'].includes(rawStage)) return 'confirmed';
-  return 'pending';
-}
-
-function DashboardTooltip({ active, payload, label }: any) {
+function AnalyticsTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
-  const item = payload[0]?.payload || {};
-  const value = item.count ?? item.value ?? payload[0]?.value ?? 0;
-  const pct = typeof item.pct === 'number' ? item.pct : null;
-  const stackItems = payload.filter((entry: any) => Number(entry?.value || 0) > 0);
-
-  if (stackItems.length > 1 || item.total !== undefined) {
-    return (
-      <div className="ah-dashboard-chart-tooltip">
-        <div className="ah-dashboard-chart-tooltip-title">
-          <span style={{ background: '#2563eb' }} />
-          {item.hour || label}
-        </div>
-        {stackItems.length > 0 ? (
-          stackItems.map((entry: any) => (
-            <p key={entry.dataKey}>
-              <strong className="tabular-nums">{Number(entry.value || 0).toLocaleString()}</strong>
-              {` ${entry.name}`}
-            </p>
-          ))
-        ) : (
-          <p>
-            <strong className="tabular-nums">0</strong> appointment(s)
-          </p>
-        )}
-        <p>{Number(item.total || 0).toLocaleString()} total</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="ah-dashboard-chart-tooltip">
-      <div className="ah-dashboard-chart-tooltip-title">
-        <span style={{ background: item.color || payload[0]?.color || '#2563eb' }} />
-        {item.label || item.hour || label}
-      </div>
-      <p>
-        <strong className="tabular-nums">{Number(value || 0).toLocaleString()}</strong>
-        {` ${item.unit || (item.hour ? 'appointment(s)' : 'job(s)')}`}
-      </p>
-      {pct !== null && <p>{pct}% of total</p>}
+    <div className="ah-analytics-tooltip">
+      <strong>{label}</strong>
+      {payload
+        .filter((entry: any) => entry?.value !== undefined)
+        .map((entry: any) => {
+          const isCurrency = /revenue|collected|outstanding|amount/i.test(String(entry.dataKey || entry.name || ''));
+          return (
+            <div key={`${entry.dataKey}-${entry.name}`}>
+              <span>
+                <i style={{ background: entry.color }} />
+                {entry.name}
+              </span>
+              <b>{isCurrency ? formatPeso(Number(entry.value || 0)) : Number(entry.value || 0).toLocaleString()}</b>
+            </div>
+          );
+        })}
     </div>
   );
 }
 
+function EmptyWidget({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="ah-analytics-empty">
+      <Sparkles size={22} aria-hidden />
+      <strong>{title}</strong>
+      <span>{detail}</span>
+    </div>
+  );
+}
+
+function SectionHeader({
+  icon: Icon,
+  title,
+  subtitle,
+  aside,
+}: {
+  icon: LucideIcon;
+  title: string;
+  subtitle: string;
+  aside?: React.ReactNode;
+}) {
+  return (
+    <div className="ah-analytics-card-head">
+      <div className="ah-analytics-card-heading">
+        <span className="ah-analytics-card-icon"><Icon size={17} aria-hidden /></span>
+        <div>
+          <h2>{title}</h2>
+          <p>{subtitle}</p>
+        </div>
+      </div>
+      {aside}
+    </div>
+  );
+}
+
+function KpiSparkline({
+  id,
+  data,
+  color,
+  visible,
+}: {
+  id: string;
+  data: number[];
+  color: string;
+  visible: boolean;
+}) {
+  if (!visible) return <div className="ah-analytics-kpi-spark-placeholder" />;
+  const points = data.map((value, index) => ({ index, value }));
+  return (
+    <AdminChartBox height={48} className="ah-analytics-kpi-spark">
+      <AreaChart data={points} margin={{ top: 5, right: 1, left: 1, bottom: 1 }}>
+        <defs>
+          <linearGradient id={`spark-${id}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.28} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <Area
+          type="monotone"
+          dataKey="value"
+          stroke={color}
+          strokeWidth={2}
+          fill={`url(#spark-${id})`}
+          dot={false}
+          isAnimationActive={false}
+        />
+      </AreaChart>
+    </AdminChartBox>
+  );
+}
+
+function TrendBadge({ trend }: { trend?: TrendInfo }) {
+  if (!trend) return null;
+  const Icon = trend.direction === 'up' ? TrendingUp : trend.direction === 'down' ? TrendingDown : Activity;
+  return (
+    <span className={`ah-analytics-kpi-trend ah-analytics-kpi-trend--${trend.tone}`}>
+      <Icon size={12} aria-hidden />
+      {trend.label}
+    </span>
+  );
+}
+
+function ActivityGlyph({ kind }: { kind: ActivityKind }) {
+  if (kind === 'qc') return <ShieldCheck size={15} aria-hidden />;
+  if (kind === 'inventory') return <PackageSearch size={15} aria-hidden />;
+  if (kind === 'sales') return <CircleDollarSign size={15} aria-hidden />;
+  return <Activity size={15} aria-hidden />;
+}
+
 export default function AdminDashboardPage({
-  users,
-  activityLogs: _activityLogs,
+  activityLogs,
   bookings = [],
+  services = [],
+  inventory = [],
+  payments = [],
   loading,
   chartsVisible = true,
   onRefreshOverview,
@@ -272,679 +519,926 @@ export default function AdminDashboardPage({
     }
   };
 
-  const stats = useMemo(() => {
-    const total = users.length;
-    const active = users.filter(u => u.status === 'active').length;
-    const pending = users.filter(u => u.status === 'pending' || u.status === 'pending_verification').length;
-    const roles = [...new Set(users.map(u => u.role).filter(Boolean))].length;
-    return { total, active, pending, roles };
-  }, [users]);
-
-  // Derive user growth data from createdAt dates
-  const growthData = useMemo(() => {
-    const now = new Date();
-    const weeks: { week: string; users: number; active: number }[] = [];
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i * 7);
-      const cutoff = d.toISOString();
-      const total = users.filter(u => new Date(u.createdAt || '2024-01-01') <= new Date(cutoff)).length;
-      const activeCount = users.filter(u => new Date(u.createdAt || '2024-01-01') <= new Date(cutoff) && u.status === 'active').length;
-      weeks.push({
-        week: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        users: total,
-        active: activeCount,
-      });
-    }
-    return weeks;
-  }, [users]);
-
-  /** Canonical role counts + labels — matches User Management / ROLE_LABELS (excludes bootstrap Administrator bar — Office Admin covers ops admin) */
-  const roleDistributionData = useMemo(() => {
-    const roleMap: Record<string, number> = {};
-    users.forEach((u) => {
-      const slug = getSafeUserRole(u.role);
-      roleMap[slug] = (roleMap[slug] || 0) + 1;
-    });
-    return Object.entries(roleMap)
-      .filter(([slug]) => slug !== 'administrator')
-      .map(([slug, count]) => ({
-        role: getRoleLabel(slug),
-        roleShort: ROLE_CHART_LABELS[slug] || getRoleLabel(slug),
-        count,
-      }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 8);
-  }, [users]);
-
-  const kpiTrends = useMemo(() => {
-    const pctChange = (current: number, previous: number) => {
-      if (previous === 0) return current > 0 ? 100 : 0;
-      return ((current - previous) / previous) * 100;
-    };
-
-    const buildTrend = (delta: number, pct: number) => {
-      const direction = delta > 0 ? 'up' : delta < 0 ? 'down' : 'neutral';
-      const sign = delta > 0 ? '+' : '';
-      return {
-        direction,
-        label: `${sign}${pct.toFixed(1)}% vs last week`,
-      };
-    };
-
-    if (growthData.length < 2) {
-      return { total: null, active: null, pending: null, roles: null };
-    }
-
-    const prev = growthData[growthData.length - 2];
-    const curr = growthData[growthData.length - 1];
-    const totalDelta = curr.users - prev.users;
-    const activeDelta = curr.active - prev.active;
-
-    const now = Date.now();
-    const weekMs = 7 * 24 * 60 * 60 * 1000;
-    const isPending = (u: { status?: string }) =>
-      u.status === 'pending' || u.status === 'pending_verification';
-    const pendingThisWeek = users.filter(
-      (u) => isPending(u) && now - new Date(u.createdAt || 0).getTime() < weekMs,
-    ).length;
-    const pendingLastWeek = users.filter((u) => {
-      if (!isPending(u)) return false;
-      const age = now - new Date(u.createdAt || 0).getTime();
-      return age >= weekMs && age < weekMs * 2;
-    }).length;
-    const pendingDelta = pendingThisWeek - pendingLastWeek;
-
-    return {
-      total: buildTrend(totalDelta, pctChange(curr.users, prev.users)),
-      active: buildTrend(activeDelta, pctChange(curr.active, prev.active)),
-      pending: buildTrend(pendingDelta, pctChange(pendingThisWeek, pendingLastWeek)),
-      roles: null,
-    };
-  }, [growthData, users]);
-
-  const kpis = [
-    { key: 'total' as const, label: 'Total Users', value: stats.total, change: `${stats.total} registered accounts`, icon: Users, iconBg: '#EFF6FF', iconColor: '#2563EB', accent: '#2563EB' },
-    { key: 'active' as const, label: 'Active Users', value: stats.active, change: `${stats.total > 0 ? ((stats.active / stats.total) * 100).toFixed(1) : 0}% of total`, icon: UserCheck, iconBg: '#ECFDF5', iconColor: '#10B981', accent: '#10B981' },
-    { key: 'pending' as const, label: 'Pending Verifications', value: stats.pending, change: stats.pending > 0 ? 'Requires action' : 'No pending verifications', icon: Clock, iconBg: '#FFFBEB', iconColor: '#F59E0B', accent: '#F59E0B', alert: stats.pending > 0 },
-    { key: 'roles' as const, label: 'Total Roles', value: stats.roles, change: 'Across all departments', icon: ShieldCheck, iconBg: '#F8FAFC', iconColor: '#475569', accent: '#64748B' },
-  ];
-
   const safeBookings = useMemo(() => (Array.isArray(bookings) ? bookings : []), [bookings]);
-  const todayKey = useMemo(() => formatDateKey(new Date()), []);
+  const safeServices = useMemo(() => (Array.isArray(services) ? services : []), [services]);
+  const safeInventory = useMemo(() => (Array.isArray(inventory) ? inventory : []), [inventory]);
+  const safePayments = useMemo(() => (Array.isArray(payments) ? payments : []), [payments]);
+  const safeActivityLogs = useMemo(() => (Array.isArray(activityLogs) ? activityLogs : []), [activityLogs]);
+  const now = useMemo(() => new Date(), []);
+  const today = useMemo(() => startOfDay(now), [now]);
+  const todayKey = useMemo(() => formatDateKey(today), [today]);
+  const yesterdayKey = useMemo(() => formatDateKey(addDays(today, -1)), [today]);
+  const successfulPayments = useMemo(() => safePayments.filter(isSuccessfulPayment), [safePayments]);
+  const hasPaymentRecords = safePayments.length > 0;
 
-  const todayAppointments = useMemo(() => {
-    return safeBookings
-      .filter((booking) => getAppointmentDateKey(booking) === todayKey)
-      .sort(compareAppointmentsBySchedule);
-  }, [safeBookings, todayKey]);
-
-  const upcomingAppointments = useMemo(() => {
-    return safeBookings
-      .filter((booking) => {
-        const dateKey = getAppointmentDateKey(booking);
-        return dateKey && dateKey > todayKey;
-      })
-      .sort(compareAppointmentsBySchedule);
-  }, [safeBookings, todayKey]);
-
-  const recentScheduledAppointments = useMemo(() => {
-    return safeBookings
-      .filter((booking) => Boolean(getAppointmentDateKey(booking)))
-      .sort((a, b) => {
-        const dateCompare = getAppointmentDateKey(b).localeCompare(getAppointmentDateKey(a));
-        if (dateCompare !== 0) return dateCompare;
-        return getAppointmentTimeSortValue(a) - getAppointmentTimeSortValue(b);
-      });
-  }, [safeBookings]);
-
-  const appointmentScope = useMemo(() => {
-    if (todayAppointments.length > 0) {
-      return {
-        label: "Today's schedule",
-        centerLabel: 'Today',
-        bookings: todayAppointments,
-      };
-    }
-    if (upcomingAppointments.length > 0) {
-      return {
-        label: 'Upcoming schedule',
-        centerLabel: 'Upcoming',
-        bookings: upcomingAppointments,
-      };
-    }
-    return {
-      label: 'Recent schedule',
-      centerLabel: 'Recent',
-      bookings: recentScheduledAppointments,
-    };
-  }, [recentScheduledAppointments, todayAppointments, upcomingAppointments]);
-
-  const appointmentChartBookings = useMemo(() => {
-    return appointmentScope.bookings.filter((booking) => {
-      const stage = getPipelineStage(booking);
-      return stage === 'pending' || stage === 'confirmed' || stage === 'in_progress' || stage === 'quality_check' || stage === 'completed';
-    });
-  }, [appointmentScope.bookings]);
-
-  const appointmentCounts = useMemo(() => {
-    const counts: Record<TodayStatKey, number> = { pending: 0, confirmed: 0, in_progress: 0, completed: 0 };
-    appointmentChartBookings.forEach((booking) => {
-      const stage = getPipelineStage(booking);
-      if (stage === 'quality_check') {
-        counts.in_progress += 1;
-        return;
-      }
-      if (stage === 'pending' || stage === 'confirmed' || stage === 'in_progress' || stage === 'completed') {
-        counts[stage] += 1;
-      }
-    });
-    return counts;
-  }, [appointmentChartBookings]);
-
-  const appointmentTotal = useMemo(
-    () => TODAY_STATUS_STAGES.reduce((total, stage) => total + (appointmentCounts[stage.key] || 0), 0),
-    [appointmentCounts],
-  );
-
-  const appointmentStatusChartData = useMemo(
+  const activeServices = useMemo(
     () =>
-      TODAY_STATUS_STAGES.map((stage) => {
-        const value = appointmentCounts[stage.key] || 0;
-        return {
-          ...stage,
-          value,
-          pct: appointmentTotal > 0 ? Math.round((value / appointmentTotal) * 100) : 0,
-          unit: 'appointment(s)',
-        };
+      safeServices.filter((service) => {
+        const status = String(service?.status || '').toLowerCase();
+        return status === 'active' || service?.isPublished === true;
       }),
-    [appointmentCounts, appointmentTotal],
+    [safeServices],
   );
 
-  const appointmentHourlyChartData = useMemo(() => {
-    const countsByHour = new Map<number, Record<TodayStatKey | 'total', number>>();
-    const visibleHours = new Set(DASHBOARD_HOURS);
+  const pendingBookings = useMemo(
+    () =>
+      safeBookings.filter(
+        (booking) => !isCancelledBooking(booking) && !isPaidBooking(booking) && getPendingBalance(booking) > 0,
+      ),
+    [safeBookings],
+  );
 
-    appointmentChartBookings.forEach((booking) => {
-      const timeValue = getAppointmentTimeSortValue(booking);
-      if (!Number.isFinite(timeValue) || timeValue === Number.MAX_SAFE_INTEGER) return;
-      const hour = Math.floor(timeValue / 60);
-      const rawStage = getPipelineStage(booking);
-      const stage: TodayStatKey = rawStage === 'quality_check' ? 'in_progress' : rawStage as TodayStatKey;
-      if (!['pending', 'confirmed', 'in_progress', 'completed'].includes(stage)) return;
-      visibleHours.add(hour);
-      const current = countsByHour.get(hour) || {
-        pending: 0,
-        confirmed: 0,
-        in_progress: 0,
-        completed: 0,
-        total: 0,
+  const lowStockItems = useMemo(
+    () =>
+      safeInventory
+        .filter((item) => Number(item?.stock || 0) <= Number(item?.minLevel ?? 0))
+        .sort((a, b) => {
+          const aMin = Math.max(1, Number(a?.minLevel || 1));
+          const bMin = Math.max(1, Number(b?.minLevel || 1));
+          return Number(a?.stock || 0) / aMin - Number(b?.stock || 0) / bMin;
+        }),
+    [safeInventory],
+  );
+
+  const revenueForDateKey = (dateKey: string) => {
+    if (hasPaymentRecords) {
+      return successfulPayments.reduce((sum, payment) => {
+        const date = toValidDate(payment?.createdAt || payment?.paidAt);
+        return date && formatDateKey(date) === dateKey ? sum + (Number(payment?.amount || 0) || 0) : sum;
+      }, 0);
+    }
+    return safeBookings.reduce((sum, booking) => {
+      if (!isPaidBooking(booking)) return sum;
+      const date = toValidDate(booking?.paidAt || booking?.updatedAt || booking?.createdAt);
+      return date && formatDateKey(date) === dateKey ? sum + getBookingAmount(booking) : sum;
+    }, 0);
+  };
+
+  const todayRevenue = useMemo(
+    () => revenueForDateKey(todayKey),
+    [hasPaymentRecords, safeBookings, successfulPayments, todayKey],
+  );
+  const yesterdayRevenue = useMemo(
+    () => revenueForDateKey(yesterdayKey),
+    [hasPaymentRecords, safeBookings, successfulPayments, yesterdayKey],
+  );
+  const pendingPaymentTotal = useMemo(
+    () => pendingBookings.reduce((sum, booking) => sum + getPendingBalance(booking), 0),
+    [pendingBookings],
+  );
+
+  const dailyKpiSeries = useMemo(() => {
+    const days = Array.from({ length: 7 }, (_, index) => addDays(today, index - 6));
+    return {
+      bookings: days.map((day) => {
+        const key = formatDateKey(day);
+        return safeBookings.filter((booking) => {
+          const date = getBookingActivityDate(booking);
+          return date && formatDateKey(date) === key;
+        }).length;
+      }),
+      activeServices: days.map((day) => {
+        const key = formatDateKey(day);
+        return new Set(
+          safeBookings
+            .filter((booking) => {
+              const date = getBookingActivityDate(booking);
+              return date && formatDateKey(date) === key && !isCancelledBooking(booking);
+            })
+            .map((booking) => getServiceName(booking).toLowerCase()),
+        ).size;
+      }),
+      revenue: days.map((day) => revenueForDateKey(formatDateKey(day))),
+      pending: days.map((day) => {
+        const key = formatDateKey(day);
+        return pendingBookings.reduce((sum, booking) => {
+          const date = getBookingActivityDate(booking);
+          return date && formatDateKey(date) === key ? sum + getPendingBalance(booking) : sum;
+        }, 0);
+      }),
+      stock: lowStockItems.length > 0
+        ? lowStockItems.slice(0, 7).map((item) => Number(item?.stock || 0))
+        : [0, 0, 0, 0, 0, 0, 0],
+    };
+  }, [
+    hasPaymentRecords,
+    lowStockItems,
+    pendingBookings,
+    safeBookings,
+    successfulPayments,
+    today,
+  ]);
+
+  const periodComparisons = useMemo(() => {
+    const currentStart = addDays(today, -6);
+    const previousStart = addDays(today, -13);
+    const previousEnd = addDays(today, -7);
+    const countBookings = (start: Date, end: Date) =>
+      safeBookings.filter((booking) => {
+        const date = getBookingActivityDate(booking);
+        return date && date >= start && date < addDays(end, 1);
+      }).length;
+    const activeDemand = (start: Date, end: Date) =>
+      new Set(
+        safeBookings
+          .filter((booking) => {
+            const date = getBookingActivityDate(booking);
+            return date && date >= start && date < addDays(end, 1) && !isCancelledBooking(booking);
+          })
+          .map((booking) => getServiceName(booking).toLowerCase()),
+      ).size;
+    const newPending = (start: Date, end: Date) =>
+      pendingBookings.filter((booking) => {
+        const date = getBookingActivityDate(booking);
+        return date && date >= start && date < addDays(end, 1);
+      }).length;
+
+    return {
+      bookings: buildTrend(countBookings(currentStart, today), countBookings(previousStart, previousEnd)),
+      services: buildTrend(activeDemand(currentStart, today), activeDemand(previousStart, previousEnd)),
+      revenue: buildTrend(todayRevenue, yesterdayRevenue),
+      pending: buildTrend(newPending(currentStart, today), newPending(previousStart, previousEnd), true),
+    };
+  }, [pendingBookings, safeBookings, today, todayRevenue, yesterdayRevenue]);
+
+  const kpis = useMemo(
+    () => [
+      {
+        key: 'bookings',
+        label: 'Total Bookings',
+        value: safeBookings.length.toLocaleString('en-PH'),
+        detail: `${dailyKpiSeries.bookings.reduce((sum, value) => sum + value, 0)} added in the last 7 days`,
+        icon: CalendarDays,
+        color: '#2563EB',
+        trend: periodComparisons.bookings,
+        spark: dailyKpiSeries.bookings,
+      },
+      {
+        key: 'services',
+        label: 'Active Services',
+        value: activeServices.length.toLocaleString('en-PH'),
+        detail: `${safeServices.length} total catalog entries`,
+        icon: Wrench,
+        color: '#7C3AED',
+        trend: periodComparisons.services,
+        spark: dailyKpiSeries.activeServices,
+      },
+      {
+        key: 'revenue',
+        label: "Today's Revenue",
+        value: formatCompactPeso(todayRevenue),
+        detail: hasPaymentRecords ? 'Successful collections today' : 'Derived from paid bookings',
+        icon: CircleDollarSign,
+        color: '#10B981',
+        trend: periodComparisons.revenue,
+        spark: dailyKpiSeries.revenue,
+      },
+      {
+        key: 'pending',
+        label: 'Pending Payments',
+        value: formatCompactPeso(pendingPaymentTotal),
+        detail: `${pendingBookings.length} booking${pendingBookings.length === 1 ? '' : 's'} awaiting settlement`,
+        icon: CreditCard,
+        color: '#F59E0B',
+        trend: periodComparisons.pending,
+        spark: dailyKpiSeries.pending,
+        alert: pendingBookings.length > 0,
+      },
+      {
+        key: 'stock',
+        label: 'Low Stock Alerts',
+        value: lowStockItems.length.toLocaleString('en-PH'),
+        detail: `${lowStockItems.filter((item) => Number(item?.stock || 0) === 0).length} out of stock`,
+        icon: PackageSearch,
+        color: '#EF4444',
+        spark: dailyKpiSeries.stock,
+        alert: lowStockItems.length > 0,
+      },
+    ],
+    [
+      activeServices.length,
+      dailyKpiSeries,
+      hasPaymentRecords,
+      lowStockItems,
+      pendingBookings.length,
+      pendingPaymentTotal,
+      periodComparisons,
+      safeBookings.length,
+      safeServices.length,
+      todayRevenue,
+    ],
+  );
+
+  const weeklyTrend = useMemo(() => {
+    return Array.from({ length: 8 }, (_, index) => {
+      const offset = 7 - index;
+      const start = addDays(today, -(offset * 7 + 6));
+      const end = addDays(start, 6);
+      const bookingCount = safeBookings.filter((booking) => {
+        const date = getBookingActivityDate(booking);
+        return date && date >= start && date < addDays(end, 1);
+      }).length;
+      const revenue = hasPaymentRecords
+        ? successfulPayments.reduce((sum, payment) => {
+            const date = toValidDate(payment?.createdAt || payment?.paidAt);
+            return date && date >= start && date < addDays(end, 1)
+              ? sum + (Number(payment?.amount || 0) || 0)
+              : sum;
+          }, 0)
+        : safeBookings.reduce((sum, booking) => {
+            if (!isPaidBooking(booking)) return sum;
+            const date = toValidDate(booking?.paidAt || booking?.updatedAt || booking?.createdAt);
+            return date && date >= start && date < addDays(end, 1) ? sum + getBookingAmount(booking) : sum;
+          }, 0);
+      return {
+        label: start.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }),
+        bookings: bookingCount,
+        revenue,
       };
-      current[stage] += 1;
-      current.total += 1;
-      countsByHour.set(hour, current);
     });
+  }, [hasPaymentRecords, safeBookings, successfulPayments, today]);
 
-    return Array.from(visibleHours)
-      .sort((a, b) => a - b)
-      .map((hour) => {
-        const counts = countsByHour.get(hour) || {
-          pending: 0,
-          confirmed: 0,
-          in_progress: 0,
-          completed: 0,
-          total: 0,
-        };
-        return {
-          hour: formatHourLabel(hour),
-          ...counts,
-        };
-      });
-  }, [appointmentChartBookings]);
+  const serviceBreakdown = useMemo(() => {
+    const counts = new Map<string, number>(SERVICE_CATEGORY_DEFS.map((item) => [item.key, 0]));
+    safeBookings.forEach((booking) => {
+      if (isCancelledBooking(booking)) return;
+      const key = classifyService(getServiceName(booking));
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return SERVICE_CATEGORY_DEFS.map((item) => ({ ...item, value: counts.get(item.key) || 0 }));
+  }, [safeBookings]);
+  const serviceBreakdownTotal = useMemo(
+    () => serviceBreakdown.reduce((sum, item) => sum + item.value, 0),
+    [serviceBreakdown],
+  );
 
-  const appointmentPeakHour = useMemo(() => {
-    const peak = appointmentHourlyChartData.reduce(
-      (best, item) => (item.total > best.total ? item : best),
-      { hour: '—', total: 0 },
-    );
-    return peak.total > 0 ? `${peak.hour} (${peak.total})` : '—';
-  }, [appointmentHourlyChartData]);
+  const topServices = useMemo(() => {
+    const totals = new Map<string, { count: number; revenue: number }>();
+    safeBookings.forEach((booking) => {
+      if (isCancelledBooking(booking)) return;
+      const name = getServiceName(booking);
+      const current = totals.get(name) || { count: 0, revenue: 0 };
+      current.count += 1;
+      current.revenue += getBookingAmount(booking);
+      totals.set(name, current);
+    });
+    return [...totals.entries()]
+      .map(([name, value]) => ({ name, ...value, category: classifyService(name) }))
+      .sort((a, b) => b.revenue - a.revenue || b.count - a.count)
+      .slice(0, 5);
+  }, [safeBookings]);
+  const maxTopServiceRevenue = Math.max(...topServices.map((item) => item.revenue), 1);
 
-  const pipelineCounts = useMemo(() => {
-    const counts = PIPELINE_STAGES.reduce((acc, stage) => {
-      acc[stage.key] = 0;
-      return acc;
-    }, {} as Record<PipelineStage, number>);
+  const sevenDayRevenue = useMemo(() => {
+    return Array.from({ length: 7 }, (_, index) => {
+      const day = addDays(today, index - 6);
+      const key = formatDateKey(day);
+      const collected = revenueForDateKey(key);
+      const outstanding = pendingBookings.reduce((sum, booking) => {
+        const date = getBookingActivityDate(booking) || getBookingDate(booking);
+        return date && formatDateKey(date) === key ? sum + getPendingBalance(booking) : sum;
+      }, 0);
+      return {
+        label: day.toLocaleDateString('en-PH', { weekday: 'short' }),
+        collected,
+        outstanding,
+      };
+    });
+  }, [hasPaymentRecords, pendingBookings, safeBookings, successfulPayments, today]);
+
+  const pipelineData = useMemo(() => {
+    const counts = Object.fromEntries(PIPELINE_DEFS.map((item) => [item.key, 0])) as Record<PipelineStage, number>;
     safeBookings.forEach((booking) => {
       counts[getPipelineStage(booking)] += 1;
     });
-    return counts;
+    const total = PIPELINE_DEFS.reduce((sum, item) => sum + counts[item.key], 0);
+    return {
+      total,
+      active: counts.confirmed + counts.in_progress + counts.quality_check,
+      rows: PIPELINE_DEFS.map((item) => ({
+        ...item,
+        count: counts[item.key],
+        percent: total > 0 ? Math.round((counts[item.key] / total) * 100) : 0,
+      })),
+    };
   }, [safeBookings]);
 
-  const pipelineTotal = useMemo(
-    () => PIPELINE_STAGES.reduce((total, stage) => total + pipelineCounts[stage.key], 0),
-    [pipelineCounts],
-  );
+  const activityFeed = useMemo<ActivityItem[]>(() => {
+    if (safeActivityLogs.length > 0) {
+      return [...safeActivityLogs]
+        .sort((a, b) => {
+          const aTime = toValidDate(a?.createdAt)?.getTime() || 0;
+          const bTime = toValidDate(b?.createdAt)?.getTime() || 0;
+          return bTime - aTime;
+        })
+        .slice(0, 7)
+        .map((log, index) => ({
+          id: String(log?._id || log?.id || `activity-${index}`),
+          title: String(log?.title || log?.action || log?.type || 'System activity'),
+          description: String(log?.description || log?.userName || log?.module || 'Operational update'),
+          timestamp: String(log?.createdAt || ''),
+          kind: activityKind(log),
+        }));
+    }
 
-  const pipelineChartData = useMemo(
-    () =>
-      PIPELINE_STAGES.map((stage) => {
-        const count = pipelineCounts[stage.key] || 0;
-        const pct = pipelineTotal > 0 ? Math.round((count / pipelineTotal) * 100) : 0;
+    return [...safeBookings]
+      .sort((a, b) => {
+        const aTime = toValidDate(getBookingTimestamp(a))?.getTime() || 0;
+        const bTime = toValidDate(getBookingTimestamp(b))?.getTime() || 0;
+        return bTime - aTime;
+      })
+      .slice(0, 7)
+      .map((booking, index) => {
+        const stage = getPipelineStage(booking);
+        const kind: ActivityKind = stage === 'quality_check' ? 'qc' : stage === 'completed' ? 'sales' : 'system';
         return {
-          ...stage,
-          count,
-          pct,
-          labelText: count > 0 ? `${count} (${pct}%)` : '',
-          unit: 'job(s)',
+          id: String(booking?._id || booking?.id || `booking-activity-${index}`),
+          title: `${pipelineLabel(stage)}: ${getServiceName(booking)}`,
+          description: `${booking?.customerName || 'Customer'} · ${booking?.vehicleInfo || booking?.vehiclePlate || 'Vehicle'}`,
+          timestamp: getBookingTimestamp(booking),
+          kind,
         };
-      }),
-    [pipelineCounts, pipelineTotal],
-  );
+      });
+  }, [safeActivityLogs, safeBookings]);
 
-  const pipelineActiveTotal = useMemo(
-    () => pipelineCounts.pending + pipelineCounts.confirmed + pipelineCounts.in_progress + pipelineCounts.quality_check,
-    [pipelineCounts],
-  );
+  const transactionRows = useMemo<TransactionRow[]>(() => {
+    const bookingById = new Map<string, any>();
+    const bookingByInvoice = new Map<string, any>();
+    safeBookings.forEach((booking) => {
+      [booking?.id, booking?._id].filter(Boolean).forEach((id) => bookingById.set(String(id), booking));
+      [booking?.invoiceId, booking?.orderNumber, booking?.bookingReference]
+        .filter(Boolean)
+        .forEach((reference) => bookingByInvoice.set(String(reference), booking));
+    });
 
-  const pipelineStackSegments = useMemo(
-    () => pipelineChartData.filter((item) => item.count > 0),
-    [pipelineChartData],
-  );
+    const matchedBookingIds = new Set<string>();
+    const rows: TransactionRow[] = safePayments.map((payment, index) => {
+      const order = payment?.order;
+      const orderId = typeof order === 'object' ? order?._id || order?.id : order;
+      const booking =
+        (orderId ? bookingById.get(String(orderId)) : undefined) ||
+        (payment?.invoiceId ? bookingByInvoice.get(String(payment.invoiceId)) : undefined);
+      const bookingId = booking ? String(booking?._id || booking?.id || '') : '';
+      if (bookingId) matchedBookingIds.add(bookingId);
+      const schedule = booking ? formatSchedule(booking) : { date: '—', time: '' };
+      const paymentMeta = paymentStatusMeta(payment?.status);
+      const stage = booking ? getPipelineStage(booking) : 'completed';
+      const timestamp = String(payment?.createdAt || booking?.updatedAt || booking?.createdAt || '');
+      const service = booking
+        ? getServiceName(booking)
+        : String(order?.serviceType || payment?.items?.map((item: any) => item?.name).filter(Boolean).join(', ') || 'Service');
+      return {
+        id: String(payment?._id || payment?.id || `payment-${index}`),
+        reference: String(payment?.invoiceId || order?.orderNumber || booking?.orderNumber || `TXN-${index + 1}`),
+        customer: String(booking?.customerName || payment?.customer?.name || order?.customerName || 'Customer'),
+        vehicle: String(
+          booking?.vehicleInfo ||
+          [booking?.vehicleYear, booking?.vehicleMake, booking?.vehicleModel].filter(Boolean).join(' ') ||
+          booking?.vehiclePlate ||
+          'Vehicle not specified',
+        ),
+        service,
+        scheduleDate: schedule.date,
+        scheduleTime: schedule.time,
+        amount: Number(payment?.amount ?? getBookingAmount(booking)) || 0,
+        paymentStatus: paymentMeta.label,
+        paymentTone: paymentMeta.tone,
+        jobStatus: booking ? pipelineLabel(stage) : 'Recorded',
+        jobTone: booking ? jobStatusTone(stage) : 'complete',
+        timestamp,
+      };
+    });
 
-  const pipelineDisplayRows = useMemo(
-    () => {
-      const pct = (count: number) => (pipelineTotal > 0 ? Math.round((count / pipelineTotal) * 100) : 0);
-      const queued = pipelineCounts.pending + pipelineCounts.confirmed;
-      const inService = pipelineCounts.in_progress + pipelineCounts.quality_check;
+    safeBookings.forEach((booking, index) => {
+      const bookingId = String(booking?._id || booking?.id || '');
+      if (bookingId && matchedBookingIds.has(bookingId)) return;
+      const schedule = formatSchedule(booking);
+      const paymentMeta = paymentStatusMeta(booking?.paymentStatus);
+      const stage = getPipelineStage(booking);
+      rows.push({
+        id: bookingId || `booking-${index}`,
+        reference: String(booking?.orderNumber || booking?.bookingReference || booking?.invoiceId || `BOOK-${index + 1}`),
+        customer: String(booking?.customerName || booking?.customer?.name || 'Customer'),
+        vehicle: String(
+          booking?.vehicleInfo ||
+          [booking?.vehicleYear, booking?.vehicleMake, booking?.vehicleModel].filter(Boolean).join(' ') ||
+          booking?.vehiclePlate ||
+          'Vehicle not specified',
+        ),
+        service: getServiceName(booking),
+        scheduleDate: schedule.date,
+        scheduleTime: schedule.time,
+        amount: getBookingAmount(booking),
+        paymentStatus: paymentMeta.label,
+        paymentTone: paymentMeta.tone,
+        jobStatus: pipelineLabel(stage),
+        jobTone: jobStatusTone(stage),
+        timestamp: getBookingTimestamp(booking),
+      });
+    });
 
-      return [
-        {
-          key: 'queued',
-          label: 'Queued',
-          detail: `${pipelineCounts.pending} pending / ${pipelineCounts.confirmed} confirmed`,
-          count: queued,
-          pct: pct(queued),
-          color: '#2563eb',
-        },
-        {
-          key: 'in_service',
-          label: 'In service',
-          detail: `${pipelineCounts.in_progress} active / ${pipelineCounts.quality_check} QC`,
-          count: inService,
-          pct: pct(inService),
-          color: '#0891B2',
-        },
-        {
-          key: 'completed',
-          label: 'Completed',
-          detail: 'Released jobs',
-          count: pipelineCounts.completed,
-          pct: pct(pipelineCounts.completed),
-          color: '#10b981',
-        },
-        {
-          key: 'cancelled',
-          label: 'Cancelled',
-          detail: 'Removed from workflow',
-          count: pipelineCounts.cancelled,
-          pct: pct(pipelineCounts.cancelled),
-          color: '#ef4444',
-        },
-      ];
-    },
-    [pipelineCounts, pipelineTotal],
-  );
+    return rows
+      .sort((a, b) => {
+        const aTime = toValidDate(a.timestamp)?.getTime() || 0;
+        const bTime = toValidDate(b.timestamp)?.getTime() || 0;
+        return bTime - aTime;
+      })
+      .slice(0, 12);
+  }, [safeBookings, safePayments]);
 
-  const growthYMax = useMemo(() => {
-    const peak = Math.max(...growthData.flatMap((d) => [d.users, d.active]), 0);
-    return Math.max(4, Math.ceil(peak * 1.12));
-  }, [growthData]);
+  const weeklyRevenueTotal = weeklyTrend.reduce((sum, item) => sum + item.revenue, 0);
+  const weeklyBookingTotal = weeklyTrend.reduce((sum, item) => sum + item.bookings, 0);
+  const collectedSevenDays = sevenDayRevenue.reduce((sum, item) => sum + item.collected, 0);
 
   if (loading) {
     return (
-      <div className="ah-page-enter admin-dashboard-page">
+      <div className="ah-page-enter admin-dashboard-page ah-analytics-dashboard">
         <div className="ah-dashboard-header">
           <div>
-            <div className="ah-skeleton" style={{ width: 190, height: 28, borderRadius: 8 }} />
-            <div className="ah-skeleton" style={{ width: 360, maxWidth: '100%', height: 16, borderRadius: 8, marginTop: 8 }} />
+            <div className="ah-skeleton" style={{ width: 230, height: 30, borderRadius: 8 }} />
+            <div className="ah-skeleton" style={{ width: 420, maxWidth: '100%', height: 15, borderRadius: 8, marginTop: 8 }} />
           </div>
         </div>
-        <div className="ah-dashboard-kpi-grid">{[1, 2, 3, 4].map((i) => <div key={i} className="ah-skeleton" style={{ height: 112, borderRadius: 12 }} />)}</div>
-        <div className="ah-dashboard-charts-grid">{[1, 2].map((i) => <div key={i} className="ah-skeleton" style={{ height: 210, borderRadius: 12 }} />)}</div>
-        <div className="ah-dashboard-bottom ah-skeleton" style={{ flex: 1, minHeight: 180, borderRadius: 12 }} />
+        <div className="ah-analytics-kpi-grid">
+          {[1, 2, 3, 4, 5].map((item) => <div key={item} className="ah-skeleton" style={{ height: 154, borderRadius: 14 }} />)}
+        </div>
+        <div className="ah-analytics-primary-grid">
+          <div className="ah-skeleton" style={{ height: 390, borderRadius: 14 }} />
+          <div className="ah-skeleton" style={{ height: 390, borderRadius: 14 }} />
+        </div>
+        <div className="ah-analytics-secondary-grid">
+          {[1, 2, 3].map((item) => <div key={item} className="ah-skeleton" style={{ height: 330, borderRadius: 14 }} />)}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="ah-page-enter admin-dashboard-page">
+    <div className="ah-page-enter admin-dashboard-page ah-analytics-dashboard">
       <div className="ah-dashboard-header ah-slide-up">
         <div className="ah-dashboard-header-copy">
-          <h1 className="ah-dashboard-title">Admin Overview</h1>
-          <p className="ah-dashboard-subtitle">Monitor users, bookings, operations, and service performance.</p>
-        </div>
-        {(onRefreshOverview || onExportReport) && (
-          <div className="ah-dashboard-actions" aria-label="Dashboard actions">
-            {onRefreshOverview && (
-              <button
-                type="button"
-                className="ah-dashboard-action"
-                onClick={handleRefreshOverview}
-                disabled={refreshingOverview}
-              >
-                <RefreshCw size={15} className={refreshingOverview ? 'ah-dashboard-action-spinner' : undefined} aria-hidden />
-                <span>{refreshingOverview ? 'Refreshing' : 'Refresh'}</span>
-              </button>
-            )}
-            {onExportReport && (
-              <button
-                type="button"
-                className="ah-dashboard-action ah-dashboard-action--primary"
-                onClick={handleExportReport}
-                disabled={exportingReport}
-              >
-                <Download size={15} aria-hidden />
-                <span>{exportingReport ? 'Exporting' : 'Export Report'}</span>
-              </button>
-            )}
+          <div className="ah-analytics-eyebrow">
+            <span />
+            Operational intelligence
           </div>
-        )}
+          <h1 className="ah-dashboard-title">Admin Overview</h1>
+          <p className="ah-dashboard-subtitle">
+            Revenue, bookings, service demand, job progress, and shop readiness in one workspace.
+          </p>
+        </div>
+        <div className="ah-dashboard-actions" aria-label="Dashboard actions">
+          <span className="ah-analytics-snapshot">
+            <CheckCircle2 size={14} aria-hidden />
+            Updated from current shop data
+          </span>
+          {onRefreshOverview && (
+            <button
+              type="button"
+              className="ah-dashboard-action"
+              onClick={handleRefreshOverview}
+              disabled={refreshingOverview}
+            >
+              <RefreshCw
+                size={15}
+                className={refreshingOverview ? 'ah-dashboard-action-spinner' : undefined}
+                aria-hidden
+              />
+              <span>{refreshingOverview ? 'Refreshing' : 'Refresh'}</span>
+            </button>
+          )}
+          {onExportReport && (
+            <button
+              type="button"
+              className="ah-dashboard-action ah-dashboard-action--primary"
+              onClick={handleExportReport}
+              disabled={exportingReport}
+            >
+              <Download size={15} aria-hidden />
+              <span>{exportingReport ? 'Exporting' : 'Export Report'}</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="ah-dashboard-kpi-grid">
-        {kpis.map((kpi, idx) => {
+      <section className="ah-analytics-kpi-grid" aria-label="Key performance indicators">
+        {kpis.map((kpi, index) => {
           const Icon = kpi.icon;
-          const trend = kpiTrends[kpi.key];
-          const TrendIcon =
-            trend?.direction === 'up' ? TrendingUp : trend?.direction === 'down' ? TrendingDown : Minus;
           return (
-            <div
-              key={kpi.label}
-              className="ah-kpi-card ah-dashboard-kpi ah-slide-up"
+            <article
+              key={kpi.key}
+              className="ah-analytics-kpi-card ah-slide-up"
               style={{
-                animationDelay: `${idx * 0.06}s`,
-                '--ah-kpi-accent': kpi.accent,
-                '--ah-kpi-icon-bg': kpi.iconBg,
-                '--ah-kpi-icon-color': kpi.iconColor,
+                '--ah-analytics-accent': kpi.color,
+                animationDelay: `${index * 0.045}s`,
               } as React.CSSProperties}
             >
-              <div className="ah-dashboard-kpi-top">
-                <div>
-                  <p className="ah-section-label">{kpi.label}</p>
-                  {'alert' in kpi && kpi.alert && (
-                    <span className="ah-dashboard-kpi-alert">
-                      <AlertTriangle size={10} aria-hidden />
-                      Action Required
-                    </span>
-                  )}
+              <div className="ah-analytics-kpi-copy">
+                <div className="ah-analytics-kpi-label">
+                  <span><Icon size={16} aria-hidden /></span>
+                  <p>{kpi.label}</p>
+                  {'alert' in kpi && kpi.alert ? <AlertTriangle size={13} className="ah-analytics-kpi-alert" aria-hidden /> : null}
                 </div>
-                <div className="ah-dashboard-kpi-icon">
-                  <Icon size={16} aria-hidden />
-                </div>
+                <strong className="ah-analytics-kpi-value tabular-nums">{kpi.value}</strong>
+                <TrendBadge trend={kpi.trend} />
+                <p className="ah-analytics-kpi-detail">{kpi.detail}</p>
               </div>
-              <p className="ah-dashboard-kpi-value tabular-nums">{kpi.value.toLocaleString()}</p>
-              {trend && (
-                <div className={`ah-dashboard-kpi-trend ah-dashboard-kpi-trend--${trend.direction}`}>
-                  <TrendIcon size={12} aria-hidden />
-                  <span>{trend.label}</span>
-                </div>
-              )}
-              <p className="ah-dashboard-kpi-detail">{kpi.change}</p>
-            </div>
+              <KpiSparkline id={kpi.key} data={kpi.spark} color={kpi.color} visible={chartsVisible} />
+            </article>
           );
         })}
-      </div>
+      </section>
 
-      {chartsVisible && (
-      <div className="ah-dashboard-charts-grid">
-        <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-slide-up" style={{ animationDelay: '0.15s' }}>
-          <div className="ah-dashboard-chart-head">
-            <h2 className="ah-dashboard-card-title">User Growth</h2>
-            <p className="ah-dashboard-card-sub">Total vs active users over the last 12 weeks</p>
+      <section className="ah-analytics-primary-grid">
+        <article className="ah-analytics-card ah-analytics-card--hero ah-slide-up">
+          <SectionHeader
+            icon={TrendingUp}
+            title="Bookings vs Revenue"
+            subtitle="Rolling eight-week view of booking demand and collected revenue"
+            aside={(
+              <div className="ah-analytics-inline-stats">
+                <span><b>{weeklyBookingTotal}</b> bookings</span>
+                <span><b>{formatCompactPeso(weeklyRevenueTotal)}</b> revenue</span>
+              </div>
+            )}
+          />
+          <div className="ah-analytics-chart-legend" aria-label="Chart legend">
+            <span><i className="ah-analytics-legend-bookings" />Bookings</span>
+            <span><i className="ah-analytics-legend-revenue" />Revenue</span>
           </div>
-          <div className="ah-dashboard-chart-body ah-dashboard-chart-body--growth">
-            <AdminChartBox height={GROWTH_CHART_HEIGHT}>
-              <AreaChart data={growthData} margin={{ top: 8, right: 12, left: -8, bottom: 0 }}>
+          {chartsVisible ? (
+            <AdminChartBox height={302}>
+              <ComposedChart data={weeklyTrend} margin={{ top: 12, right: 6, left: 0, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="totalUsersGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2563EB" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#2563EB" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="activeUsersGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
+                  <linearGradient id="adminRevenueGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#F97316" stopOpacity={0.24} />
+                    <stop offset="100%" stopColor="#F97316" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="4 4" vertical={false} />
-                <XAxis dataKey="week" tick={CHART_TICK} axisLine={false} tickLine={false} />
-                <YAxis domain={[0, growthYMax]} allowDecimals={false} tick={CHART_TICK} axisLine={false} tickLine={false} width={30} />
-                <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
-                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6, color: '#475569' }} iconType="circle" iconSize={8} />
-                <Area type="monotone" dataKey="users" name="Total Users" stroke="#2563EB" strokeWidth={2.25} fill="url(#totalUsersGradient)" dot={false} activeDot={{ r: 4 }} />
-                <Area type="monotone" dataKey="active" name="Active Users" stroke="#10B981" strokeWidth={2.25} fill="url(#activeUsersGradient)" dot={false} activeDot={{ r: 4 }} />
-              </AreaChart>
-            </AdminChartBox>
-          </div>
-        </div>
-
-        <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-slide-up" style={{ animationDelay: '0.2s' }}>
-          <div className="ah-dashboard-chart-head">
-            <h2 className="ah-dashboard-card-title">Users by Role</h2>
-            <p className="ah-dashboard-card-sub">Distribution across system roles</p>
-          </div>
-          <div className="ah-dashboard-chart-body ah-dashboard-chart-body--roles">
-            <AdminChartBox height={ROLE_CHART_HEIGHT}>
-              <BarChart
-                data={roleDistributionData}
-                margin={{ top: 8, right: 8, left: -8, bottom: 0 }}
-                barCategoryGap="24%"
-              >
-                <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="4 4" vertical={false} />
-                <XAxis
-                  dataKey="roleShort"
-                  textAnchor="middle"
-                  height={28}
-                  interval={0}
-                  tick={CHART_TICK}
-                  axisLine={false}
-                  tickLine={false}
-                />
+                <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="4 5" vertical={false} />
+                <XAxis dataKey="label" tick={CHART_TICK} axisLine={false} tickLine={false} />
                 <YAxis
-                  tickCount={5}
+                  yAxisId="bookings"
                   allowDecimals={false}
                   tick={CHART_TICK}
                   axisLine={false}
                   tickLine={false}
                   width={30}
                 />
-                <Tooltip
-                  contentStyle={CHART_TOOLTIP_STYLE}
-                  formatter={(value: number | string) => [Number(value || 0).toLocaleString(), 'Users']}
-                  labelFormatter={(_label: string, payload: any[]) => payload?.[0]?.payload?.role || _label}
+                <YAxis
+                  yAxisId="revenue"
+                  orientation="right"
+                  tick={CHART_TICK}
+                  tickFormatter={(value) => formatCompactPeso(Number(value))}
+                  axisLine={false}
+                  tickLine={false}
+                  width={58}
                 />
-                <Bar dataKey="count" name="Users" fill="#2563EB" barSize={38} radius={[6, 6, 0, 0]} />
+                <Tooltip content={<AnalyticsTooltip />} />
+                <Bar
+                  yAxisId="bookings"
+                  dataKey="bookings"
+                  name="Bookings"
+                  fill="#2563EB"
+                  radius={[5, 5, 0, 0]}
+                  maxBarSize={32}
+                  isAnimationActive={false}
+                />
+                <Area
+                  yAxisId="revenue"
+                  type="monotone"
+                  dataKey="revenue"
+                  name="Revenue"
+                  stroke="#F97316"
+                  strokeWidth={2.8}
+                  fill="url(#adminRevenueGradient)"
+                  dot={false}
+                  activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
+                  isAnimationActive={false}
+                />
+              </ComposedChart>
+            </AdminChartBox>
+          ) : null}
+        </article>
+
+        <article className="ah-analytics-card ah-slide-up" style={{ animationDelay: '0.08s' }}>
+          <SectionHeader
+            icon={Sparkles}
+            title="Service Breakdown"
+            subtitle="Booking mix across AutoSPF+ service families"
+          />
+          {serviceBreakdownTotal > 0 ? (
+            <>
+              <div className="ah-analytics-donut-wrap">
+                {chartsVisible ? (
+                  <AdminChartBox height={226}>
+                    <PieChart>
+                      <Pie
+                        data={serviceBreakdown.filter((item) => item.value > 0)}
+                        dataKey="value"
+                        nameKey="label"
+                        innerRadius="61%"
+                        outerRadius="82%"
+                        paddingAngle={3}
+                        stroke="#fff"
+                        strokeWidth={2}
+                        isAnimationActive={false}
+                      >
+                        {serviceBreakdown.filter((item) => item.value > 0).map((item) => (
+                          <Cell key={item.key} fill={item.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value: number | string) => [Number(value || 0).toLocaleString(), 'Bookings']}
+                        contentStyle={{ borderRadius: 10, border: '1px solid #E2E8F0', fontSize: 12 }}
+                      />
+                    </PieChart>
+                  </AdminChartBox>
+                ) : null}
+                <div className="ah-analytics-donut-center">
+                  <strong>{serviceBreakdownTotal}</strong>
+                  <span>Bookings</span>
+                </div>
+              </div>
+              <div className="ah-analytics-service-legend">
+                {serviceBreakdown.map((item) => (
+                  <div key={item.key}>
+                    <span><i style={{ background: item.color }} />{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <EmptyWidget title="No service mix yet" detail="Booking categories will appear when appointments are recorded." />
+          )}
+        </article>
+      </section>
+
+      <section className="ah-analytics-secondary-grid">
+        <article className="ah-analytics-card ah-slide-up" style={{ animationDelay: '0.12s' }}>
+          <SectionHeader
+            icon={Wrench}
+            title="Top Services"
+            subtitle="Highest-value services in the current booking set"
+          />
+          {topServices.length > 0 ? (
+            <div className="ah-analytics-top-services">
+              {topServices.map((service, index) => {
+                const category = SERVICE_CATEGORY_DEFS.find((item) => item.key === service.category) || SERVICE_CATEGORY_DEFS[5];
+                return (
+                  <div key={service.name} className="ah-analytics-top-service">
+                    <span className="ah-analytics-service-rank">{String(index + 1).padStart(2, '0')}</span>
+                    <div className="ah-analytics-service-main">
+                      <div>
+                        <strong title={service.name}>{service.name}</strong>
+                        <span>{service.count} booking{service.count === 1 ? '' : 's'}</span>
+                      </div>
+                      <b>{formatCompactPeso(service.revenue)}</b>
+                      <div className="ah-analytics-progress">
+                        <span
+                          style={{
+                            width: `${Math.max(5, (service.revenue / maxTopServiceRevenue) * 100)}%`,
+                            background: category.color,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyWidget title="No ranked services" detail="Revenue leaders will appear after bookings are added." />
+          )}
+        </article>
+
+        <article className="ah-analytics-card ah-slide-up" style={{ animationDelay: '0.16s' }}>
+          <SectionHeader
+            icon={CircleDollarSign}
+            title="Revenue Statistics"
+            subtitle="Collected and outstanding value over the last seven days"
+            aside={<strong className="ah-analytics-card-total">{formatCompactPeso(collectedSevenDays)}</strong>}
+          />
+          <div className="ah-analytics-chart-legend">
+            <span><i className="ah-analytics-legend-collected" />Collected</span>
+            <span><i className="ah-analytics-legend-outstanding" />Outstanding</span>
+          </div>
+          {chartsVisible ? (
+            <AdminChartBox height={246}>
+              <BarChart data={sevenDayRevenue} margin={{ top: 14, right: 2, left: -8, bottom: 0 }} barGap={5}>
+                <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="4 5" vertical={false} />
+                <XAxis dataKey="label" tick={CHART_TICK} axisLine={false} tickLine={false} />
+                <YAxis
+                  tick={CHART_TICK}
+                  tickFormatter={(value) => formatCompactPeso(Number(value))}
+                  axisLine={false}
+                  tickLine={false}
+                  width={58}
+                />
+                <Tooltip content={<AnalyticsTooltip />} />
+                <Bar
+                  dataKey="collected"
+                  name="Collected"
+                  fill="#10B981"
+                  radius={[5, 5, 0, 0]}
+                  maxBarSize={28}
+                  isAnimationActive={false}
+                />
+                <Bar
+                  dataKey="outstanding"
+                  name="Outstanding"
+                  fill="#FDBA74"
+                  radius={[5, 5, 0, 0]}
+                  maxBarSize={28}
+                  isAnimationActive={false}
+                />
               </BarChart>
             </AdminChartBox>
-          </div>
-        </div>
-      </div>
-      )}
+          ) : null}
+        </article>
 
-      {chartsVisible && (
-      <div className="ah-dashboard-bottom">
-        <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-dashboard-appointment-status ah-slide-up" style={{ animationDelay: '0.25s' }}>
-          <div className="ah-dashboard-chart-head">
-            <h2 className="ah-dashboard-card-title">Appointment Status</h2>
-            <p className="ah-dashboard-card-sub">{appointmentScope.label} status mix</p>
-          </div>
-          <div className="ah-dashboard-bottom-chart-body ah-dashboard-appointment-status-body">
-            <div className="ah-dashboard-donut-panel">
-              <div className="ah-dashboard-donut-content">
-                {appointmentTotal > 0 ? (
-                  <div className="ah-dashboard-donut-wrap">
-                    <AdminChartBox height={DONUT_CHART_HEIGHT}>
-                      <PieChart>
-                        <Pie
-                          data={appointmentStatusChartData.filter((item) => item.value > 0)}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius="61%"
-                          outerRadius="80%"
-                          paddingAngle={3}
-                          dataKey="value"
-                          nameKey="label"
-                        >
-                          {appointmentStatusChartData.filter((item) => item.value > 0).map((entry) => (
-                            <Cell key={`today-status-${entry.key}`} fill={entry.color} stroke="#ffffff" strokeWidth={2} />
-                          ))}
-                        </Pie>
-                        <Tooltip content={<DashboardTooltip />} />
-                      </PieChart>
-                    </AdminChartBox>
-                    <div className="ah-dashboard-donut-center">
-                      <strong className="tabular-nums">{appointmentTotal}</strong>
-                      <span>Total appointments</span>
+        <article className="ah-analytics-card ah-slide-up" style={{ animationDelay: '0.2s' }}>
+          <SectionHeader
+            icon={Car}
+            title="Job Order Pipeline"
+            subtitle="Current operational load across every service stage"
+            aside={<strong className="ah-analytics-card-total">{pipelineData.active} active</strong>}
+          />
+          {pipelineData.total > 0 ? (
+            <div className="ah-analytics-pipeline">
+              <div className="ah-analytics-pipeline-stack" aria-label={`${pipelineData.total} total job orders`}>
+                {pipelineData.rows.filter((item) => item.count > 0).map((item) => (
+                  <span
+                    key={item.key}
+                    title={`${item.label}: ${item.count}`}
+                    style={{ flexGrow: item.count, background: item.color }}
+                  />
+                ))}
+              </div>
+              <div className="ah-analytics-pipeline-list">
+                {pipelineData.rows.map((item) => (
+                  <div key={item.key}>
+                    <span><i style={{ background: item.color }} />{item.label}</span>
+                    <strong>{item.count}<small>{item.percent}%</small></strong>
+                    <div className="ah-analytics-progress">
+                      <span
+                        style={{
+                          width: `${Math.max(item.count > 0 ? 4 : 0, item.percent)}%`,
+                          background: item.color,
+                        }}
+                      />
                     </div>
                   </div>
-                ) : (
-                  <div className="ah-dashboard-empty-chart" aria-label="No scheduled appointments">
-                    <div className="ah-dashboard-empty-ring" />
-                    <strong>No scheduled appointments</strong>
-                    <span>Appointment mix will appear here</span>
-                  </div>
-                )}
+                ))}
+              </div>
+            </div>
+          ) : (
+            <EmptyWidget title="No active job orders" detail="Pipeline status will appear when bookings enter operations." />
+          )}
+        </article>
+      </section>
 
-                <div className="ah-dashboard-chart-legend ah-dashboard-chart-legend--compact" aria-label="Appointment status totals">
-                  {(appointmentTotal > 0 ? appointmentStatusChartData.filter((item) => item.value > 0) : appointmentStatusChartData).map((item) => (
-                    <div key={item.key} className="ah-dashboard-chart-legend-row">
-                      <span className="ah-dashboard-chart-legend-label">
-                        <span style={{ background: item.color }} />
-                        {item.label}
+      <section className="ah-analytics-support-grid">
+        <article className="ah-analytics-card ah-slide-up" style={{ animationDelay: '0.22s' }}>
+          <SectionHeader
+            icon={PackageSearch}
+            title="Inventory Alerts"
+            subtitle="Items at or below their configured minimum level"
+            aside={lowStockItems.length > 0 ? <span className="ah-analytics-alert-count">{lowStockItems.length} alerts</span> : undefined}
+          />
+          {lowStockItems.length > 0 ? (
+            <div className="ah-analytics-inventory-list">
+              {lowStockItems.slice(0, 6).map((item, index) => {
+                const stock = Number(item?.stock || 0);
+                const minLevel = Math.max(1, Number(item?.minLevel || 1));
+                const ratio = Math.min(100, Math.max(0, (stock / minLevel) * 100));
+                const state = stock === 0 ? 'Out of stock' : stock <= minLevel * 0.5 ? 'Critical' : 'Low stock';
+                const tone = stock === 0 ? 'danger' : stock <= minLevel * 0.5 ? 'critical' : 'warning';
+                return (
+                  <div key={String(item?._id || item?.id || index)} className="ah-analytics-inventory-item">
+                    <div className={`ah-analytics-inventory-glyph ah-analytics-inventory-glyph--${tone}`}>
+                      <PackageSearch size={16} aria-hidden />
+                    </div>
+                    <div className="ah-analytics-inventory-copy">
+                      <div>
+                        <strong>{item?.name || 'Inventory item'}</strong>
+                        <span>{item?.category || item?.supplier || 'Shop inventory'}</span>
+                      </div>
+                      <div className="ah-analytics-inventory-value">
+                        <b>{stock} {item?.unit || 'units'}</b>
+                        <span className={`ah-analytics-stock-state ah-analytics-stock-state--${tone}`}>{state}</span>
+                      </div>
+                      <div className="ah-analytics-progress">
+                        <span style={{ width: `${ratio}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyWidget title="Inventory is healthy" detail="No items are currently at or below their minimum level." />
+          )}
+        </article>
+
+        <article className="ah-analytics-card ah-slide-up" style={{ animationDelay: '0.24s' }}>
+          <SectionHeader
+            icon={Activity}
+            title="Recent Activity"
+            subtitle="Latest sales, QC, inventory, and system events"
+          />
+          {activityFeed.length > 0 ? (
+            <div className="ah-analytics-activity-feed">
+              {activityFeed.map((item) => (
+                <div key={item.id} className="ah-analytics-activity-row">
+                  <span className={`ah-analytics-activity-glyph ah-analytics-activity-glyph--${item.kind}`}>
+                    <ActivityGlyph kind={item.kind} />
+                  </span>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <p>{item.description}</p>
+                  </div>
+                  <time dateTime={item.timestamp || undefined} title={item.timestamp ? formatShortDate(item.timestamp) : undefined}>
+                    {formatRelativeTime(item.timestamp)}
+                  </time>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyWidget title="No recent activity" detail="Sales and operational updates will appear here." />
+          )}
+        </article>
+      </section>
+
+      <section className="ah-analytics-card ah-analytics-table-card ah-slide-up" style={{ animationDelay: '0.26s' }}>
+        <SectionHeader
+          icon={CreditCard}
+          title="Recent Transactions & Bookings"
+          subtitle="Latest customer appointments, payment records, and job status"
+          aside={<span className="ah-analytics-table-count">{transactionRows.length} recent records</span>}
+        />
+        {transactionRows.length > 0 ? (
+          <div className="ah-analytics-table-scroll">
+            <table className="ah-analytics-table">
+              <caption>Recent AutoSPF+ customer transactions and bookings</caption>
+              <thead>
+                <tr>
+                  <th>Reference</th>
+                  <th>Customer & Vehicle</th>
+                  <th>Service</th>
+                  <th>Schedule</th>
+                  <th>Amount</th>
+                  <th>Payment</th>
+                  <th>Job Status</th>
+                  <th>Latest Update</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transactionRows.map((row) => (
+                  <tr key={row.id}>
+                    <td><span className="ah-analytics-reference">{row.reference}</span></td>
+                    <td>
+                      <div className="ah-analytics-customer-cell">
+                        <span>{row.customer.slice(0, 1).toUpperCase()}</span>
+                        <div>
+                          <strong>{row.customer}</strong>
+                          <small>{row.vehicle}</small>
+                        </div>
+                      </div>
+                    </td>
+                    <td><span className="ah-analytics-service-cell" title={row.service}>{row.service}</span></td>
+                    <td>
+                      <div className="ah-analytics-schedule-cell">
+                        <strong>{row.scheduleDate}</strong>
+                        <small>{row.scheduleTime || 'Time not set'}</small>
+                      </div>
+                    </td>
+                    <td><strong className="ah-analytics-amount tabular-nums">{formatPeso(row.amount)}</strong></td>
+                    <td>
+                      <span className={`ah-analytics-status ah-analytics-status--${row.paymentTone}`}>
+                        {row.paymentStatus}
                       </span>
-                      <strong className="tabular-nums">{item.value}</strong>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-dashboard-hourly-volume ah-slide-up" style={{ animationDelay: '0.28s' }}>
-          <div className="ah-dashboard-chart-head">
-            <h2 className="ah-dashboard-card-title">Hourly Volume</h2>
-            <p className="ah-dashboard-card-sub">{appointmentScope.label} appointment load</p>
-          </div>
-          <div className="ah-dashboard-bottom-chart-body ah-dashboard-hourly-body">
-            <div className="ah-dashboard-insight-strip">
-              <div className="ah-dashboard-insight-item">
-                <span>Peak Hour</span>
-                <strong className="tabular-nums">{appointmentPeakHour}</strong>
-              </div>
-              <div className="ah-dashboard-insight-item">
-                <span>Total Volume</span>
-                <strong className="tabular-nums">{appointmentTotal}</strong>
-              </div>
-            </div>
-            <div className="ah-dashboard-hourly-chart">
-              <AdminChartBox height={HOURLY_CHART_HEIGHT}>
-                <BarChart data={appointmentHourlyChartData} margin={{ top: 14, right: 10, left: -4, bottom: 6 }} barCategoryGap="24%">
-                  <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="4 4" vertical={false} />
-                  <XAxis
-                    dataKey="hour"
-                    interval={0}
-                    height={28}
-                    tick={CHART_TICK}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={CHART_TICK}
-                    axisLine={false}
-                    tickLine={false}
-                    width={34}
-                  />
-                  <Tooltip content={<DashboardTooltip />} cursor={{ fill: '#F8FAFC' }} />
-                  <Bar dataKey="pending" name="Pending" stackId="appointments" fill="#F59E0B" maxBarSize={34} />
-                  <Bar dataKey="confirmed" name="Confirmed" stackId="appointments" fill="#2563eb" maxBarSize={34} />
-                  <Bar dataKey="in_progress" name="In Progress" stackId="appointments" fill="#0891B2" maxBarSize={34} />
-                  <Bar dataKey="completed" name="Completed" stackId="appointments" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={34} />
-                </BarChart>
-              </AdminChartBox>
-            </div>
-          </div>
-        </div>
-
-        <div className="ah-card-section ah-chart-card ah-dashboard-chart ah-dashboard-job-pipeline ah-slide-up" style={{ animationDelay: '0.3s' }}>
-          <div className="ah-dashboard-chart-head">
-            <h2 className="ah-dashboard-card-title">Job Order Pipeline</h2>
-            <p className="ah-dashboard-card-sub">Current job flow by main status</p>
-          </div>
-          <div className="ah-dashboard-bottom-chart-body ah-dashboard-pipeline-body">
-            <div className="ah-dashboard-insight-strip">
-              <div className="ah-dashboard-insight-item">
-                <span>Total Jobs</span>
-                <strong className="tabular-nums">{pipelineTotal}</strong>
-              </div>
-              <div className="ah-dashboard-insight-item">
-                <span>Active Work</span>
-                <strong className="tabular-nums">{pipelineActiveTotal}</strong>
-              </div>
-            </div>
-            {pipelineTotal > 0 ? (
-              <div className="ah-dashboard-pipeline-clean" aria-label="Job order pipeline status">
-                <div className="ah-dashboard-pipeline-stack" aria-hidden>
-                  {pipelineStackSegments.map((item) => (
-                    <span
-                      key={item.key}
-                      title={`${item.label}: ${item.count}`}
-                      style={{ flexGrow: item.count, background: item.color }}
-                    />
-                  ))}
-                </div>
-                <div className="ah-dashboard-pipeline-progress">
-                  {pipelineDisplayRows.map((item) => (
-                    <div key={item.key} className="ah-dashboard-pipeline-progress-row">
-                      <div className="ah-dashboard-pipeline-progress-head">
-                        <span>
-                          <i style={{ background: item.color }} />
-                          <span>
-                            {item.label}
-                            <em>{item.detail}</em>
-                          </span>
-                        </span>
-                        <strong className="tabular-nums">
-                          {item.count}
-                          <small>{item.pct}%</small>
-                        </strong>
+                    </td>
+                    <td>
+                      <span className={`ah-analytics-status ah-analytics-status--${row.jobTone}`}>
+                        {row.jobStatus}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="ah-analytics-update-cell">
+                        <Clock3 size={13} aria-hidden />
+                        <span>{formatRelativeTime(row.timestamp)}</span>
                       </div>
-                      <div
-                        className="ah-dashboard-pipeline-progress-track"
-                        aria-label={`${item.label}: ${item.count} jobs, ${item.pct}%`}
-                      >
-                        <span style={{ width: `${Math.max(item.pct, item.count > 0 ? 3 : 0)}%`, background: item.color }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="ah-dashboard-empty-chart ah-dashboard-empty-chart--pipeline" aria-label="No job orders in the pipeline">
-                <div className="ah-dashboard-empty-bars">
-                  <span />
-                  <span />
-                  <span />
-                </div>
-                <strong>No active pipeline</strong>
-                <span>Job order status will appear here</span>
-              </div>
-            )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-      </div>
-      )}
+        ) : (
+          <EmptyWidget title="No recent records" detail="Bookings and payment transactions will appear here." />
+        )}
+      </section>
     </div>
   );
 }

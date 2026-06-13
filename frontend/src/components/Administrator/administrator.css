@@ -5362,3 +5362,1275 @@ body[data-adminhub-theme='dark'] .ah-profile-modal-btn--primary:hover {
     align-items: stretch;
   }
 }
+
+/* ── Admin analytics dashboard ───────────────────────── */
+.adminhub-root .ah-analytics-dashboard {
+  --ah-analytics-ink: #172033;
+  --ah-analytics-muted: #667085;
+  --ah-analytics-soft: #98a2b3;
+  --ah-analytics-line: #e7ebf1;
+  --ah-analytics-panel: #ffffff;
+  gap: 16px;
+  padding-bottom: 10px;
+}
+
+.adminhub-root .ah-analytics-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+  color: #667085;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.adminhub-root .ah-analytics-eyebrow span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f97316;
+  box-shadow: 0 0 0 4px #fff1e8;
+}
+
+.adminhub-root .ah-analytics-snapshot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 10px;
+  color: #047857;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-snapshot svg {
+  color: #10b981;
+}
+
+.adminhub-root .ah-analytics-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.adminhub-root .ah-analytics-kpi-card {
+  position: relative;
+  min-width: 0;
+  min-height: 154px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(74px, 0.7fr);
+  gap: 4px;
+  padding: 16px 13px 13px 16px;
+  overflow: hidden;
+  border: 1px solid #e4e9f0;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), #fff),
+    #fff;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 14px 34px -26px rgba(15, 23, 42, 0.48);
+}
+
+.adminhub-root .ah-analytics-kpi-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--ah-analytics-accent);
+}
+
+.adminhub-root .ah-analytics-kpi-card::after {
+  content: '';
+  position: absolute;
+  right: -34px;
+  bottom: -48px;
+  width: 125px;
+  height: 125px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ah-analytics-accent) 8%, transparent);
+  pointer-events: none;
+}
+
+.adminhub-root .ah-analytics-kpi-copy {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+}
+
+.adminhub-root .ah-analytics-kpi-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-bottom: 15px;
+}
+
+.adminhub-root .ah-analytics-kpi-label > span {
+  width: 29px;
+  height: 29px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ah-analytics-accent) 11%, white);
+  color: var(--ah-analytics-accent);
+}
+
+.adminhub-root .ah-analytics-kpi-label p {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #667085;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-kpi-alert {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: #dc2626;
+}
+
+.adminhub-root .ah-analytics-kpi-value {
+  display: block;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ah-analytics-ink);
+  font-size: clamp(23px, 2vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-kpi-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 17px;
+  margin-top: 8px;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.1;
+}
+
+.adminhub-root .ah-analytics-kpi-trend--positive {
+  color: #059669;
+}
+
+.adminhub-root .ah-analytics-kpi-trend--negative {
+  color: #dc2626;
+}
+
+.adminhub-root .ah-analytics-kpi-trend--neutral {
+  color: #667085;
+}
+
+.adminhub-root .ah-analytics-kpi-detail {
+  margin: 7px 0 0;
+  overflow: hidden;
+  color: #98a2b3;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-kpi-spark,
+.adminhub-root .ah-analytics-kpi-spark-placeholder {
+  position: relative;
+  z-index: 1;
+  align-self: end;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 8px;
+  opacity: 0.95;
+}
+
+.adminhub-root .ah-analytics-primary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.78fr) minmax(300px, 0.82fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.adminhub-root .ah-analytics-secondary-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(340px, 1.08fr) minmax(300px, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.adminhub-root .ah-analytics-support-grid {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.9fr) minmax(420px, 1.1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.adminhub-root .ah-analytics-card {
+  min-width: 0;
+  min-height: 0;
+  padding: 17px;
+  overflow: hidden;
+  border: 1px solid #e4e9f0;
+  border-radius: 14px;
+  background: var(--ah-analytics-panel);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.035),
+    0 16px 38px -30px rgba(15, 23, 42, 0.48);
+}
+
+.adminhub-root .ah-analytics-card--hero {
+  padding-bottom: 10px;
+}
+
+.adminhub-root .ah-analytics-card-head {
+  min-height: 45px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.adminhub-root .ah-analytics-card-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.adminhub-root .ah-analytics-card-icon {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid #e7ebf1;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #344054;
+}
+
+.adminhub-root .ah-analytics-card-heading h2 {
+  margin: 0;
+  color: var(--ah-analytics-ink);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.adminhub-root .ah-analytics-card-heading p {
+  margin: 3px 0 0;
+  color: #98a2b3;
+  font-size: 10.5px;
+  font-weight: 550;
+  line-height: 1.35;
+}
+
+.adminhub-root .ah-analytics-inline-stats {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  color: #667085;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-inline-stats b {
+  margin-right: 3px;
+  color: #172033;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.adminhub-root .ah-analytics-card-total {
+  flex-shrink: 0;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #344054;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-chart-canvas {
+  min-width: 0;
+}
+
+.adminhub-root .ah-analytics-chart-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  min-height: 30px;
+  color: #667085;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.adminhub-root .ah-analytics-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.adminhub-root .ah-analytics-chart-legend i {
+  width: 8px;
+  height: 8px;
+  display: inline-block;
+  border-radius: 50%;
+}
+
+.adminhub-root .ah-analytics-legend-bookings {
+  background: #2563eb;
+}
+
+.adminhub-root .ah-analytics-legend-revenue {
+  background: #f97316;
+}
+
+.adminhub-root .ah-analytics-legend-collected {
+  background: #10b981;
+}
+
+.adminhub-root .ah-analytics-legend-outstanding {
+  background: #fdba74;
+}
+
+.adminhub-root .ah-analytics-tooltip {
+  min-width: 155px;
+  padding: 10px 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 42px -22px rgba(15, 23, 42, 0.45);
+}
+
+.adminhub-root .ah-analytics-tooltip > strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #172033;
+  font-size: 11px;
+}
+
+.adminhub-root .ah-analytics-tooltip > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 5px;
+  color: #667085;
+  font-size: 10px;
+}
+
+.adminhub-root .ah-analytics-tooltip span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.adminhub-root .ah-analytics-tooltip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.adminhub-root .ah-analytics-tooltip b {
+  color: #172033;
+  font-weight: 800;
+}
+
+.adminhub-root .ah-analytics-donut-wrap {
+  position: relative;
+  min-height: 226px;
+}
+
+.adminhub-root .ah-analytics-donut-center {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.adminhub-root .ah-analytics-donut-center strong {
+  color: #172033;
+  font-size: 28px;
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.adminhub-root .ah-analytics-donut-center span {
+  margin-top: 5px;
+  color: #98a2b3;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.adminhub-root .ah-analytics-service-legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 12px;
+}
+
+.adminhub-root .ah-analytics-service-legend > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  color: #667085;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.adminhub-root .ah-analytics-service-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-service-legend i {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.adminhub-root .ah-analytics-service-legend strong {
+  color: #344054;
+  font-size: 11px;
+}
+
+.adminhub-root .ah-analytics-top-services {
+  display: flex;
+  flex-direction: column;
+  padding-top: 6px;
+}
+
+.adminhub-root .ah-analytics-top-service {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.adminhub-root .ah-analytics-top-service:last-child {
+  border-bottom: none;
+}
+
+.adminhub-root .ah-analytics-service-rank {
+  width: 23px;
+  flex-shrink: 0;
+  padding-top: 2px;
+  color: #b0b8c5;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.adminhub-root .ah-analytics-service-main {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 10px;
+  align-items: center;
+}
+
+.adminhub-root .ah-analytics-service-main > div:first-child {
+  min-width: 0;
+}
+
+.adminhub-root .ah-analytics-service-main strong {
+  display: block;
+  overflow: hidden;
+  color: #344054;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-service-main span {
+  display: block;
+  margin-top: 2px;
+  color: #98a2b3;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.adminhub-root .ah-analytics-service-main > b {
+  color: #344054;
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-progress {
+  grid-column: 1 / -1;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #eef2f6;
+}
+
+.adminhub-root .ah-analytics-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 300ms ease;
+}
+
+.adminhub-root .ah-analytics-pipeline {
+  padding-top: 16px;
+}
+
+.adminhub-root .ah-analytics-pipeline-stack {
+  height: 12px;
+  display: flex;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #eef2f6;
+  box-shadow: inset 0 0 0 1px #e5e9ef;
+}
+
+.adminhub-root .ah-analytics-pipeline-stack span + span {
+  border-left: 2px solid #fff;
+}
+
+.adminhub-root .ah-analytics-pipeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.adminhub-root .ah-analytics-pipeline-list > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.adminhub-root .ah-analytics-pipeline-list > div > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #667085;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.adminhub-root .ah-analytics-pipeline-list i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.adminhub-root .ah-analytics-pipeline-list strong {
+  color: #344054;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.adminhub-root .ah-analytics-pipeline-list small {
+  margin-left: 5px;
+  color: #98a2b3;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.adminhub-root .ah-analytics-alert-count,
+.adminhub-root .ah-analytics-table-count {
+  flex-shrink: 0;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #c2410c;
+  font-size: 9.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-table-count {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.adminhub-root .ah-analytics-inventory-list {
+  display: flex;
+  flex-direction: column;
+  padding-top: 3px;
+}
+
+.adminhub-root .ah-analytics-inventory-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.adminhub-root .ah-analytics-inventory-item:last-child {
+  border-bottom: none;
+}
+
+.adminhub-root .ah-analytics-inventory-glyph {
+  width: 31px;
+  height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 9px;
+}
+
+.adminhub-root .ah-analytics-inventory-glyph--danger,
+.adminhub-root .ah-analytics-inventory-glyph--critical {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.adminhub-root .ah-analytics-inventory-glyph--warning {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.adminhub-root .ah-analytics-inventory-copy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.adminhub-root .ah-analytics-inventory-copy strong {
+  display: block;
+  overflow: hidden;
+  color: #344054;
+  font-size: 11px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-inventory-copy > div:first-child span {
+  display: block;
+  margin-top: 2px;
+  color: #98a2b3;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.adminhub-root .ah-analytics-inventory-value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.adminhub-root .ah-analytics-inventory-value b {
+  color: #344054;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.adminhub-root .ah-analytics-stock-state {
+  font-size: 8.5px;
+  font-weight: 800;
+}
+
+.adminhub-root .ah-analytics-stock-state--danger,
+.adminhub-root .ah-analytics-stock-state--critical {
+  color: #dc2626;
+}
+
+.adminhub-root .ah-analytics-stock-state--warning {
+  color: #c2410c;
+}
+
+.adminhub-root .ah-analytics-inventory-copy .ah-analytics-progress > span {
+  background: #f97316;
+}
+
+.adminhub-root .ah-analytics-activity-feed {
+  display: flex;
+  flex-direction: column;
+  padding-top: 3px;
+}
+
+.adminhub-root .ah-analytics-activity-row {
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.adminhub-root .ah-analytics-activity-row:last-child {
+  border-bottom: none;
+}
+
+.adminhub-root .ah-analytics-activity-glyph {
+  width: 31px;
+  height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+}
+
+.adminhub-root .ah-analytics-activity-glyph--sales {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.adminhub-root .ah-analytics-activity-glyph--qc {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.adminhub-root .ah-analytics-activity-glyph--inventory {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.adminhub-root .ah-analytics-activity-glyph--system {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.adminhub-root .ah-analytics-activity-row > div {
+  min-width: 0;
+}
+
+.adminhub-root .ah-analytics-activity-row strong {
+  display: block;
+  overflow: hidden;
+  color: #344054;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-activity-row p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: #98a2b3;
+  font-size: 9.5px;
+  font-weight: 550;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-activity-row time {
+  color: #98a2b3;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-empty {
+  min-height: 190px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #c1c8d2;
+  text-align: center;
+}
+
+.adminhub-root .ah-analytics-empty strong {
+  margin-top: 10px;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.adminhub-root .ah-analytics-empty span {
+  max-width: 290px;
+  margin-top: 4px;
+  color: #98a2b3;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.adminhub-root .ah-analytics-table-card {
+  padding: 0;
+}
+
+.adminhub-root .ah-analytics-table-card > .ah-analytics-card-head {
+  margin: 0 17px;
+  padding-top: 17px;
+}
+
+.adminhub-root .ah-analytics-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.adminhub-root .ah-analytics-table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.adminhub-root .ah-analytics-table caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.adminhub-root .ah-analytics-table th {
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid #e7ebf1;
+  background: #f8fafc;
+  color: #667085;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.adminhub-root .ah-analytics-table th:nth-child(1) { width: 118px; }
+.adminhub-root .ah-analytics-table th:nth-child(2) { width: 200px; }
+.adminhub-root .ah-analytics-table th:nth-child(3) { width: 170px; }
+.adminhub-root .ah-analytics-table th:nth-child(4) { width: 135px; }
+.adminhub-root .ah-analytics-table th:nth-child(5) { width: 105px; }
+.adminhub-root .ah-analytics-table th:nth-child(6) { width: 92px; }
+.adminhub-root .ah-analytics-table th:nth-child(7) { width: 110px; }
+.adminhub-root .ah-analytics-table th:nth-child(8) { width: 110px; }
+
+.adminhub-root .ah-analytics-table td {
+  height: 58px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #eef1f5;
+  color: #475467;
+  font-size: 10.5px;
+  vertical-align: middle;
+}
+
+.adminhub-root .ah-analytics-table tbody tr {
+  transition: background 140ms ease;
+}
+
+.adminhub-root .ah-analytics-table tbody tr:hover {
+  background: #fafcff;
+}
+
+.adminhub-root .ah-analytics-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.adminhub-root .ah-analytics-reference {
+  color: #475467;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9.5px;
+  font-weight: 650;
+}
+
+.adminhub-root .ah-analytics-customer-cell {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.adminhub-root .ah-analytics-customer-cell > span {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.adminhub-root .ah-analytics-customer-cell > div {
+  min-width: 0;
+}
+
+.adminhub-root .ah-analytics-customer-cell strong,
+.adminhub-root .ah-analytics-schedule-cell strong {
+  display: block;
+  overflow: hidden;
+  color: #344054;
+  font-size: 10.5px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-customer-cell small,
+.adminhub-root .ah-analytics-schedule-cell small {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: #98a2b3;
+  font-size: 9px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-service-cell {
+  display: block;
+  overflow: hidden;
+  color: #475467;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-amount {
+  color: #172033;
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 8.5px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.adminhub-root .ah-analytics-status--paid,
+.adminhub-root .ah-analytics-status--complete {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.adminhub-root .ah-analytics-status--pending {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.adminhub-root .ah-analytics-status--failed,
+.adminhub-root .ah-analytics-status--cancelled {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.adminhub-root .ah-analytics-status--refunded {
+  border-color: #ddd6fe;
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+.adminhub-root .ah-analytics-status--qc {
+  border-color: #ddd6fe;
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+.adminhub-root .ah-analytics-status--active {
+  border-color: #a5f3fc;
+  background: #ecfeff;
+  color: #0e7490;
+}
+
+.adminhub-root .ah-analytics-status--confirmed {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.adminhub-root .ah-analytics-update-cell {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #98a2b3;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+/* Dark mode keeps the same hierarchy without changing dashboard behavior. */
+.adminhub-root.adminhub--dark .ah-analytics-dashboard {
+  --ah-analytics-ink: #f3f5f7;
+  --ah-analytics-muted: #aeb6c2;
+  --ah-analytics-soft: #7f8998;
+  --ah-analytics-line: #2b3038;
+  --ah-analytics-panel: #171a20;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-eyebrow,
+.adminhub-root.adminhub--dark .ah-analytics-card-heading p,
+.adminhub-root.adminhub--dark .ah-analytics-kpi-label p,
+.adminhub-root.adminhub--dark .ah-analytics-kpi-detail,
+.adminhub-root.adminhub--dark .ah-analytics-chart-legend,
+.adminhub-root.adminhub--dark .ah-analytics-service-legend > div,
+.adminhub-root.adminhub--dark .ah-analytics-activity-row p,
+.adminhub-root.adminhub--dark .ah-analytics-activity-row time,
+.adminhub-root.adminhub--dark .ah-analytics-customer-cell small,
+.adminhub-root.adminhub--dark .ah-analytics-schedule-cell small,
+.adminhub-root.adminhub--dark .ah-analytics-update-cell {
+  color: #8f99a7;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-kpi-card,
+.adminhub-root.adminhub--dark .ah-analytics-card {
+  border-color: #2b3038;
+  background: #171a20;
+  box-shadow: none;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-kpi-card::after {
+  opacity: 0.55;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-kpi-label > span {
+  background: color-mix(in srgb, var(--ah-analytics-accent) 18%, #171a20);
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-kpi-value,
+.adminhub-root.adminhub--dark .ah-analytics-card-heading h2,
+.adminhub-root.adminhub--dark .ah-analytics-inline-stats b,
+.adminhub-root.adminhub--dark .ah-analytics-card-total,
+.adminhub-root.adminhub--dark .ah-analytics-donut-center strong,
+.adminhub-root.adminhub--dark .ah-analytics-service-legend strong,
+.adminhub-root.adminhub--dark .ah-analytics-service-main strong,
+.adminhub-root.adminhub--dark .ah-analytics-service-main > b,
+.adminhub-root.adminhub--dark .ah-analytics-pipeline-list strong,
+.adminhub-root.adminhub--dark .ah-analytics-inventory-copy strong,
+.adminhub-root.adminhub--dark .ah-analytics-inventory-value b,
+.adminhub-root.adminhub--dark .ah-analytics-activity-row strong,
+.adminhub-root.adminhub--dark .ah-analytics-customer-cell strong,
+.adminhub-root.adminhub--dark .ah-analytics-schedule-cell strong,
+.adminhub-root.adminhub--dark .ah-analytics-amount {
+  color: #f3f5f7;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-card-head,
+.adminhub-root.adminhub--dark .ah-analytics-top-service,
+.adminhub-root.adminhub--dark .ah-analytics-inventory-item,
+.adminhub-root.adminhub--dark .ah-analytics-activity-row {
+  border-color: #252a31;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-card-icon,
+.adminhub-root.adminhub--dark .ah-analytics-card-total {
+  border-color: #2b3038;
+  background: #1d2027;
+  color: #d8dee7;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-progress,
+.adminhub-root.adminhub--dark .ah-analytics-pipeline-stack {
+  background: #252a31;
+  box-shadow: inset 0 0 0 1px #2b3038;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-pipeline-stack span + span {
+  border-left-color: #171a20;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-tooltip {
+  border-color: #303640;
+  background: rgba(23, 26, 32, 0.98);
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-tooltip > strong,
+.adminhub-root.adminhub--dark .ah-analytics-tooltip b {
+  color: #f3f5f7;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-tooltip > div {
+  color: #aeb6c2;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-empty strong {
+  color: #d8dee7;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-empty span {
+  color: #7f8998;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-table th {
+  border-color: #2b3038;
+  background: #1d2027;
+  color: #8f99a7;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-table td {
+  border-color: #252a31;
+  color: #c8d0dc;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-table tbody tr:hover {
+  background: rgba(96, 165, 250, 0.06);
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-reference,
+.adminhub-root.adminhub--dark .ah-analytics-service-cell {
+  color: #c8d0dc;
+}
+
+.adminhub-root.adminhub--dark .ah-analytics-customer-cell > span {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
+.adminhub-root.adminhub--dark .recharts-cartesian-axis-tick-value {
+  fill: #8f99a7;
+}
+
+.adminhub-root.adminhub--dark .recharts-cartesian-grid line {
+  stroke: #2b3038;
+}
+
+@media (max-width: 1320px) {
+  .adminhub-root .ah-analytics-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .adminhub-root .ah-analytics-secondary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .adminhub-root .ah-analytics-secondary-grid > article:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 1040px) {
+  .adminhub-root .ah-analytics-primary-grid,
+  .adminhub-root .ah-analytics-support-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .adminhub-root .ah-analytics-secondary-grid > article:last-child {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 820px) {
+  .adminhub-root .ah-analytics-kpi-grid,
+  .adminhub-root .ah-analytics-secondary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .adminhub-root .ah-analytics-card-head {
+    flex-wrap: wrap;
+  }
+
+  .adminhub-root .ah-analytics-inline-stats {
+    width: 100%;
+    padding-left: 42px;
+  }
+}
+
+@media (max-width: 620px) {
+  .adminhub-root .ah-analytics-kpi-grid,
+  .adminhub-root .ah-analytics-secondary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .adminhub-root .ah-analytics-kpi-card {
+    grid-template-columns: minmax(0, 1fr) 120px;
+  }
+
+  .adminhub-root .ah-analytics-snapshot {
+    width: 100%;
+    justify-content: flex-start;
+    padding-left: 0;
+  }
+
+  .adminhub-root .ah-analytics-inline-stats {
+    padding-left: 0;
+  }
+
+  .adminhub-root .ah-analytics-service-legend {
+    grid-template-columns: 1fr;
+  }
+
+  .adminhub-root .ah-analytics-card {
+    padding: 15px;
+  }
+
+  .adminhub-root .ah-analytics-table-card {
+    padding: 0;
+  }
+
+  .adminhub-root .ah-analytics-table-card > .ah-analytics-card-head {
+    margin: 0 15px;
+    padding-top: 15px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adminhub-root .ah-analytics-dashboard *,
+  .adminhub-root .ah-analytics-dashboard *::before,
+  .adminhub-root .ah-analytics-dashboard *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

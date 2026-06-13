@@ -2229,6 +2229,8 @@ export default function AdminDashboard() {
                     suppliers={suppliers}
                     services={services}
                     bookings={bookings}
+                    payments={payments}
+                    activityLogs={activityLogs}
                     settings={settings}
                     setSettings={setSettings}
                     onLoadData={loadData}

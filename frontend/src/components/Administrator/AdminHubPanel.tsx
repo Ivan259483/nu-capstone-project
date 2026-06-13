@@ -48,6 +48,8 @@ interface Props {
   suppliers?: any[];
   services?: any[];
   bookings?: any[];
+  payments?: any[];
+  activityLogs?: any[];
   settings?: any;
   setSettings?: (s: any) => void;
   onLoadData?: () => void;
@@ -219,7 +221,8 @@ function flattenNavPages(tree: NavEntry[]): Array<{ id: string; label: string; i
 
 function AdminHubPanelInner({
   currentUser, onClose,
-  inventory = [], suppliers = [], services = [], bookings = [], settings, setSettings,
+  inventory = [], suppliers = [], services = [], bookings = [], payments = [],
+  activityLogs: parentActivityLogs = [], settings, setSettings,
   onLoadData, onAddSupplier, onEditSupplier, onOrderSupplier,
   onSaveSettings, onExportData, onBackupDB, onClearCache, onResetSystem,
   fullMode = false,
@@ -264,6 +267,14 @@ function AdminHubPanelInner({
   currentUserRef.current = currentUser;
   const stableUserId = String(currentUser?._id || currentUser?.id || '');
   const activityLogsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!Array.isArray(parentActivityLogs)) return;
+    setActivityLogs(parentActivityLogs);
+    if (parentActivityLogs.length > 0) {
+      activityLogsLoadedRef.current = true;
+    }
+  }, [parentActivityLogs]);
 
   const rawProfileName = currentUser?.name?.trim() ?? '';
   /** Avoid showing the generic login "admin" — use proper role title in the header */
@@ -770,6 +781,9 @@ function AdminHubPanelInner({
                 users={users}
                 activityLogs={activityLogs}
                 bookings={safeBookings}
+                services={services}
+                inventory={inventory}
+                payments={payments}
                 loading={blockingHubLoad}
                 chartsVisible={activePage === 'dashboard'}
                 onRefreshOverview={onLoadData}
